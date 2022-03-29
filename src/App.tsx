@@ -1,6 +1,6 @@
 import React from 'react'
 import { useInvoke } from './hooks/swr'
-import './App.css'
+import './App.scss'
 
 const App = () => {
   const defaultArgs = { delta: 1 }
