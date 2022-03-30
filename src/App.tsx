@@ -3,19 +3,32 @@ import { useInvoke } from './hooks/swr'
 import './App.scss'
 
 const App = () => {
-  const defaultArgs = { delta: 1 }
+  const counter_args = { delta: 1 }
+  const play_args = { delta: 1 }
 
-  const { data: counter, update: togglePlay } = useInvoke(
-    defaultArgs,
+  const { data: counter, update: increment } = useInvoke(
+    counter_args,
     'get_counter',
-    'play_sound'
+    'increment_counter'
+  )
+
+  const { data: is_playing, update: toggle_play } = useInvoke(
+    play_args,
+    'get_counter',
+    'toggle_play_sound'
   )
   
   return (
     <div className="App">
       times played: {counter}
       <br />
-      <button onClick={togglePlay}>
+      <button onClick={increment}>
+        Try counter
+      </button> 
+      <br />
+      is playing: {is_playing}
+      <br />
+      <button onClick={toggle_play}>
         Play
       </button> 
     </div>
