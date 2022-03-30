@@ -14,16 +14,16 @@
     "node-sass": "^7.0.1",
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
-    "react-scripts": "5.0.0",
     "swr": "^1.2.2",
     "typescript": "^4.6.3",
+    "vite": "^2.8.6",
     "web-vitals": "^2.1.4"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject",
+    "start": "vite start",
+    "build": "vite build",
+    "test": "vite test",
+    "eject": "vite eject",
     "dev": "yarn tauri dev"
   },
   "eslintConfig": {
