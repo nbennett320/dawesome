@@ -1,6 +1,5 @@
 import React from 'react'
 import { useInvoke } from './hooks/swr'
-import './App.scss'
 
 const App = () => {
   const counter_args = { delta: 1 }
@@ -17,20 +16,20 @@ const App = () => {
     'get_counter',
     'toggle_play_sound'
   )
-  
+
   return (
-    <div className="App">
+    <div className="grid place-content-center p-3">
       times played: {counter}
       <br />
-      <button onClick={increment}>
+      <button className="bg-indigo-700 text-white p-3 rounded-sm" onClick={increment}>
         Try counter
-      </button> 
+      </button>
       <br />
       is playing: {is_playing}
       <br />
-      <button onClick={toggle_play}>
+      <button className="bg-violet-700 text-white p-3 rounded-sm" onClick={toggle_play}>
         Play
-      </button> 
+      </button>
     </div>
   )
 }
