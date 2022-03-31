@@ -4,10 +4,10 @@
     "version": "0.1.0"
   },
   "build": {
-    "distDir": "../build",
+    "distDir": "../ui/build",
     "devPath": "http://localhost:3000",
-    "beforeDevCommand": "pnpm ui:start",
-    "beforeBuildCommand": "pnpm ui:build"
+    "beforeDevCommand": "cd ui && pnpm start",
+    "beforeBuildCommand": "cd ui && pnpm build"
   },
   "tauri": {
     "bundle": {

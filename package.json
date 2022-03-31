@@ -1,30 +1,14 @@
 {
-  "name": "@dawsome/ui",
+  "name": "dawsome",
   "version": "0.1.0",
   "private": true,
   "dependencies": {
     "@tauri-apps/api": "^1.0.0-rc.3",
-    "@testing-library/jest-dom": "^5.16.3",
-    "@testing-library/react": "^12.1.4",
-    "@testing-library/user-event": "^13.5.0",
-    "@types/jest": "^27.4.1",
     "@types/node": "^16.11.26",
-    "@types/react": "^17.0.43",
-    "@types/react-dom": "^17.0.14",
-    "node-sass": "^7.0.1",
-    "react": "^18.0.0",
-    "react-dom": "^18.0.0",
-    "react-scripts": "5.0.0",
-    "swr": "^1.2.2",
-    "typescript": "^4.6.3",
-    "web-vitals": "^2.1.4"
+    "typescript": "^4.6.3"
   },
   "scripts": {
     "preinstall": "npx only-allow pnpm",
-    "ui:start": "react-scripts start",
-    "ui:build": "react-scripts build",
-    "ui:eject": "react-scripts eject",
-    "ui:test": "react-scripts test",
     "info": "tauri info",
     "build": "tauri build",
     "dev": "tauri dev"
@@ -35,19 +19,8 @@
       "react-app/jest"
     ]
   },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
-  },
   "devDependencies": {
-    "@tauri-apps/cli": "^1.0.0-rc.8"
+    "@tauri-apps/cli": "^1.0.0-rc.8",
+    "turbo": "^1.1.10"
   }
 }

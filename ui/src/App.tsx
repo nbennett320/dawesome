@@ -17,20 +17,20 @@ const App = () => {
     'get_counter',
     'toggle_play_sound'
   )
-  
+
   return (
     <div className="App">
       times played: {counter}
       <br />
       <button onClick={increment}>
         Try counter
-      </button> 
+      </button>
       <br />
       is playing: {is_playing}
       <br />
       <button onClick={toggle_play}>
         Play
-      </button> 
+      </button>
     </div>
   )
 }
