@@ -38,7 +38,7 @@ export const useInvoke = <TArgs extends Record<string, any>, TResult>(
   console.log(data)
 
   return {
-    data: data?.data,
+    data: data,
     fetching: !data,
     error,
     update,
