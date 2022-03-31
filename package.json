@@ -1,5 +1,5 @@
 {
-  "name": "ui",
+  "name": "@dawsome/ui",
   "version": "0.1.0",
   "private": true,
   "dependencies": {
@@ -20,11 +20,14 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject",
-    "dev": "yarn tauri dev"
+    "preinstall": "npx only-allow pnpm",
+    "ui:start": "react-scripts start",
+    "ui:build": "react-scripts build",
+    "ui:eject": "react-scripts eject",
+    "ui:test": "react-scripts test",
+    "info": "tauri info",
+    "build": "tauri build",
+    "dev": "tauri dev"
   },
   "eslintConfig": {
     "extends": [
