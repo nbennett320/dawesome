@@ -20,6 +20,7 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
+    "preinstall": "npx only-allow pnpm",
     "ui:start": "react-scripts start",
     "ui:build": "react-scripts build",
     "ui:eject": "react-scripts eject",
