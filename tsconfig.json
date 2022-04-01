@@ -18,5 +18,5 @@
     "jsx": "react-jsx",
     "baseUrl": "src"
   },
-  "include": ["src", "setupTests.ts"]
+  "include": ["src"]
 }
