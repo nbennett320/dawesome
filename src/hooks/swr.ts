@@ -35,7 +35,6 @@ export const useInvoke = <TArgs extends Record<string, any>, TResult>(
     },
     [args, mutate, setCommand]
   )
-  console.log(data)
 
   return {
     data: data,

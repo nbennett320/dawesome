@@ -1,20 +1,21 @@
 use rodio::{Decoder, OutputStream, Sink};
 use std::fs::File;
 use std::io::BufReader;
-use std::time;
-use futures;
 use std::sync::atomic;
 use std::sync;
 use std::thread;
+use std::time;
+use futures;
+use chrono;
 use tauri;
 
 mod timer;
 mod threadpool;
 
-// #[derive(Copy, Clone)]
 struct InnerState {
   global_tempo_bpm: atomic::AtomicU32,
   playlist_is_playing: atomic::AtomicBool,
+  playlist_started_time: atomic::AtomicI64,
   metronome_enabled: atomic::AtomicBool,
 }
 
@@ -23,6 +24,7 @@ impl InnerState {
     InnerState {
       playlist_is_playing: atomic::AtomicBool::from(false),
       global_tempo_bpm: atomic::AtomicU32::from(60),
+      playlist_started_time: atomic::AtomicI64::from(0),
       metronome_enabled: atomic::AtomicBool::from(true),
     }
   }
@@ -66,16 +68,21 @@ fn run_metronome(state_ref: &sync::Arc<InnerState>, tempo: u32) {
 
 #[tauri::command]
 fn toggle_playlist(state: tauri::State<'_, sync::Arc<InnerState>>) {
-  // let state = state.as_ref();
   if state.playlist_is_playing.load(atomic::Ordering::SeqCst) {
     println!("pausing playlist");
     state.playlist_is_playing.store(false, atomic::Ordering::SeqCst);
   } else {
     // start playlist 
-    state.playlist_is_playing.store(true, atomic::Ordering::SeqCst);
     println!("playing playlist");
-    let tempo = state.global_tempo_bpm.load(atomic::Ordering::SeqCst);
+    state.playlist_is_playing.store(true, atomic::Ordering::SeqCst);
    
+    // set playlist start time 
+    let now = chrono::offset::Utc::now();
+    let timestamp = now.naive_utc().timestamp();
+    state.playlist_started_time.store(timestamp, atomic::Ordering::SeqCst);
+   
+    let tempo = state.global_tempo_bpm.load(atomic::Ordering::SeqCst);
+    
     // toggle metronome if enabled 
     if state.metronome_enabled.load(atomic::Ordering::SeqCst) {
       let state_ref = state.inner();
@@ -85,9 +92,16 @@ fn toggle_playlist(state: tauri::State<'_, sync::Arc<InnerState>>) {
 }
 
 #[tauri::command]
-fn get_paused(state: tauri::State<'_, sync::Arc<InnerState>>) -> Result<bool, String> {
+fn get_playlist_playing(state: tauri::State<'_, sync::Arc<InnerState>>) -> Result<bool, String> {
   Ok(
     state.playlist_is_playing.load(atomic::Ordering::SeqCst)
+  )
+}
+
+#[tauri::command]
+fn get_playlist_start_time(state: tauri::State<'_, sync::Arc<InnerState>>) -> Result<i64, String> {
+  Ok(
+    state.playlist_started_time.load(atomic::Ordering::SeqCst)
   )
 }
 
@@ -95,8 +109,9 @@ fn main() {
   tauri::Builder::default()
     .manage(sync::Arc::new(InnerState::new()))
     .invoke_handler(tauri::generate_handler![
-      get_paused,
+      get_playlist_playing,
       toggle_playlist,
+      get_playlist_start_time
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
