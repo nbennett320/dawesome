@@ -6,7 +6,7 @@ const App = () => {
   const { data: playing, update: togglePlay } = useInvoke(
     {},
     'get_paused',
-    'toggle_play'
+    'toggle_playlist'
   )
 
   return (
