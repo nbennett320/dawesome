@@ -1,46 +1,37 @@
-import React from 'react'
-import useSwr from 'swr'
-import { invoke } from '@tauri-apps/api'
+import React from 'react';
+import useSwr from 'swr';
+import { invoke } from '@tauri-apps/api';
 
-interface TResult extends Record<string, any> {
-  data?: Record<string, any>
+interface TResult extends Record<string, unknown> {
+  data?: Record<string, unknown>;
 }
 
 interface Response {
-  data: TResult | undefined,
-  fetching: boolean,
-  error: any,
-  update: (d: any) => Promise<void>
+  data: TResult | undefined;
+  fetching: boolean;
+  error: unknown;
+  update: (d: unknown) => Promise<void>;
 }
 
-const invokeFetcher = async <TArgs extends Record<string, any>, TResult>(
-  command: string,
-  args: TArgs
-): Promise<TResult> => invoke<TResult>(command, args)
+const invokeFetcher = async <TArgs extends Record<string, unknown>>(command: string, args: TArgs): Promise<TResult> =>
+  invoke<TResult>(command, args);
 
-export const useInvoke = <TArgs extends Record<string, any>, TResult>(
+export const useInvoke = <TArgs extends Record<string, unknown>>(
   args: TArgs,
   getCommand: string,
-  setCommand: string
+  setCommand: string,
 ): Response => {
-  const { data, error, mutate } = useSwr<Record<string, any>>(
-    [getCommand, args],
-    invokeFetcher
-  )
+  const { data, error, mutate } = useSwr<Record<string, unknown>>([getCommand, args], invokeFetcher);
 
-  const update = React.useCallback(
-    async (newData: TResult) => {
-      await invoke(setCommand, { ...args })
-      mutate()
-    },
-    [args, mutate, setCommand]
-  )
-  console.log(data)
+  const update = React.useCallback(async () => {
+    await invoke(setCommand, { ...args });
+    mutate();
+  }, [args, mutate, setCommand]);
 
   return {
-    data: data?.data,
+    data: data?.data as TResult | undefined,
     fetching: !data,
     error,
     update,
-  }
-}
+  };
+};
