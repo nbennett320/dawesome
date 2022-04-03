@@ -1,44 +1,92 @@
-use std::sync::mpsc;
 use std::sync;
 use std::thread;
 use std::time;
+use std::task;
+use std::future;
+use std::pin;
+
+struct TimerBaseState {
+  timed_out: bool,
+  already_polled: bool,
+}
 
 struct TimerBase {
-  handle: Option<thread::JoinHandle<()>>
+  delay: time::Duration,
+  handle: Option<thread::JoinHandle<()>>,
+  state: sync::Arc<sync::Mutex<TimerBaseState>>
 }
 
 impl TimerBase {
-  fn new() -> Self {
+  fn new(delay: time::Duration) -> Self {
     TimerBase {
-      handle: None
+      delay: delay,
+      handle: None,
+      state: sync::Arc::new(
+        sync::Mutex::new(
+          TimerBaseState {
+            timed_out: false,
+            already_polled: false,
+          }
+        )
+      )
     }
   }
 
-  fn timeout<F>(mut self, f: F, delay: time::Duration)
-  where F: Fn() -> () + Send + Sync + 'static {
-    let (tx, rx) = mpsc::channel();
-    let f = sync::Arc::new(f);
+  fn spawn_timer_thread(
+    &self, 
+    context: &mut task::Context<'_>, 
+  ) {
+    let delay = self.delay;
+    let state = sync::Arc::clone(&self.state);
+    let waker_handle = context.waker().clone();
 
-    self.handle = Some(
-      thread::spawn(move || {
-        thread::sleep(delay);
-        tx.send(f()).unwrap();
-      })
-    );
+    thread::spawn(move || {
+      thread::sleep(delay);
+      let mut state_handle = state.lock().expect("Can't lock the state in timer thread");
+      (*state_handle).timed_out = true;
+      waker_handle.wake();
+    });
+  }
+}
 
-    rx.recv().unwrap();
+impl future::Future for TimerBase {
+  type Output = ();
+
+  fn poll(
+    self: pin::Pin<&mut Self>, 
+    context: &mut task::Context<'_>
+  ) -> task::Poll<Self::Output> {
+    let mut state = self.state.lock().expect("Can't lock timer state");
+
+    if state.timed_out {
+      task::Poll::Ready(())
+    } else if state.already_polled {
+      task::Poll::Pending
+    } else {
+      (*state).already_polled = true;
+      self.spawn_timer_thread(context);
+      task::Poll::Pending
+    }
+  }
+}
+
+fn spawn_timeout(delay: time::Duration) -> impl future::Future {
+  TimerBase::new(delay)
+}
+
+pub struct Timer {}
+
+impl Timer {
+  pub fn new() -> Self {
+    Timer {
+    }
   }
 
-  // fn interval<F>(f: F, delay: time::Duration)
-  // where F: Fn() -> () + Send + Sync + 'static {
-  //   let (tx, rx) = mpsc::channel();
-  //   let f = sync::Arc::new(f);
-
-  //   thread::spawn(move || {
-  //     thread::sleep(delay);
-  //     tx.send(f()).unwrap();
-  //   });
-
-  //   rx.recv().unwrap();
-  // }
+  pub fn timeout(
+    &self,
+    delay: time::Duration
+  ) -> impl future::Future {
+    let timer = spawn_timeout(delay);
+    timer
+  }
 }

@@ -80,6 +80,7 @@ name = "app"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "futures",
  "rodio",
  "serde",
  "serde_json",
