@@ -19,7 +19,7 @@ const App = () => {
           const res = (Date.now().valueOf()) - (data as number * 1000)
           setRuntime(res)
         })
-      }, 100)
+      }, 1000)
     } else {
       clearInterval(timer.current)
     }
@@ -30,8 +30,8 @@ const App = () => {
       <button onClick={togglePlay}>
         {playing ? <>Pause</> : <>Play</> }
       </button> 
-      {playing && <div style={{ display: 'flex', flexDirection: 'column' }}>
-        Playlist runtime: <span>{runtime}</span>
+      {playing && <div style={{ display: 'flex', flexDirection: 'column', width: '200px', marginLeft: 'auto', marginRight: 'auto'}}>
+        <span>Playlist runtime:</span> <span style={{ display: 'flex',flexDirection: 'row' }}><span style={{ width: '100px',left: '0' }}>{runtime}</span> <span style={{ left: '100%' }}>ms</span></span>
       </div>}
     </div>
   )
