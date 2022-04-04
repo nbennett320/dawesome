@@ -34,5 +34,6 @@ module.exports = {
     ],
     '@typescript-eslint/naming-convention': 'off',
     'import/prefer-default-export': 'off',
+    'react/function-component-definition': 'off',
   },
-};
+}

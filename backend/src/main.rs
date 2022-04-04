@@ -1,154 +1,72 @@
-use std::sync::atomic::{AtomicI32, AtomicPtr, AtomicBool, Ordering};
-use std::boxed::Box;
-use std::sync::mpsc;
-// use std::sync::Mutex;
-use tauri::State;
-// use tauri::async_runtime::RwLock;
-use std::fs::File;
-use std::io::BufReader;
-// use std::collections::HashMap;
-// use std::vec::Vec;
-use rodio::{Decoder, OutputStream, Sink};
-// use rodio::source::{Source};
+use std::sync::atomic;
+use std::sync;
+use chrono;
+use tauri;
 
-// mod state;
-// mod sound;
-
-struct InnerState {
-  counter: AtomicI32,
-  sound_threads: AtomicPtr<Result<Sink, mpsc::RecvError>>,
-  is_playing: AtomicBool
-}
-
-// fn init_sink (
-//   state: State<InnerState>, 
-//   delta: i32
-// ) -> Result<CounterResponse, String> {
-
-//   if !state.is_playing.load(Ordering::SeqCst) {
-
-//   let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-//   let sink = Sink::try_new(&stream_handle).unwrap();
-//   // let sink_ptr: Box<Sink> = Box::new(sink);
-  
-//   let file = BufReader::new(File::open("assets/test.mp3").unwrap());
-//   let source = Decoder::new(file).unwrap();
-//   sink.append(source);
-
-//   state.sound_threads.store(&mut sink, Ordering::SeqCst);
-
-//   Ok(
-//     CounterResponse {
-//       data: 0
-//     }
-//   )
-      
-// }
+mod daw;
 
 #[tauri::command]
-fn toggle_play_sound (
-  state: State<InnerState>, 
-  delta: i32
-) -> Result<CounterResponse, String> {
-
-  
-  if !state.is_playing.load(Ordering::SeqCst) {
-    let (tx, rx) = mpsc::channel();
-    
-    // create thread for sound handle
-    std::thread::spawn(move || {
-      println!("playing sound");
-      let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-      let sink = Sink::try_new(&stream_handle).unwrap();
-      // let sink_ptr: Box<Sink> = Box::new(sink);
-      
-      // read sound and attach it to a sink
-      println!("reading sound file");
-      let file = BufReader::new(File::open("assets/test.mp3").unwrap());
-      let source = Decoder::new(file).unwrap();
-      sink.append(source);
-      
-      // toggle play/pause
-      sink.play();
-      // state.is_playing.store(true, Ordering::SeqCst);
-      println!("is paused: {}", sink.is_paused());
-      if sink.is_paused() {
-        sink.play();
-      } else {
-        // sink.pause();
-      }
-
-      // add handle to state
-      // state.sound_handles.store(sink_ptr.as_mut(), Ordering::SeqCst);
-
-      // stream_handle.play_raw(source.convert_samples());
-      sink.sleep_until_end();
-      tx.send(sink).unwrap();
-    });
-
-    let mut recieved_sink = rx.recv();
-    // recieved_sink.pause();
-    state.is_playing.store(true, Ordering::SeqCst);
-    state.sound_threads.store(&mut recieved_sink, Ordering::SeqCst);
-    println!("playing: {}", state.is_playing.load(Ordering::SeqCst));
+fn toggle_playlist(state: tauri::State<'_, sync::Arc<daw::InnerState>>) {
+  if state.playlist_is_playing.load(atomic::Ordering::SeqCst) {
+    println!("pausing playlist");
+    state.playlist_is_playing.store(false, atomic::Ordering::SeqCst);
   } else {
-    println!("not playing: {}", state.is_playing.load(Ordering::SeqCst));
+    // start playlist 
+    println!("playing playlist");
+    state.playlist_is_playing.store(true, atomic::Ordering::SeqCst);
+   
+    // set playlist start time 
+    let now = chrono::offset::Utc::now();
+    let timestamp = now.naive_utc().timestamp();
+    state.playlist_started_time.store(timestamp, atomic::Ordering::SeqCst);
+   
+    // toggle metronome if enabled 
+    if state.metronome_enabled.load(atomic::Ordering::SeqCst) {
+      let state_ref = state.inner();
+      daw::run_metronome(state_ref);
+    }
   }
-
-  // state.sound_threads.store(&mut sink_thread, Ordering::SeqCst);
-  //std::thread::sleep(std::time::Duration::from_secs(5));
-  Ok(
-    CounterResponse {
-      data: 0,
-    }
-  )
-}
-
-#[derive(serde::Serialize)]
-struct CounterResponse {
-  data: i32
 }
 
 #[tauri::command]
-fn increment_counter (
-  state: State<'_, InnerState>, 
-  delta: i32
-) -> Result<CounterResponse, String> {
-  println!("incrementing counter by {}", delta);
-
+fn get_playlist_playing(state: tauri::State<'_, sync::Arc<daw::InnerState>>) -> Result<bool, String> {
   Ok(
-    CounterResponse {
-      data: state.counter.fetch_add(delta, Ordering::SeqCst) + delta,
-    }
+    state.playlist_is_playing.load(atomic::Ordering::SeqCst)
   )
-  // Ok(state.fetch_add(delta, Ordering::SeqCst) + delta)
 }
 
 #[tauri::command]
-fn get_counter (
-  state: State<'_, InnerState>, 
-) -> Result<CounterResponse, String> {
-
-  println!("Getting counter value: {}", state.counter.load(Ordering::SeqCst));
-
+fn get_playlist_start_time(state: tauri::State<'_, sync::Arc<daw::InnerState>>) -> Result<i64, String> {
   Ok(
-    CounterResponse {
-      data: state.counter.load(Ordering::SeqCst)
-    }
+    state.playlist_started_time.load(atomic::Ordering::SeqCst)
   )
+}
+
+#[tauri::command]
+fn get_playlist_tempo(state: tauri::State<'_, sync::Arc<daw::InnerState>>) -> Result<f32, String> {
+  Ok(
+    *state.global_tempo_bpm.lock().unwrap()
+  )
+}
+
+#[tauri::command]
+fn set_playlist_tempo(
+  state: tauri::State<'_, sync::Arc<daw::InnerState>>,
+  val: f32
+) {
+  println!("playlist tempo updated: {}", val);
+  *state.global_tempo_bpm.lock().unwrap() = val;
 }
 
 fn main() {
   tauri::Builder::default()
-    .manage(InnerState {
-      counter: AtomicI32::from(0),
-      sound_threads: AtomicPtr::default(),
-      is_playing: AtomicBool::from(false),
-    })
+    .manage(sync::Arc::new(daw::InnerState::default()))
     .invoke_handler(tauri::generate_handler![
-      increment_counter,
-      get_counter,
-      toggle_play_sound 
+      get_playlist_playing,
+      toggle_playlist,
+      get_playlist_start_time,
+      get_playlist_tempo,
+      set_playlist_tempo
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
