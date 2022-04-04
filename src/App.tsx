@@ -34,6 +34,7 @@ const App = () => {
   }, [playing])
 
   React.useEffect(() => {
+    if(playing) togglePlay({})
     invoke('set_playlist_tempo', { val: tempo as any })
   }, [tempo])
 
