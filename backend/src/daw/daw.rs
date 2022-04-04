@@ -28,7 +28,7 @@ pub fn run_metronome(state_ref: &sync::Arc<state::InnerState>) {
   println!("before spawn");
   let state = state_ref.clone();
   let pool = daw_core::threadpool::ThreadPool::new(4);
-  let tempo = state_ref.global_tempo_bpm;
+  let tempo = *state_ref.global_tempo_bpm.lock().unwrap();
   let tempo_intrv_ms = daw_core::timing::tempo_to_intrv_ms(tempo);
 
 

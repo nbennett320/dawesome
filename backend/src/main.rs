@@ -42,13 +42,31 @@ fn get_playlist_start_time(state: tauri::State<'_, sync::Arc<daw::InnerState>>) 
   )
 }
 
+#[tauri::command]
+fn get_playlist_tempo(state: tauri::State<'_, sync::Arc<daw::InnerState>>) -> Result<f32, String> {
+  Ok(
+    *state.global_tempo_bpm.lock().unwrap()
+  )
+}
+
+#[tauri::command]
+fn set_playlist_tempo(
+  state: tauri::State<'_, sync::Arc<daw::InnerState>>,
+  val: f32
+) {
+  println!("playlist tempo updated: {}", val);
+  *state.global_tempo_bpm.lock().unwrap() = val;
+}
+
 fn main() {
   tauri::Builder::default()
     .manage(sync::Arc::new(daw::InnerState::default()))
     .invoke_handler(tauri::generate_handler![
       get_playlist_playing,
       toggle_playlist,
-      get_playlist_start_time
+      get_playlist_start_time,
+      get_playlist_tempo,
+      set_playlist_tempo
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
