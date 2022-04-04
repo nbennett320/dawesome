@@ -15,6 +15,8 @@ You will also see any lint errors in the console.
 
 See the section about [development](https://tauri.studio/docs/api/cli#dev) for more information.
 
+To run the frontend separately from the backend, use `pnpm ui:start`.
+
 ### `pnpm build`
 
 Builds the app for production to the `build` folder.\

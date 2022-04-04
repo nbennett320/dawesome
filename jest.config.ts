@@ -23,4 +23,4 @@ export default {
   },
   moduleFileExtensions: ['js', 'jsx', 'ts', 'tsx', 'yaml', 'yml'],
   resetMocks: true,
-};
+}
