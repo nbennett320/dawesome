@@ -1,7 +1,9 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import './global.scss'
+import { Provider } from 'react-redux'
 import App from './App'
+import { store } from './state/store'
 import reportWebVitals from './reportWebVitals'
 
 const container = document.getElementById('root') as Element
@@ -9,7 +11,9 @@ const root = createRoot(container)
 
 root.render(
   <React.StrictMode>
-    <App />
+    <Provider store={store}>
+      <App />
+    </Provider>
   </React.StrictMode>,
 )
 
