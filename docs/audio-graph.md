@@ -1,12 +1,10 @@
-# Audio Engine
+# Audio Graph
 
 This is responsible for processing the correct entities in order of expected flow, essentially a scene graph for audio. Audio sources (synths, samples) can be added as leaf nodes to the graph, then modulated and blended before reaching the main output.
 
 ## Document Model
 
-This mind map includes a directional flow of the levels of hierarchy inside of a Project:
-
-<iframe style="border:none" width="800" height="450" src="https://whimsical.com/embed/HNvThW62PrN9Gp33UfAuRf@2Ux7TurymNHcs4gAfi4M"></iframe>
+[This mind map](https://whimsical.com/project-HNvThW62PrN9Gp33UfAuRf@2Ux7TurymNHcs4gAfi4M) includes a directional flow of the levels of hierarchy inside of a Project.
 
 ### Project
 
