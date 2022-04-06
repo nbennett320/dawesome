@@ -1,6 +1,7 @@
 lockfileVersion: 5.3
 
 specifiers:
+  '@reduxjs/toolkit': ^1.8.1
   '@tauri-apps/api': 1.0.0-rc.3
   '@tauri-apps/cli': 1.0.0-rc.8
   '@testing-library/dom': 8.12.0
@@ -29,6 +30,7 @@ specifiers:
   jest-environment-jsdom: 27.5.1
   jest-resolve: 27.4.2
   jest-watch-typeahead: 1.0.0
+  nanoid: ^3.3.2
   postcss: 8.4.12
   postcss-flexbugs-fixes: 5.0.2
   postcss-normalize: 10.0.1
@@ -36,6 +38,7 @@ specifiers:
   prettier: 2.6.1
   react: 18.0.0
   react-dom: 18.0.0
+  react-redux: ^8.0.0-beta.4
   sass: 1.49.10
   swr: 1.2.2
   tailwindcss: 3.0.23
@@ -47,6 +50,7 @@ specifiers:
   web-vitals: 2.1.4
 
 dependencies:
+  '@reduxjs/toolkit': 1.8.1_a84327381dc70422e28604ca93f21181
   '@tauri-apps/api': 1.0.0-rc.3
   '@tauri-apps/cli': 1.0.0-rc.8
   '@testing-library/dom': 8.12.0
@@ -75,6 +79,7 @@ dependencies:
   jest-environment-jsdom: 27.5.1
   jest-resolve: 27.4.2
   jest-watch-typeahead: 1.0.0_jest@27.4.3
+  nanoid: 3.3.2
   postcss: 8.4.12
   postcss-flexbugs-fixes: 5.0.2_postcss@8.4.12
   postcss-normalize: 10.0.1_821c640c3e4719fa050a16cf659a295b
@@ -82,6 +87,7 @@ dependencies:
   prettier: 2.6.1
   react: 18.0.0
   react-dom: 18.0.0_react@18.0.0
+  react-redux: 8.0.0-beta.4_react-dom@18.0.0+react@18.0.0
   sass: 1.49.10
   swr: 1.2.2_react@18.0.0
   tailwindcss: 3.0.23_b89136460714832cdda11d1e9d57d1ff
@@ -802,6 +808,25 @@ packages:
       fastq: 1.13.0
     dev: false
 
+  /@reduxjs/toolkit/1.8.1_a84327381dc70422e28604ca93f21181:
+    resolution: {integrity: sha512-Q6mzbTpO9nOYRnkwpDlFOAbQnd3g7zj7CtHAZWz5SzE5lcV97Tf8f3SzOO8BoPOMYBFgfZaqTUZqgGu+a0+Fng==}
+    peerDependencies:
+      react: ^16.9.0 || ^17.0.0 || ^18
+      react-redux: ^7.2.1 || ^8.0.0-beta
+    peerDependenciesMeta:
+      react:
+        optional: true
+      react-redux:
+        optional: true
+    dependencies:
+      immer: 9.0.12
+      react: 18.0.0
+      react-redux: 8.0.0-beta.4_react-dom@18.0.0+react@18.0.0
+      redux: 4.1.2
+      redux-thunk: 2.4.1_redux@4.1.2
+      reselect: 4.1.5
+    dev: false
+
   /@rollup/pluginutils/4.2.0:
     resolution: {integrity: sha512-2WUyJNRkyH5p487pGnn4tWAsxhEFKN/pT8CMgHshd5H+IXkOnKvKZwsz5ZWz+YCXkleZRAU5kwbfgF8CPfDRqA==}
     engines: {node: '>= 8.0.0'}
@@ -1162,6 +1187,13 @@ packages:
       '@types/node': 17.0.23
     dev: false
 
+  /@types/hoist-non-react-statics/3.3.1:
+    resolution: {integrity: sha512-iMIqiko6ooLrTh1joXodJK5X9xeEALT1kM5G3ZLhD3hszxBdIEd5C75U834D9mLcINgD4OyZf5uQXjkuYydWvA==}
+    dependencies:
+      '@types/react': 17.0.43
+      hoist-non-react-statics: 3.3.2
+    dev: false
+
   /@types/istanbul-lib-coverage/2.0.4:
     resolution: {integrity: sha512-z/QT1XN4K4KYuslS23k62yDIDLwLFkzxOuMplDtObz0+y7VqJCaO2o+SPwHCvLFZh7xazvvoor2tA/hPz9ee7g==}
     dev: false
@@ -1239,6 +1271,10 @@ packages:
     resolution: {integrity: sha512-oKZe+Mf4ioWlMuzVBaXQ9WDnEm1+umLx0InILg+yvZVBBDmzV5KfZyLrCvadtWcx8+916jLmHafcmqqffl+iIw==}
     dependencies:
       '@types/jest': 27.4.1
+    dev: false
+
+  /@types/use-sync-external-store/0.0.3:
+    resolution: {integrity: sha512-EwmlvuaxPNej9+T4v5AuBPJa2x2UOJVdjCtDHgcDqitUeOtjnJKJ+apYjVcAoBEMjKW1VVFGZLUb5+qqa09XFA==}
     dev: false
 
   /@types/yargs-parser/21.0.0:
@@ -3016,6 +3052,12 @@ packages:
       function-bind: 1.1.1
     dev: false
 
+  /hoist-non-react-statics/3.3.2:
+    resolution: {integrity: sha512-/gGivxi8JPKWNm/W0jSmzcMPpfpPLc3dY/6GxhX2hQ9iGj3aDfklV4ET7NjKpSinLpJ5vafa9iiGIEZg10SfBw==}
+    dependencies:
+      react-is: 16.13.1
+    dev: false
+
   /html-encoding-sniffer/2.0.1:
     resolution: {integrity: sha512-D5JbOMBIR/TVZkubHT+OyT2705QvogUW4IBn6nHd756OwieSF9aDYFj4dv6HHEVGYbHaLETa3WggZYWWMyy3ZQ==}
     engines: {node: '>=10'}
@@ -3068,6 +3110,10 @@ packages:
   /ignore/5.2.0:
     resolution: {integrity: sha512-CmxgYGiEPCLhfLnpPp1MoRmifwEIOgjcHXxOBjv7mY96c+eWScsOP9c112ZyLdWHi0FxHjI+4uVhKYp/gcdRmQ==}
     engines: {node: '>= 4'}
+    dev: false
+
+  /immer/9.0.12:
+    resolution: {integrity: sha512-lk7UNmSbAukB5B6dh9fnh5D0bJTOFKxVg2cyJWTYrWRfhLrLMBquONcUs3aFq507hNoIZEDDh8lb8UtOizSMhA==}
     dev: false
 
   /immutable/4.0.0:
@@ -4790,6 +4836,32 @@ packages:
     resolution: {integrity: sha512-w2GsyukL62IJnlaff/nRegPQR94C/XXamvMWmSHRJ4y7Ts/4ocGRmTHvOs8PSE6pB3dWOrD/nueuU5sduBsQ4w==}
     dev: false
 
+  /react-is/18.0.0:
+    resolution: {integrity: sha512-yUcBYdBBbo3QiPsgYDcfQcIkGZHfxOaoE6HLSnr1sPzMhdyxusbfKOSUbSd/ocGi32dxcj366PsTj+5oggeKKw==}
+    dev: false
+
+  /react-redux/8.0.0-beta.4_react-dom@18.0.0+react@18.0.0:
+    resolution: {integrity: sha512-VT0u1ZFS1UWtra9iiqcIUZkPtp48Qajtye3ffeva58mBiEMttHfaD0MmEiL6e4Vxh6K8e/ftr/WTvRhRTGTALQ==}
+    peerDependencies:
+      react: ^18.0.0
+      react-dom: '*'
+      react-native: '*'
+    peerDependenciesMeta:
+      react-dom:
+        optional: true
+      react-native:
+        optional: true
+    dependencies:
+      '@babel/runtime': 7.17.8
+      '@types/hoist-non-react-statics': 3.3.1
+      '@types/use-sync-external-store': 0.0.3
+      hoist-non-react-statics: 3.3.2
+      react: 18.0.0
+      react-dom: 18.0.0_react@18.0.0
+      react-is: 18.0.0
+      use-sync-external-store: 1.0.0_react@18.0.0
+    dev: false
+
   /react-refresh/0.11.0:
     resolution: {integrity: sha512-F27qZr8uUqwhWZboondsPx8tnC3Ct3SxZA3V5WyEvujRyyNv0VYPhoBg1gZ8/MV5tubQp76Trw8lTv9hzRBa+A==}
     engines: {node: '>=0.10.0'}
@@ -4817,6 +4889,20 @@ packages:
       strip-indent: 3.0.0
     dev: false
 
+  /redux-thunk/2.4.1_redux@4.1.2:
+    resolution: {integrity: sha512-OOYGNY5Jy2TWvTL1KgAlVy6dcx3siPJ1wTq741EPyUKfn6W6nChdICjZwCd0p8AZBs5kWpZlbkXW2nE/zjUa+Q==}
+    peerDependencies:
+      redux: ^4
+    dependencies:
+      redux: 4.1.2
+    dev: false
+
+  /redux/4.1.2:
+    resolution: {integrity: sha512-SH8PglcebESbd/shgf6mii6EIoRM0zrQyjcuQ+ojmfxjTtE0z9Y8pa62iA/OJ58qjP6j27uyW4kUF4jl/jd6sw==}
+    dependencies:
+      '@babel/runtime': 7.17.8
+    dev: false
+
   /regenerator-runtime/0.13.9:
     resolution: {integrity: sha512-p3VT+cOEgxFsRRA9X4lkI1E+k2/CtnKtU4gcxyaCUreilL/vqI6CdZ3wxVUx3UOUg+gnUOQQcRI7BmSI656MYA==}
     dev: false
@@ -4837,6 +4923,10 @@ packages:
   /require-directory/2.1.1:
     resolution: {integrity: sha1-jGStX9MNqxyXbiNE/+f3kqam30I=}
     engines: {node: '>=0.10.0'}
+    dev: false
+
+  /reselect/4.1.5:
+    resolution: {integrity: sha512-uVdlz8J7OO+ASpBYoz1Zypgx0KasCY20H+N8JD13oUMtPvSHQuscrHop4KbXrbsBcdB9Ds7lVK7eRkBIfO43vQ==}
     dev: false
 
   /resolve-cwd/3.0.0:
@@ -5420,6 +5510,14 @@ packages:
     resolution: {integrity: sha512-7rKUyy33Q1yc98pQ1DAmLtwX109F7TIfWlW1Ydo8Wl1ii1SeHieeh0HHfPeL2fMXK6z0s8ecKs9frCuLJvndBg==}
     dependencies:
       punycode: 2.1.1
+    dev: false
+
+  /use-sync-external-store/1.0.0_react@18.0.0:
+    resolution: {integrity: sha512-AFVsxg5GkFg8GDcxnl+Z0lMAz9rE8DGJCc28qnBuQF7lac57B5smLcT37aXpXIIPz75rW4g3eXHPjhHwdGskOw==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0-rc
+    dependencies:
+      react: 18.0.0
     dev: false
 
   /util-deprecate/1.0.2:
