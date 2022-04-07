@@ -9,6 +9,7 @@
     "ui:test": "jest",
     "info": "tauri info",
     "build": "tauri build",
+    "build:assets:link": "ln -s backend/assets/ backend/target/assets",
     "dev": "tauri dev",
     "lint": "eslint . --ignore-path .gitignore && prettier --check .",
     "lint:fix": "eslint . --fix --ignore-path .gitignore && pnpm format",
