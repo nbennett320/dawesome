@@ -1,24 +1,19 @@
 import React from 'react'
 import { 
   selectPlaylistPlaying,
-  PlayPausePlaylistState
-} from '../../state/slices/playPausePlaylistSlice'
-import {
   fetchPlaylistRuntime,
   selectPlaylistRuntime,
-  PlaylistRuntimeState
-} from '../../state/slices/playlistRuntimeSlice'
+} from '../../state/slices/playlistSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
 
 const PlayPauseButton = () => {
   const timer: { current: NodeJS.Timer | null } = React.useRef(null)
-  const runtime = useAppSelector<PlaylistRuntimeState>(selectPlaylistRuntime) 
-  const playing = useAppSelector<PlayPausePlaylistState>(selectPlaylistPlaying) 
+  const runtime = useAppSelector(selectPlaylistRuntime) 
+  const playing = useAppSelector(selectPlaylistPlaying) 
   const dispatch = useAppDispatch()
 
   React.useEffect(() => {
-    console.log("use effect")
-    if(playing.value) {
+    if(playing) {
       timer.current = setInterval(() => {
         dispatch(fetchPlaylistRuntime())
       }, 100)
@@ -30,7 +25,7 @@ const PlayPauseButton = () => {
   return (
     <div>
       <span>Runtime: </span>
-      {playing.value && <span>{runtime.value}</span>}
+      {playing && <span>{runtime}</span>}
     </div>
   )
 }

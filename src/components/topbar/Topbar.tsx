@@ -4,11 +4,7 @@ import PlayPauseButton from './PlayPauseButton'
 import TempoInput from './TempoInput'
 import TopbarTimer from './TopbarTimer'
 
-interface Props {
- 
-}
-
-const Topbar = (props: Props) => (
+const Topbar = () => (
   <TopbarBase>
     <PlayPauseButton />
     <TempoInput />
