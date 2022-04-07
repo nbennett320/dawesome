@@ -1,15 +1,9 @@
 import { configureStore } from '@reduxjs/toolkit'
-import playPausePlaylistReducer from './slices/playPausePlaylistSlice'
-import playlistTempoReducer from './slices/playlistTempoSlice'
-import playlistMetronomeEnabledReducer from './slices/playlistMetronomeEnabledSlice'
-import playlistRuntimeReducer from './slices/playlistRuntimeSlice'
+import playlistReducer from './slices/playlistSlice'
 
 export const store = configureStore({
   reducer: {
-    playlistPlaying: playPausePlaylistReducer,
-    playlistTempo: playlistTempoReducer,
-    playlistMetronomeEnabled: playlistMetronomeEnabledReducer,
-    playlistRuntime: playlistRuntimeReducer
+    playlist: playlistReducer
   },
 })
 

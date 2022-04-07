@@ -2,13 +2,12 @@ import React from 'react'
 import { 
   togglePlay, 
   selectPlaylistPlaying,
-  PlayPausePlaylistState
-} from '../../state/slices/playPausePlaylistSlice'
+} from '../../state/slices/playlistSlice'
 import Button from '../common/Button'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
 
 const PlayPauseButton = () => {
-  const playing = useAppSelector<PlayPausePlaylistState>(selectPlaylistPlaying) 
+  const playing = useAppSelector(selectPlaylistPlaying) 
   const dispatch = useAppDispatch()
 
   return (
@@ -16,7 +15,7 @@ const PlayPauseButton = () => {
       onClick={() => dispatch(togglePlay())}
       aria-label="Play/Pause Button"
     > 
-      {playing.value ? <>Pause</> : <>Play</>}
+      {playing ? <>Pause</> : <>Play</>}
     </Button>
   )
 }
