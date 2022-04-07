@@ -4,6 +4,7 @@ use chrono;
 use tauri;
 
 mod daw;
+mod util;
 
 #[tauri::command]
 fn toggle_playlist(state: tauri::State<'_, sync::Arc<daw::InnerState>>) {
@@ -58,6 +59,27 @@ fn set_playlist_tempo(
   *state.global_tempo_bpm.lock().unwrap() = val;
 }
 
+#[tauri::command]
+fn toggle_metronome_enabled(state: tauri::State<'_, sync::Arc<daw::InnerState>>) {
+  let val = !state.metronome_enabled.load(atomic::Ordering::SeqCst);
+  state.metronome_enabled.store(val, atomic::Ordering::SeqCst);
+}
+
+#[tauri::command]
+fn get_metronome_enabled(state: tauri::State<'_, sync::Arc<daw::InnerState>>) -> Result<bool, String> {
+  Ok(
+    state.metronome_enabled.load(atomic::Ordering::SeqCst)
+  )
+}
+
+#[tauri::command]
+fn get_playlist_runtime_formatted(state: tauri::State<'_, sync::Arc<daw::InnerState>>) -> Result<String, String> {
+  let res = util::format_playlist_runtime(state.playlist_started_time.load(atomic::Ordering::SeqCst));
+  Ok(
+    res
+  )
+}
+
 fn main() {
   tauri::Builder::default()
     .manage(sync::Arc::new(daw::InnerState::default()))
@@ -66,7 +88,10 @@ fn main() {
       toggle_playlist,
       get_playlist_start_time,
       get_playlist_tempo,
-      set_playlist_tempo
+      set_playlist_tempo,
+      toggle_metronome_enabled,
+      get_metronome_enabled,
+      get_playlist_runtime_formatted
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
