@@ -29,3 +29,15 @@ default = [ "custom-protocol" ]
 # this feature is used used for production builds where `devPath` points to the filesystem
 # DO NOT remove this
 custom-protocol = [ "tauri/custom-protocol" ]
+
+[profile.release]
+codegen-units = 1
+debug = 0
+incremental = false
+lto = true
+opt-level = 3
+overflow-checks = false
+panic = "abort"
+
+# unsupported optimiaztion for rust versions < 1.59
+strip = "debuginfo"
