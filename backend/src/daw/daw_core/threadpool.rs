@@ -1,6 +1,6 @@
-use std::thread;
 use std::sync;
 use std::sync::mpsc;
+use std::thread;
 use std::vec;
 
 trait FnBox {
@@ -21,27 +21,25 @@ enum Message {
 }
 
 struct Worker {
-  id: usize, 
+  _id: usize,
   thread: Option<thread::JoinHandle<()>>,
 }
 
 impl Worker {
   fn new(
-    id: usize, 
-    revc: sync::Arc<sync::Mutex<mpsc::Receiver<Message>>>
+    _id: usize,
+    revc: sync::Arc<sync::Mutex<mpsc::Receiver<Message>>>,
   ) -> Self {
-    let thread = thread::spawn(move || {
-      loop {
-        let msg = revc.lock().unwrap().recv().unwrap();
-        match msg {
-          Message::NewJob(job) => job.call(),
-          Message::Kill => break,
-        }
+    let thread = thread::spawn(move || loop {
+      let msg = revc.lock().unwrap().recv().unwrap();
+      match msg {
+        Message::NewJob(job) => job.call(),
+        Message::Kill => break,
       }
     });
 
-    Worker { 
-      id, 
+    Worker {
+      _id,
       thread: Some(thread),
     }
   }
@@ -64,14 +62,15 @@ impl ThreadPool {
       workers.push(Worker::new(id, sync::Arc::clone(&recv)));
     }
 
-    ThreadPool {
-      workers,
-      sender,
-    }
+    ThreadPool { workers, sender }
   }
 
-  pub fn exec<F>(&self, f: F)
-  where F: FnOnce() + Send + 'static {
+  pub fn exec<F>(
+    &self,
+    f: F,
+  ) where
+    F: FnOnce() + Send + 'static,
+  {
     let job = Box::new(f);
     self.sender.send(Message::NewJob(job)).unwrap();
   }
@@ -82,7 +81,7 @@ impl Drop for ThreadPool {
     for _ in &mut self.workers {
       self.sender.send(Message::Kill).unwrap();
     }
-    
+
     for worker in &mut self.workers {
       if let Some(thread) = worker.thread.take() {
         thread.join().unwrap();

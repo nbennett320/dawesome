@@ -3,7 +3,7 @@ import playlistReducer from './slices/playlistSlice'
 
 export const store = configureStore({
   reducer: {
-    playlist: playlistReducer
+    playlist: playlistReducer,
   },
 })
 
