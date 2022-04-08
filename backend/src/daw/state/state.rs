@@ -9,7 +9,7 @@ pub struct InnerState {
 }
 
 impl InnerState {
-  pub fn new() -> Option<Self> {
+  pub fn _new() -> Option<Self> {
     None
   }
 

@@ -1,9 +1,9 @@
-use std::sync;
-use std::thread;
-use std::time;
-use std::task;
 use std::future;
 use std::pin;
+use std::sync;
+use std::task;
+use std::thread;
+use std::time;
 
 struct TimerBaseState {
   timed_out: bool,
@@ -12,29 +12,25 @@ struct TimerBaseState {
 
 struct TimerBase {
   delay: time::Duration,
-  handle: Option<thread::JoinHandle<()>>,
-  state: sync::Arc<sync::Mutex<TimerBaseState>>
+  _handle: Option<thread::JoinHandle<()>>,
+  state: sync::Arc<sync::Mutex<TimerBaseState>>,
 }
 
 impl TimerBase {
-  fn new(delay: time::Duration) -> Self {
+  fn _new(delay: time::Duration) -> Self {
     TimerBase {
-      delay: delay,
-      handle: None,
-      state: sync::Arc::new(
-        sync::Mutex::new(
-          TimerBaseState {
-            timed_out: false,
-            already_polled: false,
-          }
-        )
-      )
+      delay,
+      _handle: None,
+      state: sync::Arc::new(sync::Mutex::new(TimerBaseState {
+        timed_out: false,
+        already_polled: false,
+      })),
     }
   }
 
   fn spawn_timer_thread(
-    &self, 
-    context: &mut task::Context<'_>, 
+    &self,
+    context: &mut task::Context<'_>,
   ) {
     let delay = self.delay;
     let state = sync::Arc::clone(&self.state);
@@ -42,7 +38,8 @@ impl TimerBase {
 
     thread::spawn(move || {
       thread::sleep(delay);
-      let mut state_handle = state.lock().expect("Can't lock the state in timer thread");
+      let mut state_handle =
+        state.lock().expect("Can't lock the state in timer thread");
       (*state_handle).timed_out = true;
       waker_handle.wake();
     });
@@ -53,8 +50,8 @@ impl future::Future for TimerBase {
   type Output = ();
 
   fn poll(
-    self: pin::Pin<&mut Self>, 
-    context: &mut task::Context<'_>
+    self: pin::Pin<&mut Self>,
+    context: &mut task::Context<'_>,
   ) -> task::Poll<Self::Output> {
     let mut state = self.state.lock().expect("Can't lock timer state");
 
@@ -70,23 +67,21 @@ impl future::Future for TimerBase {
   }
 }
 
-fn spawn_timeout(delay: time::Duration) -> impl future::Future {
-  TimerBase::new(delay)
+fn _spawn_timeout(delay: time::Duration) -> impl future::Future {
+  TimerBase::_new(delay)
 }
 
-pub struct Timer {}
+pub struct _Timer {}
 
-impl Timer {
-  pub fn new() -> Self {
-    Timer {
-    }
+impl _Timer {
+  pub fn _new() -> Self {
+    _Timer {}
   }
 
-  pub fn timeout(
+  pub fn _timeout(
     &self,
-    delay: time::Duration
+    delay: time::Duration,
   ) -> impl future::Future {
-    let timer = spawn_timeout(delay);
-    timer
+    _spawn_timeout(delay)
   }
 }
