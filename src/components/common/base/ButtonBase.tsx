@@ -6,7 +6,11 @@ export interface Props<T> extends React.HTMLProps<T> {
 }
 
 const ButtonBase = (props: Props<HTMLButtonElement>) => (
-  <button {...props} className={`input ${styles.ButtonBase}`} type={props?.type ?? 'button'}>
+  <button
+    {...props}
+    className={`input ${styles.ButtonBase}`}
+    type={props?.type ?? 'button'}
+  >
     {props.children}
   </button>
 )

@@ -38,7 +38,8 @@ impl TimerBase {
 
     thread::spawn(move || {
       thread::sleep(delay);
-      let mut state_handle = state.lock().expect("Can't lock the state in timer thread");
+      let mut state_handle =
+        state.lock().expect("Can't lock the state in timer thread");
       (*state_handle).timed_out = true;
       waker_handle.wake();
     });

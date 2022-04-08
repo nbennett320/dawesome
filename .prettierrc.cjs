@@ -1,6 +1,6 @@
 module.exports = {
   endOfLine: 'lf',
-  printWidth: 120,
+  printWidth: 80,
   semi: false,
   singleQuote: true,
   tabWidth: 2,

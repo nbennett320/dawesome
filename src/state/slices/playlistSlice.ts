@@ -46,7 +46,8 @@ export const togglePlay = () => async (dispatch: Dispatch) => {
   dispatch(setPlaying(playing))
 }
 
-export const selectPlaylistPlaying = (state: RootState) => state.playlist.playing
+export const selectPlaylistPlaying = (state: RootState) =>
+  state.playlist.playing
 // end play/pause methods
 
 // start tempo methods
@@ -75,7 +76,8 @@ export const fetchPlaylistRuntime = () => async (dispatch: Dispatch) => {
   dispatch(setRuntime(runtime))
 }
 
-export const selectPlaylistRuntime = (state: RootState) => state.playlist.runtime
+export const selectPlaylistRuntime = (state: RootState) =>
+  state.playlist.runtime
 // end rutime methods
 
 // start metronome enable/disable methods
@@ -87,7 +89,8 @@ export const toggleMetronome = () => async (dispatch: Dispatch) => {
   dispatch(setMetronomeEnabled(enabled))
 }
 
-export const selectMetronomeEnabled = (state: RootState) => state.playlist.metronomeEnabled
+export const selectMetronomeEnabled = (state: RootState) =>
+  state.playlist.metronomeEnabled
 // end metronome enable/disable methods
 
 // export root reducer for this slice

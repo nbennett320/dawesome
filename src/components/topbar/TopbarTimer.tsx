@@ -1,5 +1,9 @@
 import React from 'react'
-import { selectPlaylistPlaying, fetchPlaylistRuntime, selectPlaylistRuntime } from '../../state/slices/playlistSlice'
+import {
+  selectPlaylistPlaying,
+  fetchPlaylistRuntime,
+  selectPlaylistRuntime,
+} from '../../state/slices/playlistSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
 
 const PlayPauseButton = () => {

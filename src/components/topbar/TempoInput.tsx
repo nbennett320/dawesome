@@ -17,14 +17,19 @@ const TempoInput = () => {
   return (
     <div>
       <Input
-        onInput={(e) => dispatch(setPlaylistTempo(parseFloat(e.currentTarget.value)))}
+        onInput={(e) =>
+          dispatch(setPlaylistTempo(parseFloat(e.currentTarget.value)))
+        }
         value={tempo}
         type="number"
         aria-label="Playlist tempo input"
       />
       <div className="row-auto">
         <span>Metronome </span>
-        <Button onClick={() => dispatch(toggleMetronome())} aria-label="Play/Pause Button">
+        <Button
+          onClick={() => dispatch(toggleMetronome())}
+          aria-label="Play/Pause Button"
+        >
           {metronome ? <>Enabled</> : <>Disabled</>}
         </Button>
       </div>
