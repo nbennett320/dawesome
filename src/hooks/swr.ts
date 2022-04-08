@@ -13,15 +13,20 @@ interface Response {
   update: (d: unknown) => Promise<void>
 }
 
-const invokeFetcher = async <TArgs extends Record<string, unknown>>(command: string, args: TArgs): Promise<TResult> =>
-  invoke<TResult>(command, args)
+const invokeFetcher = async <TArgs extends Record<string, unknown>>(
+  command: string,
+  args: TArgs,
+): Promise<TResult> => invoke<TResult>(command, args)
 
 export const useInvoke = <TArgs extends Record<string, unknown>>(
   args: TArgs,
   getCommand: string,
   setCommand: string,
 ): Response => {
-  const { data, error, mutate } = useSwr<Record<string, unknown>>([getCommand, args], invokeFetcher)
+  const { data, error, mutate } = useSwr<Record<string, unknown>>(
+    [getCommand, args],
+    invokeFetcher,
+  )
 
   const update = React.useCallback(async () => {
     await invoke(setCommand, { ...args })

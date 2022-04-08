@@ -1,5 +1,10 @@
-name: build app
-on: [pull_request]
+name: Build App
+
+on:
+  pull_request:
+    branches:
+      - main
+
 jobs:
   build:
     strategy:
