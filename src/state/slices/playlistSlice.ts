@@ -3,17 +3,17 @@ import { invoke } from '@tauri-apps/api'
 import { RootState } from 'state/store'
 
 export interface PlaylistState {
-  playing: boolean,
-  tempo: number,
-  runtime?: string | null,
-  metronomeEnabled: boolean,
+  playing: boolean
+  tempo: number
+  runtime?: string | null
+  metronomeEnabled: boolean
 }
 
-// todo: get initial state from backend, 
+// todo: get initial state from backend,
 // which parses dawesome.config file
 const initialState = {
   playing: false,
-  tempo: 120.,
+  tempo: 120,
   runtime: null,
   metronomeEnabled: true,
 } as PlaylistState
@@ -33,8 +33,8 @@ export const playlistSlice = createSlice({
     },
     setMetronomeEnabled: (state, action) => {
       state.metronomeEnabled = action.payload
-    }
-  }
+    },
+  },
 })
 
 // start play/pause methods

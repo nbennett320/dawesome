@@ -1,5 +1,5 @@
 import React from 'react'
-import { 
+import {
   setPlaylistTempo,
   selectPlaylistTempo,
   toggleMetronome,
@@ -10,24 +10,21 @@ import Input from '../common/Input'
 import Button from '../common/Button'
 
 const TempoInput = () => {
-  const tempo = useAppSelector(selectPlaylistTempo) 
-  const metronome = useAppSelector(selectMetronomeEnabled) 
+  const tempo = useAppSelector(selectPlaylistTempo)
+  const metronome = useAppSelector(selectMetronomeEnabled)
   const dispatch = useAppDispatch()
 
   return (
     <div>
-      <Input 
+      <Input
         onInput={(e) => dispatch(setPlaylistTempo(parseFloat(e.currentTarget.value)))}
         value={tempo}
-        type='number'
-        aria-label='Playlist tempo input'
+        type="number"
+        aria-label="Playlist tempo input"
       />
-      <div className='row-auto'>
+      <div className="row-auto">
         <span>Metronome </span>
-        <Button 
-          onClick={() => dispatch(toggleMetronome())}
-          aria-label="Play/Pause Button"
-        > 
+        <Button onClick={() => dispatch(toggleMetronome())} aria-label="Play/Pause Button">
           {metronome ? <>Enabled</> : <>Disabled</>}
         </Button>
       </div>

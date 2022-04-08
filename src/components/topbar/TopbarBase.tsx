@@ -1,13 +1,7 @@
-import React from "react"
+import React from 'react'
 
-interface Props {
- 
-}
+interface Props {}
 
-const TopbarBase = (props: React.PropsWithChildren<Props>) => (
-  <nav className="w-full">
-    {props.children}
-  </nav>
-)
+const TopbarBase = (props: React.PropsWithChildren<Props>) => <nav className="w-full">{props.children}</nav>
 
 export default TopbarBase
