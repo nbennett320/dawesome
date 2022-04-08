@@ -7,29 +7,10 @@ mod util;
 #[tauri::command]
 fn toggle_playlist(state: tauri::State<'_, sync::Arc<daw::InnerState>>) {
   if state.playlist_is_playing.load(atomic::Ordering::SeqCst) {
-    println!("pausing playlist");
-    state
-      .playlist_is_playing
-      .store(false, atomic::Ordering::SeqCst);
+    daw::pause_playlist(state);
   } else {
     // start playlist
-    println!("playing playlist");
-    state
-      .playlist_is_playing
-      .store(true, atomic::Ordering::SeqCst);
-
-    // set playlist start time
-    let now = chrono::offset::Utc::now();
-    let timestamp = now.naive_utc().timestamp();
-    state
-      .playlist_started_time
-      .store(timestamp, atomic::Ordering::SeqCst);
-
-    // toggle metronome if enabled
-    if state.metronome_enabled.load(atomic::Ordering::SeqCst) {
-      let state_ref = state.inner();
-      daw::run_metronome(state_ref);
-    }
+    daw::start_playlist(state);
   }
 }
 
