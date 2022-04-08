@@ -5,6 +5,7 @@ use std::sync;
 use std::sync::atomic;
 use std::thread;
 use std::time;
+use tauri;
 
 use crate::daw::{daw_core, state};
 
@@ -21,7 +22,24 @@ pub async fn play_sample(path: &str) {
   });
 }
 
-pub fn run_metronome(state_ref: &sync::Arc<state::InnerState>) {
+pub fn play_metronome(state_ref: &sync::Arc<state::InnerState>) {
+  println!("before spawn");
+  let state = state_ref.clone();
+
+  if state.playlist_current_beat.load(atomic::Ordering::SeqCst) > 0 {
+    // default metronome tick
+    futures::executor::block_on(play_sample(
+      "assets/assets_66-hh-01-or.wav",
+    ));
+  } else {
+    // play accented metronome tick
+    futures::executor::block_on(play_sample(
+      "assets/assets_66-hh-01-or-2.wav",
+    ));
+  }
+}
+
+pub fn run_playlist(state_ref: &sync::Arc<state::InnerState>) {
   println!("before spawn");
   let state = state_ref.clone();
   let pool = daw_core::threadpool::ThreadPool::new(4);
@@ -31,14 +49,22 @@ pub fn run_metronome(state_ref: &sync::Arc<state::InnerState>) {
   pool.exec(move || {
     thread::spawn(move || {
       loop {
-        // let timer = timer::Timer::new();
-        // timer.timeout(time::Duration::new((tempo / 60) as u64, 0));
-
         println!("tick");
-        futures::executor::block_on(play_sample(
-          "assets/assets_66-hh-01-or.wav",
-        ));
+
+        if state.metronome_enabled.load(atomic::Ordering::SeqCst) {
+          play_metronome(&state);
+        }
+
         thread::sleep(time::Duration::from_millis(tempo_intrv_ms));
+        
+        let current_time_signature = state.playlist_time_signature.lock().unwrap();
+        let current_beat = state.playlist_current_beat.load(atomic::Ordering::SeqCst);
+        let next_beat = (current_beat + 1) % current_time_signature.numerator;
+        state.playlist_current_beat.store(next_beat, atomic::Ordering::SeqCst);
+
+        state.playlist_total_beats.fetch_add(1, atomic::Ordering::SeqCst);
+        println!("current beat: {}, total beats played: {}",state.playlist_current_beat.load(atomic::Ordering::SeqCst), state.playlist_total_beats.load(atomic::Ordering::SeqCst));
+        
         if !state.playlist_is_playing.load(atomic::Ordering::SeqCst) {
           break;
         }
@@ -47,4 +73,32 @@ pub fn run_metronome(state_ref: &sync::Arc<state::InnerState>) {
   });
 
   println!("continuing");
+}
+
+pub fn pause_playlist(state: tauri::State<'_, sync::Arc<state::InnerState>>) {
+  println!("pausing playlist");
+  state
+    .playlist_is_playing
+    .store(false, atomic::Ordering::SeqCst);
+}
+
+pub fn start_playlist(state: tauri::State<'_, sync::Arc<state::InnerState>>) {
+  // start playlist
+  println!("playing playlist");
+  state
+    .playlist_is_playing
+    .store(true, atomic::Ordering::SeqCst);
+
+  // set playlist start time
+  let now = chrono::offset::Utc::now();
+  let timestamp = now.naive_utc().timestamp();
+  state
+    .playlist_started_time
+    .store(timestamp, atomic::Ordering::SeqCst);
+
+  // toggle metronome if enabled
+  if state.metronome_enabled.load(atomic::Ordering::SeqCst) {
+    let state_ref = state.inner();
+    run_playlist(state_ref);
+  }
 }
