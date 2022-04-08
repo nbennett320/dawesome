@@ -100,9 +100,6 @@ pub fn start_playlist(state: tauri::State<'_, sync::Arc<state::InnerState>>) {
     .playlist_started_time
     .store(timestamp, atomic::Ordering::SeqCst);
 
-  // toggle metronome if enabled
-  if state.metronome_enabled.load(atomic::Ordering::SeqCst) {
-    let state_ref = state.inner();
-    run_playlist(state_ref);
-  }
+  let state_ref = state.inner();
+  run_playlist(state_ref);
 }
