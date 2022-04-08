@@ -80,6 +80,10 @@ pub fn pause_playlist(state: tauri::State<'_, sync::Arc<state::InnerState>>) {
   state
     .playlist_is_playing
     .store(false, atomic::Ordering::SeqCst);
+
+  // reset playlist to 0 beats
+  state.playlist_current_beat.store(0, atomic::Ordering::SeqCst);
+  state.playlist_total_beats.store(0, atomic::Ordering::SeqCst);
 }
 
 pub fn start_playlist(state: tauri::State<'_, sync::Arc<state::InnerState>>) {
