@@ -35,7 +35,9 @@ pub fn run_metronome(state_ref: &sync::Arc<state::InnerState>) {
         // timer.timeout(time::Duration::new((tempo / 60) as u64, 0));
 
         println!("tick");
-        futures::executor::block_on(play_sample("assets/assets_66-hh-01-or.wav"));
+        futures::executor::block_on(play_sample(
+          "assets/assets_66-hh-01-or.wav",
+        ));
         thread::sleep(time::Duration::from_millis(tempo_intrv_ms));
         if !state.playlist_is_playing.load(atomic::Ordering::SeqCst) {
           break;

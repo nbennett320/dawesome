@@ -8,16 +8,22 @@ mod util;
 fn toggle_playlist(state: tauri::State<'_, sync::Arc<daw::InnerState>>) {
   if state.playlist_is_playing.load(atomic::Ordering::SeqCst) {
     println!("pausing playlist");
-    state.playlist_is_playing.store(false, atomic::Ordering::SeqCst);
+    state
+      .playlist_is_playing
+      .store(false, atomic::Ordering::SeqCst);
   } else {
     // start playlist
     println!("playing playlist");
-    state.playlist_is_playing.store(true, atomic::Ordering::SeqCst);
+    state
+      .playlist_is_playing
+      .store(true, atomic::Ordering::SeqCst);
 
     // set playlist start time
     let now = chrono::offset::Utc::now();
     let timestamp = now.naive_utc().timestamp();
-    state.playlist_started_time.store(timestamp, atomic::Ordering::SeqCst);
+    state
+      .playlist_started_time
+      .store(timestamp, atomic::Ordering::SeqCst);
 
     // toggle metronome if enabled
     if state.metronome_enabled.load(atomic::Ordering::SeqCst) {
@@ -28,17 +34,23 @@ fn toggle_playlist(state: tauri::State<'_, sync::Arc<daw::InnerState>>) {
 }
 
 #[tauri::command]
-fn get_playlist_playing(state: tauri::State<'_, sync::Arc<daw::InnerState>>) -> Result<bool, String> {
+fn get_playlist_playing(
+  state: tauri::State<'_, sync::Arc<daw::InnerState>>
+) -> Result<bool, String> {
   Ok(state.playlist_is_playing.load(atomic::Ordering::SeqCst))
 }
 
 #[tauri::command]
-fn get_playlist_start_time(state: tauri::State<'_, sync::Arc<daw::InnerState>>) -> Result<i64, String> {
+fn get_playlist_start_time(
+  state: tauri::State<'_, sync::Arc<daw::InnerState>>
+) -> Result<i64, String> {
   Ok(state.playlist_started_time.load(atomic::Ordering::SeqCst))
 }
 
 #[tauri::command]
-fn get_playlist_tempo(state: tauri::State<'_, sync::Arc<daw::InnerState>>) -> Result<f32, String> {
+fn get_playlist_tempo(
+  state: tauri::State<'_, sync::Arc<daw::InnerState>>
+) -> Result<f32, String> {
   Ok(*state.global_tempo_bpm.lock().unwrap())
 }
 
@@ -52,19 +64,27 @@ fn set_playlist_tempo(
 }
 
 #[tauri::command]
-fn toggle_metronome_enabled(state: tauri::State<'_, sync::Arc<daw::InnerState>>) {
+fn toggle_metronome_enabled(
+  state: tauri::State<'_, sync::Arc<daw::InnerState>>
+) {
   let val = !state.metronome_enabled.load(atomic::Ordering::SeqCst);
   state.metronome_enabled.store(val, atomic::Ordering::SeqCst);
 }
 
 #[tauri::command]
-fn get_metronome_enabled(state: tauri::State<'_, sync::Arc<daw::InnerState>>) -> Result<bool, String> {
+fn get_metronome_enabled(
+  state: tauri::State<'_, sync::Arc<daw::InnerState>>
+) -> Result<bool, String> {
   Ok(state.metronome_enabled.load(atomic::Ordering::SeqCst))
 }
 
 #[tauri::command]
-fn get_playlist_runtime_formatted(state: tauri::State<'_, sync::Arc<daw::InnerState>>) -> Result<String, String> {
-  let res = util::format_playlist_runtime(state.playlist_started_time.load(atomic::Ordering::SeqCst));
+fn get_playlist_runtime_formatted(
+  state: tauri::State<'_, sync::Arc<daw::InnerState>>
+) -> Result<String, String> {
+  let res = util::format_playlist_runtime(
+    state.playlist_started_time.load(atomic::Ordering::SeqCst),
+  );
   Ok(res)
 }
 

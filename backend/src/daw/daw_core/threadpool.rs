@@ -54,7 +54,8 @@ impl ThreadPool {
   pub fn new(size: usize) -> Self {
     assert!(size > 0);
 
-    let (sender, rx): (mpsc::Sender<Message>, mpsc::Receiver<Message>) = mpsc::channel();
+    let (sender, rx): (mpsc::Sender<Message>, mpsc::Receiver<Message>) =
+      mpsc::channel();
     let recv = sync::Arc::new(sync::Mutex::new(rx));
     let mut workers = vec::Vec::with_capacity(size);
 
