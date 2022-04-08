@@ -46,7 +46,6 @@ specifiers:
   typescript: 4.6.3
   vite: 2.9.1
   vite-plugin-svgr: 1.1.0
-  web-vitals: 2.1.4
 
 dependencies:
   '@reduxjs/toolkit': 1.8.1_a84327381dc70422e28604ca93f21181
@@ -70,7 +69,6 @@ dependencies:
   typescript: 4.6.3
   vite: 2.9.1_sass@1.49.10
   vite-plugin-svgr: 1.1.0_vite@2.9.1
-  web-vitals: 2.1.4
 
 devDependencies:
   '@testing-library/dom': 8.12.0
@@ -5473,10 +5471,6 @@ packages:
     dependencies:
       makeerror: 1.0.12
     dev: true
-
-  /web-vitals/2.1.4:
-    resolution: {integrity: sha512-sVWcwhU5mX6crfI5Vd2dC4qchyTqxV8URinzt25XqVh+bHEPGH4C3NPrNionCP7Obx59wrYEbNlw4Z8sjALzZg==}
-    dev: false
 
   /webidl-conversions/5.0.0:
     resolution: {integrity: sha512-VlZwKPCkYKxQgeSbH5EyngOmRp7Ww7I9rQLERETtf5ofd9pGeswWiOtogpEO850jziPRarreGxn5QIiTqpb2wA==}
