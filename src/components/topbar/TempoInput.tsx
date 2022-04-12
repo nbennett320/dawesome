@@ -8,6 +8,8 @@ import {
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
 import Input from '../common/Input'
 import Button from '../common/Button'
+import MetronomeIcon from '../icons/MetronomeIcon'
+import styles from './styles.module.scss'
 
 const TempoInput = () => {
   const tempo = useAppSelector(selectPlaylistTempo)
@@ -15,22 +17,27 @@ const TempoInput = () => {
   const dispatch = useAppDispatch()
 
   return (
-    <div>
-      <Input
-        onInput={(e) =>
-          dispatch(setPlaylistTempo(parseFloat(e.currentTarget.value)))
-        }
-        value={tempo}
-        type="number"
-        aria-label="Playlist tempo input"
-      />
-      <div className="row-auto">
-        <span>Metronome </span>
+    <div className={`${styles.TempoInput}`}>
+      <div className={`${styles.TempoInputFieldContainer}`}>
+        <Input
+          onInput={(e) =>
+            dispatch(setPlaylistTempo(parseFloat(e.currentTarget.value)))
+          }
+          value={tempo}
+          type="number"
+          label="Tempo"
+          className={`${styles.TempoInputField} text-gray-600 text-sm`}
+          aria-label="Playlist tempo input"
+        />
+      </div>
+
+      <div className={`${styles.MetronomeButton} row-auto`}>
         <Button
           onClick={() => dispatch(toggleMetronome())}
           aria-label="Play/Pause Button"
+          className={`${metronome ? 'bg-blue-400' : 'bg-gray-300' } py-1 px-3 rounded inline-flex items-center`}
         >
-          {metronome ? <>Enabled</> : <>Disabled</>}
+          <MetronomeIcon fill="white" />
         </Button>
       </div>
     </div>
