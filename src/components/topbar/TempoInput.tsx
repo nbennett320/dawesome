@@ -26,7 +26,7 @@ const TempoInput = () => {
           value={tempo}
           type="number"
           label="Tempo"
-          className={`${styles.TempoInputField} text-gray-600 text-sm`}
+          className={`${styles.TempoInputField} text-gray-600 text-sm rounded`}
           aria-label="Playlist tempo input"
         />
       </div>
@@ -35,7 +35,7 @@ const TempoInput = () => {
         <Button
           onClick={() => dispatch(toggleMetronome())}
           aria-label="Play/Pause Button"
-          className={`${metronome ? 'bg-blue-400' : 'bg-gray-300' } py-1 px-3 rounded inline-flex items-center`}
+          className={`${metronome ? 'bg-blue-400 hover:bg-blue-300' : 'bg-gray-300 hover:bg-gray-400' } py-1 px-3 rounded inline-flex items-center`}
         >
           <MetronomeIcon fill="white" />
         </Button>

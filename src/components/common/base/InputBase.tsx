@@ -6,7 +6,7 @@ export interface InputI<T> extends React.HTMLProps<T> {}
 const Input = (props: InputI<HTMLElement>) => (
   <input
     {...(props as React.HTMLProps<HTMLInputElement>)}
-    className={`input ${styles.InputBase}`}
+    className={`input ${styles.InputBase} ${props.className}`}
     type={props.type || 'text'}
   />
 )
