@@ -19,7 +19,7 @@ const initialState = {
 } as PlaylistState
 
 export const playlistSlice = createSlice({
-  name: 'metronomeEnabled',
+  name: 'playlistSlice',
   initialState,
   reducers: {
     setPlaying: (state, action) => {

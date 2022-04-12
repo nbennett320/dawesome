@@ -1,35 +1,19 @@
 use std::sync;
 use std::sync::atomic;
+use tauri;
+use serde_json::json;
 
 mod daw;
 mod util;
+mod app;
 
 #[tauri::command]
 fn toggle_playlist(state: tauri::State<'_, sync::Arc<daw::InnerState>>) {
   if state.playlist_is_playing.load(atomic::Ordering::SeqCst) {
-    println!("pausing playlist");
-    state
-      .playlist_is_playing
-      .store(false, atomic::Ordering::SeqCst);
+    daw::pause_playlist(state);
   } else {
     // start playlist
-    println!("playing playlist");
-    state
-      .playlist_is_playing
-      .store(true, atomic::Ordering::SeqCst);
-
-    // set playlist start time
-    let now = chrono::offset::Utc::now();
-    let timestamp = now.naive_utc().timestamp();
-    state
-      .playlist_started_time
-      .store(timestamp, atomic::Ordering::SeqCst);
-
-    // toggle metronome if enabled
-    if state.metronome_enabled.load(atomic::Ordering::SeqCst) {
-      let state_ref = state.inner();
-      daw::run_metronome(state_ref);
-    }
+    daw::start_playlist(state);
   }
 }
 
@@ -88,8 +72,38 @@ fn get_playlist_runtime_formatted(
   Ok(res)
 }
 
+#[tauri::command]
+fn get_playlist_time_signature(
+  state: tauri::State<'_, sync::Arc<daw::InnerState>>
+) -> Result<(u16, u16), String> {
+  let res = state.playlist_time_signature.lock().unwrap();
+  Ok((res.numerator, res.denominator))
+}
+
+#[tauri::command]
+fn set_playlist_time_signature(
+  state: tauri::State<'_, sync::Arc<daw::InnerState>>,
+  numerator: u16,
+  denominator: u16
+) {
+  let updated: daw::timing::TimeSignature = daw::timing::TimeSignature {
+    numerator: numerator,
+    denominator: denominator
+  };
+  *state.playlist_time_signature.lock().unwrap() = updated;
+}
+
+#[tauri::command]
+fn get_audio_drivers() -> Result<Vec<String>, String> {
+  Ok(daw::drivers::get_sound_host_names())
+}
+
 fn main() {
+  // daw::print_device_drivers();
+
   tauri::Builder::default()
+    .setup(app::setup)
+    .menu(app::build_menu())
     .manage(sync::Arc::new(daw::InnerState::default()))
     .invoke_handler(tauri::generate_handler![
       get_playlist_playing,
@@ -99,7 +113,10 @@ fn main() {
       set_playlist_tempo,
       toggle_metronome_enabled,
       get_metronome_enabled,
-      get_playlist_runtime_formatted
+      get_playlist_runtime_formatted,
+      get_playlist_time_signature,
+      set_playlist_time_signature,
+      get_audio_drivers
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
