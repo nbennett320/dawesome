@@ -1,0 +1,28 @@
+.Playlist {
+  display: flex;
+  flex-direction: column;
+}
+
+.PlaylistTimeline {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  width: 100%;
+  cursor: pointer;
+
+  &Segment {
+    display: flex;
+    flex-direction: row;
+  }
+
+  &Container {
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+.PlayheadTrack {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+}

@@ -1,0 +1,38 @@
+.TopbarBase {
+  display: flex;
+  flex-direction: row;
+}
+
+.Topbar {
+  width: 100%;
+  display: flex;
+  justify-content: space-around;
+}
+
+.TempoInput {
+  display: flex;
+  flex-direction: column;
+
+  &Field {
+    width: 100%;
+  
+    &Container {
+      width: 3rem;
+    }
+  }
+}
+
+.MetronomeButton {
+  transform: scale(0.666);
+}
+
+.TopbarTimer {
+  display: flex;
+  flex-direction: column;
+  width: 6rem;
+  height: 3rem;
+
+  &Label {
+    display: flex;
+  }
+}
