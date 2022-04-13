@@ -1,6 +1,8 @@
 import React from 'react'
 import { invoke } from '@tauri-apps/api'
 import PreferencePageBase from '../../components/pages/PreferencePageBase'
+import Select from '../../components/common/Select'
+import Option from '../../components/common/Option'
 
 const DevicePreferences = () => {
   const [drivers, setDrivers] = React.useState<any>()
@@ -14,11 +16,12 @@ const DevicePreferences = () => {
   return (
     <PreferencePageBase>
       <h3>Available audio drivers:</h3>
-      <ul>
+      <Select>
         {drivers?.map((el: any) => (
-          <li key={el}>{el}</li>
+          <Option key={el}>{el}</Option>
         ))}
-      </ul>
+      </Select>
+      
     </PreferencePageBase>
   )
 }
