@@ -5,6 +5,8 @@ import {
 } from '../../state/slices/playlistSlice'
 import styles from './styles.module.scss'
 
+const zeroPad = (num: number, places: number): string => (num.toString()).padStart(places, '0')
+
 const PlaylistTimeline = () => {
   const [limit, setLimit] = React.useState(20)
   const [current, setCurrent] = React.useState(0)
@@ -14,12 +16,12 @@ const PlaylistTimeline = () => {
 
   // React.useEffect(() => {
 
-    // if(playing) {
-    //   setInterval(() => {
-    //     if(current + 1 < limit) setCurrent(current+1)
-    //     else setCurrent(0)
-    //   }, 500)
-    // } 
+  //   if(playing) {
+      setInterval(() => {
+        if(current + 1 < limit) setCurrent(current+1)
+        else setCurrent(0)
+      }, 500)
+  //   } 
   // }, [playing])
 
   return (
@@ -29,15 +31,15 @@ const PlaylistTimeline = () => {
           <div 
             key={`segment-${e}`}
             id={`playlist-segment-${e}`}
-            className={`${styles.PlaylistTimelineSegment} text-gray-600 text-xs`}
+            className={`${styles.PlaylistTimelineSegment} text-gray-600 text-xs font-mono`}
           >
-            {e}
+            {e < 10 ? zeroPad(e, 1) : e}
           </div>
         ))}
         
       </div>
       <div className={`${styles.PlayheadTrack}`}>
-        <div style={{ position: 'fixed', left: `${100 * (current / limit)}%` }}>^</div> 
+        <div style={{ position: 'fixed', left: `${100 * (current / (limit+1))}%`, borderLeftColor: 'red', height: '20px', borderWidth: '1px', borderStyle: 'solid', fontFamily: 'monospace', color: 'rgba(0,0,0,0)' }}>ee</div> 
       </div>
     </div>
   )
