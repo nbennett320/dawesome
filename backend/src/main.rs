@@ -1,7 +1,6 @@
 use std::sync;
 use std::sync::atomic;
 use tauri;
-use serde_json::json;
 
 mod daw;
 mod util;

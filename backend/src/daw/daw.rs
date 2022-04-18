@@ -1,3 +1,4 @@
+use rodio::Source;
 use rodio::{Decoder, OutputStream, Sink};
 use std::fs::File;
 use std::io::BufReader;
@@ -6,12 +7,61 @@ use std::sync::atomic;
 use std::thread;
 use std::time;
 use tauri;
+use pulse;
+use psimple;
 
 use crate::daw::{daw_core, state};
 
+/** 
+  Play a single sound sample for its entire length
+  - Compiled only on Linux systems,
+  for use with Alsa, Jack, and PulseAudio drivers
+  */ 
+#[cfg(target_os = "linux")]
 pub async fn play_sample(path: &str) {
   let path = String::from(path);
   thread::spawn(move || {
+    let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+    let file = BufReader::new(File::open(path).unwrap());
+    let source = Decoder::new(file).unwrap();
+
+    let spec = pulse::sample::Spec {
+      format: pulse::sample::Format::S24NE,
+      channels: 2,
+      rate: 44_100
+    };
+
+    let sink = psimple::Simple::new(
+      None,
+      "dawesome",
+      pulse::stream::Direction::Playback,
+      None,
+      "dawesome output",
+      &spec,
+      None,
+      None
+    ).unwrap();
+
+    let raw_source: rodio::source::SamplesConverter<_, u16> = source.convert_samples();
+    let raw_vec: std::vec::Vec<u16> = raw_source.collect();
+
+    unsafe {
+      let raw_slice = raw_vec.align_to::<u8>().1;
+      sink.write(raw_slice);
+    }
+  });
+}
+
+/** 
+  Play a single sound sample for its entire length
+  - Compiled only on Windows and MacOS systems,
+  for use with ALSA and CoreAudio
+  */ 
+#[cfg(not(target_os = "linux"))]
+pub async fn play_sample(path: &str) {
+  let path = String::from(path);
+  thread::spawn(move || {
+    // read and decode audio file, and append to a sound sink
     let (_stream, stream_handle) = OutputStream::try_default().unwrap();
     let sink = Sink::try_new(&stream_handle).unwrap();
     let file = BufReader::new(File::open(path).unwrap());

@@ -12,15 +12,17 @@ version = "0.1.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [build-dependencies]
-tauri-build = {version = "1.0.0-rc.5", features = []}
+tauri-build = { version = "1.0.0-rc.5", features = [] }
 
 [dependencies]
 chrono = "0.4"
 futures = "0.3.21"
-rodio = {version = "*"}
-serde = {version = "1.0", features = ["derive"]}
+rodio = { version = "*" }
+pulse = { version = "2.26.*", package= "libpulse-binding" }
+psimple = { version="2.25.*", package="libpulse-simple-binding" }
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tauri = {version = "1.0.0-rc.5", features = ["api-all"]}
+tauri = { version = "1.0.0-rc.5", features = ["api-all"] }
 
 [features]
 # by default Tauri runs in production mode
