@@ -1,6 +1,15 @@
 .ButtonBase {
+  cursor: pointer;
 }
 
 .InputBase {
   width: 100%;
+}
+
+.SelectBase {
+  width: 100%;
+
+  &Button {
+    cursor: pointer;
+  }
 }

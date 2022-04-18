@@ -1,8 +1,19 @@
 .Button {
+  width: 100%;
 }
 
 .Input {
   width: 100%;
   display: flex;
   flex-direction: column;
+}
+
+.Select {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.Option {
+  cursor: pointer;
 }

@@ -1,24 +1,37 @@
 import React from 'react'
 import { invoke } from '@tauri-apps/api'
 import PreferencePageBase from '../../components/pages/PreferencePageBase'
+import Select from '../../components/common/Select'
+import Option from '../../components/common/Option'
 
 const DevicePreferences = () => {
-  const [drivers, setDrivers] = React.useState<any>()
+  const [drivers, setDrivers] = React.useState<string[]>()
+  const [driver, setDriver] = React.useState<string>()
 
   React.useEffect(() => {
     invoke('get_audio_drivers', {}).then(d => {
-      setDrivers(d)
+      setDrivers(d as string[])
+      setDriver((d as string[])[0])
     })
   })
 
+  const handleChangeDriver = (e: any) => {
+    console.log("ev:",e)
+    
+  }
+
   return (
     <PreferencePageBase>
-      <h3>Available audio drivers:</h3>
-      <ul>
-        {drivers?.map((el: any) => (
-          <li key={el}>{el}</li>
+      <Select 
+        value={driver}
+        onChange={handleChangeDriver}
+        label='Available Audio Drivers'
+      >
+        {drivers?.map((el: string) => (
+          <Option key={el}>{el}</Option>
         ))}
-      </ul>
+      </Select>
+      
     </PreferencePageBase>
   )
 }
