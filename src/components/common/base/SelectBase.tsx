@@ -9,7 +9,7 @@ export interface Props<T> extends React.HTMLProps<T> {
 
 const SelectBase = (props: React.PropsWithChildren<Props<HTMLSelectElement>>) => {
   const [visible, setVisble] = React.useState(false)
-  const ref = React.useRef<any>(null)
+  const ref = React.useRef<any>()
 
   React.useEffect(() => {
     if(ref?.current) {
@@ -27,16 +27,14 @@ const SelectBase = (props: React.PropsWithChildren<Props<HTMLSelectElement>>) =>
 
   return (
     <div ref={ref} className="w-64">
-      <div className="mt-1 relative">
+      <div className="border-blue-300 relative">
         <Button
           onClick={() => setVisble(!visible)}
-          onFocus={() => setVisble(true)}
-          onBlur={() => setVisble(false)}
           type='button'
           style={{ width: '100%'}}
-          className={`${styles.SelectBaseButton} relative bg-white rounded shadow-lg pl-3 pr-10 py-3 text-left focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 sm:text-sm`}>
+          className={`${styles.SelectBaseButton} relative bg-white rounded  pl-3 pr-10 py-1 text-left z-20 focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 sm:text-sm`}>
           <span className="flex items-center py-1">
-            <span className="ml-3 block truncate">
+            <span className="block truncate">
               {props.value}
             </span>
           </span>
