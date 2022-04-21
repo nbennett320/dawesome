@@ -145,9 +145,10 @@ pub fn run_playlist(state_ref: &sync::Arc<state::InnerState>) {
 
 pub fn pause_playlist(state: tauri::State<'_, sync::Arc<state::InnerState>>) {
   println!("pausing playlist");
-  state
-    .playlist_is_playing
-    .store(false, atomic::Ordering::SeqCst);
+
+  // pause the audiograph, clearing all start times
+  let mut audiograph_ref = state.playlist_audiograph.lock().unwrap();
+  audiograph_ref.pause();
 
   // reset playlist to 0 beats
   state
@@ -156,6 +157,11 @@ pub fn pause_playlist(state: tauri::State<'_, sync::Arc<state::InnerState>>) {
   state
     .playlist_total_beats
     .store(0, atomic::Ordering::SeqCst);
+  
+  // set playlist state to paused
+  state
+    .playlist_is_playing
+    .store(false, atomic::Ordering::SeqCst);
 }
 
 pub fn start_playlist(state: tauri::State<'_, sync::Arc<state::InnerState>>) {

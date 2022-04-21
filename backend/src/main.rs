@@ -106,12 +106,11 @@ fn add_audiograph_node(
   let id = state.playlist_audiograph.lock().unwrap()
     .construct_and_add_node(sample_path, start_offset);
   
+  // returns the id of the new node
   Ok(id)
 }
 
 fn main() {
-  // daw::print_device_drivers();
-
   tauri::Builder::default()
     .setup(app::setup)
     .menu(app::build_menu())
