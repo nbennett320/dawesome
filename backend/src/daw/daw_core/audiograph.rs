@@ -41,7 +41,7 @@ pub struct AudioGraph<'a> {
   running: bool,
   started_time: Option<u64>,
   current_offset: u64,
-  phantom: marker::PhantomData<&'a str>,
+  _phantom: marker::PhantomData<&'a str>,
 }
 
 impl AudioGraph<'static> {
@@ -51,7 +51,7 @@ impl AudioGraph<'static> {
       running: false,
       started_time: None,
       current_offset: 0,
-      phantom: marker::PhantomData,
+      _phantom: marker::PhantomData,
     }
   }
 
@@ -131,10 +131,25 @@ impl AudioGraph<'static> {
     id
   }
 
+  // remove node from graph with provided id
+  // panics if id does not exist
+  pub fn remove_node(&mut self, id: u64) {
+    let idx = self.nodes.iter().position(|a| a.id == id);
+    self.nodes.remove(idx.unwrap());
+  }
+
+  // clear all start times
   pub fn pause(&mut self) {
     for node in self.nodes.as_mut_slice() {
       node.clear_start_time();
     }
+
+    self.running = false;
+  }
+
+  // set offset of audiograph 
+  pub fn set_current_offset(&mut self, offset: u64) {
+    self.current_offset = offset;
   }
 
   // get the length in milliseconds from the start 
