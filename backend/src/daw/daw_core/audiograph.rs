@@ -30,6 +30,10 @@ impl AudioNode {
   pub fn set_start_time(&mut self, start_time: u64) {
     self.start_time = Some(start_time + self.start_offset);
   }
+
+  pub fn clear_start_time(&mut self) {
+    self.start_time = None;
+  }
 }
 
 pub struct AudioGraph<'a> {
@@ -72,9 +76,6 @@ impl AudioGraph<'static> {
       return;
     }
     
-    // construct a threadpool
-    let pool = daw::daw_core::threadpool::ThreadPool::new(4);
-
     // get starting index of nodes within this time slice
     let idx_start = self.nodes.iter()
       .position(|node| node.start_offset >= self.current_offset).unwrap();
@@ -86,9 +87,6 @@ impl AudioGraph<'static> {
     let self_arc = std::sync::Arc::new(std::sync::Mutex::new(self));
 
     // schedule samples within this timeslice to play
-    // let nodes: std::sync::Arc<std::sync::Mutex<std::vec::Vec<AudioNode<'static>>>> = std::sync::Arc::new(std::sync::Mutex::new(self.nodes));
-    // let current_offset = std::sync::atomic::AtomicU64::new(self.current_offset);
-
     let slice = self_arc.lock().unwrap().nodes[idx_start..idx_end].to_vec();
     for node in slice {
       let sample_path = std::sync::Arc::new(std::sync::Mutex::new(node.sample_path));
@@ -131,6 +129,12 @@ impl AudioGraph<'static> {
 
     self.add_node(node);
     id
+  }
+
+  pub fn pause(&mut self) {
+    for node in self.nodes.as_mut_slice() {
+      node.clear_start_time();
+    }
   }
 
   // get the length in milliseconds from the start 
