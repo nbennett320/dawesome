@@ -1,6 +1,7 @@
 use std::sync;
 use std::sync::atomic;
 use crate::daw::timing;
+use crate::daw;
 
 pub struct InnerState {
   pub global_tempo_bpm: sync::Arc<sync::Mutex<f32>>,
@@ -9,6 +10,7 @@ pub struct InnerState {
   pub playlist_total_beats: atomic::AtomicU64,
   pub playlist_current_beat: atomic::AtomicU16,
   pub playlist_time_signature: sync::Arc<sync::Mutex<timing::TimeSignature>>,
+  pub playlist_audiograph: sync::Arc<sync::Mutex<daw::AudioGraph<'static>>>,
   pub metronome_enabled: atomic::AtomicBool,
 }
 
@@ -28,6 +30,7 @@ impl InnerState {
         numerator: 4,
         denominator: 4
       })),
+      playlist_audiograph: sync::Arc::new(sync::Mutex::new(daw::AudioGraph::new())),
       metronome_enabled: atomic::AtomicBool::from(true),
     }
   }

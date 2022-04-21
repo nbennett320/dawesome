@@ -1,5 +1,3 @@
-use psimple;
-use pulse;
 use rodio::Source;
 use rodio::{Decoder, OutputStream, Sink};
 use std::fs::File;
@@ -11,6 +9,11 @@ use std::time;
 use tauri;
 
 use crate::daw::{daw_core, state};
+
+#[cfg(target_os = "linux")]
+use psimple;
+#[cfg(target_os = "linux")]
+use pulse;
 
 /**
 Play a single sound sample for its entire length
@@ -99,12 +102,20 @@ pub fn run_playlist(state_ref: &sync::Arc<state::InnerState>) {
     thread::spawn(move || loop {
       println!("tick");
 
+      // play metronome if enabled
       if state.metronome_enabled.load(atomic::Ordering::SeqCst) {
         play_metronome(&state);
       }
 
+      // run ahead n milliseconds and schedule the next
+      // samples in the audio graph to be played
+      let audiograph_ref = state.playlist_audiograph.lock().unwrap();
+      audiograph_ref.run_for(tempo_intrv_ms);
+
+      // sleep this thread for the length of a single beat
       thread::sleep(time::Duration::from_millis(tempo_intrv_ms));
 
+      // increment the beat counter
       let current_time_signature =
         state.playlist_time_signature.lock().unwrap();
       let current_beat =
@@ -113,10 +124,10 @@ pub fn run_playlist(state_ref: &sync::Arc<state::InnerState>) {
       state
         .playlist_current_beat
         .store(next_beat, atomic::Ordering::SeqCst);
-
       state
         .playlist_total_beats
         .fetch_add(1, atomic::Ordering::SeqCst);
+
       println!(
         "current beat: {}, total beats played: {}",
         state.playlist_current_beat.load(atomic::Ordering::SeqCst),
@@ -160,6 +171,9 @@ pub fn start_playlist(state: tauri::State<'_, sync::Arc<state::InnerState>>) {
   state
     .playlist_started_time
     .store(timestamp, atomic::Ordering::SeqCst);
+
+  // start audio graph
+  state.playlist_audiograph.lock().unwrap().init(timestamp.try_into().unwrap());
 
   let state_ref = state.inner();
   run_playlist(state_ref);

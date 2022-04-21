@@ -97,6 +97,18 @@ fn get_audio_drivers() -> Result<Vec<String>, String> {
   Ok(daw::drivers::get_sound_host_names())
 }
 
+#[tauri::command]
+fn add_audiograph_node(
+  state: tauri::State<'_, sync::Arc<daw::InnerState>>,
+  sample_path: String,
+  start_offset: u64
+) -> Result<u64, String> {
+  let id = state.playlist_audiograph.lock().unwrap()
+    .construct_and_add_node(sample_path, start_offset);
+  
+  Ok(id)
+}
+
 fn main() {
   // daw::print_device_drivers();
 
