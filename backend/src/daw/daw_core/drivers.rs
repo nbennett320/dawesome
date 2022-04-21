@@ -1,31 +1,10 @@
 use rodio::cpal::{self, traits::HostTrait};
 use rodio::{self, DeviceTrait};
+
+#[cfg(target_os = "linux")]
 use pulse;
+#[cfg(target_os = "linux")]
 use psimple;
-
-pub fn configure_audio_driver() {
-  if cfg!(target_os = "linux") {
-    // configure PulseAudio sound server
-    let spec = pulse::sample::Spec {
-      format: pulse::sample::Format::S24NE,
-      channels: 2,
-      rate: 44_100
-    };
-
-    let sink = psimple::Simple::new(
-      None,
-      "dawesome",
-      pulse::stream::Direction::Playback,
-      None,
-      "dawesome output",
-      &spec,
-      None,
-      None
-    ).unwrap();
-
-    
-  }
-}
 
 pub fn print_device_drivers() -> Result<(), String> {
   println!("Supported hosts:\n  {:?}", cpal::ALL_HOSTS);
@@ -93,6 +72,7 @@ pub fn print_device_drivers() -> Result<(), String> {
       }
     }
   }
+
   Ok(())
 }
 
