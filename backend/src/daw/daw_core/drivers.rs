@@ -1,8 +1,12 @@
 use rodio::cpal::{self, traits::HostTrait};
 use rodio::{self, DeviceTrait};
+
+#[cfg(target_os = "linux")]
 use pulse;
+#[cfg(target_os = "linux")]
 use psimple;
 
+#[cfg(target_os = "linux")]
 pub fn configure_audio_driver() {
   if cfg!(target_os = "linux") {
     // configure PulseAudio sound server
