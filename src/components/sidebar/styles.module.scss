@@ -1,0 +1,24 @@
+.SidebarBase {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 15.1515%;
+}
+
+.Sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100%;
+}
+
+.SidebarHeaderContainer {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+}
+
+.SidebarBody {
+  display: flex;
+  flex-direction: column;
+}

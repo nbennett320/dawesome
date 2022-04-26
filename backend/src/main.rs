@@ -93,6 +93,11 @@ fn set_playlist_time_signature(
 }
 
 #[tauri::command]
+fn get_sidebar_samples() -> Result<Vec<String>, String> {
+  Ok(app::get_sidebar_samples())
+}
+
+#[tauri::command]
 fn get_audio_drivers() -> Result<Vec<String>, String> {
   Ok(daw::drivers::get_sound_host_names())
 }
@@ -126,7 +131,9 @@ fn main() {
       get_playlist_runtime_formatted,
       get_playlist_time_signature,
       set_playlist_time_signature,
-      get_audio_drivers
+      get_sidebar_samples,
+      get_audio_drivers,
+      add_audiograph_node
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
