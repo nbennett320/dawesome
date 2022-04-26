@@ -1,6 +1,5 @@
 import React from 'react'
 import { DragEffect } from '../../types/dragAndDrop'
-import { hexGen } from '../../util/helpers'
 import styles from './styles.module.scss'
 
 interface Props {
@@ -25,7 +24,6 @@ const Draggable = (props: React.PropsWithChildren<Props>) => {
   
   const handleDragStart = (ev: React.DragEvent<HTMLDivElement>) => {
     setDragging(true)
-
     
     const data = {
       props

@@ -11,8 +11,10 @@ const Droppable = (props: React.PropsWithChildren<Props>) => {
   const [over, setOver] = React.useState(false)
 
   const handleDragOver = (ev: React.DragEvent<HTMLDivElement>) => {
+    ev.stopPropagation()
     ev.preventDefault()
     ev.dataTransfer.dropEffect = props.type
+    return false
   }
 
   const handleDrop = (ev: React.DragEvent<HTMLDivElement>) => {

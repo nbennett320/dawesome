@@ -37,6 +37,7 @@ const Sidebar = (props: React.PropsWithChildren<Props>) => {
             <Draggable 
               item={e}
               type={DragEffectEnum.Link}
+              key={e}
             >
               <span className='text-xs text-ellipsis whitespace-nowrap overflow-hidden w-full'>
                 {e}
