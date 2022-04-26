@@ -3,6 +3,7 @@ import { RootState } from 'state/store'
 
 export interface WindowState {
   playlist: boolean
+  sidebar: boolean
   devicePreferences: boolean
 }
 
@@ -10,20 +11,38 @@ export interface WindowState {
 // which parses dawesome.config file
 const initialState = {
   playlist: true,
-  devicePreferences: false
+  sidebar: true,
+  devicePreferences: false,
 } as WindowState
 
 export const windowSlice = createSlice({
   name: 'windowSlice',
   initialState,
   reducers: {
+    setSidebar: (state, action) => {
+      state.sidebar = action.payload
+    },
     reduceShowDevicePreferences: (state, action) => {
       state.devicePreferences = action.payload
     },
   },
 })
 
-// start play/pause methods
+// start sidebar methods
+export const { setSidebar } = windowSlice.actions
+
+export const toggleSidebar = () => (
+  dispatch: Dispatch, 
+  getState: () => RootState
+) => {
+  const open = getState().window.sidebar
+  dispatch(setSidebar(!open))
+}
+
+export const selectSidebar = (state: RootState) => state.window.sidebar
+// end sidebar methods
+
+// start show device methods
 export const { reduceShowDevicePreferences } = windowSlice.actions
 
 export const setShowDevicePreferences = (val: boolean) => async (dispatch: Dispatch) => {
