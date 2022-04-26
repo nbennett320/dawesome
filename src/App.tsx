@@ -1,6 +1,7 @@
 import React from 'react'
 import { useAppSelector, useAppDispatch } from './hooks/redux'
 import Topbar from './components/topbar/Topbar'
+import Sidebar from './components/sidebar/Sidebar'
 import Playlist from './views/playlist/Playlist'
 import { listeners } from './events/window'
 import { selectDevicePreferences } from './state/slices/windowSlice'
@@ -17,10 +18,15 @@ const App = () => {
   return (
     <div className="min-h-screen text-gray-800">
       <Topbar />
-      {devicePreferences 
-        ? <DevicePreferences />
-        : <Playlist />
-      }
+      <div className="flex flex-row w-full">
+        <Sidebar />
+        <div className="w-full">
+          {devicePreferences 
+            ? <DevicePreferences />
+            : <Playlist />
+          }
+        </div>
+      </div>
     </div>
   )
 }
