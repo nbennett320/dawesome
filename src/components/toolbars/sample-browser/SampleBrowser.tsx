@@ -1,8 +1,4 @@
 import React from 'react'
-import {
-  toggleSidebar,
-  selectSidebar,
-} from '../../../state/slices/windowSlice'
 import { 
   getPlaylistSamples,
   selectPlaylistSamples,
@@ -14,8 +10,7 @@ import styles from './styles.module.scss'
 interface Props {
 }
 
-const Sidebar = (props: React.PropsWithChildren<Props>) => {
-  const open = useAppSelector(selectSidebar)
+const SampleBrowser = (props: React.PropsWithChildren<Props>) => {
   const samples = useAppSelector(selectPlaylistSamples)
   const dispatch = useAppDispatch()
 
@@ -24,12 +19,12 @@ const Sidebar = (props: React.PropsWithChildren<Props>) => {
   }, [])
 
   return (
-    <div className={`${styles.Sidebar}`}>
-      <div className={styles.SidebarBody}>
+    <div className={`${styles.SampleBrowser}`}>
+      <div className={styles.SampleBrowserItemContainer}>
         {samples.map((e, i) => (
           <SampleItem 
             name={e}
-            key={`${e}-${i}`}
+            key={`${e}-${i as unknown as string}`}
           />
         ))}
       </div>
@@ -37,4 +32,4 @@ const Sidebar = (props: React.PropsWithChildren<Props>) => {
   )
 }
 
-export default Sidebar
+export default SampleBrowser

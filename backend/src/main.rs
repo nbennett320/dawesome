@@ -1,5 +1,6 @@
 use std::sync;
 use std::sync::atomic;
+use std::thread;
 use tauri;
 
 mod app;
@@ -102,7 +103,9 @@ fn preview_sample(
   _state: tauri::State<'_, sync::Arc<daw::InnerState>>,
   path: String,
 ) {
-  futures::executor::block_on(daw::play_sample(&path));
+  thread::spawn(move || {
+    futures::executor::block_on(daw::play_sample(&path));
+  });
 }
 
 #[tauri::command]
