@@ -2,9 +2,9 @@ use std::sync;
 use std::sync::atomic;
 use tauri;
 
+mod app;
 mod daw;
 mod util;
-mod app;
 
 #[tauri::command]
 fn toggle_playlist(state: tauri::State<'_, sync::Arc<daw::InnerState>>) {
@@ -83,11 +83,11 @@ fn get_playlist_time_signature(
 fn set_playlist_time_signature(
   state: tauri::State<'_, sync::Arc<daw::InnerState>>,
   numerator: u16,
-  denominator: u16
+  denominator: u16,
 ) {
   let updated: daw::timing::TimeSignature = daw::timing::TimeSignature {
-    numerator: numerator,
-    denominator: denominator
+    numerator,
+    denominator,
   };
   *state.playlist_time_signature.lock().unwrap() = updated;
 }
@@ -95,6 +95,14 @@ fn set_playlist_time_signature(
 #[tauri::command]
 fn get_sidebar_samples() -> Result<Vec<String>, String> {
   Ok(app::get_sidebar_samples())
+}
+
+#[tauri::command]
+fn preview_sample(
+  _state: tauri::State<'_, sync::Arc<daw::InnerState>>,
+  path: String,
+) {
+  futures::executor::block_on(daw::play_sample(&path));
 }
 
 #[tauri::command]
@@ -106,11 +114,14 @@ fn get_audio_drivers() -> Result<Vec<String>, String> {
 fn add_audiograph_node(
   state: tauri::State<'_, sync::Arc<daw::InnerState>>,
   sample_path: String,
-  start_offset: u64
+  start_offset: u64,
 ) -> Result<u64, String> {
-  let id = state.playlist_audiograph.lock().unwrap()
+  let id = state
+    .playlist_audiograph
+    .lock()
+    .unwrap()
     .construct_and_add_node(sample_path, start_offset);
-  
+
   // returns the id of the new node
   Ok(id)
 }
@@ -132,6 +143,7 @@ fn main() {
       get_playlist_time_signature,
       set_playlist_time_signature,
       get_sidebar_samples,
+      preview_sample,
       get_audio_drivers,
       add_audiograph_node
     ])

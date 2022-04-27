@@ -6,6 +6,7 @@ interface Props {
   item: string
   type: DragEffect
   image?: string
+  onClick?: any
 }
 
 const Draggable = (props: React.PropsWithChildren<Props>) => {
@@ -45,6 +46,7 @@ const Draggable = (props: React.PropsWithChildren<Props>) => {
       className={`${dragging ? styles.DraggableDragging : ''} overflow-hidden text-ellipsis`}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
+      onClick={props?.onClick}
       draggable
     >
       {props.children}
