@@ -72,6 +72,7 @@ pub async fn play_sample(path: &str) {
     let sink = Sink::try_new(&stream_handle).unwrap();
     let file = BufReader::new(File::open(path).unwrap());
     let source = Decoder::new(file).unwrap();
+
     sink.append(source);
     sink.play();
     sink.sleep_until_end();
@@ -157,7 +158,7 @@ pub fn pause_playlist(state: tauri::State<'_, sync::Arc<state::InnerState>>) {
   state
     .playlist_total_beats
     .store(0, atomic::Ordering::SeqCst);
-  
+
   // set playlist state to paused
   state
     .playlist_is_playing
@@ -179,7 +180,11 @@ pub fn start_playlist(state: tauri::State<'_, sync::Arc<state::InnerState>>) {
     .store(timestamp, atomic::Ordering::SeqCst);
 
   // start audio graph
-  state.playlist_audiograph.lock().unwrap().init(timestamp.try_into().unwrap());
+  state
+    .playlist_audiograph
+    .lock()
+    .unwrap()
+    .init(timestamp.try_into().unwrap());
 
   let state_ref = state.inner();
   run_playlist(state_ref);
