@@ -37,10 +37,10 @@ impl AudioNode {
 }
 
 pub struct AudioGraph<'a> {
-  nodes: std::vec::Vec<AudioNode>,
-  running: bool,
-  started_time: Option<u64>,
-  current_offset: u64,
+  pub nodes: std::vec::Vec<AudioNode>,
+  pub running: bool,
+  pub started_time: Option<u64>,
+  pub current_offset: u64,
   _phantom: marker::PhantomData<&'a str>,
 }
 
@@ -77,18 +77,26 @@ impl AudioGraph<'static> {
     }
     
     // get starting index of nodes within this time slice
-    let idx_start = self.nodes.iter()
-      .position(|node| node.start_offset >= self.current_offset).unwrap();
+    let idx_start_opt = self.nodes.iter()
+      .position(|node| node.start_offset >= self.current_offset);
+
+    if idx_start_opt == None {
+      return;
+    }
+
+    let idx_start = idx_start_opt.unwrap();
 
     // get last index of nodes within this time slice
     let idx_end = self.nodes.iter().rev()
-      .position(|node| (node.start_offset + time_ms) > self.current_offset).unwrap() - 1;
+      .position(|node| (node.start_offset + time_ms) > self.current_offset).unwrap() + 1;
 
     let self_arc = std::sync::Arc::new(std::sync::Mutex::new(self));
 
     // schedule samples within this timeslice to play
     let slice = self_arc.lock().unwrap().nodes[idx_start..idx_end].to_vec();
+    println!("len: {}, {}",slice.len(), self.nodes.len());
     for node in slice {
+      println!("node.start_offset: {}", node.start_offset);
       let sample_path = std::sync::Arc::new(std::sync::Mutex::new(node.sample_path));
       let start_offset = std::sync::Arc::new(std::sync::Mutex::new(node.start_offset));
       let current_offset = std::sync::Arc::new(std::sync::Mutex::new(self_arc.lock().unwrap().current_offset));
@@ -144,6 +152,7 @@ impl AudioGraph<'static> {
       node.clear_start_time();
     }
 
+    self.current_offset = 0;
     self.running = false;
   }
 
@@ -159,5 +168,11 @@ impl AudioGraph<'static> {
   pub fn len_real_in_ms(self) -> u64 {
     if self.nodes.len() == 0 { return 0; }
     self.nodes.last().unwrap().start_offset
+  }
+
+  // count number of nodes
+  pub fn len(&self) -> usize {
+    let res = self.nodes.len();
+    res
   }
 }

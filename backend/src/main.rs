@@ -129,6 +129,29 @@ fn add_audiograph_node(
   Ok(id)
 }
 
+#[tauri::command]
+fn get_playlist_sample_offset(
+  state: tauri::State<'_, sync::Arc<daw::InnerState>>,
+  drop_x: f32,
+  drop_y: f32,
+  min_bound_x: f32,
+  min_bound_y: f32,
+  max_bound_x: f32,
+  max_bound_y: f32,
+) -> Result<u64, String> {
+  let res = util::calc_playlist_sample_offset(
+    drop_x,
+    drop_y,
+    min_bound_x,
+    min_bound_y,
+    max_bound_x,
+    max_bound_y,
+    2000
+  );
+
+  Ok(res)
+}
+
 fn main() {
   tauri::Builder::default()
     .setup(app::setup)
@@ -148,7 +171,8 @@ fn main() {
       get_sidebar_samples,
       preview_sample,
       get_audio_drivers,
-      add_audiograph_node
+      add_audiograph_node,
+      get_playlist_sample_offset
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

@@ -1,12 +1,14 @@
 import { createSlice, Dispatch } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api'
 import { RootState } from 'state/store'
+import { PlaylistItem } from '../../types/playlist'
 
 export interface PlaylistState {
   playing: boolean
   tempo: number
   runtime?: string | null
-  metronomeEnabled: boolean
+  metronomeEnabled: boolean,
+  playlistItems: Array<PlaylistItem>
 }
 
 // todo: get initial state from backend,
@@ -16,6 +18,7 @@ const initialState = {
   tempo: 120,
   runtime: null,
   metronomeEnabled: true,
+  playlistItems: [],
 } as PlaylistState
 
 export const playlistSlice = createSlice({
@@ -33,6 +36,13 @@ export const playlistSlice = createSlice({
     },
     setMetronomeEnabled: (state, action) => {
       state.metronomeEnabled = action.payload
+    },
+    addPlaylistItem: (state, action) => {
+      state.playlistItems.push({
+        id: action.payload.id,
+        path: action.payload.path,
+        offset: action.payload.offset,
+      } as PlaylistItem)
     },
   },
 })
@@ -92,6 +102,26 @@ export const toggleMetronome = () => async (dispatch: Dispatch) => {
 export const selectMetronomeEnabled = (state: RootState) =>
   state.playlist.metronomeEnabled
 // end metronome enable/disable methods
+
+// start playlist item methods
+export const { addPlaylistItem } = playlistSlice.actions
+
+export const addToPlaylist = (path: string, offset: number) => async (dispath: Dispatch) => {
+  console.log(path, offset)
+  const id = await invoke<number>('add_audiograph_node', {
+    samplePath: path,
+    startOffset: offset
+  })
+  console.log("id:",id)
+  dispath(addPlaylistItem({
+    id,
+    path,
+    offset
+  } as PlaylistItem))
+}
+
+export const selectPlaylistItems = (state: RootState) => state.playlist.playlistItems
+// end playlist item methods
 
 // export root reducer for this slice
 export default playlistSlice.reducer

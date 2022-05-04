@@ -80,7 +80,6 @@ pub async fn play_sample(path: &str) {
 }
 
 pub fn play_metronome(state_ref: &sync::Arc<state::InnerState>) {
-  println!("before spawn");
   let state = state_ref.clone();
 
   if state.playlist_current_beat.load(atomic::Ordering::SeqCst) > 0 {
@@ -93,7 +92,6 @@ pub fn play_metronome(state_ref: &sync::Arc<state::InnerState>) {
 }
 
 pub fn run_playlist(state_ref: &sync::Arc<state::InnerState>) {
-  println!("before spawn");
   let state = state_ref.clone();
   let pool = daw_core::threadpool::ThreadPool::new(4);
   let tempo = *state_ref.global_tempo_bpm.lock().unwrap();
@@ -101,7 +99,7 @@ pub fn run_playlist(state_ref: &sync::Arc<state::InnerState>) {
 
   pool.exec(move || {
     thread::spawn(move || loop {
-      println!("tick");
+      println!("tick: {}ms", &state.playlist_audiograph.lock().unwrap().current_offset);
 
       // play metronome if enabled
       if state.metronome_enabled.load(atomic::Ordering::SeqCst) {
@@ -110,8 +108,10 @@ pub fn run_playlist(state_ref: &sync::Arc<state::InnerState>) {
 
       // run ahead n milliseconds and schedule the next
       // samples in the audio graph to be played
-      let audiograph_ref = state.playlist_audiograph.lock().unwrap();
+      let mut audiograph_ref = state.playlist_audiograph.lock().unwrap();
       audiograph_ref.run_for(tempo_intrv_ms);
+      let curr = audiograph_ref.current_offset;
+      audiograph_ref.set_current_offset(curr + tempo_intrv_ms);
 
       // sleep this thread for the length of a single beat
       thread::sleep(time::Duration::from_millis(tempo_intrv_ms));
