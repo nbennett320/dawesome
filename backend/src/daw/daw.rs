@@ -15,6 +15,8 @@ use psimple;
 #[cfg(target_os = "linux")]
 use pulse;
 
+use super::audiograph;
+
 /**
 Play a single sound sample for its entire length
 - Compiled only on Linux systems,
@@ -102,7 +104,7 @@ pub fn run_playlist(state_ref: &sync::Arc<state::InnerState>) {
       println!("tick: {}ms", &state.playlist_audiograph.lock().unwrap().current_offset);
 
       // play metronome if enabled
-      if state.metronome_enabled.load(atomic::Ordering::SeqCst) {
+      if state.metronome_enabled.load(atomic::Ordering::SeqCst) && state.playlist_is_playing.load(atomic::Ordering::SeqCst) {
         play_metronome(&state);
       }
 
@@ -111,7 +113,12 @@ pub fn run_playlist(state_ref: &sync::Arc<state::InnerState>) {
       let mut audiograph_ref = state.playlist_audiograph.lock().unwrap();
       audiograph_ref.run_for(tempo_intrv_ms);
       let curr = audiograph_ref.current_offset;
-      audiograph_ref.set_current_offset(curr + tempo_intrv_ms);
+
+      if state.playlist_is_playing.load(atomic::Ordering::SeqCst) {
+        audiograph_ref.set_current_offset(curr + tempo_intrv_ms);
+      } else {
+        audiograph_ref.set_current_offset(curr);
+      }
 
       // sleep this thread for the length of a single beat
       thread::sleep(time::Duration::from_millis(tempo_intrv_ms));
@@ -122,12 +129,17 @@ pub fn run_playlist(state_ref: &sync::Arc<state::InnerState>) {
       let current_beat =
         state.playlist_current_beat.load(atomic::Ordering::SeqCst);
       let next_beat = (current_beat + 1) % current_time_signature.numerator;
-      state
-        .playlist_current_beat
-        .store(next_beat, atomic::Ordering::SeqCst);
-      state
-        .playlist_total_beats
-        .fetch_add(1, atomic::Ordering::SeqCst);
+      
+      if state.playlist_is_playing.load(atomic::Ordering::SeqCst) {
+        state
+          .playlist_current_beat
+          .store(next_beat, atomic::Ordering::SeqCst);
+        state
+          .playlist_total_beats
+          .fetch_add(1, atomic::Ordering::SeqCst);
+      } else {
+        state.playlist_current_beat.store(0, atomic::Ordering::SeqCst);
+      }
 
       println!(
         "current beat: {}, total beats played: {}",
@@ -188,4 +200,13 @@ pub fn start_playlist(state: tauri::State<'_, sync::Arc<state::InnerState>>) {
 
   let state_ref = state.inner();
   run_playlist(state_ref);
+}
+
+pub fn set_playlist_tempo(
+  state: tauri::State<'_, sync::Arc<state::InnerState>>,
+  val: f32,
+) {
+  let old_tempo = *state.global_tempo_bpm.lock().unwrap();
+  state.playlist_audiograph.lock().unwrap().fit_nodes_to_tempo(val, old_tempo);
+  *state.global_tempo_bpm.lock().unwrap() = val;
 }

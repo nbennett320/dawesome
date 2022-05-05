@@ -1,15 +1,18 @@
 use std::thread;
+use std::sync;
 use std::time;
 use std::marker;
 use futures;
 use crate::daw;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AudioNode {
   id: u64,
   sample_path: String,
   start_time: Option<u64>,
-  start_offset: u64
+  start_offset: u64,
+  handle: sync::Arc<sync::Mutex<Option<thread::JoinHandle<()>>>>,
+  running: bool,
 }
 
 impl AudioNode {
@@ -22,7 +25,9 @@ impl AudioNode {
       id,
       sample_path,
       start_time: None,
-      start_offset
+      start_offset,
+      handle: sync::Arc::new(sync::Mutex::from(None)),
+      running: false,
     }
   }
 
@@ -31,8 +36,13 @@ impl AudioNode {
     self.start_time = Some(start_time + self.start_offset);
   }
 
+  // reset node start time 
   pub fn clear_start_time(&mut self) {
     self.start_time = None;
+  }
+
+  pub fn set_handle(self, handle: thread::JoinHandle<()>) {
+    *self.handle.lock().unwrap() = Some(handle);
   }
 }
 
@@ -78,17 +88,27 @@ impl AudioGraph<'static> {
     
     // get starting index of nodes within this time slice
     let idx_start_opt = self.nodes.iter()
-      .position(|node| node.start_offset >= self.current_offset);
+      .position(|node| 
+          node.start_offset >= self.current_offset &&
+          node.start_offset < (self.current_offset + time_ms));
 
     if idx_start_opt == None {
+      println!("No start index!");
       return;
     }
 
     let idx_start = idx_start_opt.unwrap();
 
     // get last index of nodes within this time slice
-    let idx_end = self.nodes.iter().rev()
-      .position(|node| (node.start_offset + time_ms) > self.current_offset).unwrap() + 1;
+    let idx_end_opt = self.nodes.iter()
+      .rposition(|node| node.start_offset > (self.current_offset + time_ms));
+    
+    let idx_end = match idx_end_opt {
+      Some(x) => x,
+      None => idx_start,
+    };
+    
+    println!("start, end: {}, {}", idx_start, idx_end);
 
     let self_arc = std::sync::Arc::new(std::sync::Mutex::new(self));
 
@@ -97,19 +117,23 @@ impl AudioGraph<'static> {
     println!("len: {}, {}",slice.len(), self.nodes.len());
     for node in slice {
       println!("node.start_offset: {}", node.start_offset);
-      let sample_path = std::sync::Arc::new(std::sync::Mutex::new(node.sample_path));
+      let sample_path = std::sync::Arc::new(std::sync::Mutex::new(Box::from(node.sample_path.as_ref())));
       let start_offset = std::sync::Arc::new(std::sync::Mutex::new(node.start_offset));
       let current_offset = std::sync::Arc::new(std::sync::Mutex::new(self_arc.lock().unwrap().current_offset));
-      // let current_offset = current_offset.load(std::sync::atomic::Ordering::SeqCst).clone();
+      let running = std::sync::Arc::new(std::sync::Mutex::new(self_arc.lock().unwrap().running));
 
-      thread::spawn(move || {
+      let handle = thread::spawn(move || {
         // calculate time until sample is played
         let dur = *start_offset.lock().unwrap() - *current_offset.lock().unwrap();
         
         // sleep this thread until it's time to play the sample, then play it
         thread::sleep(time::Duration::from_millis(dur));
-        futures::executor::block_on(daw::play_sample(&*sample_path.lock().unwrap()));
+        if *running.lock().unwrap() {
+          futures::executor::block_on(daw::play_sample(&*sample_path.lock().unwrap()));
+        }
       });
+
+      node.set_handle(handle);
     }
   }
 
@@ -146,9 +170,13 @@ impl AudioGraph<'static> {
     self.nodes.remove(idx.unwrap());
   }
 
-  // clear all start times
+  // stop playback of all nodes and clear start times
   pub fn pause(&mut self) {
     for node in self.nodes.as_mut_slice() {
+      if node.running {
+        node.running = false;
+      }
+
       node.clear_start_time();
     }
 
@@ -174,5 +202,17 @@ impl AudioGraph<'static> {
   pub fn len(&self) -> usize {
     let res = self.nodes.len();
     res
+  }
+  
+  // adjust all node start times to match tempo
+  pub fn fit_nodes_to_tempo(&mut self, new_tempo: f32, old_tempo: f32) {
+    let ratio = old_tempo / new_tempo;
+
+    println!("ratio: {}",ratio);
+
+    for node in self.nodes.as_mut_slice() {
+      let new_offset = (node.start_offset as f32 * ratio).round() as u64;
+      node.set_start_time(new_offset);
+    }
   }
 }

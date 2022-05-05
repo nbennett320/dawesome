@@ -44,7 +44,7 @@ fn set_playlist_tempo(
   val: f32,
 ) {
   println!("playlist tempo updated: {}", val);
-  *state.global_tempo_bpm.lock().unwrap() = val;
+  daw::set_playlist_tempo(state, val);
 }
 
 #[tauri::command]
