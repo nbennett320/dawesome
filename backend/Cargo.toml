@@ -20,6 +20,7 @@ futures = "0.3.21"
 rodio = { version = "*" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+svg = "0.10.0"
 tauri = { version = "1.0.0-rc.5", features = ["api-all"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]

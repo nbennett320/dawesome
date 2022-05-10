@@ -2,8 +2,14 @@ use std::thread;
 use std::sync;
 use std::time;
 use std::marker;
+use std::vec::Vec;
+use std::fs::File;
+use std::io::BufReader;
 use futures;
+use rodio::{Decoder};
+use svg::node::element;
 use crate::daw;
+use crate::util;
 
 #[derive(Clone, Debug)]
 pub struct AudioNode {
@@ -41,8 +47,50 @@ impl AudioNode {
     self.start_time = None;
   }
 
+  // attach a thread handle to a node
   pub fn set_handle(self, handle: thread::JoinHandle<()>) {
     *self.handle.lock().unwrap() = Some(handle);
+  }
+
+  // get a path of a node's normalized audio waveform
+  pub fn get_waveform(&self) -> () {
+    let file = BufReader::new(File::open(&self.sample_path).unwrap());
+    let source = Decoder::new(file).unwrap();
+    let mut samples = std::vec::Vec::<i16>::new();
+
+    println!("raw len: {:?}", source.size_hint());
+    for sample in source {
+      samples.push(sample);
+    }
+
+    let xs = (0..samples.len()).into_iter().map(|x| x as i32).collect();
+    let ys = samples.iter().map(|y| *y as i32).collect();
+    let interp = util::math::interpolate_to(xs, ys, 4000);
+    let (x_interps, y_interps) = interp.unwrap();
+    println!("interp lens: {:?}, {:?}", x_interps.len(), y_interps.len());
+
+    let (min_x, min_y) = (0, -y_interps.iter().max().unwrap());
+    let (max_x, max_y) = (x_interps.len(), 2 * (*y_interps.iter().max().unwrap() as i32));
+    let mut svg = element::SVG::new()
+      .set("viewBox", (min_x, min_y, max_x, max_y));
+    
+    for idx in 1..y_interps.len() {
+      let (x1, y1) = (idx-1, y_interps[idx-1]);
+      let (x2, y2) = (idx, y_interps[idx]);
+
+      let line = element::Line::new()
+        .set("x1", x1)
+        .set("y1", y1)
+        .set("x2", x2)
+        .set("y2", y2)
+        .set("stroke", "black")
+        .set("stroke-width", "0.1%")
+        .set("stroke-linejoin", "round");
+      svg = svg.add(line);
+    }
+
+    svg::save("image.svg", &svg).unwrap();
+    // String::from("")
   }
 }
 
@@ -158,6 +206,8 @@ impl AudioGraph<'static> {
       sample_path,
       start_offset
     );
+
+    node.get_waveform();
 
     self.add_node(node);
     id
