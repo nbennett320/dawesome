@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "preinstall": "npx only-allow pnpm",
-    "ui:start": "vite dev --port 3000 --strictPort",
+    "ui:start": "vite dev --port 4431 --strictPort",
     "ui:build": "vite build",
     "ui:test": "jest",
     "info": "tauri info",

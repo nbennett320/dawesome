@@ -1,3 +1,5 @@
+use std::borrow::Borrow;
+use std::ops::Deref;
 use std::thread;
 use std::sync;
 use std::time;
@@ -13,7 +15,7 @@ use crate::util;
 
 #[derive(Clone, Debug)]
 pub struct AudioNode {
-  id: u64,
+  pub id: u64,
   sample_path: String,
   start_time: Option<u64>,
   start_offset: u64,
@@ -53,7 +55,7 @@ impl AudioNode {
   }
 
   // get a path of a node's normalized audio waveform
-  pub fn get_waveform(&self) -> () {
+  pub fn get_waveform(&self) -> String {
     let file = BufReader::new(File::open(&self.sample_path).unwrap());
     let source = Decoder::new(file).unwrap();
     let mut samples = std::vec::Vec::<i16>::new();
@@ -63,34 +65,46 @@ impl AudioNode {
       samples.push(sample);
     }
 
-    let xs = (0..samples.len()).into_iter().map(|x| x as i32).collect();
-    let ys = samples.iter().map(|y| *y as i32).collect();
-    let interp = util::math::interpolate_to(xs, ys, 4000);
+    // get frames and interpolate points
+    let xs: Vec<i32> = (0..samples.len()).into_iter().map(|x| x as i32).collect();
+    let ys: Vec<i32> = samples.iter().map(|y| *y as i32).collect();
+    // let interp = util::math::local_extremes(xs, ys);
+    let interp = Some((xs as Vec<i32>, ys as Vec<i32>));
     let (x_interps, y_interps) = interp.unwrap();
     println!("interp lens: {:?}, {:?}", x_interps.len(), y_interps.len());
 
+    // calculate bounding box
     let (min_x, min_y) = (0, -y_interps.iter().max().unwrap());
     let (max_x, max_y) = (x_interps.len(), 2 * (*y_interps.iter().max().unwrap() as i32));
     let mut svg = element::SVG::new()
       .set("viewBox", (min_x, min_y, max_x, max_y));
-    
-    for idx in 1..y_interps.len() {
-      let (x1, y1) = (idx-1, y_interps[idx-1]);
-      let (x2, y2) = (idx, y_interps[idx]);
 
-      let line = element::Line::new()
-        .set("x1", x1)
-        .set("y1", y1)
-        .set("x2", x2)
-        .set("y2", y2)
-        .set("stroke", "black")
-        .set("stroke-width", "0.1%")
-        .set("stroke-linejoin", "round");
-      svg = svg.add(line);
+    // initialize data path
+    let mut data = element::path::Data::new().move_to((0, 0));
+    
+    // fill path
+    for idx in 1..y_interps.len() {
+      let p1 = (idx, y_interps[idx]);
+      data = data.line_to(p1)
     }
 
-    svg::save("image.svg", &svg).unwrap();
-    // String::from("")
+    // close the path
+    data = data.close();
+
+    // fetch calculated path value
+    let path = element::Path::new()
+      .set("stroke", "black")
+      .set("stroke-width", "0.05%")
+      .set("fill", "black")
+      .set("d", data);
+
+    let pathd = path.get_inner().get_attributes().get("d").unwrap();
+
+    // svg = svg.add(path);
+
+    // svg::save("image.svg", &svg).unwrap();
+  
+    pathd.to_string()
   }
 }
 
@@ -170,6 +184,7 @@ impl AudioGraph<'static> {
       let current_offset = std::sync::Arc::new(std::sync::Mutex::new(self_arc.lock().unwrap().current_offset));
       let running = std::sync::Arc::new(std::sync::Mutex::new(self_arc.lock().unwrap().running));
 
+      // run time slice
       let handle = thread::spawn(move || {
         // calculate time until sample is played
         let dur = *start_offset.lock().unwrap() - *current_offset.lock().unwrap();

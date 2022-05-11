@@ -130,6 +130,29 @@ fn add_audiograph_node(
 }
 
 #[tauri::command]
+fn get_node_data(
+  state: tauri::State<'_, sync::Arc<daw::InnerState>>,
+  id: u64,
+) -> Result<String, String> {
+  let svg_pathd = state
+    .playlist_audiograph
+    .lock()
+    .unwrap()
+    .nodes
+    .iter()
+    .find(|&el| { el.id == id })
+    .unwrap()
+    .get_waveform();
+
+  // return the svg path
+  // todo:
+  // in the future this method will 
+  // return other data on nodes for
+  // populating the timeline graph
+  Ok(svg_pathd)
+}
+
+#[tauri::command]
 fn get_playlist_sample_offset(
   state: tauri::State<'_, sync::Arc<daw::InnerState>>,
   drop_x: f32,
@@ -139,6 +162,7 @@ fn get_playlist_sample_offset(
   max_bound_x: f32,
   max_bound_y: f32,
 ) -> Result<u64, String> {
+  // todo: choose a number that isn't arbitrary
   let res = util::calc_playlist_sample_offset(
     drop_x,
     drop_y,
@@ -172,6 +196,7 @@ fn main() {
       preview_sample,
       get_audio_drivers,
       add_audiograph_node,
+      get_node_data,
       get_playlist_sample_offset
     ])
     .run(tauri::generate_context!())

@@ -16,7 +16,7 @@ const Playlist = () => {
   const playlistBoxRef = React.useRef<HTMLDivElement>(null)
   const [{ canDrop, isOver }, dropRef] = useDrop(() => ({
     accept: PlaylistTypes.PlaylistItem,
-    drop: async (item, monitor) => {
+    drop: async (item: Record<string, any>, monitor) => {
       console.log(item, monitor.getClientOffset())
       const offset = await invoke<number>('get_playlist_sample_offset', {
         dropX: monitor.getClientOffset()?.x,
@@ -27,32 +27,32 @@ const Playlist = () => {
         maxBoundY: playlistBoxRef.current?.getBoundingClientRect().bottom,
       })
 
-      dispatch(addToPlaylist(item.name, offset))
+      dispatch(addToPlaylist(item.name as string, offset))
     },
     collect: (monitor) => ({
       isOver: monitor.isOver(),
       canDrop: monitor.canDrop(),
     }),
   }))
-  const items = useAppSelector(selectPlaylistItems)
 
+  const items = useAppSelector(selectPlaylistItems)
   const isActive = canDrop && isOver
-  if(isActive) console.log("active")
 
   return (
     <div 
       ref={dropRef}
-      data-testid="playlist"
+      data-testid='playlist'
       className={`${styles.Playlist} h-full`}
     >
       <PlaylistTimeline />
       <div
         ref={playlistBoxRef} 
-        className='h-full'
+        className={`${styles.PlaylistBodyContainer} h-full`}
       >
         {items.map((e, i) => (
           <PlaylistItem 
             key={`${e}-${i as unknown as string}`}
+            id={e.id}
             value={e.path}
           />
         ))}

@@ -7,6 +7,7 @@ use std::ops::{
 };
 use std::cmp::{
   Ord,
+  PartialOrd,
 };
 
 fn y0_prime<
@@ -32,6 +33,60 @@ fn y0_prime<
   x1: U,
 ) -> T {
   y0 / (x0 - x1).into()
+}
+
+pub fn local_extremes<
+  T: 
+    Add<Output = T> + 
+    Sub<Output = T> + 
+    Mul<Output = T> + 
+    Div<Output = T> + 
+    Ord +
+    PartialOrd +
+    Copy +
+    Into<U> +
+    From<U> +
+    From<i32>,
+  U:
+    Add<Output = U> + 
+    Sub<Output = U> + 
+    Mul<Output = U> + 
+    Div<Output = U> + 
+    Ord +
+    PartialOrd +
+    Copy +
+    Into<T> +
+    From<T> +
+    From<i32>,
+>(
+  xs: Vec<T>,
+  ys: Vec<U>,
+) -> Option<(Vec<T>, Vec<U>)> {
+  // verify lengths are the same 
+  if xs.len() != ys.len() {
+    return None;
+  }
+
+  let len = xs.len();
+
+  let mut x_roots = Vec::new();
+  let mut y_roots = Vec::new();
+
+  for i in 1..len-2 {
+    // append local maximums
+    if ys[i-1] < ys[i] && ys[i] > ys[i+1] {
+      x_roots.push(xs[i]);
+      y_roots.push(ys[i]);
+    }
+
+    // append local minimums
+    if ys[i-1] > ys[i] && ys[i] < ys[i+1] {
+      x_roots.push(xs[i]);
+      y_roots.push(ys[i]);
+    }
+  }
+
+  Some((x_roots, y_roots))
 }
 
 fn numeric_derive<
