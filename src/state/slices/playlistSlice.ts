@@ -42,6 +42,8 @@ export const playlistSlice = createSlice({
         id: action.payload.id,
         path: action.payload.path,
         offset: action.payload.offset,
+        trackNumber: action.payload.trackNumber,
+        pixelOffset: action.payload.pixelOffset,
       } as PlaylistItem)
     },
   },
@@ -51,7 +53,7 @@ export const playlistSlice = createSlice({
 export const { setPlaying } = playlistSlice.actions
 
 export const togglePlay = () => async (dispatch: Dispatch) => {
-  await invoke<void>('toggle_playlist', {})
+  invoke<void>('toggle_playlist', {})
   const playing = await invoke<boolean>('get_playlist_playing', {})
   dispatch(setPlaying(playing))
 }
@@ -106,17 +108,26 @@ export const selectMetronomeEnabled = (state: RootState) =>
 // start playlist item methods
 export const { addPlaylistItem } = playlistSlice.actions
 
-export const addToPlaylist = (path: string, offset: number) => async (dispath: Dispatch) => {
-  console.log(path, offset)
+export const addToPlaylist = (
+  path: string, 
+  offset: number, 
+  trackNumber: number,
+  pixelOffset: number,
+) => async (dispath: Dispatch) => {
+  console.log("adding node:", path, offset, trackNumber)
   const id = await invoke<number>('add_audiograph_node', {
     samplePath: path,
-    startOffset: offset
+    startOffset: offset,
+    trackNumber,
   })
+
   console.log("id:",id)
   dispath(addPlaylistItem({
     id,
     path,
-    offset
+    offset,
+    trackNumber,
+    pixelOffset,
   } as PlaylistItem))
 }
 

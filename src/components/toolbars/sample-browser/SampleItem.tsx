@@ -9,7 +9,7 @@ interface Props {
 
 const SampleItem = (props: Props) => {
   const [{ isDragging }, drag] = useDrag(() => ({
-    type: PlaylistTypes.PlaylistItem,
+    type: PlaylistTypes.PlaylistTrackItem,
     item: { name: props.name },
     end: (item, monitor) => {
       const dropResult = monitor.getDropResult<Props>()

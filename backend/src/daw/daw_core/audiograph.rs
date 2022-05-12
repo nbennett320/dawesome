@@ -1,5 +1,3 @@
-use std::borrow::Borrow;
-use std::ops::Deref;
 use std::thread;
 use std::sync;
 use std::time;
@@ -19,6 +17,7 @@ pub struct AudioNode {
   sample_path: String,
   start_time: Option<u64>,
   start_offset: u64,
+  track_number: u32,
   handle: sync::Arc<sync::Mutex<Option<thread::JoinHandle<()>>>>,
   running: bool,
 }
@@ -27,13 +26,15 @@ impl AudioNode {
   pub fn new(
     id: u64,
     sample_path: String,
-    start_offset: u64
+    start_offset: u64,
+    track_number: u32,
   ) -> Self {
     AudioNode {
       id,
       sample_path,
       start_time: None,
       start_offset,
+      track_number,
       handle: sync::Arc::new(sync::Mutex::from(None)),
       running: false,
     }
@@ -55,7 +56,7 @@ impl AudioNode {
   }
 
   // get a path of a node's normalized audio waveform
-  pub fn get_waveform(&self) -> String {
+  pub fn get_waveform(&self) -> (String, String) {
     let file = BufReader::new(File::open(&self.sample_path).unwrap());
     let source = Decoder::new(file).unwrap();
     let mut samples = std::vec::Vec::<i16>::new();
@@ -76,7 +77,7 @@ impl AudioNode {
     // calculate bounding box
     let (min_x, min_y) = (0, -y_interps.iter().max().unwrap());
     let (max_x, max_y) = (x_interps.len(), 2 * (*y_interps.iter().max().unwrap() as i32));
-    let mut svg = element::SVG::new()
+    let svg = element::SVG::new()
       .set("viewBox", (min_x, min_y, max_x, max_y));
 
     // initialize data path
@@ -99,12 +100,13 @@ impl AudioNode {
       .set("d", data);
 
     let pathd = path.get_inner().get_attributes().get("d").unwrap();
+    let viewbox = svg.get_inner().get_attributes().get("viewBox").unwrap();
 
     // svg = svg.add(path);
 
     // svg::save("image.svg", &svg).unwrap();
   
-    pathd.to_string()
+    (pathd.to_string(), viewbox.to_string())
   }
 }
 
@@ -213,18 +215,19 @@ impl AudioGraph<'static> {
   pub fn construct_and_add_node(
     &mut self,
     sample_path: String,
-    start_offset: u64
+    start_offset: u64,
+    track_number: u32,
   ) -> u64 {
     let id = self.nodes.len().clone().try_into().unwrap();
     let node = AudioNode::new(
       id,
       sample_path,
-      start_offset
+      start_offset,
+      track_number,
     );
 
-    node.get_waveform();
-
     self.add_node(node);
+
     id
   }
 
@@ -270,7 +273,11 @@ impl AudioGraph<'static> {
   }
   
   // adjust all node start times to match tempo
-  pub fn fit_nodes_to_tempo(&mut self, new_tempo: f32, old_tempo: f32) {
+  pub fn fit_nodes_to_tempo(
+    &mut self, 
+    new_tempo: f32, 
+    old_tempo: f32
+  ) {
     let ratio = old_tempo / new_tempo;
 
     println!("ratio: {}",ratio);
@@ -279,5 +286,22 @@ impl AudioGraph<'static> {
       let new_offset = (node.start_offset as f32 * ratio).round() as u64;
       node.set_start_time(new_offset);
     }
+  }
+
+  // get the id of all nodes in a given playlist track
+  pub fn get_nodes_in_playlist_track(
+    &mut self, 
+    track_number: u32
+  ) -> Vec<u64> {
+    let mut nodes = Vec::<u64>::new();
+
+    for node in self.nodes.as_mut_slice() {
+      if node.track_number == track_number {
+        let id = node.id;
+        nodes.push(id);
+      }
+    }
+
+    nodes
   }
 }

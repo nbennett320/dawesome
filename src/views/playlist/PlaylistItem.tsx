@@ -2,32 +2,47 @@ import React from 'react'
 import { invoke } from '@tauri-apps/api'
 import { useDrag } from 'react-dnd'
 import PlaylistItemWaveform from './PlaylistItemWaveform'
+import { PlaylistItemWaveformData } from '../../types/playlist'
+import styles from './styles.module.scss'
 
 interface Props {
   id: number
-  value: string
+  value: string,
+  pixelOffset: number,
 }
 
 const PlaylistItem = (props: Props) => {
-  const [data, setData] = React.useState('')
+  const [data, setData] = React.useState<PlaylistItemWaveformData>({
+    pathd: '',
+    viewBox: '',
+  })
 
   React.useEffect(() => {
     const fetchData = async () => {
-      const newData = await invoke<string>('get_node_data', {
+      const [pathd, viewBox] = await invoke<string[]>('get_node_data', {
         id: props.id
       })
 
-      setData(newData)
+      setData({
+        pathd,
+        viewBox
+      })
     }
     
     fetchData()
-  }, [data])
+  }, [])
 
   return (
-    <div>
-      <span className='text-xs'>{props.value}</span>
+    <div 
+      className={`${styles.PlaylistItem} border-2`}
+      style={{
+        left: `${props.pixelOffset}px`
+      }}
+    >
+      <span className='text-xs bg-slate-200'>{props.value}</span>
       <PlaylistItemWaveform 
-        path={data}
+        path={data.pathd}
+        viewBox={data.viewBox}
       />
     </div>
   )

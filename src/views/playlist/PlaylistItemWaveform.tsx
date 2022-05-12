@@ -2,15 +2,17 @@ import React from 'react'
 import styles from './styles.module.scss'
 
 interface Props {
-  path: string
+  path: string,
+  viewBox: string,
 }
 
 const PlaylistItemWaveform = (props: Props) => (
   <div className={styles.PlaylistItemWaveform}>
     <svg 
-      viewBox="0 -28068 7490 56136" 
+      viewBox={props.viewBox} 
       style={{
-        height: 'max-content',
+        height: '80px',
+        maxHeight: '100px',
       }}
       xmlns="http://www.w3.org/2000/svg"
     >

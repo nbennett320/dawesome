@@ -33,6 +33,29 @@
   width: 100%;
 }
 
+.PlaylistTrack {
+  display: flex;
+
+  &Container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+
+  &Wrapper {
+    height: 101px;
+    width: auto;
+    border-top-width: 0.5px;
+    border-bottom-width: 0.5px;
+  }
+}
+
+.PlaylistItem {
+  display: flex;
+  flex-direction: column;
+  position: absolute;
+}
+
 .PlaylistItemWaveform {
   width: 100%;
   height: 100%;

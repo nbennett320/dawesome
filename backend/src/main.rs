@@ -118,12 +118,13 @@ fn add_audiograph_node(
   state: tauri::State<'_, sync::Arc<daw::InnerState>>,
   sample_path: String,
   start_offset: u64,
+  track_number: u32,
 ) -> Result<u64, String> {
   let id = state
     .playlist_audiograph
     .lock()
     .unwrap()
-    .construct_and_add_node(sample_path, start_offset);
+    .construct_and_add_node(sample_path, start_offset, track_number);
 
   // returns the id of the new node
   Ok(id)
@@ -133,8 +134,8 @@ fn add_audiograph_node(
 fn get_node_data(
   state: tauri::State<'_, sync::Arc<daw::InnerState>>,
   id: u64,
-) -> Result<String, String> {
-  let svg_pathd = state
+) -> Result<(String, String), String> {
+  let (svg_pathd, svg_viewbox) = state
     .playlist_audiograph
     .lock()
     .unwrap()
@@ -149,7 +150,7 @@ fn get_node_data(
   // in the future this method will 
   // return other data on nodes for
   // populating the timeline graph
-  Ok(svg_pathd)
+  Ok((svg_pathd, svg_viewbox))
 }
 
 #[tauri::command]
@@ -163,6 +164,8 @@ fn get_playlist_sample_offset(
   max_bound_y: f32,
 ) -> Result<u64, String> {
   // todo: choose a number that isn't arbitrary
+  let max_sample_offset = (max_bound_x - min_bound_x).round() as u64 * 5;
+  println!("max sample offset: {}", max_sample_offset);
   let res = util::calc_playlist_sample_offset(
     drop_x,
     drop_y,
@@ -170,7 +173,7 @@ fn get_playlist_sample_offset(
     min_bound_y,
     max_bound_x,
     max_bound_y,
-    2000
+    max_sample_offset,
   );
 
   Ok(res)
