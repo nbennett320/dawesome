@@ -102,10 +102,6 @@ impl AudioNode {
     let pathd = path.get_inner().get_attributes().get("d").unwrap();
     let viewbox = svg.get_inner().get_attributes().get("viewBox").unwrap();
 
-    // svg = svg.add(path);
-
-    // svg::save("image.svg", &svg).unwrap();
-  
     (pathd.to_string(), viewbox.to_string())
   }
 }

@@ -109,7 +109,13 @@ pub fn run_playlist(state_ref: &sync::Arc<state::InnerState>) {
       // run ahead n milliseconds and schedule the next
       // samples in the audio graph to be played
       let mut audiograph_ref = state.playlist_audiograph.lock().unwrap();
-      audiograph_ref.run_for(tempo_intrv_ms);
+      let time_slice_len_ms = tempo_intrv_ms;
+      // let time_slice_len_ms = tempo_intrv_ms / state
+      //   .playlist_time_signature
+      //   .lock()
+      //   .unwrap()
+      //   .denominator as u64;
+      audiograph_ref.run_for(time_slice_len_ms);
       let curr = audiograph_ref.current_offset;
 
       if state.playlist_is_playing.load(atomic::Ordering::SeqCst) {
@@ -156,11 +162,7 @@ pub fn run_playlist(state_ref: &sync::Arc<state::InnerState>) {
 
 pub fn pause_playlist(state: tauri::State<'_, sync::Arc<state::InnerState>>) {
   println!("pausing playlist");
-
-  // pause the audiograph, clearing all start times
-  let mut audiograph_ref = state.playlist_audiograph.lock().unwrap();
-  audiograph_ref.pause();
-
+  
   // reset playlist to 0 beats
   state
     .playlist_current_beat
@@ -173,6 +175,10 @@ pub fn pause_playlist(state: tauri::State<'_, sync::Arc<state::InnerState>>) {
   state
     .playlist_is_playing
     .store(false, atomic::Ordering::SeqCst);
+
+  // pause the audiograph, clearing all start times
+  let mut audiograph_ref = state.playlist_audiograph.lock().unwrap();
+  audiograph_ref.pause();
 }
 
 pub fn start_playlist(state: tauri::State<'_, sync::Arc<state::InnerState>>) {
