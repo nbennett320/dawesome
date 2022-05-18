@@ -5,11 +5,12 @@ An awesome, libre, and cross-platform DAW
 built with Rust, Tauri, React, and Typescript.
 
 <img 
-  src="./docs/sc1.png" 
+  src="./docs/sc2.png" 
   alt="an early screenshot of Dawesome in its current state" 
 />
 
-##### _An early screenshot of Dawesome running on Xubuntu_
+_An early screenshot of Dawesome running on Mac_
+<!-- _An early screenshot of Dawesome running on Xubuntu_ -->
 
 <br />
 
@@ -17,11 +18,13 @@ built with Rust, Tauri, React, and Typescript.
 
 <!-- ### Backend? Frontend? Oh my... -->
 
+<!-- ### Why just why -->
+
 ### Project design
 
 On compilation, Tauri generates bindings for
 Rust functions to be called by the _frontend_, or
-the Typescript code that ultimate gets rendered by WebView.
+the Typescript code that ultimate gets rendered by [Wry](https://github.com/tauri-apps/wry).
 Rust commands are called from the frontend by Tauri's `invoke` method.
 See [the docs](https://tauri.studio/docs/guides/command/#passing-arguments) 
 on this for more information.
@@ -30,14 +33,14 @@ on this for more information.
 
 Redux slices are a neat and concise way of issuing
 commands to the Rust/Tauri _backend_, or the meat 'n bones
-of the Dawesome. The backend is every moving part Daweome has
+of the Dawesome. The backend includes every moving part Daweome has
 under the hood. Redux and Redux slices are the 
 metaphorical bolts used to unite Dawesome's internal components
 with the much prettier exterior.
 
 Below is a brief example of how Redux slices work
 for toggling Dawesome's playlist:
-##### _Note that 'playlist' here, is synonymous with 'arrangement view' in Ableton-speak._
+_Note that 'playlist' here, is synonymous with 'arrangement view' in Ableton-speak._
 
 ```ts
 // src/state/slices/playlistSlice.ts 
@@ -83,7 +86,9 @@ export const selectPlaylistPlaying = (state: RootState) =>
 export default playlistSlice.reducer
 ```
 
-A component calling this Thunk (which invokes the Rust function, then sets the state)
+A component calling this Thunk (which invokes the Rust function, then sets the state (the root state 
+is defined by the 
+[InnerState struct](https://github.com/nbennett320/dawesome/blob/main/backend/src/daw/state/state.rs)))
 might look like this:
 
 
@@ -120,7 +125,7 @@ const PlayPauseButton = () => {
 export default PlayPauseButton
 ```
 
-### Sound streams and DSP
+#### Sound streams and DSP
 
 Dawesome uses [Rodio](https://docs.rs/rodio/latest/rodio/) for sound file decoding,
 as well as handling audio playback and managing available drivers on Mac and Windows devices.
@@ -195,5 +200,11 @@ See the [Jest docs](https://jestjs.io/) for more information.
 - [The nature of sound: lecture/text on audio programming](https://mu.krj.st/)
 - [ALSA/PulseAudio driver research with `cpal` (warning: links to google docs)](https://docs.google.com/document/d/10EL1qd6ZPkn6ySAPlXY7oea80nWwPV4X4csI4m4ujuY)
 - [ALSA/PulseAudio: playing a wav file example](http://ysflight.in.coocan.jp/programming/audio/pulseAudioSample/e.html)
+
+### Read more about...
+
+- [Tauri](https://tauri.studio)
+- [PulseAudio](https://www.freedesktop.org/software/pulseaudio/doxygen/)
+- [Wry](https://github.com/tauri-apps/wry)
 
 See `docs/` for more.
