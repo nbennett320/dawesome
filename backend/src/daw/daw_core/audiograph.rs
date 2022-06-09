@@ -6,8 +6,9 @@ use std::vec::Vec;
 use std::fs::File;
 use std::io::BufReader;
 use futures;
+use rodio::Source;
 use rodio::{Decoder, OutputStream, Sink};
-use rodio::queue::{SourcesQueueOutput};
+use rodio::source::{SamplesConverter, Buffered};
 use svg::node::element;
 use crate::daw;
 use crate::util;
@@ -171,7 +172,7 @@ pub struct AudioNode {
   start_time: Option<u64>,
   start_offset: u64,
   track_number: u32,
-  sink: sync::Arc<sync::Mutex<Sink>>,
+  samples: sync::Arc<sync::Mutex<Buffered<Decoder<BufReader<File>>>>>,
   handle: sync::Arc<sync::Mutex<Option<thread::JoinHandle<()>>>>,
   running: bool,
 }
@@ -185,13 +186,9 @@ impl AudioNode {
     start_offset: u64,
     track_number: u32,
   ) -> Self {
-    let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-    let sink = Sink::try_new(&stream_handle).unwrap();
     let file_buf = BufReader::new(File::open(&sample_path).unwrap());
     let source = Decoder::new(file_buf).unwrap();
-
-    sink.append(source);
-    sink.pause();
+    let sample_buf = source.buffered();
 
     AudioNode {
       id,
@@ -199,7 +196,7 @@ impl AudioNode {
       start_time: None,
       start_offset,
       track_number,
-      sink: sync::Arc::new(sync::Mutex::from(sink)),
+      samples: sync::Arc::new(sync::Mutex::from(sample_buf)),
       handle: sync::Arc::new(sync::Mutex::from(None)),
       running: false,
     }
@@ -207,14 +204,15 @@ impl AudioNode {
 
   // play the audio node
   pub async fn play(self) {
-    println!("going to play");
     thread::spawn(move || {
-      let sink = self.sink.lock().unwrap();
-      println!("playing for {}", sink.empty());
-      
-      sink.play();
-      sink.sleep_until_end();
-      println!("should have played");
+      if self.running {
+        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+        let sink = Sink::try_new(&stream_handle).unwrap();
+
+        sink.append(self.samples.lock().unwrap().clone());
+        sink.play();
+        sink.sleep_until_end();
+      }
     });
 
     // *self.handle.lock().unwrap() = Some(handle);
@@ -223,6 +221,10 @@ impl AudioNode {
   pub fn stop(self) {
 
   }
+  
+  // pub fn get_samples(self) -> sync::Arc<sync::Mutex<SamplesConverter<Decoder<BufReader<File>>, f32>>> {
+  //   self.samples
+  // }
 
   // calculate and set a node's (real) start time in the playlist
   pub fn set_start_time(&mut self, start_time: u64) {
@@ -288,6 +290,10 @@ impl AudioNode {
 
     (pathd.to_string(), viewbox.to_string())
   }
+
+  pub fn toggle_running(&mut self) {
+    self.running = !self.running;
+  }
 }
 
 pub struct AudioGraph<'a> {
@@ -295,16 +301,22 @@ pub struct AudioGraph<'a> {
   pub running: bool,
   pub started_time: Option<u64>,
   pub current_offset: u64,
+  // stream_handle: sync::Arc<sync::Mutex<OutputStream>>,
+  sample_rate: u64,
   _phantom: marker::PhantomData<&'a str>,
 }
 
 impl AudioGraph<'static> {
   pub fn new() -> Self {
+    let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+
     AudioGraph {
       nodes: std::vec::Vec::<AudioNode>::new(),
       running: false,
       started_time: None,
       current_offset: 0,
+      // stream_handle: sync::Arc::new(sync::Mutex::from(stream_handle)),
+      sample_rate: 44_100,
       _phantom: marker::PhantomData,
     }
   }
@@ -359,9 +371,9 @@ impl AudioGraph<'static> {
     // schedule samples within this timeslice to play
     let slice = self_arc.lock().unwrap().nodes[idx_start..idx_end].to_vec();
     println!("len: {}, {}",slice.len(), self.nodes.len());
-    for node in slice {
+    for mut node in slice {
       println!("node.start_offset: {}", node.start_offset);
-      let sample_path = std::sync::Arc::new(std::sync::Mutex::new(Box::from(node.sample_path.as_ref())));
+      // let sample_path = std::sync::Arc::new(std::sync::Mutex::new(Box::from(node.sample_path.as_ref())));
       let start_offset = std::sync::Arc::new(std::sync::Mutex::new(node.start_offset));
       let current_offset = std::sync::Arc::new(std::sync::Mutex::new(self_arc.lock().unwrap().current_offset));
       let running = std::sync::Arc::new(std::sync::Mutex::new(self_arc.lock().unwrap().running));
@@ -374,7 +386,8 @@ impl AudioGraph<'static> {
         // sleep this thread until it's time to play the sample, then play it
         thread::sleep(time::Duration::from_millis(dur));
         if *running.lock().unwrap() {
-          futures::executor::block_on(daw::play_sample(&sample_path.lock().unwrap()));
+          node.toggle_running();
+          futures::executor::block_on(node.play());
         }
       });
     }
