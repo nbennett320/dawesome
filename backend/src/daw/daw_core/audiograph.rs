@@ -9,7 +9,6 @@ use futures;
 use rodio::Source;
 use rodio::{Decoder, OutputStream, Sink};
 use rodio::source::{SamplesConverter, Buffered};
-use svg::node::element;
 use crate::daw;
 use crate::util;
 
@@ -168,13 +167,16 @@ impl AudioNode {
 #[cfg(not(target_os = "linux"))]
 pub struct AudioNode {
   pub id: u64,
-  sample_path: String,
-  start_time: Option<u64>,
   pub start_offset: u64,
   pub track_number: u32,
+  sample_path: String,
+  start_time: Option<u64>,
   samples: sync::Arc<sync::Mutex<Buffered<Decoder<BufReader<File>>>>>,
   handle: sync::Arc<sync::Mutex<Option<thread::JoinHandle<()>>>>,
   running: bool,
+  length_ms: u64,
+  sample_rate: u64,
+  waveform: (String, String),
 }
 
 // audio node implementation for Mac/Windows
@@ -185,10 +187,24 @@ impl AudioNode {
     sample_path: String,
     start_offset: u64,
     track_number: u32,
+    sample_rate: u64,
   ) -> Self {
     let file_buf = BufReader::new(File::open(&sample_path).unwrap());
     let source = Decoder::new(file_buf).unwrap();
     let sample_buf = source.buffered();
+
+    // todo: find a better way of calculating sample length
+    // without reading the file buffer twice
+    let file_buf_len = BufReader::new(File::open(&sample_path).unwrap());
+    let source_len = Decoder::new(file_buf_len).unwrap();
+    let mut samples = std::vec::Vec::<i16>::new();
+    for sample in source_len {
+      samples.push(sample);
+    }
+
+    let length_ms = (samples.len() as f32 / sample_rate as f32) * 1_000 as f32 / 2 as f32;
+    println!("length of sample in ms: {:?}", length_ms);
+    let waveform = util::get_waveform(&sample_path);
 
     AudioNode {
       id,
@@ -199,6 +215,9 @@ impl AudioNode {
       samples: sync::Arc::new(sync::Mutex::from(sample_buf)),
       handle: sync::Arc::new(sync::Mutex::from(None)),
       running: false,
+      length_ms: length_ms.round() as u64,
+      sample_rate,
+      waveform,
     }
   }
 
@@ -241,58 +260,13 @@ impl AudioNode {
     *self.handle.lock().unwrap() = Some(handle);
   }
 
-  // get a path of a node's normalized audio waveform
-  pub fn get_waveform(&self) -> (String, String) {
-    let file = BufReader::new(File::open(&self.sample_path).unwrap());
-    let source = Decoder::new(file).unwrap();
-    let mut samples = std::vec::Vec::<i16>::new();
-
-    println!("raw len: {:?}", source.size_hint());
-    for sample in source {
-      samples.push(sample);
-    }
-
-    // get frames and interpolate points
-    let xs: Vec<i32> = (0..samples.len()).into_iter().map(|x| x as i32).collect();
-    let ys: Vec<i32> = samples.iter().map(|y| *y as i32).collect();
-    // let interp = util::math::local_extremes(xs, ys);
-    let interp = Some((xs as Vec<i32>, ys as Vec<i32>));
-    let (x_interps, y_interps) = interp.unwrap();
-    println!("interp lens: {:?}, {:?}", x_interps.len(), y_interps.len());
-
-    // calculate bounding box
-    let (min_x, min_y) = (0, -y_interps.iter().max().unwrap());
-    let (max_x, max_y) = (x_interps.len(), 2 * (*y_interps.iter().max().unwrap() as i32));
-    let svg = element::SVG::new()
-      .set("viewBox", (min_x, min_y, max_x, max_y));
-
-    // initialize data path
-    let mut data = element::path::Data::new().move_to((0, 0));
-    
-    // fill path
-    for idx in 1..y_interps.len() {
-      let p1 = (idx, y_interps[idx]);
-      data = data.line_to(p1)
-    }
-
-    // close the path
-    data = data.close();
-
-    // fetch calculated path value
-    let path = element::Path::new()
-      .set("stroke", "black")
-      .set("stroke-width", "0.05%")
-      .set("fill", "black")
-      .set("d", data);
-
-    let pathd = path.get_inner().get_attributes().get("d").unwrap();
-    let viewbox = svg.get_inner().get_attributes().get("viewBox").unwrap();
-
-    (pathd.to_string(), viewbox.to_string())
-  }
-
   pub fn toggle_running(&mut self) {
     self.running = !self.running;
+  }
+
+  pub fn get_waveform(&self) -> (String, String) {
+    let (pathd, viewbox) = &self.waveform;
+    (pathd.to_string(), viewbox.to_string())
   }
 }
 
@@ -415,6 +389,7 @@ impl AudioGraph<'static> {
       sample_path,
       start_offset,
       track_number,
+      self.sample_rate,
     );
 
     self.add_node(node);
