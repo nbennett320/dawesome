@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api'
 import { useDrop } from 'react-dnd'
 import { 
   addToPlaylist,
+  removeFromPlaylist,
   selectPlaylistItems
 } from '../../state/slices/playlistSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
@@ -60,6 +61,10 @@ const PlaylistTrack = (props: Props) => {
 
   const isActive = canDrop && isOver
 
+  const handleItemRightClick = async (id: number) => {
+    dispatch(removeFromPlaylist(id)) 
+  }
+
   return (
     <div 
       ref={dropRef}
@@ -72,6 +77,7 @@ const PlaylistTrack = (props: Props) => {
       >
         {items.map((e, i) => (
           <PlaylistItem 
+            onRightClick={handleItemRightClick}
             key={`${e}-${i as unknown as string}`}
             id={e.id}
             value={e.path}

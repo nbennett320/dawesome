@@ -131,6 +131,18 @@ fn add_audiograph_node(
 }
 
 #[tauri::command]
+fn remove_audiograph_node(
+  state: tauri::State<'_, sync::Arc<daw::InnerState>>, 
+  id: u64,
+) {
+  state
+    .playlist_audiograph
+    .lock()
+    .unwrap()
+    .remove_node(id);
+}
+
+#[tauri::command]
 fn get_node_data(
   state: tauri::State<'_, sync::Arc<daw::InnerState>>,
   id: u64,
@@ -199,6 +211,7 @@ fn main() {
       preview_sample,
       get_audio_drivers,
       add_audiograph_node,
+      remove_audiograph_node,
       get_node_data,
       get_playlist_sample_offset
     ])

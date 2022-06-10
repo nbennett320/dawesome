@@ -46,6 +46,9 @@ export const playlistSlice = createSlice({
         pixelOffset: action.payload.pixelOffset,
       } as PlaylistItem)
     },
+    removePlaylistItem: (state, action) => {
+      state.playlistItems = state.playlistItems.filter(e => e.id !== action.payload.id)
+    }
   },
 })
 
@@ -106,14 +109,14 @@ export const selectMetronomeEnabled = (state: RootState) =>
 // end metronome enable/disable methods
 
 // start playlist item methods
-export const { addPlaylistItem } = playlistSlice.actions
+export const { addPlaylistItem, removePlaylistItem } = playlistSlice.actions
 
 export const addToPlaylist = (
   path: string, 
   offset: number, 
   trackNumber: number,
   pixelOffset: number,
-) => async (dispath: Dispatch) => {
+) => async (dispatch: Dispatch) => {
   console.log("adding node:", path, offset, trackNumber)
   const id = await invoke<number>('add_audiograph_node', {
     samplePath: path,
@@ -122,13 +125,23 @@ export const addToPlaylist = (
   })
 
   console.log("id:",id)
-  dispath(addPlaylistItem({
+  dispatch(addPlaylistItem({
     id,
     path,
     offset,
     trackNumber,
     pixelOffset,
   } as PlaylistItem))
+}
+
+export const removeFromPlaylist = (id: number) => async (dispatch: Dispatch) => {
+  await invoke('remove_audiograph_node', {
+    id
+  })
+
+  dispatch(removePlaylistItem({
+    id
+  }))
 }
 
 export const selectPlaylistItems = (state: RootState) => state.playlist.playlistItems

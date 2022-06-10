@@ -6,7 +6,8 @@ import { PlaylistItemWaveformData } from '../../types/playlist'
 import styles from './styles.module.scss'
 
 interface Props {
-  id: number
+  onRightClick: (id: number) => void,
+  id: number,
   value: string,
   pixelOffset: number,
 }
@@ -32,8 +33,14 @@ const PlaylistItem = (props: Props) => {
     fetchData()
   }, [])
 
+  const handleRightClick = (e: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
+    e.preventDefault()
+    props.onRightClick(props.id)
+  }
+
   return (
     <div 
+      onContextMenu={handleRightClick}
       className={`${styles.PlaylistItem} border-2`}
       style={{
         left: `${props.pixelOffset}px`
