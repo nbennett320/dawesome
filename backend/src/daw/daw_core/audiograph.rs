@@ -361,7 +361,7 @@ impl AudioGraph<'static> {
     
     let idx_end = match idx_end_opt {
       Some(x) => x,
-      None => idx_start,
+      None => idx_start + 1,
     };
     
     println!("start, end: {}, {}", idx_start, idx_end);
