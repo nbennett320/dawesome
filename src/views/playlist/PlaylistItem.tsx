@@ -2,7 +2,7 @@ import React from 'react'
 import { invoke } from '@tauri-apps/api'
 import { useDrag } from 'react-dnd'
 import PlaylistItemWaveform from './PlaylistItemWaveform'
-import { PlaylistItemWaveformData } from '../../types/playlist'
+import { PlaylistTypes, PlaylistItemWaveformData } from '../../types/playlist'
 import styles from './styles.module.scss'
 
 interface Props {
@@ -13,6 +13,26 @@ interface Props {
 }
 
 const PlaylistItem = (props: Props) => {
+  const [{ isDragging }, drag] = useDrag(() => ({
+    type: PlaylistTypes.PlaylistTrackItem,
+    item: { 
+      name: props.value,
+      id: props.id,
+    },
+    end: (item, monitor) => {
+      const dropResult = monitor.getDropResult<Props>()
+      if (item && dropResult) {
+        console.log("dropped, after dragging node from playlist")
+      }
+    },
+    collect: (monitor) => ({
+      isDragging: monitor.isDragging(),
+      handlerId: monitor.getHandlerId(),
+    }),
+  }))
+
+  if(isDragging) console.log("dragging node from playlist")
+
   const [data, setData] = React.useState<PlaylistItemWaveformData>({
     pathd: '',
     viewBox: '',
@@ -40,6 +60,7 @@ const PlaylistItem = (props: Props) => {
 
   return (
     <div 
+      ref={drag}
       onContextMenu={handleRightClick}
       className={`${styles.PlaylistItem} border-2`}
       style={{

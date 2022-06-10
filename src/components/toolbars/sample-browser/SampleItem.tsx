@@ -9,7 +9,7 @@ interface Props {
 
 const SampleItem = (props: Props) => {
   const [{ isDragging }, drag] = useDrag(() => ({
-    type: PlaylistTypes.PlaylistTrackItem,
+    type: PlaylistTypes.SidebarSampleItem,
     item: { name: props.name },
     end: (item, monitor) => {
       const dropResult = monitor.getDropResult<Props>()
@@ -23,7 +23,7 @@ const SampleItem = (props: Props) => {
     }),
   }))
 
-  if(isDragging) console.log("dragging")
+  if(isDragging) console.log("dragging sample item")
 
   const previewSample = () => {
     console.log("playing")

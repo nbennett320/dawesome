@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api'
 import { useDrop } from 'react-dnd'
 import { 
   addToPlaylist,
+  moveNodeInPlaylist,
   removeFromPlaylist,
   selectPlaylistItems
 } from '../../state/slices/playlistSlice'
@@ -19,35 +20,83 @@ const PlaylistTrack = (props: Props) => {
   const dispatch = useAppDispatch()
   const playlistTrackBoxRef = React.useRef<HTMLDivElement>(null)
   const [{ canDrop, isOver }, dropRef] = useDrop(() => ({
-    accept: PlaylistTypes.PlaylistTrackItem,
+    accept: [
+      PlaylistTypes.SidebarSampleItem, 
+      PlaylistTypes.PlaylistTrackItem,
+    ],
     drop: async (item: Record<string, any>, monitor) => {
       const dropCoords = monitor.getClientOffset()
-      if(dropCoords && playlistTrackBoxRef.current) { 
-        const { x, y } = dropCoords
-        const { left, top, right, bottom } = playlistTrackBoxRef.current.getBoundingClientRect()
-        const offset = await invoke<number>('get_playlist_sample_offset', {
-          dropX: x,
-          dropY: y,
-          minBoundX: left,
-          minBoundY: top,
-          maxBoundX: right,
-          maxBoundY: bottom,
-        })
+      const itemType = monitor.getItemType()
+      switch(itemType) {
+        case PlaylistTypes.SidebarSampleItem: 
+          // handle samples dropped from the sidebar
+          if(dropCoords && playlistTrackBoxRef.current) { 
+            const { x, y } = dropCoords
+            const { left, top, right, bottom } = playlistTrackBoxRef.current.getBoundingClientRect()
+            const offset = await invoke<number>('get_playlist_sample_offset', {
+              dropX: x,
+              dropY: y,
+              minBoundX: left,
+              minBoundY: top,
+              maxBoundX: right,
+              maxBoundY: bottom,
+            })
 
-        dispatch(addToPlaylist(
-          item.name as string, 
-          offset, 
-          props.trackNumber,
-          x,
-        ))
-      } else {
-        // eslint-disable-next-line no-console
-        console.error(
-          "Error dropping: no playlist track ref, or null drop coordinates:", 
-          item, 
-          dropCoords, 
-          playlistTrackBoxRef.current
-        )
+            dispatch(addToPlaylist(
+              item.name as string, 
+              offset, 
+              props.trackNumber,
+              x,
+            ))
+          } else {
+            // eslint-disable-next-line no-console
+            console.error(
+              "Error dropping: no playlist track ref, or null drop coordinates:", 
+              item, 
+              dropCoords, 
+              playlistTrackBoxRef.current
+            )
+          }
+          break
+        case PlaylistTypes.PlaylistTrackItem:
+          // handle drag and drop from nodes already existent in the playlist
+          if(dropCoords && playlistTrackBoxRef.current) { 
+            const { x, y } = dropCoords
+            const { left, top, right, bottom } = playlistTrackBoxRef.current.getBoundingClientRect()
+            const offset = await invoke<number>('get_playlist_sample_offset', {
+              dropX: x,
+              dropY: y,
+              minBoundX: left,
+              minBoundY: top,
+              maxBoundX: right,
+              maxBoundY: bottom,
+            })
+
+            dispatch(moveNodeInPlaylist(
+              item.id, 
+              item.name as string,
+              offset, 
+              props.trackNumber,
+              x,
+            ))
+          } else {
+            // eslint-disable-next-line no-console
+            console.error(
+              "Error dropping: no playlist track ref, or null drop coordinates:", 
+              item, 
+              dropCoords, 
+              playlistTrackBoxRef.current
+            )
+          }
+          break
+        default:
+          // unrecognised drop
+          // eslint-disable-next-line no-console
+          console.error(
+            "Error dropping: unknown type for the item being dropped:", 
+            item, 
+            monitor.getItemType()
+          )
       }
     },
     collect: (monitor) => ({

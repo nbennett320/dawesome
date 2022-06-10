@@ -131,6 +131,41 @@ fn add_audiograph_node(
 }
 
 #[tauri::command]
+fn move_audiograph_node(
+  state: tauri::State<'_, sync::Arc<daw::InnerState>>, 
+  id: u64,
+  start_offset: u64,
+  track_number: u32,
+) {
+  // set new start offset
+  state
+    .playlist_audiograph
+    .lock()
+    .unwrap()
+    .get_mut_node(id)
+    .start_offset = start_offset;
+  
+  // set new track number
+  state
+    .playlist_audiograph
+    .lock()
+    .unwrap()
+    .get_mut_node(id)
+    .track_number = track_number;
+
+  // manually resort nodes by sort time
+  // after moving a node because the user might
+  // have changed the order of nodes in the playlist,
+  // normally a sort happens when a new node is added
+  state
+    .playlist_audiograph
+    .lock()
+    .unwrap()
+    .nodes
+    .sort_unstable_by(|a, b| a.start_offset.cmp(&b.start_offset));
+}
+
+#[tauri::command]
 fn remove_audiograph_node(
   state: tauri::State<'_, sync::Arc<daw::InnerState>>, 
   id: u64,
@@ -211,6 +246,7 @@ fn main() {
       preview_sample,
       get_audio_drivers,
       add_audiograph_node,
+      move_audiograph_node,
       remove_audiograph_node,
       get_node_data,
       get_playlist_sample_offset

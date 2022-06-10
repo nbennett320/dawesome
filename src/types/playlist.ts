@@ -1,5 +1,6 @@
 export enum PlaylistTypes {
-  PlaylistTrackItem = 'playlist-track-item'
+  PlaylistTrackItem = 'playlist-track-item',
+  SidebarSampleItem = 'sidebar-sample-item',
 }
 
 export type PlaylistItem = {

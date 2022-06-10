@@ -170,8 +170,8 @@ pub struct AudioNode {
   pub id: u64,
   sample_path: String,
   start_time: Option<u64>,
-  start_offset: u64,
-  track_number: u32,
+  pub start_offset: u64,
+  pub track_number: u32,
   samples: sync::Arc<sync::Mutex<Buffered<Decoder<BufReader<File>>>>>,
   handle: sync::Arc<sync::Mutex<Option<thread::JoinHandle<()>>>>,
   running: bool,
@@ -477,6 +477,11 @@ impl AudioGraph<'static> {
       let new_offset = (node.start_offset as f32 * ratio).round() as u64;
       node.set_start_time(new_offset);
     }
+  }
+
+  pub fn get_mut_node(&mut self, id: u64) -> &mut AudioNode {
+    let idx = self.nodes.iter().position(|a| a.id == id);
+    &mut self.nodes[idx.unwrap()]
   }
 
   // get the id of all nodes in a given playlist track
