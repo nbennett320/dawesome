@@ -1,4 +1,4 @@
-use std::num;
+use std::time::{Duration};
 
 // pub static MAX_SUBDIVISIONS: u32 = 508_032_000;
 
@@ -87,8 +87,10 @@ impl SixteenthNote {
 }
 
 // util functions
-pub fn tempo_to_intrv_ms(tempo: f32) -> u64 {
+pub fn tempo_to_interval(tempo: f32) -> Duration {
   let min_ms = 60_000.;
   let ms_intrv = min_ms / tempo;
-  ms_intrv.round() as u64
+  let us_intv = ms_intrv * 1_000.;
+  
+  Duration::from_micros(us_intv.round() as u64)
 }

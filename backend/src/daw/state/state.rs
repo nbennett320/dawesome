@@ -1,20 +1,54 @@
 use crate::daw;
 use crate::daw::timing;
-use rodio;
-use std::sync;
-use std::sync::atomic;
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{
+  AtomicBool, 
+  AtomicU16, 
+  AtomicU64
+};
+use std::time::{Instant};
+use rodio::{Sink};
+use rodio::queue::{SourcesQueueOutput};
 use tauri;
 
+pub struct Playlist {
+  pub playing: AtomicBool,
+  pub started_time: Arc<Mutex<Option<Instant>>>,
+  pub total_beats: AtomicU64,
+  pub current_beat: AtomicU16,
+  pub time_signature: Arc<Mutex<timing::TimeSignature>>,
+  pub audiograph: Arc<Mutex<daw::AudioGraph<'static>>>,
+}
+
+impl Playlist {
+  pub fn _new() -> Option<Self> {
+    None
+  }
+
+  pub fn default() -> Self {
+    Playlist {
+      playing: AtomicBool::from(false),
+      started_time: Arc::new(Mutex::from(None)),
+      total_beats: AtomicU64::from(0),
+      current_beat: AtomicU16::from(0),
+      time_signature: Arc::new(Mutex::new(
+        timing::TimeSignature {
+          numerator: 4,
+          denominator: 4,
+        },
+      )),
+      audiograph: Arc::new(Mutex::new(
+        daw::AudioGraph::new(),
+      )),
+    }
+  }
+}
+
 pub struct InnerState {
-  pub global_tempo_bpm: sync::Arc<sync::Mutex<f32>>,
-  pub playlist_is_playing: atomic::AtomicBool,
-  pub playlist_started_time: atomic::AtomicI64,
-  pub playlist_total_beats: atomic::AtomicU64,
-  pub playlist_current_beat: atomic::AtomicU16,
-  pub playlist_time_signature: sync::Arc<sync::Mutex<timing::TimeSignature>>,
-  pub playlist_audiograph: sync::Arc<sync::Mutex<daw::AudioGraph<'static>>>,
-  pub metronome_enabled: atomic::AtomicBool,
-  pub root_source: sync::Arc<sync::Mutex<(rodio::Sink, rodio::queue::SourcesQueueOutput<f32>)>>,
+  pub global_tempo_bpm: Arc<Mutex<f32>>,
+  pub metronome_enabled: AtomicBool,
+  pub root_source: Arc<Mutex<(Sink, SourcesQueueOutput<f32>)>>,
+  pub playlist: Playlist,
 }
 
 impl InnerState {
@@ -24,22 +58,10 @@ impl InnerState {
 
   pub fn default() -> Self {
     InnerState {
-      playlist_is_playing: atomic::AtomicBool::from(false),
-      global_tempo_bpm: sync::Arc::new(sync::Mutex::new(120.)),
-      playlist_started_time: atomic::AtomicI64::from(0),
-      playlist_total_beats: atomic::AtomicU64::from(0),
-      playlist_current_beat: atomic::AtomicU16::from(0),
-      playlist_time_signature: sync::Arc::new(sync::Mutex::new(
-        timing::TimeSignature {
-          numerator: 4,
-          denominator: 4,
-        },
-      )),
-      playlist_audiograph: sync::Arc::new(sync::Mutex::new(
-        daw::AudioGraph::new(),
-      )),
-      metronome_enabled: atomic::AtomicBool::from(true),
-      root_source: sync::Arc::new(sync::Mutex::new(rodio::Sink::new_idle())),
+      global_tempo_bpm: Arc::new(Mutex::new(120.)),
+      metronome_enabled: AtomicBool::from(true),
+      root_source: Arc::new(Mutex::new(Sink::new_idle())),
+      playlist: Playlist::default()
     }
   }
 }
