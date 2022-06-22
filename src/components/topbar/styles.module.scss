@@ -5,6 +5,7 @@
 
 .Topbar {
   width: 100%;
+  height: 12vh;
   display: flex;
   justify-content: space-around;
 }
@@ -26,6 +27,10 @@
   transform: scale(0.666);
 }
 
+.LoopButton {
+  transform: scale(0.666);
+}
+
 .TopbarTimer {
   display: flex;
   flex-direction: column;
@@ -35,4 +40,9 @@
   &Label {
     display: flex;
   }
+}
+
+.ButtonArea {
+  display: flex;
+  flex-direction: row;
 }

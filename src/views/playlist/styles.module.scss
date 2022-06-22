@@ -1,6 +1,8 @@
 .Playlist {
   display: flex;
   flex-direction: column;
+  overflow-x: scroll;
+  overflow-y: scroll;
 
   &BodyContainer {
     display: flex;

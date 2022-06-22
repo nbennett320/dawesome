@@ -8,6 +8,7 @@ export interface PlaylistState {
   tempo: number
   runtime?: string | null
   metronomeEnabled: boolean,
+  loopEnabled: boolean,
   playlistItems: Array<PlaylistItem>
 }
 
@@ -18,6 +19,7 @@ const initialState = {
   tempo: 120,
   runtime: null,
   metronomeEnabled: true,
+  loopEnabled: true,
   playlistItems: [],
 } as PlaylistState
 
@@ -36,6 +38,9 @@ export const playlistSlice = createSlice({
     },
     setMetronomeEnabled: (state, action) => {
       state.metronomeEnabled = action.payload
+    },
+    setLoopEnabled: (state, action) => {
+      state.loopEnabled = action.payload
     },
     addPlaylistItem: (state, action) => {
       state.playlistItems.push({
@@ -123,6 +128,19 @@ export const toggleMetronome = () => async (dispatch: Dispatch) => {
 
 export const selectMetronomeEnabled = (state: RootState) =>
   state.playlist.metronomeEnabled
+// end metronome enable/disable methods
+
+// start loop enable/disable methods
+export const { setLoopEnabled } = playlistSlice.actions
+
+export const toggleLoop = () => async (dispatch: Dispatch) => {
+  await invoke<void>('toggle_loop_enabled', {})
+  const enabled = await invoke<boolean>('get_loop_enabled', {})
+  dispatch(setLoopEnabled(enabled))
+}
+
+export const selectLoopEnabled = (state: RootState) =>
+  state.playlist.loopEnabled
 // end metronome enable/disable methods
 
 // start playlist item methods

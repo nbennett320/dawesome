@@ -20,12 +20,14 @@ use rodio::queue::{SourcesQueueOutput};
 #[derive(Clone, Copy)]
 pub struct PlaylistUI {
   pub viewport: app::WorkspaceViewport,
+  pub max_beats_displayed: u64,
 }
 
 impl app::UI for PlaylistUI {
   fn new() -> Self {
     PlaylistUI {
       viewport: app::WorkspaceViewport::new(),
+      max_beats_displayed: 16,
     }
   }
 
@@ -43,7 +45,9 @@ pub struct Playlist {
   pub started_time: Arc<Mutex<Option<Instant>>>,
   pub total_beats: AtomicU64,
   pub current_beat: AtomicU16,
+  pub max_beats: AtomicU64,
   pub time_signature: Arc<Mutex<timing::TimeSignature>>,
+  pub loop_enabled: AtomicBool,
   pub audiograph: Arc<Mutex<daw::AudioGraph<'static>>>,
   pub ui: Arc<Mutex<PlaylistUI>>,
 }
@@ -59,12 +63,14 @@ impl Playlist {
       started_time: Arc::new(Mutex::from(None)),
       total_beats: AtomicU64::from(0),
       current_beat: AtomicU16::from(0),
+      max_beats: AtomicU64::from(32),
       time_signature: Arc::new(Mutex::new(
         timing::TimeSignature {
           numerator: 4,
           denominator: 4,
         },
       )),
+      loop_enabled: AtomicBool::from(true),
       audiograph: Arc::new(Mutex::new(
         daw::AudioGraph::new(),
       )),

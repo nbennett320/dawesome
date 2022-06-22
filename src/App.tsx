@@ -16,9 +16,9 @@ const App = () => {
   }, [devicePreferences])
 
   return (
-    <div className="min-h-screen text-gray-800">
+    <div className="AppRoot min-h-screen text-gray-800">
       <Topbar />
-      <div className="flex flex-row w-full">
+      <div className="WorkspaceContainer flex flex-row w-full">
         <Sidebar />
         <div className="w-full">
           {devicePreferences 

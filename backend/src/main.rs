@@ -7,8 +7,6 @@ use std::time::{
 };
 use tauri;
 
-use crate::app::UI;
-
 mod app;
 mod daw;
 mod util;
@@ -30,6 +28,26 @@ fn get_playlist_playing(
   Ok(state.playlist.playing.load(Ordering::SeqCst))
 }
 
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn get_playlist_start_time(
+  state: tauri::State<'_, Arc<daw::InnerState>>
+) -> Result<u128, String> {
+  let elapsed = state
+    .playlist
+    .started_time
+    .lock()
+    .unwrap()
+    .unwrap()
+    .elapsed();
+  let now = SystemTime::now()
+    .duration_since(SystemTime::Windows)
+    .unwrap();
+  let start_time = now - elapsed;
+  Ok(start_time.as_millis())
+}
+
+#[cfg(not(target_os = "windows"))]
 #[tauri::command]
 fn get_playlist_start_time(
   state: tauri::State<'_, Arc<daw::InnerState>>
@@ -253,6 +271,37 @@ fn get_playlist_sample_offset(
 }
 
 #[tauri::command]
+fn get_playlist_timeline(
+  state: tauri::State<'_, Arc<daw::InnerState>>
+) -> Result<(u64, u64, f32), String> {
+  let max_playlist_beats = state.playlist.max_beats.load(Ordering::SeqCst);
+  let max_beats_displayed = state
+    .playlist
+    .ui
+    .lock()
+    .unwrap()
+    .max_beats_displayed;
+  let ratio = max_playlist_beats as f32 / max_beats_displayed as f32;
+
+  Ok((max_playlist_beats, max_beats_displayed, ratio))
+}
+
+#[tauri::command]
+fn toggle_loop_enabled(
+  state: tauri::State<'_, Arc<daw::InnerState>>
+) {
+  let val = !state.playlist.loop_enabled.load(Ordering::SeqCst);
+  state.playlist.loop_enabled.store(val, Ordering::SeqCst);
+}
+
+#[tauri::command]
+fn get_loop_enabled(
+  state: tauri::State<'_, Arc<daw::InnerState>>
+) -> Result<bool, String> {
+  Ok(state.playlist.loop_enabled.load(Ordering::SeqCst))
+}
+
+#[tauri::command]
 fn init_playlist_workspace(
   state: tauri::State<'_, Arc<daw::InnerState>>,
   min_bound_x: f32,
@@ -299,6 +348,9 @@ fn main() {
       remove_audiograph_node,
       get_node_data,
       get_playlist_sample_offset,
+      get_playlist_timeline,
+      toggle_loop_enabled,
+      get_loop_enabled,
       init_playlist_workspace
     ])
     .run(tauri::generate_context!())

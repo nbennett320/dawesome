@@ -105,6 +105,19 @@ const PlaylistTrack = (props: Props) => {
     }),
   }))
 
+  const [ratio, setRatio] = React.useState<number>(1)
+
+  React.useEffect(() => {
+    // calculate the length of the timeline
+    const getPlaylistTimeline = async () => {
+      const [maxPlaylistBeats, maxBeatsDisplayed, displayRatio] = 
+        await invoke<[number, number, number]>('get_playlist_timeline', {})
+      setRatio(displayRatio)
+    }
+
+    getPlaylistTimeline()
+  }, [])
+
   const items = useAppSelector(selectPlaylistItems)
     .filter(item => item.trackNumber === props.trackNumber)
 
@@ -118,6 +131,7 @@ const PlaylistTrack = (props: Props) => {
     <div 
       ref={dropRef}
       data-testid='playlist-track'
+      style={{ width: `${100 * ratio}%` }}
       className={`${styles.PlaylistTrackWrapper} border-slate-400`}
     >
       <div

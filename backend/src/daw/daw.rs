@@ -135,20 +135,39 @@ pub fn run_playlist(state_ref: &Arc<state::InnerState>) {
       let next_beat = (current_beat + 1) % current_time_signature.numerator;
       
       if state.playlist.playing.load(Ordering::SeqCst) {
-        state
-          .playlist.current_beat
-          .store(next_beat, Ordering::SeqCst);
-        state
-          .playlist.total_beats
-          .fetch_add(1, Ordering::SeqCst);
+        // loop the playlist by setting the current offset to zero,
+        // if looping is enabled, otherwise, add and store the next 
+        // current beat
+        if state.playlist.loop_enabled.load(Ordering::SeqCst)
+          && ((state.playlist.total_beats.load(Ordering::SeqCst) + 1) as u64 
+          >= state.playlist.max_beats.load(Ordering::SeqCst)) {
+          audiograph_ref.set_current_offset(Some(Duration::ZERO));
+
+          state
+            .playlist
+            .current_beat
+            .store(next_beat, Ordering::SeqCst);
+          state
+            .playlist
+            .total_beats
+            .store(0, Ordering::SeqCst);
+        } else {
+          state
+            .playlist.current_beat
+            .store(next_beat, Ordering::SeqCst);
+          state
+            .playlist.total_beats
+            .fetch_add(1, Ordering::SeqCst);
+        }
       } else {
         state.playlist.current_beat.store(0, Ordering::SeqCst);
       }
 
       println!(
-        "current beat: {}, total beats played: {}",
+        "current beat: {}, total beats played: {}, looping: {}",
         state.playlist.current_beat.load(Ordering::SeqCst),
-        state.playlist.total_beats.load(Ordering::SeqCst)
+        state.playlist.total_beats.load(Ordering::SeqCst),
+        state.playlist.loop_enabled.load(Ordering::SeqCst)
       );
 
       if !state.playlist.playing.load(Ordering::SeqCst) {
