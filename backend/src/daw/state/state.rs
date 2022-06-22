@@ -1,6 +1,13 @@
 use crate::daw;
 use crate::daw::timing;
-use std::sync::{Arc, Mutex};
+use crate::app::{
+  self, 
+  UI
+};
+use std::sync::{
+  Arc, 
+  Mutex
+};
 use std::sync::atomic::{
   AtomicBool, 
   AtomicU16, 
@@ -9,7 +16,27 @@ use std::sync::atomic::{
 use std::time::{Instant};
 use rodio::{Sink};
 use rodio::queue::{SourcesQueueOutput};
-use tauri;
+
+#[derive(Clone, Copy)]
+pub struct PlaylistUI {
+  pub viewport: app::WorkspaceViewport,
+}
+
+impl app::UI for PlaylistUI {
+  fn new() -> Self {
+    PlaylistUI {
+      viewport: app::WorkspaceViewport::new(),
+    }
+  }
+
+  fn vp_width(&self) -> Option<f32> {
+    self.viewport.width
+  }
+
+  fn vp_height(&self) -> Option<f32> {
+    self.viewport.height
+  }
+}
 
 pub struct Playlist {
   pub playing: AtomicBool,
@@ -18,6 +45,7 @@ pub struct Playlist {
   pub current_beat: AtomicU16,
   pub time_signature: Arc<Mutex<timing::TimeSignature>>,
   pub audiograph: Arc<Mutex<daw::AudioGraph<'static>>>,
+  pub ui: Arc<Mutex<PlaylistUI>>,
 }
 
 impl Playlist {
@@ -40,6 +68,7 @@ impl Playlist {
       audiograph: Arc::new(Mutex::new(
         daw::AudioGraph::new(),
       )),
+      ui: Arc::new(Mutex::from(PlaylistUI::new())),
     }
   }
 }

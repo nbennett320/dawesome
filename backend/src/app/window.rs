@@ -1,4 +1,5 @@
 use std;
+use std::error::{Error};
 use serde::{Serialize};
 use tauri::{
   self, 
@@ -13,7 +14,7 @@ struct EventPayload {
 // initialize the application
 pub fn setup(
   app: &mut tauri::App<>
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn Error>> {
   let window = app.get_window("main").unwrap();
   let window_cp = window.clone();
 

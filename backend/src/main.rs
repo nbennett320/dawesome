@@ -7,6 +7,8 @@ use std::time::{
 };
 use tauri;
 
+use crate::app::UI;
+
 mod app;
 mod daw;
 mod util;
@@ -250,6 +252,29 @@ fn get_playlist_sample_offset(
   Ok(res)
 }
 
+#[tauri::command]
+fn init_playlist_workspace(
+  state: tauri::State<'_, Arc<daw::InnerState>>,
+  min_bound_x: f32,
+  min_bound_y: f32,
+  max_bound_x: f32,
+  max_bound_y: f32,
+) {
+  println!("min_bound_x: {}, max_bound_x: {}", min_bound_x, max_bound_x);
+  // update bounding box
+  state
+    .playlist
+    .ui
+    .lock()
+    .unwrap()
+    .viewport
+    .set_bounding_box(
+      min_bound_x, 
+      min_bound_y, 
+      max_bound_x, 
+      max_bound_y);
+}
+
 fn main() {
   tauri::Builder::default()
     .setup(app::setup)
@@ -273,7 +298,8 @@ fn main() {
       move_audiograph_node,
       remove_audiograph_node,
       get_node_data,
-      get_playlist_sample_offset
+      get_playlist_sample_offset,
+      init_playlist_workspace
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
