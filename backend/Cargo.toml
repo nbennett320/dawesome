@@ -46,3 +46,6 @@ panic = "abort"
 
 # unsupported optimiaztion for rust versions < 1.59
 strip = "debuginfo"
+
+[lib]
+proc-macro = true
