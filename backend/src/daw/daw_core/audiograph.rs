@@ -189,6 +189,7 @@ pub struct AudioNode {
   sample_path: String,
   start_time: Option<Instant>,
   samples: Arc<Mutex<Buffered<Decoder<BufReader<File>>>>>,
+  channels: u16,
   sink: Arc<Mutex<Sink>>,
   handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
   running: bool,
@@ -213,6 +214,8 @@ impl AudioNode {
     let (_stream, stream_handle) = OutputStream::try_default().unwrap();
     let sink = Sink::try_new(&stream_handle).unwrap();
 
+    let channels = sample_buf.channels();
+
     // todo: find a better way of calculating sample length
     // without reading the file buffer twice
     let file_buf_len = BufReader::new(File::open(&sample_path).unwrap());
@@ -222,9 +225,10 @@ impl AudioNode {
       samples.push(sample);
     }
 
-    let dur_ms = (samples.len() as f32 / sample_rate as f32) * 1_000 as f32 / 2 as f32;
+    let dur_ms = (samples.len() as f32 / sample_rate as f32) * 1_000 as f32 / channels as f32;
     let duration = Duration::from_millis(dur_ms.round() as u64);
     println!("length of sample in ms: {:?}", dur_ms);
+    println!("channels: {:?}", channels);
     let waveform = util::get_waveform(&sample_path);
 
     AudioNode {
@@ -234,6 +238,7 @@ impl AudioNode {
       start_offset,
       track_number,
       samples: Arc::new(Mutex::from(sample_buf)),
+      channels,
       sink: Arc::new(Mutex::from(sink)),
       handle: Arc::new(Mutex::from(None)),
       running: false,

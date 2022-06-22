@@ -8,7 +8,6 @@ use std::io::BufReader;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{Ordering};
 use std::thread;
-use std::time;
 use std::time::{Duration, Instant};
 use rodio::{Source};
 use rodio::{Decoder, OutputStream, Sink};

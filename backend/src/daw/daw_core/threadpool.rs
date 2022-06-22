@@ -1,7 +1,14 @@
-use std::sync;
+use std::sync::{
+  Arc,
+  Mutex
+};
 use std::sync::mpsc;
+use std::sync::mpsc::{
+  Sender,
+  Receiver
+};
 use std::thread;
-use std::vec;
+use std::vec::{Vec};
 
 trait FnBox {
   fn call(self: Box<Self>);
@@ -28,7 +35,7 @@ struct Worker {
 impl Worker {
   fn new(
     _id: usize,
-    revc: sync::Arc<sync::Mutex<mpsc::Receiver<Message>>>,
+    revc: Arc<Mutex<Receiver<Message>>>,
   ) -> Self {
     let thread = thread::spawn(move || loop {
       let msg = revc.lock().unwrap().recv().unwrap();
@@ -46,21 +53,21 @@ impl Worker {
 }
 
 pub struct ThreadPool {
-  workers: vec::Vec<Worker>,
-  sender: mpsc::Sender<Message>,
+  workers: Vec<Worker>,
+  sender: Sender<Message>,
 }
 
 impl ThreadPool {
   pub fn new(size: usize) -> Self {
     assert!(size > 0);
 
-    let (sender, rx): (mpsc::Sender<Message>, mpsc::Receiver<Message>) =
+    let (sender, rx): (Sender<Message>, Receiver<Message>) =
       mpsc::channel();
-    let recv = sync::Arc::new(sync::Mutex::new(rx));
-    let mut workers = vec::Vec::with_capacity(size);
+    let recv = Arc::new(Mutex::new(rx));
+    let mut workers = Vec::with_capacity(size);
 
     for id in 0..size {
-      workers.push(Worker::new(id, sync::Arc::clone(&recv)));
+      workers.push(Worker::new(id, Arc::clone(&recv)));
     }
 
     ThreadPool { workers, sender }

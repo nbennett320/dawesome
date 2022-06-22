@@ -1,6 +1,9 @@
 use std;
-use serde::Serialize;
-use tauri::{self, Manager};
+use serde::{Serialize};
+use tauri::{
+  self, 
+  Manager
+};
 
 #[derive(Clone, Serialize)]
 struct EventPayload {

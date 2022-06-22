@@ -1,7 +1,10 @@
 use std::sync::atomic::{Ordering};
 use std::sync::{Arc};
 use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::{
+  Duration, 
+  SystemTime
+};
 use tauri;
 
 mod app;

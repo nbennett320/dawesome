@@ -1,4 +1,4 @@
-use std::vec::Vec;
+use std::vec::{Vec};
 use std::ops::{
   Add,
   Sub,
@@ -7,7 +7,7 @@ use std::ops::{
 };
 use std::cmp::{
   Ord,
-  PartialOrd,
+  PartialOrd
 };
 
 fn y0_prime<
