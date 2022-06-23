@@ -1,8 +1,8 @@
-name: Linting
+# name: Linting
 
-on: push
+# on: push
 
-jobs:
+# jobs:
   # rust_lint:
   #   runs-on: ubuntu-latest
   #   steps:
@@ -15,19 +15,19 @@ jobs:
   #     - name: Rust Clippy
   #       run: cd ./backend/ && cargo clippy --all-targets --all-features -- -D warnings
 
-  typescript_lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: pnpm/action-setup@v2.0.1
-        with:
-          version: 6.20.3
-      - name: Use Node.js 16
-        uses: actions/setup-node@v2
-        with:
-          node-version: 16
-          cache: 'pnpm'
-      - name: Install node modules
-        run: pnpm install
-      - name: Lint typescript
-        run: pnpm lint
+  # typescript_lint:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v2
+  #     - uses: pnpm/action-setup@v2.0.1
+  #       with:
+  #         version: 6.20.3
+  #     - name: Use Node.js 16
+  #       uses: actions/setup-node@v2
+  #       with:
+  #         node-version: 16
+  #         cache: 'pnpm'
+  #     - name: Install node modules
+  #       run: pnpm install
+  #     - name: Lint typescript
+  #       run: pnpm lint
