@@ -32,21 +32,21 @@ const PlaylistTrack = (props: Props) => {
           // handle samples dropped from the sidebar
           if(dropCoords && playlistTrackBoxRef.current) { 
             const { x, y } = dropCoords
-            const { left, top, right, bottom } = playlistTrackBoxRef.current.getBoundingClientRect()
-            const offset = await invoke<number>('get_playlist_sample_offset', {
-              dropX: x,
-              dropY: y,
-              minBoundX: left,
-              minBoundY: top,
-              maxBoundX: right,
-              maxBoundY: bottom,
-            })
+            // const { left, top, right, bottom } = playlistTrackBoxRef.current.getBoundingClientRect()
+            // const offset = await invoke<number>('get_playlist_sample_offset', {
+            //   dropX: x,
+            //   dropY: y,
+            //   minBoundX: left,
+            //   minBoundY: top,
+            //   maxBoundX: right,
+            //   maxBoundY: bottom,
+            // })
 
             dispatch(addToPlaylist(
               item.name as string, 
-              offset, 
               props.trackNumber,
               x,
+              y,
             ))
           } else {
             // eslint-disable-next-line no-console
@@ -62,22 +62,22 @@ const PlaylistTrack = (props: Props) => {
           // handle drag and drop from nodes already existent in the playlist
           if(dropCoords && playlistTrackBoxRef.current) { 
             const { x, y } = dropCoords
-            const { left, top, right, bottom } = playlistTrackBoxRef.current.getBoundingClientRect()
-            const offset = await invoke<number>('get_playlist_sample_offset', {
-              dropX: x,
-              dropY: y,
-              minBoundX: left,
-              minBoundY: top,
-              maxBoundX: right,
-              maxBoundY: bottom,
-            })
+            // const { left, top, right, bottom } = playlistTrackBoxRef.current.getBoundingClientRect()
+            // const offset = await invoke<number>('get_playlist_sample_offset', {
+            //   dropX: x,
+            //   dropY: y,
+            //   minBoundX: left,
+            //   minBoundY: top,
+            //   maxBoundX: right,
+            //   maxBoundY: bottom,
+            // })
 
             dispatch(moveNodeInPlaylist(
               item.id, 
               item.name as string,
-              offset, 
               props.trackNumber,
               x,
+              y,
             ))
           } else {
             // eslint-disable-next-line no-console

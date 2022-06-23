@@ -7,7 +7,7 @@ const zeroPad = (num: number, places: number): string => (num.toString()).padSta
 const PlaylistTimeline = () => {
   const [limit, setLimit] = React.useState<number>(16)
   const [ratio, setRatio] = React.useState<number>(1)
-  const range = [...Array(limit).keys()].map(e => e + 1)
+  const range = [...Array(limit - 1).keys()].map(e => e + 1)
 
   React.useEffect(() => {
     const getPlaylistTimeline = async () => {

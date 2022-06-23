@@ -1,8 +1,8 @@
 use crate::daw::{
   daw_core, 
-  state
+  state, 
 };
-
+use crate::daw::{MusicalTiming};
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::{Arc, Mutex};
@@ -97,15 +97,21 @@ pub fn play_metronome(state_ref: &Arc<state::InnerState>) {
 pub fn run_playlist(state_ref: &Arc<state::InnerState>) {
   let state = state_ref.clone();
   let pool = daw_core::threadpool::ThreadPool::new(4);
-  let tempo = *state_ref.global_tempo_bpm.lock().unwrap();
-  let tempo_interval = daw_core::timing::tempo_to_interval(tempo);
+  let tempo = state_ref.tempo();
+  let tempo_interval = state
+    .playlist
+    .audiograph
+    .lock()
+    .unwrap()
+    .interval_of_subdivision(daw_core::timing::QuarterNote::new());
 
   pool.exec(move || {
     thread::spawn(move || loop {
       println!("tick: {}ms", &state.playlist.audiograph.lock().unwrap().current_offset.unwrap().as_millis());
 
       // play metronome if enabled
-      if state.metronome_enabled.load(Ordering::SeqCst) && state.playlist.playing.load(Ordering::SeqCst) {
+      if state.metronome_enabled.load(Ordering::SeqCst) 
+        && state.playlist.playing.load(Ordering::SeqCst) {
         play_metronome(&state);
       }
 
@@ -235,7 +241,10 @@ pub fn set_playlist_tempo(
   state: tauri::State<'_, Arc<state::InnerState>>,
   val: f32,
 ) {
-  let old_tempo = *state.global_tempo_bpm.lock().unwrap();
-  state.playlist.audiograph.lock().unwrap().fit_nodes_to_tempo(val, old_tempo);
-  *state.global_tempo_bpm.lock().unwrap() = val;
+  state
+    .playlist
+    .audiograph
+    .lock()
+    .unwrap()
+    .set_tempo(val);
 }

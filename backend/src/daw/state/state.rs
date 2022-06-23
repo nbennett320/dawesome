@@ -1,9 +1,7 @@
+use crate::app::ui::{UI};
 use crate::daw;
 use crate::daw::timing;
-use crate::app::{
-  self, 
-  UI
-};
+use crate::app;
 use std::sync::{
   Arc, 
   Mutex
@@ -19,14 +17,14 @@ use rodio::queue::{SourcesQueueOutput};
 
 #[derive(Clone, Copy)]
 pub struct PlaylistUI {
-  pub viewport: app::WorkspaceViewport,
+  pub viewport: app::workspaces::WorkspaceViewport,
   pub max_beats_displayed: u64,
 }
 
-impl app::UI for PlaylistUI {
+impl UI for PlaylistUI {
   fn new() -> Self {
     PlaylistUI {
-      viewport: app::WorkspaceViewport::new(),
+      viewport: app::workspaces::WorkspaceViewport::new(),
       max_beats_displayed: 16,
     }
   }
@@ -63,7 +61,7 @@ impl Playlist {
       started_time: Arc::new(Mutex::from(None)),
       total_beats: AtomicU64::from(0),
       current_beat: AtomicU16::from(0),
-      max_beats: AtomicU64::from(32),
+      max_beats: AtomicU64::from(daw::state::defaults::MAX_BEATS),
       time_signature: Arc::new(Mutex::new(
         timing::TimeSignature {
           numerator: 4,
@@ -72,7 +70,11 @@ impl Playlist {
       )),
       loop_enabled: AtomicBool::from(true),
       audiograph: Arc::new(Mutex::new(
-        daw::AudioGraph::new(),
+        daw::AudioGraph::new(
+          daw::state::defaults::SAMPLE_RATE,
+          daw::state::defaults::TEMPO,
+          daw::state::defaults::MAX_BEATS
+        ),
       )),
       ui: Arc::new(Mutex::from(PlaylistUI::new())),
     }
@@ -80,7 +82,6 @@ impl Playlist {
 }
 
 pub struct InnerState {
-  pub global_tempo_bpm: Arc<Mutex<f32>>,
   pub metronome_enabled: AtomicBool,
   pub root_source: Arc<Mutex<(Sink, SourcesQueueOutput<f32>)>>,
   pub playlist: Playlist,
@@ -93,10 +94,27 @@ impl InnerState {
 
   pub fn default() -> Self {
     InnerState {
-      global_tempo_bpm: Arc::new(Mutex::new(120.)),
       metronome_enabled: AtomicBool::from(true),
       root_source: Arc::new(Mutex::new(Sink::new_idle())),
       playlist: Playlist::default()
     }
+  }
+
+  pub fn tempo(&self) -> f32 {
+    self
+      .playlist
+      .audiograph
+      .lock()
+      .unwrap()
+      .tempo()
+  }
+
+  pub fn set_tempo(&self, tempo: f32) {
+    self
+      .playlist
+      .audiograph
+      .lock()
+      .unwrap()
+      .set_tempo(tempo);
   }
 }

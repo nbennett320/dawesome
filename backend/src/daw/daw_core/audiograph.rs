@@ -2,10 +2,9 @@ use crate::{
   daw,
   util
 };
-
 use std::thread;
 use std::sync::{Arc, Mutex};
-use std::marker;
+use std::marker::{PhantomData};
 use std::time::{
   Duration,
   Instant
@@ -334,12 +333,17 @@ pub struct AudioGraph<'a> {
   controller: Arc<rodio::dynamic_mixer::DynamicMixerController<i16>>,
   mixer: DynamicMixer<i16>,
   sample_rate: u32,
-  _phantom: marker::PhantomData<&'a str>,
+  tempo: f32,
+  max_beats: u64,
+  _phantom: PhantomData<&'a str>,
 }
 
 impl AudioGraph<'static> {
-  pub fn new() -> Self {
-    let sample_rate = 44_100;
+  pub fn new(
+    sample_rate: u32, 
+    tempo: f32,
+    max_beats: u64,
+  ) -> Self {
     let (_stream, stream_handle) = OutputStream::try_default().unwrap();
     let (controller, mixer) = rodio::dynamic_mixer::mixer(2, sample_rate);
 
@@ -352,7 +356,9 @@ impl AudioGraph<'static> {
       controller,
       mixer,
       sample_rate,
-      _phantom: marker::PhantomData,
+      tempo,
+      max_beats,
+      _phantom: PhantomData,
     }
   }
 
@@ -435,6 +441,39 @@ impl AudioGraph<'static> {
     }
   }
 
+  pub fn set_tempo(&mut self, tempo: f32) {
+    self.tempo = tempo;
+  }
+
+  pub fn tempo(&self) -> f32 {
+    self.tempo
+  }
+
+  pub fn set_max_beats(&mut self, max_beats: u64) {
+    self.max_beats = max_beats;
+  }
+
+  pub fn max_beats(&self) -> u64 {
+    self.max_beats
+  }
+
+  pub fn beat_interval(&self) -> Duration {
+    let beats_per_sec = self.tempo / 60. / 4.;
+    let dur = Duration::from_secs_f32(beats_per_sec);
+
+    dur
+  }
+
+  pub fn interval_of_subdivision<T>(
+    &self, 
+    note: T
+  ) -> Duration 
+  where T: daw::timing::MusicalTiming {
+    let (_, subdivision) = note.ratio();
+
+    self.beat_interval() / subdivision
+  }
+
   // add nodes to the audio graph and sort the graph by
   // offset start time
   pub fn add_node(&mut self, node: AudioNode) {
@@ -491,13 +530,17 @@ impl AudioGraph<'static> {
     self.current_offset = offset;
   }
 
-  // get the length in milliseconds from the start 
+  // get the length from the start 
   // of the playlist to the last node in the graph, 
   // not including the length of node (but should in the future)
   // (does not include padding added by the playlist)
-  pub fn len_real_in_ms(self) -> Duration {
+  pub fn duration(self) -> Duration {
     if self.nodes.len() == 0 { return Duration::from_millis(0); }
     self.nodes.last().unwrap().start_offset
+  }
+
+  pub fn duration_max(&self) -> Duration {
+    self.beat_interval() * self.max_beats as u32
   }
 
   // count number of nodes

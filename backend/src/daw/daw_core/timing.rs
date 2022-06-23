@@ -7,8 +7,8 @@ pub struct TimeSignature {
   pub denominator: u16
 }
 
-trait MusicalTiming {
-  fn new(subdivision: u32) -> Self;
+pub trait MusicalTiming {
+  fn new() -> Self;
   fn ratio(&self) -> (u32, u32);
 }
 
@@ -18,9 +18,9 @@ struct Note {
 }
 
 impl MusicalTiming for Note {
-  fn new(subdivision: u32) -> Self {
+  fn new() -> Self {
     Note {
-      subdivision
+      subdivision: 1
     }
   }
 
@@ -34,7 +34,7 @@ pub struct QuarterNote {
   note: Note
 }
 
-impl QuarterNote {
+impl MusicalTiming for QuarterNote {
   fn new() -> Self {
     QuarterNote {
       note: Note {
@@ -53,7 +53,7 @@ pub struct EighthNote {
   note: Note
 }
 
-impl EighthNote {
+impl MusicalTiming for EighthNote {
   fn new() -> Self {
     EighthNote {
       note: Note {
@@ -72,7 +72,7 @@ pub struct SixteenthNote {
   note: Note
 }
 
-impl SixteenthNote {
+impl MusicalTiming for SixteenthNote {
   fn new() -> Self {
     SixteenthNote {
       note: Note {
@@ -88,9 +88,10 @@ impl SixteenthNote {
 
 // util functions
 pub fn tempo_to_interval(tempo: f32) -> Duration {
-  let min_ms = 60_000.;
-  let ms_intrv = min_ms / tempo;
-  let us_intv = ms_intrv * 1_000.;
+  let beats_per_sec = tempo / 60. / 4.;
+  let dur = Duration::from_secs_f32(beats_per_sec);
+
+  println!("dir: {}s", dur.as_secs_f32());
   
-  Duration::from_micros(us_intv.round() as u64)
+  dur
 }

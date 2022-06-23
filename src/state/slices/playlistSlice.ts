@@ -46,7 +46,7 @@ export const playlistSlice = createSlice({
       state.playlistItems.push({
         id: action.payload.id,
         path: action.payload.path,
-        offset: action.payload.offset,
+        // offset: action.payload.offset,
         trackNumber: action.payload.trackNumber,
         pixelOffset: action.payload.pixelOffset,
       } as PlaylistItem)
@@ -59,7 +59,7 @@ export const playlistSlice = createSlice({
           state.playlistItems[i] = {
             id: action.payload.id,
             path: action.payload.path,
-            offset: action.payload.offset,
+            // offset: action.payload.offset,
             trackNumber: action.payload.trackNumber,
             pixelOffset: action.payload.pixelOffset,
           } as PlaylistItem
@@ -152,46 +152,44 @@ export const {
 
 export const addToPlaylist = (
   path: string, 
-  offset: number, 
   trackNumber: number,
-  pixelOffset: number,
+  dropX: number,
+  dropY: number,
 ) => async (dispatch: Dispatch) => {
-  console.log("adding node:", path, offset, trackNumber)
   const id = await invoke<number>('add_audiograph_node', {
     samplePath: path,
-    startOffset: offset,
     trackNumber,
+    dropX,
+    dropY,
   })
 
-  console.log("id:",id)
   dispatch(addPlaylistItem({
     id,
     path,
-    offset,
     trackNumber,
-    pixelOffset,
+    pixelOffset: dropX,
   } as PlaylistItem))
 }
 
 export const moveNodeInPlaylist = (
   id: number,
-  path: string,
-  offset: number,
+  path: string, 
   trackNumber: number,
-  pixelOffset: number,
+  dropX: number,
+  dropY: number,
 ) => async (dispatch: Dispatch) => {
   await invoke('move_audiograph_node', {
     id,
-    startOffset: offset,
     trackNumber,
+    dropX,
+    dropY,
   })
 
   dispatch(movePlaylistItem({
     id,
     path,
-    offset,
     trackNumber,
-    pixelOffset,
+    pixelOffset: dropX,
   } as PlaylistItem))
 }
 

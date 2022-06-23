@@ -70,7 +70,7 @@ fn get_playlist_start_time(
 fn get_playlist_tempo(
   state: tauri::State<'_, Arc<daw::InnerState>>
 ) -> Result<f32, String> {
-  Ok(*state.global_tempo_bpm.lock().unwrap())
+  Ok(state.tempo())
 }
 
 #[tauri::command]
@@ -129,7 +129,7 @@ fn set_playlist_time_signature(
 
 #[tauri::command]
 fn get_sidebar_samples() -> Result<Vec<String>, String> {
-  Ok(app::get_sidebar_samples())
+  Ok(app::env::get_sidebar_samples())
 }
 
 #[tauri::command]
@@ -151,19 +151,36 @@ fn get_audio_drivers() -> Result<Vec<String>, String> {
 fn add_audiograph_node(
   state: tauri::State<'_, Arc<daw::InnerState>>,
   sample_path: String,
-  start_offset: u64,
   track_number: u32,
+  drop_x: Option<f32>,
+  drop_y: Option<f32>,
 ) -> Result<u64, String> {
-  let start_offset_dur = Duration::from_millis(start_offset);
+  let min_bound_x = state.playlist.ui.lock().unwrap().viewport.min_bound_x.unwrap();
+  let min_bound_y = state.playlist.ui.lock().unwrap().viewport.min_bound_y.unwrap();
+  let max_bound_x = state.playlist.ui.lock().unwrap().viewport.max_bound_x.unwrap();
+  let max_bound_y = state.playlist.ui.lock().unwrap().viewport.max_bound_y.unwrap();
+  let max_playlist_dur = state.playlist.audiograph.lock().unwrap().duration_max();
+
+  let start_offset = app::workspaces::playlist::calc_sample_offset(
+    drop_x.unwrap_or(min_bound_x),
+    drop_y.unwrap_or(min_bound_y),
+    min_bound_x,
+    min_bound_y,
+    max_bound_x,
+    max_bound_y,
+    max_playlist_dur
+  );
+
+  println!("added sample: {}, with offset of: {}ms", sample_path, start_offset.as_millis());
 
   let id = state
     .playlist
     .audiograph
     .lock()
     .unwrap()
-    .construct_and_add_node(sample_path, start_offset_dur, track_number);
+    .construct_and_add_node(sample_path, start_offset, track_number);
 
-  // returns the id of the new node
+  // returns the id of the new node, offset
   Ok(id)
 }
 
@@ -171,10 +188,25 @@ fn add_audiograph_node(
 fn move_audiograph_node(
   state: tauri::State<'_, Arc<daw::InnerState>>, 
   id: u64,
-  start_offset: u64,
   track_number: u32,
+  drop_x: Option<f32>,
+  drop_y: Option<f32>,
 ) {
-  let start_offset_dur = Duration::from_millis(start_offset);
+  let min_bound_x = state.playlist.ui.lock().unwrap().viewport.min_bound_x.unwrap();
+  let min_bound_y = state.playlist.ui.lock().unwrap().viewport.min_bound_y.unwrap();
+  let max_bound_x = state.playlist.ui.lock().unwrap().viewport.max_bound_x.unwrap();
+  let max_bound_y = state.playlist.ui.lock().unwrap().viewport.max_bound_y.unwrap();
+  let max_playlist_dur = state.playlist.audiograph.lock().unwrap().duration_max();
+
+  let start_offset = app::workspaces::playlist::calc_sample_offset(
+    drop_x.unwrap_or(min_bound_x),
+    drop_y.unwrap_or(min_bound_y),
+    min_bound_x,
+    min_bound_y,
+    max_bound_x,
+    max_bound_y,
+    max_playlist_dur
+  );
 
   // set new start offset
   state
@@ -183,7 +215,7 @@ fn move_audiograph_node(
     .lock()
     .unwrap()
     .get_mut_node(id)
-    .start_offset = start_offset_dur;
+    .start_offset = start_offset;
   
   // set new track number
   state
@@ -290,8 +322,15 @@ fn get_playlist_timeline(
 fn toggle_loop_enabled(
   state: tauri::State<'_, Arc<daw::InnerState>>
 ) {
-  let val = !state.playlist.loop_enabled.load(Ordering::SeqCst);
-  state.playlist.loop_enabled.store(val, Ordering::SeqCst);
+  let val = !state
+    .playlist
+    .loop_enabled
+    .load(Ordering::SeqCst);
+
+  state
+    .playlist
+    .loop_enabled
+    .store(val, Ordering::SeqCst);
 }
 
 #[tauri::command]
@@ -299,6 +338,25 @@ fn get_loop_enabled(
   state: tauri::State<'_, Arc<daw::InnerState>>
 ) -> Result<bool, String> {
   Ok(state.playlist.loop_enabled.load(Ordering::SeqCst))
+}
+
+#[tauri::command]
+fn get_playlist_max_length (
+  state: tauri::State<'_, Arc<daw::InnerState>>
+) -> Result<(u64, u64), String> {
+  let dur = state
+    .playlist
+    .audiograph
+    .lock()
+    .unwrap()
+    .duration_max();
+  let max_beats = state
+    .playlist
+    .audiograph
+    .lock()
+    .unwrap()
+    .max_beats();
+  Ok((dur.as_millis().try_into().unwrap(), max_beats))
 }
 
 #[tauri::command]
@@ -326,8 +384,8 @@ fn init_playlist_workspace(
 
 fn main() {
   tauri::Builder::default()
-    .setup(app::setup)
-    .menu(app::build_menu())
+    .setup(app::window::setup)
+    .menu(app::window::build_menu())
     .manage(Arc::new(daw::InnerState::default()))
     .invoke_handler(tauri::generate_handler![
       get_playlist_playing,
@@ -351,6 +409,7 @@ fn main() {
       get_playlist_timeline,
       toggle_loop_enabled,
       get_loop_enabled,
+      get_playlist_max_length,
       init_playlist_workspace
     ])
     .run(tauri::generate_context!())

@@ -6,7 +6,7 @@ export enum PlaylistTypes {
 export type PlaylistItem = {
   id: number,
   path: string,
-  offset: number,
+  // offset: number,
   trackNumber: number,
   pixelOffset: number,
 }
