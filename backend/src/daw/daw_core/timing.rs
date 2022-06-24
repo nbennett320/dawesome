@@ -17,15 +17,41 @@ struct Note {
   subdivision: u32
 }
 
-impl MusicalTiming for Note {
+#[derive(Clone, Copy, PartialEq, PartialOrd)]
+pub struct WholeNote {
+  note: Note
+}
+
+impl MusicalTiming for WholeNote {
   fn new() -> Self {
-    Note {
-      subdivision: 1
+    WholeNote {
+      note: Note {
+        subdivision: 1
+      }
     }
   }
 
   fn ratio(&self) -> (u32, u32) {
-    (1, self.subdivision)
+    (1, self.note.subdivision)
+  }
+}
+
+#[derive(Clone, Copy, PartialEq, PartialOrd)]
+pub struct HalfNote {
+  note: Note
+}
+
+impl MusicalTiming for HalfNote {
+  fn new() -> Self {
+    HalfNote {
+      note: Note {
+        subdivision: 2
+      }
+    }
+  }
+
+  fn ratio(&self) -> (u32, u32) {
+   (1, self.note.subdivision)
   }
 }
 

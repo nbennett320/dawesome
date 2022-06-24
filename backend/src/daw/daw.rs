@@ -5,12 +5,22 @@ use crate::daw::{
 use crate::daw::{MusicalTiming};
 use std::fs::File;
 use std::io::BufReader;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+  Arc, 
+  Mutex,
+};
 use std::sync::atomic::{Ordering};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{
+  Duration, 
+  Instant,
+};
 use rodio::{Source};
-use rodio::{Decoder, OutputStream, Sink};
+use rodio::{
+  Decoder, 
+  OutputStream, 
+  Sink,
+};
 use tauri;
 
 #[cfg(target_os = "linux")]
@@ -103,7 +113,7 @@ pub fn run_playlist(state_ref: &Arc<state::InnerState>) {
     .audiograph
     .lock()
     .unwrap()
-    .interval_of_subdivision(daw_core::timing::QuarterNote::new());
+    .interval_of_subdivision(daw_core::timing::WholeNote::new());
 
   pool.exec(move || {
     thread::spawn(move || loop {
