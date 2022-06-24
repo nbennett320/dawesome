@@ -13,11 +13,17 @@ pub fn calc_sample_offset(
   // let adjusted_min_x = 0. as f32;
   // let adjusted_max_x = width;
   let adjusted_drop_x = drop_x - min_bound_x;
+  println!("drop_x: {}, min_bound_x: {}, max_bound_x: {}, adjusted_drop_x: {}", drop_x, min_bound_x, max_bound_x, adjusted_drop_x);
 
   let ratio = adjusted_drop_x / width;
-  let max_dur_us = max_playlist_dur.as_micros() as f32;
-  let drop_offset_us = max_dur_us * ratio / 10.;
+  println!("offset ratio: {}, max dur: {}ms, ", ratio, max_playlist_dur.as_millis());
+  let max_dur_us = max_playlist_dur.as_micros() as f64;
+  let drop_offset_us = max_dur_us * ratio as f64;
   
-  Duration::from_micros(drop_offset_us.round() as u64)
+  let dur = Duration::from_micros(drop_offset_us.round() as u64);
+
+  // println!("max_dur_us: {}, drop_offsetoffset dur: {}ms", dur.as_millis());
+
+  dur
 }
 

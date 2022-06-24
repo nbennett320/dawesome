@@ -159,7 +159,11 @@ fn add_audiograph_node(
   let min_bound_y = state.playlist.ui.lock().unwrap().viewport.min_bound_y.unwrap();
   let max_bound_x = state.playlist.ui.lock().unwrap().viewport.max_bound_x.unwrap();
   let max_bound_y = state.playlist.ui.lock().unwrap().viewport.max_bound_y.unwrap();
-  let max_playlist_dur = state.playlist.audiograph.lock().unwrap().duration_max();
+  let tempo = state.playlist.audiograph.lock().unwrap().tempo();
+  let max_beats_displayed = state.playlist.ui.lock().unwrap().max_beats_displayed;
+  let max_playlist_dur = daw::timing::n_beat_duration_from_tempo(tempo, max_beats_displayed as u32);
+
+  // println!("max playlist dur: {}ms", max_playlist_dur.as_millis());
 
   let start_offset = app::workspaces::playlist::calc_sample_offset(
     drop_x.unwrap_or(min_bound_x),
@@ -196,7 +200,9 @@ fn move_audiograph_node(
   let min_bound_y = state.playlist.ui.lock().unwrap().viewport.min_bound_y.unwrap();
   let max_bound_x = state.playlist.ui.lock().unwrap().viewport.max_bound_x.unwrap();
   let max_bound_y = state.playlist.ui.lock().unwrap().viewport.max_bound_y.unwrap();
-  let max_playlist_dur = state.playlist.audiograph.lock().unwrap().duration_max();
+  let tempo = state.playlist.audiograph.lock().unwrap().tempo();
+  let max_beats_displayed = state.playlist.ui.lock().unwrap().max_beats_displayed;
+  let max_playlist_dur = daw::timing::n_beat_duration_from_tempo(tempo, max_beats_displayed as u32);
 
   let start_offset = app::workspaces::playlist::calc_sample_offset(
     drop_x.unwrap_or(min_bound_x),

@@ -3,7 +3,10 @@ use crate::{
   util
 };
 use std::thread;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+  Arc, 
+  Mutex,
+};
 use std::marker::{PhantomData};
 use std::time::{
   Duration,
@@ -191,7 +194,7 @@ pub struct AudioNode {
   channels: u16,
   sink: Arc<Mutex<Sink>>,
   handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
-  running: bool,
+  running: Arc<Mutex<bool>>,
   duration: Duration,
   sample_rate: u32,
   waveform: (String, String),
@@ -240,7 +243,7 @@ impl AudioNode {
       channels,
       sink: Arc::new(Mutex::from(sink)),
       handle: Arc::new(Mutex::from(None)),
-      running: false,
+      running: Arc::new(Mutex::from(false)),
       duration,
       sample_rate,
       waveform,
@@ -250,23 +253,23 @@ impl AudioNode {
   pub fn buffer_sink(&mut self) {
     let sink = self.sink.lock().unwrap();
     let samples = self.samples.lock().unwrap().to_owned();
-    sink.append(samples);
     sink.pause();
+    sink.append(samples);
     println!("buffered samples for: {}", self.sample_path);
   }
 
   // play the audio node
-  pub async fn play(mut self) {
+  pub async fn play(self) {
     println!("playing sample");
     thread::spawn(move || {
-      if self.running {
+      if *self.running.lock().unwrap() {
         println!("node is running");
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
         let sink = Sink::try_new(&stream_handle).unwrap();
         let samples = self.samples.lock().unwrap();
         
-        sink.append(samples.to_owned());
         sink.pause();
+        sink.append(samples.to_owned());
         
         if !sink.empty() {
           println!("sample should play");
@@ -278,7 +281,7 @@ impl AudioNode {
 
         *self.sink.lock().unwrap() = sink;
 
-        self.running = false;
+        *self.running.lock().unwrap() = false;
       }
     });
   }
@@ -307,7 +310,8 @@ impl AudioNode {
   }
 
   pub fn toggle_running(&mut self) {
-    self.running = !self.running;
+    let val = !*self.running.lock().unwrap();
+    *self.running.lock().unwrap() = val;
   }
 
   pub fn get_waveform(&self) -> (String, String) {
@@ -417,7 +421,7 @@ impl AudioGraph<'static> {
     let slice = self_arc.lock().unwrap().nodes[idx_start..idx_end].to_vec();
     println!("len: {}, {}",slice.len(), self.nodes.len());
     for mut node in slice {
-      println!("node.start_offset: {}", node.start_offset.as_millis());
+      println!("node.start_offset: {}ms", node.start_offset.as_millis());
       // let sample_path = Arc::new(Mutex::new(Box::from(node.sample_path.as_ref())));
       let start_offset = Arc::new(Mutex::new(node.start_offset));
       let current_offset = Arc::new(Mutex::new(self_arc.lock().unwrap().current_offset));
@@ -436,6 +440,7 @@ impl AudioGraph<'static> {
         if *running.lock().unwrap() {
           node.toggle_running();
           futures::executor::block_on(node.play());
+          // node.toggle_running();
         }
       });
     }
@@ -506,16 +511,18 @@ impl AudioGraph<'static> {
 
   // remove node from graph with provided id
   // panics if id does not exist
-  pub fn remove_node(&mut self, id: u64) {
+  pub fn remove_node(&mut self, id: u64) -> AudioNode {
     let idx = self.nodes.iter().position(|a| a.id == id);
     let node = self.nodes.remove(idx.unwrap());
+
+    node
   }
 
   // stop playback of all nodes and clear start times
   pub fn pause(&mut self) {
     for node in self.nodes.as_mut_slice() {
-      if node.running {
-        node.running = false;
+      if *node.running.lock().unwrap() {
+        *node.running.lock().unwrap() = false;
       }
 
       node.clear_start_time();

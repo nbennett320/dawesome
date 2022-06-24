@@ -18,6 +18,7 @@ use rodio::queue::{SourcesQueueOutput};
 #[derive(Clone, Copy)]
 pub struct PlaylistUI {
   pub viewport: app::workspaces::WorkspaceViewport,
+  pub max_beats: u64,
   pub max_beats_displayed: u64,
 }
 
@@ -25,7 +26,8 @@ impl UI for PlaylistUI {
   fn new() -> Self {
     PlaylistUI {
       viewport: app::workspaces::WorkspaceViewport::new(),
-      max_beats_displayed: 16,
+      max_beats: daw::state::defaults::MAX_BEATS,
+      max_beats_displayed: daw::state::defaults::MAX_BEATS_DISPLAYED,
     }
   }
 

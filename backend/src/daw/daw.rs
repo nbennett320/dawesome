@@ -106,8 +106,7 @@ pub fn play_metronome(state_ref: &Arc<state::InnerState>) {
 
 pub fn run_playlist(state_ref: &Arc<state::InnerState>) {
   let state = state_ref.clone();
-  let pool = daw_core::threadpool::ThreadPool::new(4);
-  let tempo = state_ref.tempo();
+  let pool = daw_core::threadpool::ThreadPool::new(8);
   let tempo_interval = state
     .playlist
     .audiograph
@@ -128,10 +127,12 @@ pub fn run_playlist(state_ref: &Arc<state::InnerState>) {
       // run ahead n milliseconds and schedule the next
       // samples in the audio graph to be played
       let mut audiograph_ref = state.playlist.audiograph.lock().unwrap();
-      let time_slice_dur = tempo_interval;
 
-      audiograph_ref.run_for(time_slice_dur);
+      audiograph_ref.run_for(tempo_interval);
 
+      // sleep this thread for the length of a single beat
+      thread::sleep(tempo_interval);
+      
       let curr = audiograph_ref.current_offset.unwrap();
 
       if state.playlist.playing.load(Ordering::SeqCst) {
@@ -139,9 +140,6 @@ pub fn run_playlist(state_ref: &Arc<state::InnerState>) {
       } else {
         audiograph_ref.set_current_offset(Some(curr));
       }
-
-      // sleep this thread for the length of a single beat
-      thread::sleep(tempo_interval);
 
       // increment the beat counter
       let current_time_signature =
