@@ -155,6 +155,7 @@ export const addToPlaylist = (
   trackNumber: number,
   dropX: number,
   dropY: number,
+  pixelOffset: number,
 ) => async (dispatch: Dispatch) => {
   const id = await invoke<number>('add_audiograph_node', {
     samplePath: path,
@@ -167,7 +168,7 @@ export const addToPlaylist = (
     id,
     path,
     trackNumber,
-    pixelOffset: dropX,
+    pixelOffset,
   } as PlaylistItem))
 }
 
@@ -177,6 +178,7 @@ export const moveNodeInPlaylist = (
   trackNumber: number,
   dropX: number,
   dropY: number,
+  pixelOffset: number,
 ) => async (dispatch: Dispatch) => {
   await invoke('move_audiograph_node', {
     id,
@@ -189,7 +191,7 @@ export const moveNodeInPlaylist = (
     id,
     path,
     trackNumber,
-    pixelOffset: dropX,
+    pixelOffset,
   } as PlaylistItem))
 }
 

@@ -55,8 +55,14 @@
 .PlaylistItem {
   display: flex;
   flex-direction: column;
-  position: absolute;
+  position: relative;
   cursor: pointer;
+
+  &Title {
+    word-break: keep-all;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 .PlaylistItemWaveform {
