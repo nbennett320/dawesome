@@ -197,7 +197,7 @@ pub struct AudioNode {
   running: Arc<Mutex<bool>>,
   duration: Duration,
   sample_rate: u32,
-  waveform: (String, String),
+  waveform: daw::WaveformData,
 }
 
 // audio node implementation for Mac/Windows
@@ -222,7 +222,7 @@ impl AudioNode {
     // without reading the file buffer twice
     let file_buf_len = BufReader::new(File::open(&sample_path).unwrap());
     let source_len = Decoder::new(file_buf_len).unwrap();
-    let mut samples = std::vec::Vec::<i16>::new();
+    let mut samples = Vec::<i16>::new();
     for sample in source_len {
       samples.push(sample);
     }
@@ -231,7 +231,7 @@ impl AudioNode {
     let duration = Duration::from_millis(dur_ms.round() as u64);
     println!("length of sample in ms: {:?}", dur_ms);
     println!("channels: {:?}", channels);
-    let waveform = util::get_waveform(&sample_path);
+    let waveform = daw::calc_waveform_from_samples(samples, channels);
 
     AudioNode {
       id,
@@ -314,9 +314,8 @@ impl AudioNode {
     *self.running.lock().unwrap() = val;
   }
 
-  pub fn get_waveform(&self) -> (String, String) {
-    let (pathd, viewbox) = &self.waveform;
-    (pathd.to_string(), viewbox.to_string())
+  pub fn get_waveform<'a>(&'a self) -> &'a daw::WaveformData {
+    &self.waveform
   }
 }
 
@@ -329,12 +328,12 @@ impl Drop for AudioNode {
 }
 
 pub struct AudioGraph<'a> {
-  pub nodes: std::vec::Vec<AudioNode>,
+  pub nodes: Vec<AudioNode>,
   pub running: bool,
   pub started_time: Option<Instant>,
   pub current_offset: Option<Duration>,
   // stream_handle: Arc<Mutex<OutputStream>>,
-  controller: Arc<rodio::dynamic_mixer::DynamicMixerController<i16>>,
+  controller: Arc<DynamicMixerController<i16>>,
   mixer: DynamicMixer<i16>,
   sample_rate: u32,
   tempo: f32,
@@ -352,7 +351,7 @@ impl AudioGraph<'static> {
     let (controller, mixer) = rodio::dynamic_mixer::mixer(2, sample_rate);
 
     AudioGraph {
-      nodes: std::vec::Vec::<AudioNode>::new(),
+      nodes: Vec::<AudioNode>::new(),
       running: false,
       started_time: None,
       current_offset: Some(Duration::ZERO),

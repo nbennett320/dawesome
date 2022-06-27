@@ -263,23 +263,23 @@ fn get_node_data(
   state: tauri::State<'_, Arc<daw::InnerState>>,
   id: u64,
 ) -> Result<(String, String), String> {
-  let (svg_pathd, svg_viewbox) = state
-    .playlist
+  let playlist = &state.playlist;
+  let audiograph = playlist
     .audiograph
     .lock()
-    .unwrap()
+    .unwrap();
+  let waveform = audiograph
     .nodes
     .iter()
     .find(|&el| { el.id == id })
     .unwrap()
     .get_waveform();
+  let (svg_pathd, svg_viewbox) = (
+    waveform.pathd.as_ref(), 
+    waveform.viewbox.as_ref());
 
-  // return the svg path
-  // todo:
-  // in the future this method will 
-  // return other data on nodes for
-  // populating the timeline graph
-  Ok((svg_pathd, svg_viewbox))
+  // return the svg path and viewbox data
+  Ok((svg_pathd.unwrap().to_string(), svg_viewbox.unwrap().to_string()))
 }
 
 #[tauri::command]
