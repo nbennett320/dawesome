@@ -124,6 +124,7 @@ fn set_playlist_time_signature(
     numerator,
     denominator,
   };
+  
   *state.playlist.time_signature.lock().unwrap() = updated;
 }
 

@@ -34,14 +34,6 @@ const PlaylistTrack = (props: Props) => {
             const { x, y } = dropCoords
             const { left, top, right, bottom } = playlistTrackBoxRef.current.getBoundingClientRect()
             const pixelOffset = x - left
-            // const offset = await invoke<number>('get_playlist_sample_offset', {
-            //   dropX: x,
-            //   dropY: y,
-            //   minBoundX: left,
-            //   minBoundY: top,
-            //   maxBoundX: right,
-            //   maxBoundY: bottom,
-            // })
 
             dispatch(addToPlaylist(
               item.name as string, 
@@ -66,14 +58,6 @@ const PlaylistTrack = (props: Props) => {
             const { x, y } = dropCoords
             const { left, top, right, bottom } = playlistTrackBoxRef.current.getBoundingClientRect()
             const pixelOffset = x - left
-            // const offset = await invoke<number>('get_playlist_sample_offset', {
-            //   dropX: x,
-            //   dropY: y,
-            //   minBoundX: left,
-            //   minBoundY: top,
-            //   maxBoundX: right,
-            //   maxBoundY: bottom,
-            // })
 
             dispatch(moveNodeInPlaylist(
               item.id, 

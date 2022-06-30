@@ -593,4 +593,25 @@ impl AudioGraph<'static> {
 
     nodes
   }
+
+  pub fn get_nth_beat_offset(&self, n: u64) -> Duration {
+    let interval = self.beat_interval();
+    
+    if n <= 1 {
+      return Duration::ZERO;
+    }
+    
+    let n_offset = n - 1;
+    interval * n_offset as u32
+  }
+
+  pub fn get_beat_offsets(&self) -> Vec<Duration> {
+    let mut offsets = Vec::<Duration>::new();
+
+    for i in 0..self.max_beats {
+      offsets.push(self.get_nth_beat_offset(i));
+    }
+
+    offsets
+  }
 }

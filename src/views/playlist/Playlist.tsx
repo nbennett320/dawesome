@@ -1,7 +1,8 @@
 import React from 'react'
 import { invoke } from '@tauri-apps/api'
 import PlaylistTimeline from './PlaylistTimeline'
-import PlaylistTrack from './PlaylistTrack'
+import PlaylistGrid from './PlaylistGrid'
+import PlaylistTrackContainer from './PlaylistTrackContainer'
 import styles from './styles.module.scss'
 
 const Playlist = () => {
@@ -31,14 +32,8 @@ const Playlist = () => {
       className={`${styles.Playlist} h-full`}
     >
       <PlaylistTimeline />
-      <div className={styles.PlaylistTrackContainer}>
-        {[0, 1, 2, 3].map((el, i) => (
-          <PlaylistTrack 
-            key={`playlist-track-${el}`}
-            trackNumber={i}
-          />
-        ))}
-      </div>
+      {/* <PlaylistGrid /> */}
+      <PlaylistTrackContainer />
     </div>
   )
 }

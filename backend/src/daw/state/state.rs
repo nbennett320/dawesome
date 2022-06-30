@@ -20,6 +20,8 @@ pub struct PlaylistUI {
   pub viewport: app::workspaces::WorkspaceViewport,
   pub max_beats: u64,
   pub max_beats_displayed: u64,
+  pub snap_enabled: bool,
+  pub snap_subdivision: daw::timing::Note,
 }
 
 impl UI for PlaylistUI {
@@ -28,6 +30,8 @@ impl UI for PlaylistUI {
       viewport: app::workspaces::WorkspaceViewport::new(),
       max_beats: daw::state::defaults::MAX_BEATS,
       max_beats_displayed: daw::state::defaults::MAX_BEATS_DISPLAYED,
+      snap_enabled: daw::state::defaults::SNAP_ENABLED,
+      snap_subdivision: daw::state::defaults::SNAP_SUBDIVISION,
     }
   }
 

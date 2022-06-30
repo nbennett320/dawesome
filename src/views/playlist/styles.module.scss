@@ -21,6 +21,59 @@
   &Segment {
     display: flex;
     flex-direction: row;
+    border-left-width: 1px;
+    border-left-style: solid;
+
+    &Text {
+      height: 1rem;
+      width: 100%;
+    }
+
+    &Border {
+      display: flex;
+      flex-direction: row;
+      border-left-width: 1px;
+      border-left-style: solid;
+      position: fixed;
+      top: 100px;
+      height: 100%;
+    }
+  }
+
+  &Container {
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+.PlaylistGrid {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  width: 100%;
+  height: 100vh;
+  max-height: 100vh;
+
+  &Segment {
+    display: flex;
+    flex-direction: row;
+    border-left-width: 1px;
+    border-left-style: solid;
+
+    &Text {
+      height: 1rem;
+      width: 100%;
+    }
+
+    &Border {
+      display: flex;
+      flex-direction: row;
+      border-left-width: 1px;
+      border-left-style: solid;
+      position: fixed;
+      top: 100px;
+      height: 100%;
+    }
   }
 
   &Container {
