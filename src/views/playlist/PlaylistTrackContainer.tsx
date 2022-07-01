@@ -3,7 +3,7 @@ import PlaylistTrack from './PlaylistTrack'
 import styles from './styles.module.scss'
 
 const PlaylistTrackContainer = () => {
-  const [tracks, setTracks] = React.useState(4)
+  const [tracks, setTracks] = React.useState(5)
   const range = [...Array(tracks).keys()]
 
   return (
