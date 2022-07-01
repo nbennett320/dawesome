@@ -21,19 +21,23 @@ const PlaylistGrid = () => {
   return (
     <div className={`${styles.PlaylistGridContainer}`}>
       <div 
-        style={{ width: `${100 * ratio}%` }}
-        className={`${styles.PlaylistGrid} bg-slate-300`}
-      >
-        {range.map(e => (
-          <div 
-            key={`grid-segment-${e}`}
-            id={`playlist-grid-segment-${e}`}
-            style={{ width: `${1 / limit}%` }}
-            className={`${styles.PlaylistGridSegment} border-l-slate-400`}
-          />
-        ))}
-        
-      </div>
+        style={{ 
+          width: `100%`,
+          height: `100vh`,
+          backgroundImage: `
+            repeating-linear-gradient(
+              rgb(203 213 225 / var(--tw-bg-opacity)) 0 1px, 
+              transparent 1px 100%
+            ),
+            repeating-linear-gradient(
+              90deg, 
+              rgb(203 213 225 / var(--tw-bg-opacity)) 0 1px,
+              transparent 1px 100%
+            )`,
+          backgroundSize: `${101}px ${101}px`,
+        }}
+        className={`${styles.PlaylistGrid}`}
+      />
     </div>
   )
 }

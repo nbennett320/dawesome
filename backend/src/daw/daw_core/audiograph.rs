@@ -1,6 +1,6 @@
 use crate::{
   daw,
-  util
+  util,
 };
 use std::thread;
 use std::sync::{
@@ -10,7 +10,7 @@ use std::sync::{
 use std::marker::{PhantomData};
 use std::time::{
   Duration,
-  Instant
+  Instant,
 };
 use std::vec::{Vec};
 use std::fs::{File};
@@ -24,11 +24,11 @@ use rodio::{
 use rodio::source::{
   SamplesConverter, 
   Buffered, 
-  Source
+  Source,
 };
 use rodio::dynamic_mixer::{
   DynamicMixer,
-  DynamicMixerController
+  DynamicMixerController,
 };
 
 #[cfg(target_os = "linux")]

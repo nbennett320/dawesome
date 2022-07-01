@@ -1,5 +1,7 @@
 import React from 'react'
 import { invoke } from '@tauri-apps/api'
+import { initPlaylistTimeline } from '../../state/slices/playlistSlice'
+import { useAppDispatch } from '../../hooks/redux'
 import PlaylistTimeline from './PlaylistTimeline'
 import PlaylistGrid from './PlaylistGrid'
 import PlaylistTrackContainer from './PlaylistTrackContainer'
@@ -7,6 +9,7 @@ import styles from './styles.module.scss'
 
 const Playlist = () => {
   const ref = React.useRef<HTMLDivElement>(null)
+  const dispatch = useAppDispatch()
 
   React.useEffect(() => {
     // initialize the playlist viewport so we can
@@ -23,7 +26,9 @@ const Playlist = () => {
       }
     }
 
-    initPlaylistWorkspace()
+    initPlaylistWorkspace().then(() => {
+      dispatch(initPlaylistTimeline())
+    })
   }, [])
 
   return (

@@ -10,6 +10,11 @@ export interface PlaylistState {
   metronomeEnabled: boolean,
   loopEnabled: boolean,
   playlistItems: Array<PlaylistItem>
+  ui: {
+    maxPlaylistBeats: number,
+    maxBeatsDisplayed: number,
+    displayRatio: number,
+  },
 }
 
 // todo: get initial state from backend,
@@ -21,6 +26,11 @@ const initialState = {
   metronomeEnabled: true,
   loopEnabled: true,
   playlistItems: [],
+  ui: {
+    maxPlaylistBeats: 16,
+    maxBeatsDisplayed: 16,
+    displayRatio: 1,
+  },
 } as PlaylistState
 
 export const playlistSlice = createSlice({
@@ -70,6 +80,9 @@ export const playlistSlice = createSlice({
     },
     removePlaylistItem: (state, action) => {
       state.playlistItems = state.playlistItems.filter(e => e.id !== action.payload.id)
+    },
+    setPlaylistUI: (state, action) => {
+      state.ui = action.payload
     }
   },
 })
@@ -207,6 +220,25 @@ export const removeFromPlaylist = (id: number) => async (dispatch: Dispatch) => 
 
 export const selectPlaylistItems = (state: RootState) => state.playlist.playlistItems
 // end playlist item methods
+
+// start playlist ui methods
+export const {
+  setPlaylistUI,
+} = playlistSlice.actions
+
+export const initPlaylistTimeline = () => async (dispatch: Dispatch) => {
+  const [maxPlaylistBeats, maxBeatsDisplayed, displayRatio] = 
+    await invoke<[number, number, number]>('get_playlist_timeline', {})
+  
+  dispatch(setPlaylistUI({
+    maxPlaylistBeats,
+    maxBeatsDisplayed,
+    displayRatio,
+  }))
+}
+
+export const selectPlaylistUI = (state: RootState) => state.playlist.ui
+// end playlist ui methods
 
 // export root reducer for this slice
 export default playlistSlice.reducer

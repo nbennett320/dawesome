@@ -1,11 +1,11 @@
 import React from 'react'
-import { invoke } from '@tauri-apps/api'
 import { useDrop } from 'react-dnd'
 import { 
   addToPlaylist,
   moveNodeInPlaylist,
   removeFromPlaylist,
-  selectPlaylistItems
+  selectPlaylistItems,
+  selectPlaylistUI
 } from '../../state/slices/playlistSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
 import PlaylistItem from './PlaylistItem'
@@ -93,19 +93,7 @@ const PlaylistTrack = (props: Props) => {
     }),
   }))
 
-  const [ratio, setRatio] = React.useState<number>(1)
-
-  React.useEffect(() => {
-    // calculate the length of the timeline
-    const getPlaylistTimeline = async () => {
-      const [maxPlaylistBeats, maxBeatsDisplayed, displayRatio] = 
-        await invoke<[number, number, number]>('get_playlist_timeline', {})
-      setRatio(displayRatio)
-    }
-
-    getPlaylistTimeline()
-  }, [])
-
+  const playlistUI = useAppSelector(selectPlaylistUI)
   const items = useAppSelector(selectPlaylistItems)
     .filter(item => item.trackNumber === props.trackNumber)
 
@@ -119,7 +107,16 @@ const PlaylistTrack = (props: Props) => {
     <div 
       ref={dropRef}
       data-testid='playlist-track'
-      style={{ width: `${100 * ratio}%` }}
+      style={{ 
+        width: `${100 * playlistUI.displayRatio}%`,
+        backgroundImage: `
+          repeating-linear-gradient(
+            90deg, 
+            rgb(203 213 225 / var(--tw-bg-opacity)) 0 1px,
+            transparent 1px 100%
+          )`,
+        backgroundSize: `${100 * playlistUI.displayRatio / playlistUI.maxPlaylistBeats / 2}% ${101}px`,
+      }}
       className={`${styles.PlaylistTrackWrapper} border-slate-400`}
     >
       <div
