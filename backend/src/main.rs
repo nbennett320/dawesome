@@ -5,6 +5,7 @@ use std::time::{
   Duration, 
   SystemTime
 };
+use daw::MusicalTiming;
 use tauri;
 
 mod app;
@@ -124,7 +125,7 @@ fn set_playlist_time_signature(
     numerator,
     denominator,
   };
-  
+
   *state.playlist.time_signature.lock().unwrap() = updated;
 }
 
@@ -162,9 +163,14 @@ fn add_audiograph_node(
   let max_bound_y = state.playlist.ui.lock().unwrap().viewport.max_bound_y.unwrap();
   let tempo = state.playlist.audiograph.lock().unwrap().tempo();
   let max_beats_displayed = state.playlist.ui.lock().unwrap().max_beats_displayed;
-  let max_playlist_dur = daw::timing::n_beat_duration_from_tempo(tempo, max_beats_displayed as u32);
+  println!("max_beats_displayed: {}", max_beats_displayed);
+  let max_playlist_dur = daw::timing::n_subdivision_duration_from_tempo(
+    tempo, 
+    max_beats_displayed as u32,
+    daw::timing::QuarterNote::new()
+  );
 
-  // println!("max playlist dur: {}ms", max_playlist_dur.as_millis());
+  println!("max playlist dur: {}ms", max_playlist_dur.as_millis());
 
   let start_offset = app::workspaces::playlist::calc_sample_offset(
     drop_x.unwrap_or(min_bound_x),
@@ -203,7 +209,12 @@ fn move_audiograph_node(
   let max_bound_y = state.playlist.ui.lock().unwrap().viewport.max_bound_y.unwrap();
   let tempo = state.playlist.audiograph.lock().unwrap().tempo();
   let max_beats_displayed = state.playlist.ui.lock().unwrap().max_beats_displayed;
-  let max_playlist_dur = daw::timing::n_beat_duration_from_tempo(tempo, max_beats_displayed as u32);
+  println!("max_beats_displayed: {}", max_beats_displayed);
+  let max_playlist_dur = daw::timing::n_subdivision_duration_from_tempo(
+    tempo, 
+    max_beats_displayed as u32,
+    daw::timing::QuarterNote::new()
+  );
 
   let start_offset = app::workspaces::playlist::calc_sample_offset(
     drop_x.unwrap_or(min_bound_x),

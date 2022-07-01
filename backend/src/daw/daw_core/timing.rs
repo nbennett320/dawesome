@@ -133,10 +133,19 @@ impl MusicalTiming for SixteenthNote {
 
 // calculate the interval of one beat, given a tempo
 pub fn beat_interval_from_tempo(tempo: f32) -> Duration {
-  let beats_per_sec = tempo / 60. / 4.;
+  let beats_per_sec = tempo / 60.;
   let dur = Duration::from_secs_f32(beats_per_sec);
 
   dur
+}
+
+pub fn subdivision_interval_from_tempo<T: MusicalTiming>(
+  tempo: f32, 
+  note: T
+) -> Duration {
+  let interval = beat_interval_from_tempo(tempo);
+  
+  interval / note.subdivisions()
 }
 
 // calculate the duration for n beats to execute
@@ -145,6 +154,18 @@ pub fn n_beat_duration_from_tempo(
   n: u32
 ) -> Duration {
   let interval = beat_interval_from_tempo(tempo);
+  println!("beat interval: {}ms", interval.as_millis());
+
+  interval * n
+}
+
+// calculate the duration for n subdivisions to execute
+pub fn n_subdivision_duration_from_tempo<T: MusicalTiming>(
+  tempo: f32, 
+  n: u32,
+  note: T,
+) -> Duration {
+  let interval = subdivision_interval_from_tempo(tempo, note);
   println!("beat interval: {}ms", interval.as_millis());
 
   interval * n
