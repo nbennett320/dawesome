@@ -184,12 +184,36 @@ fn add_audiograph_node(
 
   println!("added sample: {}, with offset of: {}ms", sample_path, start_offset.as_millis());
 
-  let id = state
-    .playlist
-    .audiograph
-    .lock()
-    .unwrap()
-    .construct_and_add_node(sample_path, start_offset, track_number);
+  let id: u64;
+  if state.playlist.ui.lock().unwrap().snap_enabled {
+    println!("snapping the sample");
+    // snap to nearest snap subdivision
+    let subdivision = state
+      .playlist
+      .ui
+      .lock()
+      .unwrap()
+      .snap_subdivision;
+
+    id = state
+      .playlist
+      .audiograph
+      .lock()
+      .unwrap()
+      .construct_and_add_node_with_snap(
+        sample_path, 
+        start_offset, 
+        track_number,
+        daw::timing::SixteenthNote::new());
+  } else {
+    // don't snap
+    id = state
+      .playlist
+      .audiograph
+      .lock()
+      .unwrap()
+      .construct_and_add_node(sample_path, start_offset, track_number);
+  }
 
   // returns the id of the new node, offset
   Ok(id)

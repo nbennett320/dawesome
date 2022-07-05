@@ -508,6 +508,36 @@ impl AudioGraph<'static> {
     id
   }
 
+  // construct an audio node from a sample path and start offset,
+  // and add it to the audio graph
+  // returns the id of the constructed node
+  pub fn construct_and_add_node_with_snap<T: daw::timing::MusicalTiming>(
+    &mut self,
+    sample_path: String,
+    start_offset: Duration,
+    track_number: u32,
+    subdivision: T
+  ) -> u64 {
+    let id = self.nodes.len().clone().try_into().unwrap();
+
+    let snapped_offset = self
+      .find_nearest_offset_subdivision(start_offset, subdivision);
+    
+    println!("snapped offset: {}ms", snapped_offset.as_millis());
+
+    let node = AudioNode::new(
+      id,
+      sample_path,
+      snapped_offset,
+      track_number,
+      self.sample_rate,
+    );
+
+    self.add_node(node);
+
+    id
+  }
+
   // remove node from graph with provided id
   // panics if id does not exist
   pub fn remove_node(&mut self, id: u64) -> AudioNode {
@@ -613,5 +643,21 @@ impl AudioGraph<'static> {
     }
 
     offsets
+  }
+
+  pub fn find_nearest_offset_subdivision<T: daw::timing::MusicalTiming>(
+    &self, 
+    offset: Duration, 
+    subdivision: T
+  ) -> Duration {
+    let interval = daw::timing::subdivision_interval_from_tempo(
+      self.tempo,
+      subdivision);
+
+    let nearest_offset_millis = util::math::round_to_nearest_unsigned_multiple(
+      offset.as_millis(),
+      interval.as_millis());
+
+    Duration::from_millis(nearest_offset_millis.try_into().unwrap())
   }
 }

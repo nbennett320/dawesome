@@ -13,7 +13,7 @@ const SnapButton = () => {
   const dispatch = useAppDispatch()
 
   return (
-    <div className={`${styles.LoopButton} row-auto`}>
+    <div className={`${styles.SnapButton} row-auto`}>
       <Button
         onClick={() => dispatch(toggleSnap())}
         aria-label="Loop Button"
