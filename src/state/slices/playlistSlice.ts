@@ -9,6 +9,7 @@ export interface PlaylistState {
   runtime?: string | null
   metronomeEnabled: boolean,
   loopEnabled: boolean,
+  snapEnabled: boolean,
   playlistItems: Array<PlaylistItem>
   ui: {
     maxPlaylistBeats: number,
@@ -25,6 +26,7 @@ const initialState = {
   runtime: null,
   metronomeEnabled: true,
   loopEnabled: true,
+  snapEnabled: true,
   playlistItems: [],
   ui: {
     maxPlaylistBeats: 16,
@@ -83,7 +85,10 @@ export const playlistSlice = createSlice({
     },
     setPlaylistUI: (state, action) => {
       state.ui = action.payload
-    }
+    },
+    setSnapEnabled: (state, action) => {
+      state.snapEnabled = action.payload
+    },
   },
 })
 
@@ -154,7 +159,7 @@ export const toggleLoop = () => async (dispatch: Dispatch) => {
 
 export const selectLoopEnabled = (state: RootState) =>
   state.playlist.loopEnabled
-// end metronome enable/disable methods
+// end loop methods
 
 // start playlist item methods
 export const { 
@@ -239,6 +244,19 @@ export const initPlaylistTimeline = () => async (dispatch: Dispatch) => {
 
 export const selectPlaylistUI = (state: RootState) => state.playlist.ui
 // end playlist ui methods
+
+// start loop enable/disable methods
+export const { setSnapEnabled } = playlistSlice.actions
+
+export const toggleSnap = () => async (dispatch: Dispatch) => {
+  await invoke<void>('toggle_snap_enabled', {})
+  const enabled = await invoke<boolean>('get_snap_enabled', {})
+  dispatch(setSnapEnabled(enabled))
+}
+
+export const selectSnapEnabled = (state: RootState) =>
+  state.playlist.snapEnabled
+// end loop methods
 
 // export root reducer for this slice
 export default playlistSlice.reducer

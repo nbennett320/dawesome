@@ -359,6 +359,25 @@ fn get_loop_enabled(
 }
 
 #[tauri::command]
+fn toggle_snap_enabled(
+  state: tauri::State<'_, Arc<daw::InnerState>>
+) {
+  state
+    .playlist
+    .ui
+    .lock()
+    .unwrap()
+    .toggle_snap_enabled();
+}
+
+#[tauri::command]
+fn get_snap_enabled(
+  state: tauri::State<'_, Arc<daw::InnerState>>
+) -> Result<bool, String> {
+  Ok(state.playlist.ui.lock().unwrap().snap_enabled)
+}
+
+#[tauri::command]
 fn get_playlist_max_length (
   state: tauri::State<'_, Arc<daw::InnerState>>
 ) -> Result<(u64, u64), String> {
@@ -427,6 +446,8 @@ fn main() {
       get_playlist_timeline,
       toggle_loop_enabled,
       get_loop_enabled,
+      toggle_snap_enabled,
+      get_snap_enabled,
       get_playlist_max_length,
       init_playlist_workspace
     ])

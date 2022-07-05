@@ -44,6 +44,12 @@ impl UI for PlaylistUI {
   }
 }
 
+impl PlaylistUI {
+  pub fn toggle_snap_enabled(&mut self) {
+    self.snap_enabled = !self.snap_enabled;
+  }
+}
+
 pub struct Playlist {
   pub playing: AtomicBool,
   pub started_time: Arc<Mutex<Option<Instant>>>,
