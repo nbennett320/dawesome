@@ -38,9 +38,9 @@ specifiers:
   postcss-preset-env: 7.0.1
   prettier: 2.6.1
   react: 18.0.0
+  react-complex-tree: ^1.1.9
   react-dnd: ^16.0.1
   react-dnd-html5-backend: ^16.0.1
-  react-dnd-test-backend: ^16.0.1
   react-dom: 18.0.0
   react-redux: ^8.0.0-beta.4
   sass: 1.49.10
@@ -66,9 +66,9 @@ dependencies:
   postcss-normalize: 10.0.1_821c640c3e4719fa050a16cf659a295b
   postcss-preset-env: 7.0.1
   react: 18.0.0
+  react-complex-tree: 1.1.9
   react-dnd: 16.0.1_ca9db7e55017f61e0115ade52deed818
   react-dnd-html5-backend: 16.0.1
-  react-dnd-test-backend: 16.0.1
   react-dom: 18.0.0_react@18.0.0
   react-redux: 8.0.0-beta.4_react-dom@18.0.0+react@18.0.0
   sass: 1.49.10
@@ -4820,14 +4820,12 @@ packages:
     engines: {node: '>=10'}
     dev: false
 
-  /react-dnd-html5-backend/16.0.1:
-    resolution: {integrity: sha512-Wu3dw5aDJmOGw8WjH1I1/yTH+vlXEL4vmjk5p+MHxP8HuHJS1lAGeIdG/hze1AvNeXWo/JgULV87LyQOr+r5jw==}
-    dependencies:
-      dnd-core: 16.0.1
+  /react-complex-tree/1.1.9:
+    resolution: {integrity: sha512-2Z0MlCOF1vBimH+f7nx66QrL6B78gqDD5K6gZ2wixGZl+5JmvKWtTN1jfA+I/0uOcBtOu3+2pAqUYgRYcJmywg==}
     dev: false
 
-  /react-dnd-test-backend/16.0.1:
-    resolution: {integrity: sha512-sUsQKMmoachP3AGaHLZD4JZWq2dHPoiLRG3YVuC0gXJtGENk3PVR+uRIrml7BEnnTyv+RVeoNK2ziL38Ggh8cw==}
+  /react-dnd-html5-backend/16.0.1:
+    resolution: {integrity: sha512-Wu3dw5aDJmOGw8WjH1I1/yTH+vlXEL4vmjk5p+MHxP8HuHJS1lAGeIdG/hze1AvNeXWo/JgULV87LyQOr+r5jw==}
     dependencies:
       dnd-core: 16.0.1
     dev: false
