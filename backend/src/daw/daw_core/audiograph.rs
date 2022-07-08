@@ -418,7 +418,7 @@ impl AudioGraph<'static> {
 
     // schedule samples within this timeslice to play
     let slice = self_arc.lock().unwrap().nodes[idx_start..idx_end].to_vec();
-    println!("len: {}, {}",slice.len(), self.nodes.len());
+    println!("slice len: {}, self.nodes len: {}",slice.len(), self.nodes.len());
     for mut node in slice {
       println!("node.start_offset: {}ms", node.start_offset.as_millis());
       // let sample_path = Arc::new(Mutex::new(Box::from(node.sample_path.as_ref())));
@@ -482,7 +482,7 @@ impl AudioGraph<'static> {
   // offset start time
   pub fn add_node(&mut self, node: AudioNode) {
     self.nodes.push(node);
-    self.nodes.sort_unstable_by(|a, b| a.start_offset.cmp(&b.start_offset));
+    self.nodes.sort_by(|a, b| a.start_offset.cmp(&b.start_offset));
   }
 
   // construct an audio node from a sample path and start offset,
@@ -523,7 +523,7 @@ impl AudioGraph<'static> {
     let snapped_offset = self
       .find_nearest_offset_subdivision(start_offset, subdivision);
     
-    println!("snapped offset: {}ms", snapped_offset.as_millis());
+    println!("added to snapped offset: {}ms", snapped_offset.as_millis());
 
     let node = AudioNode::new(
       id,
@@ -536,6 +536,36 @@ impl AudioGraph<'static> {
     self.add_node(node);
 
     id
+  }
+
+  // move node in graph by node id
+  pub fn move_node(
+    &mut self,
+    id: u64,
+    start_offset: Duration,
+    track_number: u32
+  ) {
+    let mut node = self.get_mut_node(id);
+    node.start_offset = start_offset;
+    node.track_number = track_number;
+
+    self.nodes.sort_by(|a, b| a.start_offset.cmp(&b.start_offset));
+  }
+
+  // move node in graph by id, and snap to nearest subdivision
+  pub fn move_node_with_snap<T: daw::timing::MusicalTiming>(
+    &mut self,
+    id: u64,
+    start_offset: Duration,
+    track_number: u32,
+    subdivision: T
+  ) {
+    let snapped_offset = self
+      .find_nearest_offset_subdivision(start_offset, subdivision);
+    
+    println!("moved to snapped offset: {}ms", snapped_offset.as_millis());
+
+    self.move_node(id, snapped_offset, track_number);
   }
 
   // remove node from graph with provided id

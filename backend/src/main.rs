@@ -250,35 +250,38 @@ fn move_audiograph_node(
     max_playlist_dur
   );
 
-  // set new start offset
-  state
-    .playlist
-    .audiograph
-    .lock()
-    .unwrap()
-    .get_mut_node(id)
-    .start_offset = start_offset;
-  
-  // set new track number
-  state
-    .playlist
-    .audiograph
-    .lock()
-    .unwrap()
-    .get_mut_node(id)
-    .track_number = track_number;
 
-  // manually resort nodes by sort time
-  // after moving a node because the user might
-  // have changed the order of nodes in the playlist,
-  // normally a sort happens when a new node is added
-  state
-    .playlist
-    .audiograph
-    .lock()
-    .unwrap()
-    .nodes
-    .sort_unstable_by(|a, b| a.start_offset.cmp(&b.start_offset));
+  println!("moved sample with id: {}, with offset of: {}ms", id, start_offset.as_millis());
+
+  if state.playlist.ui.lock().unwrap().snap_enabled {
+    println!("snapping the sample");
+    // snap to nearest snap subdivision
+    let subdivision = state
+      .playlist
+      .ui
+      .lock()
+      .unwrap()
+      .snap_subdivision;
+
+    state
+      .playlist
+      .audiograph
+      .lock()
+      .unwrap()
+      .move_node_with_snap(
+        id, 
+        start_offset, 
+        track_number, 
+        daw::timing::SixteenthNote::new());
+  } else {
+    // don't snap
+    state
+      .playlist
+      .audiograph
+      .lock()
+      .unwrap()
+      .move_node(id, start_offset, track_number);
+  }
 }
 
 #[tauri::command]
