@@ -3,7 +3,9 @@ import {
   TreeItem,
   TreeItemIndex,
   ExplicitDataSource,
+  Disposable,
 } from 'react-complex-tree'
+import { EventEmitter } from '../util/events'
 
 export enum BrowserItemTypes {
   Directory = 'directory',
@@ -27,6 +29,8 @@ export class SampleBrowserDataProvider<T = BrowserSampleItem> implements TreeDat
 
   private setItemName?: (item: TreeItem<T>, newName: string) => TreeItem<T>
 
+  private onDidChangeTreeDataEmitter = new EventEmitter<TreeItemIndex[]>()
+
   constructor(
     items: Record<TreeItemIndex, TreeItem<T>>, 
     setItemName: (item: TreeItem<T>, newName: string) => TreeItem<T>,
@@ -44,15 +48,21 @@ export class SampleBrowserDataProvider<T = BrowserSampleItem> implements TreeDat
   }
 
   // eslint-disable-next-line class-methods-use-this
-  // public onChangeItemChildren (
-  //   itemId: TreeItemIndex, 
-  //   newChildren: TreeItemIndex[]
-  // ): Promise<void> {
-  //   console.log(itemId)
-  //   console.log(newChildren)
+  public onChangeItemChildren (
+    itemId: TreeItemIndex, 
+    newChildren: TreeItemIndex[]
+  ): Promise<void> {
+    console.log("onChangeItemChildren: ", itemId)
 
-  //   // this.data.items = { data.items, ...newChildren }
-  //   const res = new Promise<void>((val) => {})
-  //   return res
-  // }
+    // this.data.items = { data.items, ...newChildren }
+    const res = new Promise<void>((val) => {})
+    return res
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  public onDidChangeTreeData(listener: (changedItemIds: TreeItemIndex[]) => void): Disposable {
+    const handlerId = this.onDidChangeTreeDataEmitter.on(payload => listener(payload));
+    return { dispose: () => this.onDidChangeTreeDataEmitter.off(handlerId) };
+  }
+
 }

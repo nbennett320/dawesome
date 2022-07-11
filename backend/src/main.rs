@@ -142,6 +142,18 @@ fn get_sidebar_samples() -> Result<(
 }
 
 #[tauri::command]
+fn enumerate_directory(dir_path: String) -> Result<(
+  Vec<String>, 
+  Vec<String>, 
+  Vec<String>, 
+  Vec<String>
+), String> {
+  let (samples, samples_paths, dirs, dirs_paths) = 
+    app::env::enumerate_files_in_dir(dir_path);
+  Ok((samples, samples_paths, dirs, dirs_paths))
+}
+
+#[tauri::command]
 fn preview_sample(
   _state: tauri::State<'_, Arc<daw::InnerState>>,
   path: String,
@@ -470,6 +482,7 @@ fn main() {
       get_playlist_time_signature,
       set_playlist_time_signature,
       get_sidebar_samples,
+      enumerate_directory,
       preview_sample,
       get_audio_drivers,
       add_audiograph_node,
