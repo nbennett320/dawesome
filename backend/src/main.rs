@@ -130,9 +130,15 @@ fn set_playlist_time_signature(
 }
 
 #[tauri::command]
-fn get_sidebar_samples() -> Result<(Vec<String>, Vec<String>), String> {
-  let (samples, dirs) = app::env::get_sample_browser_root();
-  Ok((samples, dirs))
+fn get_sidebar_samples() -> Result<(
+  Vec<String>, 
+  Vec<String>, 
+  Vec<String>, 
+  Vec<String>
+), String> {
+  let (samples, samples_paths, dirs, dirs_paths) = 
+    app::env::get_sample_browser_root();
+  Ok((samples, samples_paths, dirs, dirs_paths))
 }
 
 #[tauri::command]
