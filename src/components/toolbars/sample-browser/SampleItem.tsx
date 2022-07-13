@@ -1,16 +1,27 @@
 import React from 'react'
 import { invoke } from '@tauri-apps/api'
 import { useDrag } from 'react-dnd'
+import { TreeInformation, TreeItemRenderContext } from 'react-complex-tree'
+import { getDirectorySamples } from '../../../state/slices/envSlice'
+import { useAppDispatch } from '../../../hooks/redux'
 import { PlaylistTypes } from '../../../types/playlist'
+import { BrowserItemTypes, BrowserSampleItem } from '../../../types/sampleBrowser'
+import styles from './styles.module.scss'
 
 interface Props {
-  name: string
+  item: BrowserSampleItem,
+  label: React.ReactNode,
+  arrow: React.ReactNode,
+  context: TreeItemRenderContext,
+  depth: number,
+  info: TreeInformation,
 }
 
 const SampleItem = (props: Props) => {
+  const dispatch = useAppDispatch()
   const [{ isDragging }, drag] = useDrag(() => ({
     type: PlaylistTypes.SidebarSampleItem,
-    item: { name: props.name },
+    item: { name: props.item.path },
     end: (item, monitor) => {
       const dropResult = monitor.getDropResult<Props>()
       if (item && dropResult) {
@@ -28,19 +39,30 @@ const SampleItem = (props: Props) => {
   const previewSample = () => {
     console.log("playing")
     invoke('preview_sample', {
-      path: props.name
+      path: props.item.path
     })
   }
 
+  const handleClick = () => {
+    if(props.item.itemType === BrowserItemTypes.Sample) {
+      invoke('preview_sample', {
+        path: props.item.path
+      })
+    } else if(props.item.itemType === BrowserItemTypes.Directory) {
+      console.log("enumerating directory")
+      dispatch(getDirectorySamples(props.item.path))
+      // setExpandedItems([...expandedItems, treeId])
+    }
+  }
+
   return (
-    <span
+    <button
       ref={drag}
-      className='text-xs text-ellipsis whitespace-nowrap overflow-hidden w-full'
-      onMouseDown={previewSample}
-      role='button'
+      className={`${styles.SampleItem} text-xs text-ellipsis whitespace-nowrap overflow-hidden w-full`}
+      onMouseDown={handleClick}
     >
-      {props.name}
-    </span>
+      {props.item.itemType === BrowserItemTypes.Directory && props.arrow} {props.label}
+    </button>
   )
 }
 

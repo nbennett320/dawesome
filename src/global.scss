@@ -10,3 +10,8 @@
   overflow: hidden;
   height: calc(100vh - 12vh);
 }
+
+.rct-tree-items-container {
+  display: flex;
+  flex-direction: column;
+}
