@@ -9,5 +9,9 @@ Research, articles, tutorials, and misc. implementation details
 - [Philosophy on realtime auido programming](http://www.rossbencina.com/code/real-time-audio-programming-101-time-waits-for-nothing)
 - 
 
+UI stuff
 
+- [UI framework for tabs/panes](https://ej2.syncfusion.com/react/documentation/introduction/)
+- [P5 FFT waveforms](https://p5js.org/reference/#/p5.FFT/waveform)
+- [P5 Sound envelope example](https://p5js.org/examples/sound-noise-drum-envelope.html)
 

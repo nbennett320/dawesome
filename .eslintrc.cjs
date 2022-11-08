@@ -41,9 +41,10 @@ module.exports = {
     'react/button-has-type': 'off',
     'react/destructuring-assignment': 'off',
     'react/function-component-definition': 'off',
-    'react/jsx-props-no-spreading': 'off',
-    'react/require-default-props': 'off',
+    '@typescript-eslint/lines-between-class-members': 'off',
     '@typescript-eslint/no-loss-of-precision': 'off',
-    'no-plusplus': 'off'
+    'no-plusplus': 'off',
+    'react/jsx-props-no-spreading': 'off',
+    'react/require-default-props': 'off'
   },
 }

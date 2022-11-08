@@ -3,8 +3,9 @@ import { invoke } from '@tauri-apps/api'
 import { initPlaylistTimeline } from '../../state/slices/playlistSlice'
 import { useAppDispatch } from '../../hooks/redux'
 import PlaylistTimeline from './PlaylistTimeline'
-import PlaylistGrid from './PlaylistGrid'
+// import PlaylistGrid from './PlaylistGrid'
 import PlaylistTrackContainer from './PlaylistTrackContainer'
+import PlaylistCanvas from './PlaylistCanvas'
 import styles from './styles.module.scss'
 
 const Playlist = () => {
@@ -36,9 +37,10 @@ const Playlist = () => {
       ref={ref}
       className={`${styles.Playlist} h-full`}
     >
-      <PlaylistTimeline />
+      <PlaylistCanvas />
+      {/* <PlaylistTimeline /> */}
       {/* <PlaylistGrid /> */}
-      <PlaylistTrackContainer />
+      {/* <PlaylistTrackContainer /> */}
     </div>
   )
 }
