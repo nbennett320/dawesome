@@ -103,6 +103,7 @@ const sketch = (p: P5CanvasInstance<CanvasProps>) => {
       canvas,
       width,
       staticDefaults.timelineHeight,
+      currentScale,
     )
 
     const cursor = new Cursor(
@@ -110,21 +111,22 @@ const sketch = (p: P5CanvasInstance<CanvasProps>) => {
       canvas,
       width,
       staticDefaults.timelineHeight,
+      currentScale,
     )
     
     p.background(255, 255, 255)
     p.stroke(180, 180, 180)
     p.fill(255, 255, 255)
 
-    transformX = p.constrain(transformX, -1 * width, 0)
-    transformY = p.constrain(transformY, -1 * height, 0)
+    transformX = p.constrain(transformX, width * (1 - currentScale), 0)
+    transformY = p.constrain(transformY, height * (1 - currentScale), 0)
 
     p.push()
-    p.translate(transformX, transformY)
-    p.scale(currentScale)
+    p.translate(transformX, 1)
+    p.scale(currentScale, 1)
     
-    cursor.render()
     timeline.render()
+    cursor.render()
 
     for(let i = 0; i < width; i += width/maxPlaylistBeats) {
       for(let j = staticDefaults.timelineHeight; j < height+staticDefaults.timelineHeight; j += height/5) {
@@ -134,6 +136,7 @@ const sketch = (p: P5CanvasInstance<CanvasProps>) => {
         p.line(0, j, width, j)
       }
     }
+
 
     p.pop()
   }
