@@ -1,27 +1,18 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import p5 from 'p5'
-import {
-  P5CanvasInstance,
-} from 'react-p5-wrapper'
-import P5ComponentBase from '../../../render/P5ComponentBase'
+import { P5CanvasInstance } from 'react-p5-wrapper'
+import PlaylistComponentBase, { PlaylistComponentBaseProps } from './PlaylistComponentBase'
 import { CanvasProps } from './index'
 
-class Timeline extends P5ComponentBase<CanvasProps> {
-  timelineWidth: number
-  timelineHeight: number
-  currentScale: number
+interface Props extends PlaylistComponentBaseProps {}
 
+class Timeline extends PlaylistComponentBase {
   constructor(
     p: P5CanvasInstance<CanvasProps>,
     canvas: p5.Renderer,
-    timelineWidth: number,
-    timelineHeight: number,
-    currentScale: number,
+    props: Props,
   ) {
-    super(p, canvas)
-    this.timelineWidth = timelineWidth
-    this.timelineHeight = timelineHeight
-    this.currentScale = currentScale
+    super(p, canvas, props)
   }
 
   drawNumbers() {

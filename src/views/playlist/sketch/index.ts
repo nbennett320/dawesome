@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import p5 from 'p5'
-import React from 'react'
 import {
   P5CanvasInstance,
   SketchProps,
@@ -15,7 +14,7 @@ export interface CanvasProps extends SketchProps {
 }
 
 export const staticDefaults = {
-  zoomSensitivity: 0.025,
+  zoomSensitivity: .035,
   mouseDragDetectionThreshold: 10,
   timelineHeight: 24,
 }
@@ -101,17 +100,21 @@ const sketch = (p: P5CanvasInstance<CanvasProps>) => {
     const timeline = new Timeline(
       p,
       canvas,
-      width,
-      staticDefaults.timelineHeight,
-      currentScale,
+      {
+        timelineWidth: width, 
+        timelineHeight: staticDefaults.timelineHeight,
+        currentScale,
+      }
     )
 
     const cursor = new Cursor(
       p,
       canvas,
-      width,
-      staticDefaults.timelineHeight,
-      currentScale,
+      {
+        timelineWidth: width, 
+        timelineHeight: staticDefaults.timelineHeight,
+        currentScale,
+      }
     )
     
     p.background(255, 255, 255)
@@ -136,7 +139,6 @@ const sketch = (p: P5CanvasInstance<CanvasProps>) => {
         p.line(0, j, width, j)
       }
     }
-
 
     p.pop()
   }
