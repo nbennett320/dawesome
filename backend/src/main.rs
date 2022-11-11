@@ -5,7 +5,7 @@ use std::time::{
   Duration, 
   SystemTime
 };
-use daw::MusicalTiming;
+use daw::{MusicalTiming, waveform};
 use tauri;
 
 mod app;
@@ -320,24 +320,19 @@ fn remove_audiograph_node(
 fn get_node_data(
   state: tauri::State<'_, Arc<daw::InnerState>>,
   id: u64,
-) -> Result<(String, String), String> {
+) -> Result<Vec<f32>, String> {
   let playlist = &state.playlist;
-  let audiograph = playlist
+  let mut audiograph = playlist
     .audiograph
     .lock()
     .unwrap();
-  let waveform = audiograph
-    .nodes
-    .iter()
-    .find(|&el| { el.id == id })
-    .unwrap()
-    .get_waveform();
-  let (svg_pathd, svg_viewbox) = (
-    waveform.pathd.as_ref(), 
-    waveform.viewbox.as_ref());
+  let node = audiograph
+    .get_mut_node(id);
+  let waveform = node.get_waveform().clone();
+  println!("waveform nums: {:?}", waveform);
 
   // return the svg path and viewbox data
-  Ok((svg_pathd.unwrap().to_string(), svg_viewbox.unwrap().to_string()))
+  Ok(waveform)
 }
 
 #[tauri::command]

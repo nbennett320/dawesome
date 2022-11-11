@@ -12,9 +12,15 @@ use std::cmp::{
 use num_traits::{
   Num, 
   NumOps,
+  NumCast,
   PrimInt,
   Signed,
   Unsigned,
+  Float,
+};
+use rodio::cpal::Sample;
+use std::iter::{
+  Sum,
 };
 
 fn y0_prime<
@@ -340,4 +346,159 @@ pub fn round_to_nearest_unsigned_multiple<
   println!("ceil: {}, floor: {}", ceil, floor);
 
   if ceil_diff <= floor_diff { ceil } else { floor }
+}
+
+pub fn vec_itof32 <
+  T:
+    PrimInt +
+    Num
+>(
+  xs: Vec<T>
+) -> Vec<f32> {
+  xs
+    .iter()
+    .map(|x| x.to_f32().unwrap())
+    .collect()
+}
+
+pub fn vec_itof64 <
+  T:
+    PrimInt +
+    Num
+>(
+  xs: Vec<T>
+) -> Vec<f64> {
+  xs
+    .iter()
+    .map(|x| x.to_f64().unwrap())
+    .collect()
+}
+
+pub fn f_normalize<
+  T: 
+    Num +
+    Into<f32> +
+    Float
+>(
+  xs: Vec<T>,
+) -> Vec<f32> {
+  let xsf: Vec<f32> = xs.iter().map(|x| (x.to_f32().unwrap())).collect();
+  let min = xsf
+    .iter()
+    .enumerate()
+    .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+    .unwrap().1;
+  let max = xsf
+    .iter()
+    .enumerate()
+    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+    .unwrap().1;
+
+  let mut norms = Vec::<f32>::new();
+  for x in &xsf {
+    let norm = (x - min) / (max - min);
+    norms.push(norm);
+  }
+
+  norms
+}
+
+pub fn interleave<
+  T:
+    Copy +
+    Num
+>(
+  xs: Vec<T>,
+  ys: Vec<T>,
+) -> Option<Vec<T>> {
+  if xs.len() != ys.len() {
+    println!("Error interleaving vectors: unequal lengths");
+    return None
+  }
+  
+  let len = xs.len();
+  let mut zs = Vec::<T>::new();
+
+  for i in 0..len {
+    zs.push(xs[i]);
+    zs.push(ys[i]);
+  }
+
+  Option::Some(zs)
+}
+
+pub fn gaussian_1d<
+  T:
+    Num +
+    NumCast +
+    Copy +
+    Sized +
+    Sum
+>(
+  xs: &Vec<T>,
+) -> Option<Vec<f32>> {
+  match(std_dev(xs), xs.len()) {
+    (Some(sd), len) if len > 0 => {
+      use std::f32::consts::{PI, E};
+      
+      let mut gx = Vec::new();
+
+      for x in xs {
+        let exponent = -1. * (x.to_f32().unwrap() * x.to_f32().unwrap()) / (2. * sd * sd).to_f32();
+        let gxi = (1. / (2. * PI * sd.powi(2)).sqrt()) * E.powf(exponent);
+
+        gx.push(gxi);
+      }
+
+      Some(gx)
+    },
+    _ => None
+  }
+}
+
+pub fn std_dev<
+  T: 
+    Num + 
+    NumCast +
+    Copy +
+    Sized +
+    Sum
+>(
+  xs: &Vec<T>
+) -> Option<f32> {
+  match(mean(xs), xs.len()) {
+    (Some(xs_mean), len) if len > 0 => {
+      let variance = xs.iter().map(|val| {
+        let diff = xs_mean - (val.to_f32().unwrap());
+
+        diff * diff
+      }).sum::<f32>() / len as f32;
+
+      Some(variance.sqrt())
+    },
+    _ => None
+  }
+}
+
+pub fn mean<
+  T:
+    Num + 
+    NumCast +
+    Copy +
+    Sized +
+    Sum
+>(
+  xs: &Vec<T>
+) -> Option<f32> {
+  let sum = xs
+    .iter()
+    .copied()
+    .sum::<T>()
+    .to_f32()
+    .unwrap();
+  
+  match xs.len() {
+    positive if positive > 0 => Some(sum / xs.len() as f32),
+    _ => None
+  }
 }

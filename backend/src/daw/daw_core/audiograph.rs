@@ -197,7 +197,7 @@ pub struct AudioNode {
   running: Arc<Mutex<bool>>,
   duration: Duration,
   sample_rate: u32,
-  waveform: daw::WaveformData,
+  waveform: Vec<f32>,
 }
 
 // audio node implementation for Mac/Windows
@@ -314,8 +314,8 @@ impl AudioNode {
     *self.running.lock().unwrap() = val;
   }
 
-  pub fn get_waveform<'a>(&'a self) -> &'a daw::WaveformData {
-    &self.waveform
+  pub fn get_waveform(&mut self) -> &mut Vec<f32> {
+    &mut self.waveform
   }
 }
 

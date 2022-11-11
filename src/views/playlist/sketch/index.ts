@@ -4,13 +4,16 @@ import {
   P5CanvasInstance,
   SketchProps,
 } from 'react-p5-wrapper'
+import { PlaylistItem } from '../../../types/playlist'
 import Timeline from './Timeline'
 import Cursor from './Cursor'
+import PlaylistObject from './PlaylistObject'
 
 export interface CanvasProps extends SketchProps {
   height: number
   width: number
   maxPlaylistBeats: number
+  playlistObjects: PlaylistItem[]
 }
 
 export const staticDefaults = {
@@ -33,7 +36,7 @@ const sketch = (p: P5CanvasInstance<CanvasProps>) => {
   let mousePressedX: number | null = null
   let mousePressedY: number | null = null
 
-  const renderedObjects = []
+  let playlistObjects: PlaylistItem[] = []
 
   p.setup = () => {
     canvas = p.createCanvas(width, height)
@@ -49,6 +52,7 @@ const sketch = (p: P5CanvasInstance<CanvasProps>) => {
       }
     })
 
+    // handle zoom event
     canvas.mouseWheel((ev: WheelEvent) => {
       let scaleFactor = null
       if(ev?.deltaY < 0) {
@@ -66,17 +70,14 @@ const sketch = (p: P5CanvasInstance<CanvasProps>) => {
       transformY = p.mouseY - (p.mouseY * scaleFactor) + (transformY * scaleFactor)
     })
 
-
+    // handle click release
     canvas.mouseReleased(() => {
       mousePressedX = null
       mousePressedY = null
       isMouseDragged = false
     })
 
-    canvas.mouseReleased(() => {
-      isMouseDragged = false
-    })
-    
+    // handle mouse drag
     canvas.mouseMoved((ev: MouseEvent) => {
       if(isMouseDragged) {
         const dist = p.dist(mousePressedX ?? 0, mousePressedY ?? 0, p.mouseX, p.mouseY)
@@ -87,15 +88,26 @@ const sketch = (p: P5CanvasInstance<CanvasProps>) => {
         }
       }
     })
+
+    canvas.drop((dropped) => {
+      console.log("dropped this: ", dropped)
+    })
   }
 
+
+  // handle canvas recieved props
   p.updateWithProps = props => {
     height = props.height
     width = props.width
     maxPlaylistBeats = props.maxPlaylistBeats
     p.resizeCanvas(width, height)
+
+    playlistObjects = props.playlistObjects
+
+    console.log("objects to be rendered: ", playlistObjects)
   }
 
+  // render p5 canvas
   p.draw = () => {
     const timeline = new Timeline(
       p,
@@ -131,6 +143,21 @@ const sketch = (p: P5CanvasInstance<CanvasProps>) => {
     timeline.render()
     cursor.render()
 
+    playlistObjects.forEach(item => {
+      const playlistObj = new PlaylistObject(
+        p,
+        canvas,
+        {
+          timelineWidth: width, 
+          timelineHeight: staticDefaults.timelineHeight,
+          currentScale,
+          playlistItem: item,
+        }
+      )
+
+      playlistObj.render()
+    })
+
     for(let i = 0; i < width; i += width/maxPlaylistBeats) {
       for(let j = staticDefaults.timelineHeight; j < height+staticDefaults.timelineHeight; j += height/5) {
         p.stroke(0, 0, 0)
@@ -142,7 +169,6 @@ const sketch = (p: P5CanvasInstance<CanvasProps>) => {
 
     p.pop()
   }
-
 }
 
 export default sketch

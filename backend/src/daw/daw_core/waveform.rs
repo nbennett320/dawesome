@@ -1,12 +1,15 @@
 use std::vec::{Vec};
 use std::fs::{File};
 use std::io::{BufReader};
+use num_traits::ToPrimitive;
 use rodio::{Decoder, Source};
 use svg::node::element::{
   SVG,
   Path,
 };
 use svg::node::element;
+
+use crate::util;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct WaveformData {
@@ -38,7 +41,7 @@ impl WaveformData {
 pub fn calc_waveform_from_samples(
   samples: Vec<i16>, 
   channels: u16,
-) -> WaveformData {
+) -> Vec<f32> {
   // get frames and interpolate points
   let xs: Vec<i32> = (0..samples.len())
     .into_iter()
@@ -48,47 +51,20 @@ pub fn calc_waveform_from_samples(
     .iter()
     .map(|y| *y as i32)
     .collect();
-  // let interp = util::math::local_extremes(xs, ys);
-  let interp = Some((xs as Vec<i32>, ys as Vec<i32>));
-  let (x_interps, y_interps) = interp.unwrap();
-  println!("interp lens: {:?}, {:?}", x_interps.len(), y_interps.len());
+  let y_smoothed = util::math::gaussian_1d(&ys).unwrap();
+  let y_norms = util::math::f_normalize::<f32>(y_smoothed);
 
-  // calculate bounding box
-  let (min_x, min_y) = (0, -y_interps.iter().max().unwrap());
-  let (max_x, max_y) = (
-    x_interps.len() as i32 / channels as i32, 
-    2 * (*y_interps.iter().max().unwrap() as i32));
-  let svg = SVG::new()
-    .set("viewBox", (min_x, min_y, max_x, max_y));
+  let xsf: Vec<f32> = xs
+    .iter()
+    .map(|x| x.to_f32().unwrap())
+    .collect();
 
-  // initialize data path
-  let mut data = element::path::Data::new().move_to((0, 0));
-  
-  // fill path
-  for idx in 1..y_interps.len() {
-    let p1 = (idx, y_interps[idx]);
-    data = data.line_to(p1)
-  }
-
-  // close the path
-  data = data.close();
-
-  // fetch calculated path value
-  let path = Path::new()
-    .set("stroke", "black")
-    .set("stroke-width", "0.05%")
-    .set("fill", "black")
-    .set("d", data);
-
-  let pathd = path.get_inner().get_attributes().get("d").unwrap();
-  let viewbox = svg.get_inner().get_attributes().get("viewBox").unwrap();
-
-  WaveformData::from(pathd.to_string(), viewbox.to_string())
+  util::math::interleave(xsf, y_norms).unwrap()
 }
 
 // get a path of a node's normalized audio waveform, given
 // the path to a sound sample
-pub fn calc_waveform_from_file_path(sample_path: &str) -> WaveformData {
+pub fn calc_waveform_from_file_path(sample_path: &str) -> Vec<f32> {
   let file = BufReader::new(File::open(sample_path).unwrap());
   let source = Decoder::new(file).unwrap();
   let channels = source.channels();
