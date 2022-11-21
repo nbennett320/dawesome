@@ -9,6 +9,7 @@ import { PlaylistItem } from '../../../types/playlist'
 
 interface Props extends PlaylistComponentBaseProps {
   playlistItem: PlaylistItem
+  soundData: number[]
 }
 
 class PlaylistObject extends PlaylistComponentBase {
@@ -22,38 +23,24 @@ class PlaylistObject extends PlaylistComponentBase {
   ) {
     super(p, canvas, props)
     this.playlistItem = props.playlistItem
+    this.soundData = props.soundData
   }
-  
+
   render = () => {
-    const fetchData = async () => {
-      const soundData = await invoke<number[]>('get_node_data', {
-        id: this.playlistItem.id
-      })
-
-      this.soundData = soundData
-
-      if(this.soundData.length > 0) {
-        console.log("found data")
-
-        const waveform = new Waveform(
-          this.p,
-          this.canvas,
-          {
-            currentScale: this.currentScale,
-            timelineHeight: this.timelineHeight,
-            timelineWidth: this.timelineWidth,
-            soundData: this.soundData,
-          }
-        )
-        
-        waveform.render()
+    const waveform = new Waveform(
+      this.p,
+      this.canvas,
+      {
+        currentScale: this.currentScale,
+        timelineHeight: this.timelineHeight,
+        timelineWidth: this.timelineWidth,
+        soundData: this.soundData,
+        trackNumber: this.playlistItem.trackNumber,
+        pixelOffset: this.playlistItem.pixelOffset,
       }
-    }
-    
-    fetchData()
+    )
 
-    
-    this.p.noLoop()
+    waveform.render()
   }
 }
 

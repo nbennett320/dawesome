@@ -4,6 +4,7 @@ import {
   P5CanvasInstance,
   SketchProps,
 } from 'react-p5-wrapper'
+import { invoke } from '@tauri-apps/api'
 import { PlaylistItem } from '../../../types/playlist'
 import Timeline from './Timeline'
 import Cursor from './Cursor'
@@ -22,6 +23,12 @@ export const staticDefaults = {
   timelineHeight: 24,
 }
 
+const fetchWaveformData = async (id: number) => {
+  const wf = await invoke<number[]>('get_node_data', { id })
+
+  return wf
+}
+
 const sketch = (p: P5CanvasInstance<CanvasProps>) => {
   let canvas: p5.Renderer
   let height: number
@@ -36,7 +43,10 @@ const sketch = (p: P5CanvasInstance<CanvasProps>) => {
   let mousePressedX: number | null = null
   let mousePressedY: number | null = null
 
-  let playlistObjects: PlaylistItem[] = []
+  let playlistObjects: Array<{
+    item: PlaylistItem
+    p5PlaylistObject: PlaylistObject
+  }> = []
 
   p.setup = () => {
     canvas = p.createCanvas(width, height)
@@ -68,6 +78,7 @@ const sketch = (p: P5CanvasInstance<CanvasProps>) => {
       currentScale *= scaleFactor
       transformX = p.mouseX - (p.mouseX * scaleFactor) + (transformX * scaleFactor)
       transformY = p.mouseY - (p.mouseY * scaleFactor) + (transformY * scaleFactor)
+      console.log("currentScale: ", currentScale)
     })
 
     // handle click release
@@ -90,7 +101,7 @@ const sketch = (p: P5CanvasInstance<CanvasProps>) => {
     })
 
     canvas.drop((dropped) => {
-      console.log("dropped this: ", dropped)
+      console.log("dropped this: ", dropped, x)
     })
   }
 
@@ -102,7 +113,35 @@ const sketch = (p: P5CanvasInstance<CanvasProps>) => {
     maxPlaylistBeats = props.maxPlaylistBeats
     p.resizeCanvas(width, height)
 
-    playlistObjects = props.playlistObjects
+    const newPlaylistObjects: Array<{
+      item: PlaylistItem
+      p5PlaylistObject: PlaylistObject
+    }> = []
+
+    props.playlistObjects.forEach(async (item) => {
+      const soundData = await fetchWaveformData(item.id)
+      const p5PlaylistObject = new PlaylistObject(
+        p,
+        canvas,
+        {
+          currentScale,
+          soundData,
+          timelineWidth: width, 
+          timelineHeight: staticDefaults.timelineHeight,
+          playlistItem: item,
+        }
+      )
+
+      newPlaylistObjects.push({
+        item,
+        p5PlaylistObject,
+      } as {
+        item: PlaylistItem
+        p5PlaylistObject: PlaylistObject
+      })
+    })
+
+    playlistObjects = newPlaylistObjects
 
     console.log("objects to be rendered: ", playlistObjects)
   }
@@ -144,18 +183,7 @@ const sketch = (p: P5CanvasInstance<CanvasProps>) => {
     cursor.render()
 
     playlistObjects.forEach(item => {
-      const playlistObj = new PlaylistObject(
-        p,
-        canvas,
-        {
-          timelineWidth: width, 
-          timelineHeight: staticDefaults.timelineHeight,
-          currentScale,
-          playlistItem: item,
-        }
-      )
-
-      playlistObj.render()
+      item.p5PlaylistObject.render()
     })
 
     for(let i = 0; i < width; i += width/maxPlaylistBeats) {
