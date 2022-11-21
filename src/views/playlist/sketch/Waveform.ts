@@ -28,15 +28,19 @@ class Waveform extends PlaylistComponentBase {
   render = () => {
     console.log("rendering waveform", this.soundData)
     this.p.push()
-
+    
+    let j = 0
     for(let i = 0; i < this.soundData.length; i+=2) {
+      const sign = j % 2 > 0 ? -1 : 1
       const x0 = this.soundData[i]
-      const y0 = this.soundData[i+1]
+      const y0 = sign * this.soundData[i+1]
       const x1 = this.soundData[i+2]
-      const y1 = this.soundData[i+3]
+      const y1 = sign * this.soundData[i+3]
       this.p.stroke(3)
       this.p.color('red')
-      this.p.line(x0, y0 * 5 - 200, x1, y1 * 5 - 200)
+      this.p.line(x0, y0, x1, y1)
+
+      j += 1
     }
 
     // this.p.noLoop()

@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::vec::{Vec};
 use std::ops::{
   Add,
@@ -16,7 +17,7 @@ use num_traits::{
   PrimInt,
   Signed,
   Unsigned,
-  Float,
+  Float, ToPrimitive,
 };
 use rodio::cpal::Sample;
 use std::iter::{
@@ -378,7 +379,8 @@ pub fn f_normalize<
   T: 
     Num +
     Into<f32> +
-    Float
+    Float +
+    Debug
 >(
   xs: Vec<T>,
 ) -> Vec<f32> {
@@ -436,18 +438,26 @@ pub fn gaussian_1d<
     Sum
 >(
   xs: &Vec<T>,
+  radius: f32,
+  only_weights: bool,
 ) -> Option<Vec<f32>> {
   match(std_dev(xs), xs.len()) {
     (Some(sd), len) if len > 0 => {
       use std::f32::consts::{PI, E};
       
+      let sdf = sd * radius;
       let mut gx = Vec::new();
 
       for x in xs {
-        let exponent = -1. * (x.to_f32().unwrap() * x.to_f32().unwrap()) / (2. * sd * sd).to_f32();
-        let gxi = (1. / (2. * PI * sd.powi(2)).sqrt()) * E.powf(exponent);
+        let x_sq = x.to_f32().unwrap() * x.to_f32().unwrap();
+        let exponent = -1. * (x_sq) / (2. * sdf * sdf);
+        let gxi = (1. / (2. * PI * sdf.powi(2)).sqrt()) * E.powf(exponent);
 
-        gx.push(gxi);
+        if only_weights {
+          gx.push(gxi);
+        } else {
+          gx.push(gxi * x.to_f32().unwrap());
+        }
       }
 
       Some(gx)
@@ -499,6 +509,35 @@ pub fn mean<
   
   match xs.len() {
     positive if positive > 0 => Some(sum / xs.len() as f32),
+    _ => None
+  }
+}
+
+pub fn sample_to_n_elements<
+  T:
+    Num + 
+    NumCast +
+    Copy +
+    Sized +
+    Sum
+>(
+  xs: &Vec<T>,
+  n: u32,
+) -> Option<Vec<f32>> {
+  match(xs, xs.len()) {
+    (xs, len) if (n as usize) < len => {
+      let chunk_size = xs.len() / n as usize;
+      println!("chunk_size: {}", chunk_size);
+      let chunks = xs.chunks(chunk_size);
+      let mut res: Vec<f32> = chunks.map(|chunk| { mean(&chunk.to_vec()).unwrap() }).collect();
+      println!("reduced len: {}", res.len());
+
+      while res.len() > n as usize {
+        res.pop();
+      }
+
+      Some(res)
+    }
     _ => None
   }
 }

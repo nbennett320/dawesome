@@ -329,7 +329,7 @@ fn get_node_data(
   let node = audiograph
     .get_mut_node(id);
   let waveform = node.get_waveform().clone();
-  println!("waveform nums: {:?}", waveform);
+  // println!("waveform nums: {:?}", waveform);
 
   // return the svg path and viewbox data
   Ok(waveform)

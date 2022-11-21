@@ -51,15 +51,18 @@ pub fn calc_waveform_from_samples(
     .iter()
     .map(|y| *y as i32)
     .collect();
-  let y_smoothed = util::math::gaussian_1d(&ys).unwrap();
+  let y_gauss = util::math::gaussian_1d(&ys, 1., false).unwrap();
+  let y_smoothed = util::math::sample_to_n_elements(&y_gauss, 256).unwrap();
+  let len = y_smoothed.len();
   let y_norms = util::math::f_normalize::<f32>(y_smoothed);
+  println!("ysmoothed len: {}", len);
 
   let xsf: Vec<f32> = xs
     .iter()
     .map(|x| x.to_f32().unwrap())
     .collect();
 
-  util::math::interleave(xsf, y_norms).unwrap()
+  util::math::interleave(xsf[0..256].to_vec(), y_norms).unwrap()
 }
 
 // get a path of a node's normalized audio waveform, given
