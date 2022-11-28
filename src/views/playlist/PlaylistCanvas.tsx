@@ -10,7 +10,7 @@ import {
   selectPlaylistUI
 } from '../../state/slices/playlistSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
-import { PlaylistTypes } from '../../types/playlist'
+import { PlaylistWindow, PlaylistTypes } from '../../types/playlist'
 import sketch from './sketch'
 
 const PlaylistCanvas = () => {
@@ -19,7 +19,12 @@ const PlaylistCanvas = () => {
   const [width, setWidth] = React.useState<number>()
   const [limit, setLimit] = React.useState<number>(16)
   const [ratio, setRatio] = React.useState<number>(1)
+  const [playlistWindow, setPlaylistWindow] = React.useState<PlaylistWindow>()
   const range = [...Array(limit).keys()].map(e => e + 1)
+
+  const handleItemDrop = (pw: PlaylistWindow) => {
+    setPlaylistWindow(pw)
+  }
 
   const dispatch = useAppDispatch()
   const playlistTrackBoxRef = React.useRef<HTMLDivElement>(null)
@@ -38,14 +43,20 @@ const PlaylistCanvas = () => {
           if(dropCoords && ref.current) { 
             const { x, y } = dropCoords
             const { left, top, right, bottom } = ref.current.getBoundingClientRect()
-            const pixelOffset = x - left
+            const canvas = ref.current.firstChild?.firstChild?.firstChild
+            console.log("dropped on ref:", ref.current, canvas)
 
             dispatch(addToPlaylist(
               item.name as string, 
               1,
-              x,
-              y,
-              pixelOffset,
+              {
+                x,
+                y,
+                left,
+                top,
+                right,
+                bottom,
+              },
             ))
           } else {
             // eslint-disable-next-line no-console
@@ -103,8 +114,6 @@ const PlaylistCanvas = () => {
 
   console.log("items", items)
 
-  console.log("canDrop, isOver", canDrop, isOver)
-
   React.useEffect(() => {
     if(ref.current) {
       const { height: h, width: w } = ref.current.getBoundingClientRect()
@@ -136,6 +145,7 @@ const PlaylistCanvas = () => {
           width={width}
           maxPlaylistBeats={limit}
           playlistObjects={items}
+          onItemDrop={handleItemDrop}
         />
       </div>}
     </div>

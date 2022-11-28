@@ -690,4 +690,43 @@ impl AudioGraph<'static> {
 
     Duration::from_millis(nearest_offset_millis.try_into().unwrap())
   }
+  
+  // return the unique audio tracks numbers in the graph
+  pub fn track_numbers(&self) -> Vec<u32> {
+    let mut counted: Vec<u32> = Vec::new();
+
+    for node in &self.nodes {
+      if !counted.contains(&node.track_number) {
+        counted.push(node.track_number);
+      }
+    }
+    
+    counted
+  }
+
+  // get a vector of AudioNodes with the specified track number
+  pub fn track(&self, track_number: u32) -> Vec<&AudioNode> {
+    let mut track_nodes: Vec<&AudioNode> = Vec::new();
+
+    for node in &self.nodes {
+      if node.track_number == track_number {
+        track_nodes.push(node);
+      }
+    }
+
+    track_nodes
+  }
+
+  // get a vector of all tracks in the audiograph
+  pub fn tracks(&self) -> Vec<Vec<&AudioNode>> {
+    let mut tracks: Vec<Vec<&AudioNode>> = Vec::new();
+
+    for track_num in self.track_numbers() {
+      let track = self.track(track_num);
+
+      tracks.push(track)
+    }
+
+    tracks
+  }
 }

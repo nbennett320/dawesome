@@ -5,16 +5,17 @@ import {
   SketchProps,
 } from 'react-p5-wrapper'
 import { invoke } from '@tauri-apps/api'
-import { PlaylistItem } from '../../../types/playlist'
 import Timeline from './Timeline'
 import Cursor from './Cursor'
 import PlaylistObject from './PlaylistObject'
+import { PlaylistItem, PlaylistWindow } from '../../../types/playlist'
 
 export interface CanvasProps extends SketchProps {
   height: number
   width: number
   maxPlaylistBeats: number
   playlistObjects: PlaylistItem[]
+  onItemDrop: (pw: PlaylistWindow) => void
 }
 
 export const staticDefaults = {
@@ -101,10 +102,9 @@ const sketch = (p: P5CanvasInstance<CanvasProps>) => {
     })
 
     canvas.drop((dropped) => {
-      console.log("dropped this: ", dropped, x)
+      console.log("dropped this: ", dropped)
     })
   }
-
 
   // handle canvas recieved props
   p.updateWithProps = props => {

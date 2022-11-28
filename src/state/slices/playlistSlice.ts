@@ -1,7 +1,7 @@
 import { createSlice, Dispatch } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api'
 import { RootState } from 'state/store'
-import { PlaylistItem } from '../../types/playlist'
+import { PlaylistItem, PlaylistItemPixelOffset } from '../../types/playlist'
 
 export interface PlaylistState {
   playing: boolean
@@ -171,10 +171,10 @@ export const {
 export const addToPlaylist = (
   path: string, 
   trackNumber: number,
-  dropX: number,
-  dropY: number,
-  pixelOffset: number,
+  pixelOffset: Omit<PlaylistItemPixelOffset, 'xOffset' | 'yOffset'>,
 ) => async (dispatch: Dispatch) => {
+  const dropX = pixelOffset.x
+  const dropY = pixelOffset.y
   const id = await invoke<number>('add_audiograph_node', {
     samplePath: path,
     trackNumber,
@@ -186,7 +186,11 @@ export const addToPlaylist = (
     id,
     path,
     trackNumber,
-    pixelOffset,
+    pixelOffset: {
+      ...pixelOffset,
+      xOffset: pixelOffset.x - pixelOffset.left,
+      yOffset: pixelOffset.y - pixelOffset.top,
+    },
   } as PlaylistItem))
 }
 
