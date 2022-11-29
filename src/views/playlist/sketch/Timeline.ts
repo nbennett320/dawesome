@@ -2,7 +2,7 @@
 import p5 from 'p5'
 import { P5CanvasInstance } from 'react-p5-wrapper'
 import PlaylistComponentBase, { PlaylistComponentBaseProps } from './PlaylistComponentBase'
-import { CanvasProps } from './index'
+import { CanvasProps, Renderer } from './index'
 
 interface Props extends PlaylistComponentBaseProps {}
 
@@ -10,9 +10,10 @@ class Timeline extends PlaylistComponentBase {
   constructor(
     p: P5CanvasInstance<CanvasProps>,
     canvas: p5.Renderer,
+    playlist: Renderer,
     props: Props,
   ) {
-    super(p, canvas, props)
+    super(p, canvas, playlist, props)
   }
 
   drawNumbers() {

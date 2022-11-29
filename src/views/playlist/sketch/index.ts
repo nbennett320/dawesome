@@ -3,17 +3,25 @@ import p5 from 'p5'
 import {
   P5CanvasInstance,
   SketchProps,
+  Sketch,
 } from 'react-p5-wrapper'
 import { invoke } from '@tauri-apps/api'
 import Timeline from './Timeline'
 import Cursor from './Cursor'
+import PlaylistTrack from './PlaylistTrack'
 import PlaylistObject from './PlaylistObject'
-import { PlaylistItem, PlaylistWindow } from '../../../types/playlist'
+import RendererBase from '../../../render/RendererBase'
+import {
+  PlaylistItem,
+  PlaylistItemPixelOffset,
+  PlaylistWindow
+} from '../../../types/playlist'
 
 export interface CanvasProps extends SketchProps {
   height: number
   width: number
   maxPlaylistBeats: number
+  trackCount: number
   playlistObjects: PlaylistItem[]
   onItemDrop: (pw: PlaylistWindow) => void
 }
@@ -22,6 +30,14 @@ export const staticDefaults = {
   zoomSensitivity: .035,
   mouseDragDetectionThreshold: 10,
   timelineHeight: 24,
+  trackHeight: 100,
+
+  // defaults on Renderer construction, these will be reassigned
+  // when the canvas renders
+  height: 100,
+  width: 200,
+  maxPlaylistBeats: 32,
+  trackCount: 5,
 }
 
 const fetchWaveformData = async (id: number) => {
@@ -30,173 +46,274 @@ const fetchWaveformData = async (id: number) => {
   return wf
 }
 
-const sketch = (p: P5CanvasInstance<CanvasProps>) => {
-  let canvas: p5.Renderer
-  let height: number
-  let width: number
-  let maxPlaylistBeats: number
+export class Renderer extends RendererBase {
+  height: number = staticDefaults.height
+  width: number = staticDefaults.width
+  maxPlaylistBeats: number = staticDefaults.maxPlaylistBeats
+  trackCount: number = staticDefaults.trackCount
 
-  let currentScale = 1
-  let transformX = 0
-  let transformY = 0
+  currentScale = 1
+  transformX = 0
+  transformY = 0
   
-  let isMouseDragged = false
-  let mousePressedX: number | null = null
-  let mousePressedY: number | null = null
+  isMouseDragged = false
+  mousePressedX: number | null = null
+  mousePressedY: number | null = null
 
-  let playlistObjects: Array<{
-    item: PlaylistItem
-    p5PlaylistObject: PlaylistObject
-  }> = []
+  playlistTracks: Array<PlaylistTrack> = []
+  playlistObjects: Array<PlaylistObject> = []
 
-  p.setup = () => {
-    canvas = p.createCanvas(width, height)
-    p.noStroke()
+  individualTrackHeight = (): number => 
+    (this.height - staticDefaults.timelineHeight) / this.trackCount
 
-    canvas.mousePressed(() => {
-      mousePressedX = p.mouseX
-      mousePressedY = p.mouseY
+  // calculate the min and max height of a particular track
+  calculateTrackRange = (
+    trackNumber: number,
+    dropData: PlaylistItemPixelOffset
+  ): [number, number] => {
+    if(trackNumber > this.trackCount) {
+      console.error(`Invalid trackNumber passed to calculate track range: ${trackNumber}`)
+    }
 
-      isMouseDragged = true
-      p.mouseReleased = () => {
-        isMouseDragged = false
-      }
-    })
-
-    // handle zoom event
-    canvas.mouseWheel((ev: WheelEvent) => {
-      let scaleFactor = null
-      if(ev?.deltaY < 0) {
-        scaleFactor = 1 + staticDefaults.zoomSensitivity
-      } else if(ev?.deltaY > 0) {
-        scaleFactor = 1 - staticDefaults.zoomSensitivity
-      } else {
-        scaleFactor = 1
-      }
-
-      if(currentScale * scaleFactor < 1) return
-
-      currentScale *= scaleFactor
-      transformX = p.mouseX - (p.mouseX * scaleFactor) + (transformX * scaleFactor)
-      transformY = p.mouseY - (p.mouseY * scaleFactor) + (transformY * scaleFactor)
-      console.log("currentScale: ", currentScale)
-    })
-
-    // handle click release
-    canvas.mouseReleased(() => {
-      mousePressedX = null
-      mousePressedY = null
-      isMouseDragged = false
-    })
-
-    // handle mouse drag
-    canvas.mouseMoved((ev: MouseEvent) => {
-      if(isMouseDragged) {
-        const dist = p.dist(mousePressedX ?? 0, mousePressedY ?? 0, p.mouseX, p.mouseY)
-        if(dist > staticDefaults.mouseDragDetectionThreshold) {
-          isMouseDragged = true
-          transformX -= (p.mouseX - ev.offsetX)
-          transformY -= (p.mouseY - ev.offsetY)
-        }
-      }
-    })
-
-    canvas.drop((dropped) => {
-      console.log("dropped this: ", dropped)
-    })
-  }
-
-  // handle canvas recieved props
-  p.updateWithProps = props => {
-    height = props.height
-    width = props.width
-    maxPlaylistBeats = props.maxPlaylistBeats
-    p.resizeCanvas(width, height)
-
-    const newPlaylistObjects: Array<{
-      item: PlaylistItem
-      p5PlaylistObject: PlaylistObject
-    }> = []
-
-    props.playlistObjects.forEach(async (item) => {
-      const soundData = await fetchWaveformData(item.id)
-      const p5PlaylistObject = new PlaylistObject(
-        p,
-        canvas,
-        {
-          currentScale,
-          soundData,
-          timelineWidth: width, 
-          timelineHeight: staticDefaults.timelineHeight,
-          playlistItem: item,
-        }
-      )
-
-      newPlaylistObjects.push({
-        item,
-        p5PlaylistObject,
-      } as {
-        item: PlaylistItem
-        p5PlaylistObject: PlaylistObject
-      })
-    })
-
-    playlistObjects = newPlaylistObjects
-
-    console.log("objects to be rendered: ", playlistObjects)
-  }
-
-  // render p5 canvas
-  p.draw = () => {
-    const timeline = new Timeline(
-      p,
-      canvas,
-      {
-        timelineWidth: width, 
-        timelineHeight: staticDefaults.timelineHeight,
-        currentScale,
-      }
-    )
-
-    const cursor = new Cursor(
-      p,
-      canvas,
-      {
-        timelineWidth: width, 
-        timelineHeight: staticDefaults.timelineHeight,
-        currentScale,
-      }
-    )
+    const individualTrackHeight = this.individualTrackHeight()
+    const playlistStart = dropData.top - staticDefaults.timelineHeight
     
-    p.background(255, 255, 255)
-    p.stroke(180, 180, 180)
-    p.fill(255, 255, 255)
+    let min = -1
+    let max = -1
+    for(let i = 0; i < this.trackCount; i++) {
+      min = i * individualTrackHeight + playlistStart
+      max = (i+1) * individualTrackHeight + playlistStart
 
-    transformX = p.constrain(transformX, width * (1 - currentScale), 0)
-    transformY = p.constrain(transformY, height * (1 - currentScale), 0)
-
-    p.push()
-    p.translate(transformX, 1)
-    p.scale(currentScale, 1)
-    
-    timeline.render()
-    cursor.render()
-
-    playlistObjects.forEach(item => {
-      item.p5PlaylistObject.render()
-    })
-
-    for(let i = 0; i < width; i += width/maxPlaylistBeats) {
-      for(let j = staticDefaults.timelineHeight; j < height+staticDefaults.timelineHeight; j += height/5) {
-        p.stroke(0, 0, 0)
-        p.strokeWeight(.3)
-        p.line(i, 0, i, height)
-        p.line(0, j, width, j)
+      if(i === trackNumber) {
+        break
       }
     }
 
-    p.pop()
+    return [min, max]
+  }
+
+  calculateTrackNumber = (dropData: PlaylistItemPixelOffset): number => {
+    const individualTrackHeight = this.individualTrackHeight()
+    const playlistStart = dropData.top - staticDefaults.timelineHeight
+    const dropY = dropData.y - dropData.top
+    
+    let trackNumber = -1
+    for(let i = 0; i < this.trackCount; i++) {
+      const min = i * individualTrackHeight + playlistStart
+      const max = (i+1) * individualTrackHeight + playlistStart
+      console.log("min, dropY, max: ", min, dropY, max)
+
+      if(min < dropY && dropY < max) {
+        trackNumber = i
+        break
+      }
+    }
+
+    console.log("calculated trackNumber: ", trackNumber)
+    return trackNumber
+  }
+
+  sketch: Sketch<CanvasProps> = (p: P5CanvasInstance<CanvasProps>) => {
+    let {
+      canvas,
+      height,
+      width,
+      maxPlaylistBeats,
+      trackCount,
+      currentScale,
+      transformX,
+      transformY,
+      isMouseDragged,
+      mousePressedX,
+      mousePressedY,
+      playlistTracks,
+      playlistObjects,
+    } = this
+
+    if(!width || !height) {
+      console.error(`Invalid canvas dimensions.\nwidth: ${width}, height: ${height}`)
+    }
+
+    p.setup = () => {
+      canvas = p.createCanvas(width, height)
+      p.noStroke()
+
+      canvas.mousePressed(() => {
+        mousePressedX = p.mouseX
+        mousePressedY = p.mouseY
+
+        isMouseDragged = true
+        p.mouseReleased = () => {
+          isMouseDragged = false
+        }
+      })
+
+      // handle zoom event
+      canvas.mouseWheel((ev: WheelEvent) => {
+        let scaleFactor = null
+        if(ev?.deltaY < 0) {
+          scaleFactor = 1 + staticDefaults.zoomSensitivity
+        } else if(ev?.deltaY > 0) {
+          scaleFactor = 1 - staticDefaults.zoomSensitivity
+        } else {
+          scaleFactor = 1
+        }
+
+        if(currentScale * scaleFactor < 1) return
+
+        currentScale *= scaleFactor
+        transformX = p.mouseX - (p.mouseX * scaleFactor) + (transformX * scaleFactor)
+        transformY = p.mouseY - (p.mouseY * scaleFactor) + (transformY * scaleFactor)
+        console.log("currentScale: ", currentScale)
+      })
+
+      // handle click release
+      canvas.mouseReleased(() => {
+        mousePressedX = null
+        mousePressedY = null
+        isMouseDragged = false
+      })
+
+      // handle mouse drag
+      canvas.mouseMoved((ev: MouseEvent) => {
+        if(isMouseDragged) {
+          const dist = p.dist(mousePressedX ?? 0, mousePressedY ?? 0, p.mouseX, p.mouseY)
+          if(dist > staticDefaults.mouseDragDetectionThreshold) {
+            isMouseDragged = true
+            transformX -= (p.mouseX - ev.offsetX)
+            transformY -= (p.mouseY - ev.offsetY)
+          }
+        }
+      })
+
+      canvas.drop((dropped) => {
+        console.log("dropped this: ", dropped)
+      })
+    }
+
+    // handle canvas recieved props
+    p.updateWithProps = props => {
+      console.log("updating with props", props)
+      if(!canvas) {
+        console.error("this.canvas in the playlist Renderer was null when p.updatingWithProps was called.")
+        return
+      }
+
+      height = props.height
+      width = props.width
+      maxPlaylistBeats = props.maxPlaylistBeats
+      trackCount = props.trackCount
+      
+      p.resizeCanvas(width, height)
+
+      const newPlaylistObjects: Array<PlaylistObject> = []
+      const newPlaylistTracks: Array<PlaylistTrack> = []
+
+      props.playlistObjects.forEach(async (item) => {
+        if(!canvas) return
+
+        const soundData = await fetchWaveformData(item.id)
+        const p5PlaylistObject = new PlaylistObject(
+          p,
+          canvas,
+          this,
+          {
+            currentScale,
+            soundData,
+            timelineWidth: width, 
+            timelineHeight: staticDefaults.timelineHeight,
+            playlistItem: item,
+          }
+        )
+
+        newPlaylistObjects.push(p5PlaylistObject)
+      })
+
+      for(let i = 0; i < trackCount; i++) {
+        if(!canvas) return
+
+        const track = new PlaylistTrack(
+          p,
+          canvas,
+          this,
+          {
+            currentScale,
+            trackCount,
+            timelineWidth: width,
+            timelineHeight: height,
+            trackNumber: i,
+            trackHeight: staticDefaults.trackHeight,
+          }
+        )
+
+        newPlaylistTracks.push(track)
+      }
+
+      playlistObjects = newPlaylistObjects
+      playlistTracks = newPlaylistTracks
+
+      console.log("objects to be rendered: ", playlistObjects)
+    }
+
+    // render p5 canvas
+    p.draw = () => {
+      if(!canvas) return
+
+      const timeline = new Timeline(
+        p,
+        canvas,
+        this,
+        {
+          timelineWidth: width, 
+          timelineHeight: staticDefaults.timelineHeight,
+          currentScale,
+        }
+      )
+
+      const cursor = new Cursor(
+        p,
+        canvas,
+        this,
+        {
+          timelineWidth: width, 
+          timelineHeight: staticDefaults.timelineHeight,
+          currentScale,
+        }
+      )
+      
+      p.background(255, 255, 255)
+      p.stroke(180, 180, 180)
+      p.fill(255, 255, 255)
+
+      transformX = p.constrain(transformX, width * (1 - currentScale), 0)
+      transformY = p.constrain(transformY, height * (1 - currentScale), 0)
+
+      p.push()
+      p.translate(transformX, 1)
+      p.scale(currentScale, 1)
+      
+      timeline.render()
+      cursor.render()
+
+      // render audio nodes in the playlist
+      playlistObjects.forEach(item => {
+        item.render()
+      })
+
+      p.stroke(0, 0, 0)
+      p.strokeWeight(.3)
+
+      // render vertical grid lines
+      for(let i = 0; i < width; i += width/maxPlaylistBeats) {
+        p.line(i, 0, i, height)
+      }
+
+      // render playlist tracks
+      playlistTracks.forEach(track => {
+        track.render()
+      })
+
+      p.pop()
+    }
   }
 }
-
-export default sketch

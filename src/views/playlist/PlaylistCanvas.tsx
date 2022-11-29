@@ -10,15 +10,17 @@ import {
   selectPlaylistUI
 } from '../../state/slices/playlistSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
-import { PlaylistWindow, PlaylistTypes } from '../../types/playlist'
-import sketch from './sketch'
+import { PlaylistWindow, PlaylistTypes, PlaylistItemPixelOffset } from '../../types/playlist'
+import { Renderer } from './sketch'
+
+const playlistRenderer = new Renderer()
 
 const PlaylistCanvas = () => {
   const ref = React.useRef<HTMLDivElement>(null)
   const [height, setHeight] = React.useState<number>()
   const [width, setWidth] = React.useState<number>()
   const [limit, setLimit] = React.useState<number>(16)
-  const [ratio, setRatio] = React.useState<number>(1)
+  const [trackCount, setTrackCount] = React.useState<number>(5)
   const [playlistWindow, setPlaylistWindow] = React.useState<PlaylistWindow>()
   const range = [...Array(limit).keys()].map(e => e + 1)
 
@@ -44,11 +46,20 @@ const PlaylistCanvas = () => {
             const { x, y } = dropCoords
             const { left, top, right, bottom } = ref.current.getBoundingClientRect()
             const canvas = ref.current.firstChild?.firstChild?.firstChild
+            const dropData = {
+              x,
+              y,
+              left,
+              top,
+              right,
+              bottom,
+            } as PlaylistItemPixelOffset
+            const trackNumber = playlistRenderer.calculateTrackNumber(dropData)
             console.log("dropped on ref:", ref.current, canvas)
 
             dispatch(addToPlaylist(
               item.name as string, 
-              1,
+              trackNumber,
               {
                 x,
                 y,
@@ -110,7 +121,6 @@ const PlaylistCanvas = () => {
   }))
 
   const items = useAppSelector(selectPlaylistItems)
-    .filter(item => item.trackNumber === 1)
 
   console.log("items", items)
 
@@ -119,15 +129,17 @@ const PlaylistCanvas = () => {
       const { height: h, width: w } = ref.current.getBoundingClientRect()
       setHeight(h)
       setWidth(w)
+      playlistRenderer.setHeight(h)
+      playlistRenderer.setWidth(w)
     }
   }, [ref.current])
 
   React.useEffect(() => {
     const getPlaylistTimeline = async () => {
-      const [maxPlaylistBeats, maxBeatsDisplayed, displayRatio] = 
+      const [maxPlaylistBeats, maxBeatsDisplayed, calculatedTrackCount] = 
         await invoke<[number, number, number]>('get_playlist_timeline', {})
       setLimit(maxPlaylistBeats)
-      setRatio(displayRatio)
+      setTrackCount(calculatedTrackCount)
     }
 
     getPlaylistTimeline()
@@ -140,10 +152,11 @@ const PlaylistCanvas = () => {
     >
       {ref.current && <div ref={dropRef}>
         <ReactP5Wrapper 
-          sketch={sketch}
+          sketch={playlistRenderer.sketch}
           height={height}
           width={width}
           maxPlaylistBeats={limit}
+          trackCount={trackCount}
           playlistObjects={items}
           onItemDrop={handleItemDrop}
         />

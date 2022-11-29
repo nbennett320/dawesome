@@ -1,10 +1,8 @@
-
 import p5 from 'p5'
 import { P5CanvasInstance } from 'react-p5-wrapper'
-import { invoke } from '@tauri-apps/api'
 import PlaylistComponentBase, { PlaylistComponentBaseProps } from './PlaylistComponentBase'
 import Waveform from './Waveform'
-import { CanvasProps } from './index'
+import { CanvasProps, Renderer } from './index'
 import { PlaylistItem } from '../../../types/playlist'
 
 interface Props extends PlaylistComponentBaseProps {
@@ -19,9 +17,10 @@ class PlaylistObject extends PlaylistComponentBase {
   constructor(
     p: P5CanvasInstance<CanvasProps>,
     canvas: p5.Renderer,
+    playlist: Renderer,
     props: Props,
   ) {
-    super(p, canvas, props)
+    super(p, canvas, playlist, props)
     this.playlistItem = props.playlistItem
     this.soundData = props.soundData
   }
@@ -30,6 +29,7 @@ class PlaylistObject extends PlaylistComponentBase {
     const waveform = new Waveform(
       this.p,
       this.canvas,
+      this.renderer,
       {
         currentScale: this.currentScale,
         timelineHeight: this.timelineHeight,
@@ -41,6 +41,11 @@ class PlaylistObject extends PlaylistComponentBase {
     )
 
     waveform.render()
+
+    const { pixelOffset } = this.playlistItem
+    this.p.strokeWeight(2)
+    this.p.stroke(255,187,153)
+    this.p.line(pixelOffset.xOffset, pixelOffset.yOffset, pixelOffset.xOffset+100, pixelOffset.yOffset)
   }
 }
 

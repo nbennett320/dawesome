@@ -364,7 +364,7 @@ fn get_playlist_sample_offset(
 #[tauri::command]
 fn get_playlist_timeline(
   state: tauri::State<'_, Arc<daw::InnerState>>
-) -> Result<(u64, u64, f32), String> {
+) -> Result<(u64, u64, u32), String> {
   let max_playlist_beats = state.playlist.max_beats.load(Ordering::SeqCst);
   let max_beats_displayed = state
     .playlist
@@ -372,9 +372,10 @@ fn get_playlist_timeline(
     .lock()
     .unwrap()
     .max_beats_displayed;
-  let ratio = max_playlist_beats as f32 / max_beats_displayed as f32;
+  // let ratio = max_playlist_beats as f32 / max_beats_displayed as f32;
+  let track_count = daw::get_playlist_track_count(state);
 
-  Ok((max_playlist_beats, max_beats_displayed, ratio))
+  Ok((max_playlist_beats, max_beats_displayed, track_count))
 }
 
 #[tauri::command]

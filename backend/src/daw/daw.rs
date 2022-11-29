@@ -256,3 +256,19 @@ pub fn set_playlist_tempo(
     .unwrap()
     .set_tempo(val);
 }
+
+pub fn get_playlist_track_count(
+  state: tauri::State<'_, Arc<state::InnerState>>,
+) -> u32 {
+  let count: u32 = state
+    .playlist
+    .audiograph
+    .lock()
+    .unwrap()
+    .track_numbers()
+    .len()
+    .try_into()
+    .unwrap();
+  
+  if count > 1 { count } else { state::defaults::NUM_OF_TRACKS }
+}

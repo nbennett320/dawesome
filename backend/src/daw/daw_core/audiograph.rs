@@ -231,6 +231,7 @@ impl AudioNode {
     let duration = Duration::from_millis(dur_ms.round() as u64);
     println!("length of sample in ms: {:?}", dur_ms);
     println!("channels: {:?}", channels);
+    println!("track number: {}", track_number);
     let waveform = daw::calc_waveform_from_samples(samples, channels);
 
     AudioNode {
