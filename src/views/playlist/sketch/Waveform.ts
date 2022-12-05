@@ -1,7 +1,7 @@
 import p5 from 'p5'
 import { P5CanvasInstance } from 'react-p5-wrapper'
 import PlaylistComponentBase, { PlaylistComponentBaseProps } from './PlaylistComponentBase'
-import { CanvasProps, Renderer } from './index'
+import { CanvasProps, Renderer, staticDefaults } from './index'
 import { PlaylistItemPixelOffset } from '../../../types/playlist'
 
 interface Props extends PlaylistComponentBaseProps {
@@ -23,6 +23,7 @@ class Waveform extends PlaylistComponentBase {
   maxHeight: number
   minHeight: number
   trackHeight: number
+  labelHeight: number = staticDefaults.PlaylistObject.labelHeight
 
   constructor(
     p: P5CanvasInstance<CanvasProps>,
@@ -59,15 +60,16 @@ class Waveform extends PlaylistComponentBase {
   })
   
   render = () => {
+    const { currentScale, minHeight, trackHeight, height, labelHeight } = this
     const { xOffset, yOffset, y, top } = this.pixelOffset
 
     this.p.strokeWeight(1)
     this.p.stroke(0, 0, 0)
     for(let i = 0; i < this.soundData.length; i+=2) {
-      const x0 = (this.soundData[i] * this.currentScale) + xOffset
-      const y0 = this.minHeight + 40 + (this.trackHeight/2) + (this.soundData[i+1] * (this.height - 20)) - (y - yOffset)
-      const x1 = (this.soundData[i+2] * this.currentScale) + xOffset
-      const y1 = this.minHeight + 40 + (this.trackHeight/2) + (this.soundData[i+3] * (this.height - 20)) - (y - yOffset)
+      const x0 = (this.soundData[i] * currentScale) + xOffset
+      const y0 = minHeight + labelHeight*2 + (trackHeight/2) + (this.soundData[i+1] * (height - labelHeight)) - (y - yOffset)
+      const x1 = (this.soundData[i+2] * currentScale) + xOffset
+      const y1 = minHeight + labelHeight*2 + (trackHeight/2) + (this.soundData[i+3] * (height - labelHeight)) - (y - yOffset)
       this.p.line(x0, y0, x1, y1)
     }
   }

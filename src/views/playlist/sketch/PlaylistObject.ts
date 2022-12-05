@@ -17,6 +17,7 @@ class PlaylistObject extends PlaylistComponentBase {
   soundData: number[] = []
   trackNumber: number
   trackHeight: number = staticDefaults.trackHeight
+  labelHeight: number = staticDefaults.PlaylistObject.labelHeight
   minHeight: number
   maxHeight: number
   waveform: Waveform
@@ -70,14 +71,14 @@ class PlaylistObject extends PlaylistComponentBase {
     this.p.fill(224,242,254)
     this.p.rect(left, top, width, height, 3, 3, 3, 3)
     // this.p.line(left, top, right, top)
-    this.p.line(left, top + 20, right, top + 20)
+    this.p.line(left, top + this.labelHeight, right, top + this.labelHeight)
 
     // render text
     this.p.noStroke()
     this.p.fill('#222')
     this.p.push()
     this.p.scale(1 / this.currentScale, 1)
-    this.p.text(this.playlistItem.path, left + 3, top + 20 - 3)
+    this.p.text(this.playlistItem.path, left + 3, top + this.labelHeight - 3)
     this.p.pop()
     // this.p.line(left, bottom, right, bottom)
     // this.p.line(left, top, left, bottom)

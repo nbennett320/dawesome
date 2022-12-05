@@ -38,6 +38,11 @@ export const staticDefaults = {
   width: 200,
   maxPlaylistBeats: 32,
   trackCount: 5,
+
+  // class specific defaults
+  PlaylistObject: {
+    labelHeight: 20,
+  },
 }
 
 const fetchWaveformData = async (id: number) => {
