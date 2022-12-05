@@ -93,18 +93,17 @@ export class Renderer extends RendererBase {
   }
 
   calculateTrackNumber = (dropData: PlaylistItemPixelOffset): number => {
-    const individualTrackHeight = this.individualTrackHeight()
-    const playlistStart = dropData.top - staticDefaults.timelineHeight
     const dropY = dropData.y - dropData.top
-    
-    let trackNumber = -1
-    for(let i = 0; i < this.trackCount; i++) {
-      const min = i * individualTrackHeight + playlistStart
-      const max = (i+1) * individualTrackHeight + playlistStart
-      console.log("min, dropY, max: ", min, dropY, max)
 
+    console.log("obj", this.playlistTracks, this)
+    let trackNumber = -1
+    for(let i = 0; i < this.playlistTracks.length; i++) {
+      const track = this.playlistTracks[i]
+      const [min, max] = [track.minHeight, track.maxHeight]
+      console.log("min, max, dropy", min, max, dropY)
+      
       if(min < dropY && dropY < max) {
-        trackNumber = i
+        trackNumber = track.trackNumber
         break
       }
     }
@@ -189,6 +188,30 @@ export class Renderer extends RendererBase {
       canvas.drop((dropped) => {
         console.log("dropped this: ", dropped)
       })
+
+      const newPlaylistTracks: Array<PlaylistTrack> = []
+      for(let i = 0; i < trackCount; i++) {
+        if(!canvas) return
+
+        const track = new PlaylistTrack(
+          p,
+          canvas,
+          this,
+          {
+            currentScale,
+            trackCount,
+            timelineWidth: width,
+            timelineHeight: height,
+            trackNumber: i,
+            trackHeight: staticDefaults.trackHeight,
+            playlistObjects: [],
+          }
+        )
+
+        newPlaylistTracks.push(track)
+      }
+
+      this.playlistTracks = newPlaylistTracks
     }
 
     // handle canvas recieved props
@@ -222,6 +245,8 @@ export class Renderer extends RendererBase {
             soundData,
             timelineWidth: width, 
             timelineHeight: staticDefaults.timelineHeight,
+            trackNumber: item.trackNumber,
+            trackHeight: staticDefaults.trackHeight,
             playlistItem: item,
           }
         )
@@ -240,9 +265,10 @@ export class Renderer extends RendererBase {
             currentScale,
             trackCount,
             timelineWidth: width,
-            timelineHeight: height,
+            timelineHeight: staticDefaults.timelineHeight,
             trackNumber: i,
             trackHeight: staticDefaults.trackHeight,
+            playlistObjects: newPlaylistObjects,
           }
         )
 
@@ -252,7 +278,7 @@ export class Renderer extends RendererBase {
       playlistObjects = newPlaylistObjects
       playlistTracks = newPlaylistTracks
 
-      console.log("objects to be rendered: ", playlistObjects)
+      console.log("objects to be rendered: ", playlistObjects, playlistTracks)
     }
 
     // render p5 canvas
@@ -295,23 +321,18 @@ export class Renderer extends RendererBase {
       timeline.render()
       cursor.render()
 
-      // render audio nodes in the playlist
-      playlistObjects.forEach(item => {
-        item.render()
-      })
-
-      p.stroke(0, 0, 0)
-      p.strokeWeight(.3)
-
-      // render vertical grid lines
-      for(let i = 0; i < width; i += width/maxPlaylistBeats) {
-        p.line(i, 0, i, height)
-      }
-
       // render playlist tracks
       playlistTracks.forEach(track => {
         track.render()
       })
+      
+      // render vertical grid lines
+      const gridStroke = .2 * (1 - currentScale) > 0 ? .2 * (1 - currentScale) : .4
+      p.strokeWeight(gridStroke)
+      p.stroke(100, 100, 100)
+      for(let i = 0; i < width; i += width/maxPlaylistBeats) {
+        p.line(i, 0, i, height)
+      }
 
       p.pop()
     }
