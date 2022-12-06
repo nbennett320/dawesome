@@ -2,6 +2,7 @@ lockfileVersion: 5.3
 
 specifiers:
   '@reduxjs/toolkit': ^1.8.1
+  '@syncfusion/ej2-react-navigations': ^20.3.60
   '@tauri-apps/api': 1.0.0-rc.3
   '@tauri-apps/cli': 1.0.0-rc.8
   '@testing-library/dom': 8.12.0
@@ -57,6 +58,7 @@ specifiers:
 
 dependencies:
   '@reduxjs/toolkit': 1.8.1_a84327381dc70422e28604ca93f21181
+  '@syncfusion/ej2-react-navigations': 20.3.60
   '@tauri-apps/api': 1.0.0-rc.3
   '@tauri-apps/cli': 1.0.0-rc.8
   '@types/p5': 1.4.3
@@ -963,6 +965,85 @@ packages:
       svg-parser: 2.0.4
     transitivePeerDependencies:
       - supports-color
+    dev: false
+
+  /@syncfusion/ej2-base/20.3.56:
+    resolution: {integrity: sha512-BeXX3XBOs1kv9/rki9f1kPuLbNJU06kJE8o0jLY62fEd/U5k2KkuG5Z/WbWHJIuQVH5dv57ZM2Adl3rG+vkvjg==}
+    hasBin: true
+    dependencies:
+      '@syncfusion/ej2-icons': 20.3.56
+    dev: false
+
+  /@syncfusion/ej2-buttons/20.3.58:
+    resolution: {integrity: sha512-FfCdxr+2UD4TaznJu9389g6G9HNzakwq/gTiwyckNSUrMdSSDHLCqIv591HXV+XGoGNJ7Svmhj8kfHv3xoEuVQ==}
+    dependencies:
+      '@syncfusion/ej2-base': 20.3.56
+    dev: false
+
+  /@syncfusion/ej2-data/20.3.60:
+    resolution: {integrity: sha512-cbs5UnLENJOApNPRulS4HSkVZFND0RQ0SjzQ2YsHe7FyKNQAqZcZbigOZwn5DUidZ0jCQOHXqP8f50g6wE9IvA==}
+    dependencies:
+      '@syncfusion/ej2-base': 20.3.56
+    dev: false
+
+  /@syncfusion/ej2-icons/20.3.56:
+    resolution: {integrity: sha512-sv5y/J85PZU8fmFNG1b5ftLroQHFicTKcfKo0oy72KSKxdLZ3xd1pjMS9/5m5z609doksIbFltlisO0buhzflA==}
+    dev: false
+
+  /@syncfusion/ej2-inputs/20.3.57:
+    resolution: {integrity: sha512-klzpmszCw1PxIc5HtqRxliNB53G4w9ac1Roo6+jzzgiTjgzM0ZTUrteJlicQLwHGWXzKD0qvtEF/lvqFhqJ9eQ==}
+    dependencies:
+      '@syncfusion/ej2-base': 20.3.56
+      '@syncfusion/ej2-buttons': 20.3.58
+      '@syncfusion/ej2-popups': 20.3.60
+      '@syncfusion/ej2-splitbuttons': 20.3.56
+    dev: false
+
+  /@syncfusion/ej2-lists/20.3.56:
+    resolution: {integrity: sha512-I7BizR/RANyxzwSV+tuJMwN5sK2GHi7tOZpiaIGE8b5sm6ygffR9cIniomDvt4lz4JhmBeBrTpzJbpj4XjbCFQ==}
+    dependencies:
+      '@syncfusion/ej2-base': 20.3.56
+      '@syncfusion/ej2-buttons': 20.3.58
+      '@syncfusion/ej2-data': 20.3.60
+    dev: false
+
+  /@syncfusion/ej2-navigations/20.3.60:
+    resolution: {integrity: sha512-yM6tjnhogfG6XdjARHEzDGlQrUT5mJr8+4wyv5skrkJfOsdcjPVy13lobkXpd6EtefFfOmM7wXKMQc2FTKUrpw==}
+    dependencies:
+      '@syncfusion/ej2-base': 20.3.56
+      '@syncfusion/ej2-buttons': 20.3.58
+      '@syncfusion/ej2-data': 20.3.60
+      '@syncfusion/ej2-inputs': 20.3.57
+      '@syncfusion/ej2-lists': 20.3.56
+      '@syncfusion/ej2-popups': 20.3.60
+    dev: false
+
+  /@syncfusion/ej2-popups/20.3.60:
+    resolution: {integrity: sha512-nfvRAOFNY8SL9nmyCoCr6oALZJdTdzDxOZs3pZn4Q5mq67hKj1+tS2aJisiV8OBJ/TFMXh+YblaVyXL710waLg==}
+    dependencies:
+      '@syncfusion/ej2-base': 20.3.56
+      '@syncfusion/ej2-buttons': 20.3.58
+    dev: false
+
+  /@syncfusion/ej2-react-base/20.3.56:
+    resolution: {integrity: sha512-8QuQbbjjodEyMjhrWg4GthOJXMpyLMdr37oKqo6Wd3L4UzWO0T5fLquII4HLyTSzeeRESWn7ByJWGEOxYycHmQ==}
+    dependencies:
+      '@syncfusion/ej2-base': 20.3.56
+    dev: false
+
+  /@syncfusion/ej2-react-navigations/20.3.60:
+    resolution: {integrity: sha512-dVCT8qwowq3C40T/NhUDu/FbAUIDOvw1CIkKp+LJYUNo05hQFy/LiZK4QqaduXXF7d9e2/vc66y6gXE4czk2kg==}
+    dependencies:
+      '@syncfusion/ej2-base': 20.3.56
+      '@syncfusion/ej2-navigations': 20.3.60
+      '@syncfusion/ej2-react-base': 20.3.56
+    dev: false
+
+  /@syncfusion/ej2-splitbuttons/20.3.56:
+    resolution: {integrity: sha512-z0/j4CAaKu4YM3ggtcWm6ZDQjuE+wKp7sbC8iAXp1OM0WWrOYpB//SB5qV4jVuXajcsrImBlmrYsKR/XPt4Cuw==}
+    dependencies:
+      '@syncfusion/ej2-base': 20.3.56
+      '@syncfusion/ej2-popups': 20.3.60
     dev: false
 
   /@tauri-apps/api/1.0.0-rc.3:

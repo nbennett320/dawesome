@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@reduxjs/toolkit": "^1.8.1",
+    "@syncfusion/ej2-react-navigations": "^20.3.60",
     "@tauri-apps/api": "1.0.0-rc.3",
     "@tauri-apps/cli": "1.0.0-rc.8",
     "@types/p5": "^1.4.3",
