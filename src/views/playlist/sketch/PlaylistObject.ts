@@ -73,7 +73,6 @@ class PlaylistObject extends PlaylistComponentBase {
     this.p.stroke(125,211,252)
     this.p.fill(224,242,254)
     this.p.rect(left, top, width, height, 3, 3, 3, 3)
-    // this.p.line(left, top, right, top)
     this.p.line(left, top + this.labelHeight, right, top + this.labelHeight)
 
     // render text
@@ -83,10 +82,6 @@ class PlaylistObject extends PlaylistComponentBase {
     this.p.scale(1 / this.currentScale, 1)
     this.p.text(this.playlistItem.path, left + 3, top + this.labelHeight - 3)
     this.p.pop()
-    // this.p.line(left, bottom, right, bottom)
-    // this.p.line(left, top, left, bottom)
-    // this.p.line(right, top, right, bottom)
-
   }
 
   // return true if mouse is over the particular playlist object
@@ -129,7 +124,6 @@ class PlaylistObject extends PlaylistComponentBase {
         mouseY,
       })
 
-      // this.#mouseWasPressed += 1
       this.#mousePendingDoubleClick = true
       setTimeout(() => {
         this.#mouseWasPressed = 0
@@ -146,36 +140,35 @@ class PlaylistObject extends PlaylistComponentBase {
       mouseY: number
     }) => void
   ) => {
-    // console.log("checking if double clicked",this.p.mouseIsPressed, this.#mouseWasPressed, this.#mouseWasDoubleClicked, this.#mousePendingDoubleClick)
     let timeout: NodeJS.Timeout | null = null
 
+    // initial click
     if(
       this.isMouseOver() && this.p.mouseIsPressed && 
       this.#mouseWasPressed && !this.#mouseWasDoubleClicked &&
       this.#mousePendingDoubleClick
     ) {
-      console.log("first round")
       this.#mouseWasPressed += 1
       this.#mouseWasDoubleClicked = true
 
       timeout = setTimeout(() => {
         this.#mouseWasDoubleClicked = false
-      }, 500)
+      }, 200)
       return
     }
 
+    // handle second click
     if(
       this.isMouseOver() && !this.p.mouseIsPressed &&
       this.#mouseWasPressed === 2 && this.#mouseWasDoubleClicked
     ) {
-      console.log("yesss")
       const { mouseX, mouseY } = this.p
       fn({ 
         playlistObject: this,
         mouseX, 
         mouseY,
       })
-      // this.#mouseWasPressed = false
+
       this.#mouseWasDoubleClicked = false
       if(timeout) { clearTimeout(timeout) }
     }

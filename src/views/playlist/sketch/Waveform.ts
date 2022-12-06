@@ -35,14 +35,10 @@ class Waveform extends PlaylistComponentBase {
     this.soundData = props.soundData
     this.trackNumber = props.trackNumber
     this.pixelOffset = props.pixelOffset
-    // this.maxHeight = ((props.trackNumber + 1) * playlist.individualTrackHeight())
-    // this.minHeight = this.maxHeight - this.height
-    // const [min, max] = playlist.calculateTrackRange(props.trackNumber, props.pixelOffset)
     this.minHeight = props.minHeight
     this.maxHeight = props.maxHeight
     this.height = props.maxHeight - props.minHeight
     this.trackHeight = props.trackHeight
-    // console.log(props.trackNumber, min, max, this.height, props.pixelOffset.y, props.pixelOffset.yOffset)
   }
 
   #getWidth = () => this.soundData.length / 2
@@ -61,7 +57,7 @@ class Waveform extends PlaylistComponentBase {
   
   render = () => {
     const { currentScale, minHeight, trackHeight, height, labelHeight } = this
-    const { xOffset, yOffset, y, top } = this.pixelOffset
+    const { xOffset, yOffset, y } = this.pixelOffset
 
     this.p.strokeWeight(1)
     this.p.stroke(0, 0, 0)
