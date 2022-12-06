@@ -57,12 +57,23 @@ class PlaylistTrack extends PlaylistComponentBase {
           p.cursor(p.ARROW)
         }
 
-        item.onClick(ev => {
-          console.log("clicked on item: ", item.playlistItem.path, ev)
+        item.onClick((ev, data) => {
+          if(ev.button === 0) {
+            // handle left click
+            console.log("left clicked on item: ", item.playlistItem.path, ev)
+          } else if(ev.button === 2) {
+            // handle right click
+            ev.preventDefault()
+            console.log("right clicked on item: ", item.playlistItem.path, ev)
+          }
         })
 
-        item.onDoubleClick(ev => {
+        item.onDoubleClick((ev, data) => {
           console.log("yay it double clicked", ev)
+        })
+        
+        item.onDrag(ev => {
+          console.log("dragging!!!")
         })
     })
 

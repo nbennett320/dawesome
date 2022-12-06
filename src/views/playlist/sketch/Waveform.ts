@@ -15,7 +15,6 @@ interface Props extends PlaylistComponentBaseProps {
 }
 
 class Waveform extends PlaylistComponentBase {
-  // id: number
   soundData: number[]
   trackNumber: number
   pixelOffset: PlaylistItemPixelOffset
