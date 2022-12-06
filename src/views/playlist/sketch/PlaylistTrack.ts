@@ -50,6 +50,20 @@ class PlaylistTrack extends PlaylistComponentBase {
       .filter(item => item.playlistItem.trackNumber === this.trackNumber)
       .forEach(item => {
         item.render()
+
+        if(item.isMouseOver()) {
+          p.cursor(p.HAND)
+        } else {
+          p.cursor(p.ARROW)
+        }
+
+        item.onClick(ev => {
+          console.log("clicked on item: ", item.playlistItem.path, ev)
+        })
+
+        item.onDoubleClick(ev => {
+          console.log("yay it double clicked", ev)
+        })
     })
 
     // render track lines

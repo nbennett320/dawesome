@@ -21,6 +21,9 @@ class PlaylistObject extends PlaylistComponentBase {
   minHeight: number
   maxHeight: number
   waveform: Waveform
+  #mouseWasPressed = 0
+  #mouseWasDoubleClicked = false
+  #mousePendingDoubleClick = false
 
   constructor(
     p: P5CanvasInstance<CanvasProps>,
@@ -84,6 +87,98 @@ class PlaylistObject extends PlaylistComponentBase {
     // this.p.line(left, top, left, bottom)
     // this.p.line(right, top, right, bottom)
 
+  }
+
+  // return true if mouse is over the particular playlist object
+  isMouseOver = (): boolean => {
+    const { mouseX, mouseY } = this.p
+    const { top, left, bottom, right } = this.waveform.boundingBox()
+
+    return (
+      left <= mouseX && mouseX <= right &&
+      top <= mouseY && mouseY <= bottom
+    )
+  }
+
+  // call a function when the mouse is over this component
+  onMouseOver = (fn: () => void) => {
+    if(this.isMouseOver()) {
+      fn()
+    }
+  }
+
+  // call a function when clicking on this component
+  onClick = (
+    fn: (ev: {
+      playlistObject: PlaylistObject
+      mouseX: number
+      mouseY: number
+    }) => void
+  ) => {
+    if(this.isMouseOver() && this.p.mouseIsPressed && !this.#mouseWasPressed) {
+      this.#mouseWasPressed += 1
+      return
+    }
+
+    // on release
+    if(this.isMouseOver() && !this.p.mouseIsPressed && this.#mouseWasPressed) {
+      const { mouseX, mouseY } = this.p
+      fn({ 
+        playlistObject: this,
+        mouseX, 
+        mouseY,
+      })
+
+      // this.#mouseWasPressed += 1
+      this.#mousePendingDoubleClick = true
+      setTimeout(() => {
+        this.#mouseWasPressed = 0
+        this.#mousePendingDoubleClick = false
+      }, 200)
+    }
+  }
+
+  // call a function when double clicking on this component
+  onDoubleClick = (
+    fn: (ev: {
+      playlistObject: PlaylistObject
+      mouseX: number
+      mouseY: number
+    }) => void
+  ) => {
+    // console.log("checking if double clicked",this.p.mouseIsPressed, this.#mouseWasPressed, this.#mouseWasDoubleClicked, this.#mousePendingDoubleClick)
+    let timeout: NodeJS.Timeout | null = null
+
+    if(
+      this.isMouseOver() && this.p.mouseIsPressed && 
+      this.#mouseWasPressed && !this.#mouseWasDoubleClicked &&
+      this.#mousePendingDoubleClick
+    ) {
+      console.log("first round")
+      this.#mouseWasPressed += 1
+      this.#mouseWasDoubleClicked = true
+
+      timeout = setTimeout(() => {
+        this.#mouseWasDoubleClicked = false
+      }, 500)
+      return
+    }
+
+    if(
+      this.isMouseOver() && !this.p.mouseIsPressed &&
+      this.#mouseWasPressed === 2 && this.#mouseWasDoubleClicked
+    ) {
+      console.log("yesss")
+      const { mouseX, mouseY } = this.p
+      fn({ 
+        playlistObject: this,
+        mouseX, 
+        mouseY,
+      })
+      // this.#mouseWasPressed = false
+      this.#mouseWasDoubleClicked = false
+      if(timeout) { clearTimeout(timeout) }
+    }
   }
 
   render = () => {
