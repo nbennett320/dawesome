@@ -17,7 +17,6 @@
   },
   "dependencies": {
     "@reduxjs/toolkit": "^1.8.1",
-    "@syncfusion/ej2-react-navigations": "^20.3.60",
     "@tauri-apps/api": "1.0.0-rc.3",
     "@tauri-apps/cli": "1.0.0-rc.8",
     "@types/p5": "^1.4.3",
@@ -38,6 +37,7 @@
     "react-dom": "18.0.0",
     "react-p5-wrapper": "^3.4.0",
     "react-redux": "^8.0.0-beta.4",
+    "react-tabs": "^6.0.0",
     "sass": "1.49.10",
     "swr": "1.2.2",
     "tailwindcss": "3.0.23",

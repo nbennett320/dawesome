@@ -2,7 +2,6 @@ lockfileVersion: 5.3
 
 specifiers:
   '@reduxjs/toolkit': ^1.8.1
-  '@syncfusion/ej2-react-navigations': ^20.3.60
   '@tauri-apps/api': 1.0.0-rc.3
   '@tauri-apps/cli': 1.0.0-rc.8
   '@testing-library/dom': 8.12.0
@@ -47,6 +46,7 @@ specifiers:
   react-dom: 18.0.0
   react-p5-wrapper: ^3.4.0
   react-redux: ^8.0.0-beta.4
+  react-tabs: ^6.0.0
   sass: 1.49.10
   swr: 1.2.2
   tailwindcss: 3.0.23
@@ -58,7 +58,6 @@ specifiers:
 
 dependencies:
   '@reduxjs/toolkit': 1.8.1_a84327381dc70422e28604ca93f21181
-  '@syncfusion/ej2-react-navigations': 20.3.60
   '@tauri-apps/api': 1.0.0-rc.3
   '@tauri-apps/cli': 1.0.0-rc.8
   '@types/p5': 1.4.3
@@ -79,6 +78,7 @@ dependencies:
   react-dom: 18.0.0_react@18.0.0
   react-p5-wrapper: 3.4.0_react-dom@18.0.0+react@18.0.0
   react-redux: 8.0.0-beta.4_react-dom@18.0.0+react@18.0.0
+  react-tabs: 6.0.0_react@18.0.0
   sass: 1.49.10
   swr: 1.2.2_react@18.0.0
   tailwindcss: 3.0.23_b89136460714832cdda11d1e9d57d1ff
@@ -965,85 +965,6 @@ packages:
       svg-parser: 2.0.4
     transitivePeerDependencies:
       - supports-color
-    dev: false
-
-  /@syncfusion/ej2-base/20.3.56:
-    resolution: {integrity: sha512-BeXX3XBOs1kv9/rki9f1kPuLbNJU06kJE8o0jLY62fEd/U5k2KkuG5Z/WbWHJIuQVH5dv57ZM2Adl3rG+vkvjg==}
-    hasBin: true
-    dependencies:
-      '@syncfusion/ej2-icons': 20.3.56
-    dev: false
-
-  /@syncfusion/ej2-buttons/20.3.58:
-    resolution: {integrity: sha512-FfCdxr+2UD4TaznJu9389g6G9HNzakwq/gTiwyckNSUrMdSSDHLCqIv591HXV+XGoGNJ7Svmhj8kfHv3xoEuVQ==}
-    dependencies:
-      '@syncfusion/ej2-base': 20.3.56
-    dev: false
-
-  /@syncfusion/ej2-data/20.3.60:
-    resolution: {integrity: sha512-cbs5UnLENJOApNPRulS4HSkVZFND0RQ0SjzQ2YsHe7FyKNQAqZcZbigOZwn5DUidZ0jCQOHXqP8f50g6wE9IvA==}
-    dependencies:
-      '@syncfusion/ej2-base': 20.3.56
-    dev: false
-
-  /@syncfusion/ej2-icons/20.3.56:
-    resolution: {integrity: sha512-sv5y/J85PZU8fmFNG1b5ftLroQHFicTKcfKo0oy72KSKxdLZ3xd1pjMS9/5m5z609doksIbFltlisO0buhzflA==}
-    dev: false
-
-  /@syncfusion/ej2-inputs/20.3.57:
-    resolution: {integrity: sha512-klzpmszCw1PxIc5HtqRxliNB53G4w9ac1Roo6+jzzgiTjgzM0ZTUrteJlicQLwHGWXzKD0qvtEF/lvqFhqJ9eQ==}
-    dependencies:
-      '@syncfusion/ej2-base': 20.3.56
-      '@syncfusion/ej2-buttons': 20.3.58
-      '@syncfusion/ej2-popups': 20.3.60
-      '@syncfusion/ej2-splitbuttons': 20.3.56
-    dev: false
-
-  /@syncfusion/ej2-lists/20.3.56:
-    resolution: {integrity: sha512-I7BizR/RANyxzwSV+tuJMwN5sK2GHi7tOZpiaIGE8b5sm6ygffR9cIniomDvt4lz4JhmBeBrTpzJbpj4XjbCFQ==}
-    dependencies:
-      '@syncfusion/ej2-base': 20.3.56
-      '@syncfusion/ej2-buttons': 20.3.58
-      '@syncfusion/ej2-data': 20.3.60
-    dev: false
-
-  /@syncfusion/ej2-navigations/20.3.60:
-    resolution: {integrity: sha512-yM6tjnhogfG6XdjARHEzDGlQrUT5mJr8+4wyv5skrkJfOsdcjPVy13lobkXpd6EtefFfOmM7wXKMQc2FTKUrpw==}
-    dependencies:
-      '@syncfusion/ej2-base': 20.3.56
-      '@syncfusion/ej2-buttons': 20.3.58
-      '@syncfusion/ej2-data': 20.3.60
-      '@syncfusion/ej2-inputs': 20.3.57
-      '@syncfusion/ej2-lists': 20.3.56
-      '@syncfusion/ej2-popups': 20.3.60
-    dev: false
-
-  /@syncfusion/ej2-popups/20.3.60:
-    resolution: {integrity: sha512-nfvRAOFNY8SL9nmyCoCr6oALZJdTdzDxOZs3pZn4Q5mq67hKj1+tS2aJisiV8OBJ/TFMXh+YblaVyXL710waLg==}
-    dependencies:
-      '@syncfusion/ej2-base': 20.3.56
-      '@syncfusion/ej2-buttons': 20.3.58
-    dev: false
-
-  /@syncfusion/ej2-react-base/20.3.56:
-    resolution: {integrity: sha512-8QuQbbjjodEyMjhrWg4GthOJXMpyLMdr37oKqo6Wd3L4UzWO0T5fLquII4HLyTSzeeRESWn7ByJWGEOxYycHmQ==}
-    dependencies:
-      '@syncfusion/ej2-base': 20.3.56
-    dev: false
-
-  /@syncfusion/ej2-react-navigations/20.3.60:
-    resolution: {integrity: sha512-dVCT8qwowq3C40T/NhUDu/FbAUIDOvw1CIkKp+LJYUNo05hQFy/LiZK4QqaduXXF7d9e2/vc66y6gXE4czk2kg==}
-    dependencies:
-      '@syncfusion/ej2-base': 20.3.56
-      '@syncfusion/ej2-navigations': 20.3.60
-      '@syncfusion/ej2-react-base': 20.3.56
-    dev: false
-
-  /@syncfusion/ej2-splitbuttons/20.3.56:
-    resolution: {integrity: sha512-z0/j4CAaKu4YM3ggtcWm6ZDQjuE+wKp7sbC8iAXp1OM0WWrOYpB//SB5qV4jVuXajcsrImBlmrYsKR/XPt4Cuw==}
-    dependencies:
-      '@syncfusion/ej2-base': 20.3.56
-      '@syncfusion/ej2-popups': 20.3.60
     dev: false
 
   /@tauri-apps/api/1.0.0-rc.3:
@@ -1942,6 +1863,11 @@ packages:
       strip-ansi: 6.0.1
       wrap-ansi: 7.0.0
     dev: true
+
+  /clsx/1.2.1:
+    resolution: {integrity: sha512-EcR6r5a8bj6pu3ycsa/E/cKVGuTgZJZdsyUYHOksG/UHIiKfjxzRxYJpyVBwYaQeOvghal9fcc4PidlgzugAQg==}
+    engines: {node: '>=6'}
+    dev: false
 
   /co/4.6.0:
     resolution: {integrity: sha1-bqa989hTrlTMuOR7+gvz+QMfsYQ=}
@@ -4264,9 +4190,8 @@ packages:
     dev: true
 
   /object-assign/4.1.1:
-    resolution: {integrity: sha1-IQmtx5ZYh8/AXLvUQsrIv7s2CGM=}
+    resolution: {integrity: sha512-rJgTQnkUnH1sFw8yT6VSU3zD3sWmu6sZhIseY8VX+GRu3P6F7Fu+JNDoXfklElbLJSnc3FUQHVe4cU5hj+BcUg==}
     engines: {node: '>=0.10.0'}
-    dev: true
 
   /object-hash/2.2.0:
     resolution: {integrity: sha512-gScRMn0bS5fH+IuwyIFgnh9zBdo4DV+6GhygmWM9HyNJSgS0hScp1f5vjtm7oIIOiT9trXrShAkLFSc2IqKNgw==}
@@ -4900,7 +4825,6 @@ packages:
       loose-envify: 1.4.0
       object-assign: 4.1.1
       react-is: 16.13.1
-    dev: true
 
   /psl/1.8.0:
     resolution: {integrity: sha512-RIdOzyoavK+hA18OGGWDqUTsCLhtA7IcZ/6NCs4fFJaHBDab+pDDmDIByWFRQJq2Cd7r1OoQxBGKOaztq+hjIQ==}
@@ -5012,6 +4936,16 @@ packages:
   /react-refresh/0.11.0:
     resolution: {integrity: sha512-F27qZr8uUqwhWZboondsPx8tnC3Ct3SxZA3V5WyEvujRyyNv0VYPhoBg1gZ8/MV5tubQp76Trw8lTv9hzRBa+A==}
     engines: {node: '>=0.10.0'}
+    dev: false
+
+  /react-tabs/6.0.0_react@18.0.0:
+    resolution: {integrity: sha512-8jKLKrlwxmn5/+xsa76yi27ZdB8E/WhlhQZw739O5UlOeUGtVoVeWnpqIewv/KbjTw7gQf/uA51zWUNt4IVygQ==}
+    peerDependencies:
+      react: ^18.0.0
+    dependencies:
+      clsx: 1.2.1
+      prop-types: 15.8.1
+      react: 18.0.0
     dev: false
 
   /react/18.0.0:
