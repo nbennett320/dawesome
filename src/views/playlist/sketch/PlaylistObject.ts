@@ -104,74 +104,46 @@ class PlaylistObject extends PlaylistComponentBase {
 
   // call a function when clicking on this component
   onClick = (
-    fn: (ev: {
-      playlistObject: PlaylistObject
-      mouseX: number
-      mouseY: number
-    }) => void
+    fn: (
+      ev: MouseEvent,
+      data: {
+        playlistObject: PlaylistObject
+        mouseX: number
+        mouseY: number
+      }
+    ) => void
   ) => {
-    if(this.isMouseOver() && this.p.mouseIsPressed && !this.#mouseWasPressed) {
-      this.#mouseWasPressed += 1
-      return
-    }
-
-    // on release
-    if(this.isMouseOver() && !this.p.mouseIsPressed && this.#mouseWasPressed) {
+    this.canvas.mouseClicked((ev) => {
       const { mouseX, mouseY } = this.p
-      fn({ 
-        playlistObject: this,
+
+      fn(ev, { 
         mouseX, 
         mouseY,
+        playlistObject: this,
       })
-
-      this.#mousePendingDoubleClick = true
-      setTimeout(() => {
-        this.#mouseWasPressed = 0
-        this.#mousePendingDoubleClick = false
-      }, 200)
-    }
+    })
   }
 
   // call a function when double clicking on this component
   onDoubleClick = (
-    fn: (ev: {
-      playlistObject: PlaylistObject
-      mouseX: number
-      mouseY: number
-    }) => void
+    fn: (
+      ev: MouseEvent, 
+      data: {
+        playlistObject: PlaylistObject
+        mouseX: number
+        mouseY: number
+      }
+    ) => void
   ) => {
-    let timeout: NodeJS.Timeout | null = null
-
-    // initial click
-    if(
-      this.isMouseOver() && this.p.mouseIsPressed && 
-      this.#mouseWasPressed && !this.#mouseWasDoubleClicked &&
-      this.#mousePendingDoubleClick
-    ) {
-      this.#mouseWasPressed += 1
-      this.#mouseWasDoubleClicked = true
-
-      timeout = setTimeout(() => {
-        this.#mouseWasDoubleClicked = false
-      }, 200)
-      return
-    }
-
-    // handle second click
-    if(
-      this.isMouseOver() && !this.p.mouseIsPressed &&
-      this.#mouseWasPressed === 2 && this.#mouseWasDoubleClicked
-    ) {
+    this.canvas.doubleClicked((ev) => {
       const { mouseX, mouseY } = this.p
-      fn({ 
-        playlistObject: this,
+
+      fn(ev, { 
         mouseX, 
         mouseY,
+        playlistObject: this,
       })
-
-      this.#mouseWasDoubleClicked = false
-      if(timeout) { clearTimeout(timeout) }
-    }
+    })
   }
 
   render = () => {
