@@ -200,7 +200,7 @@ class PlaylistObject extends PlaylistComponentBase {
     } = this.waveform.boundingBox()
     this.p.strokeWeight(1)
     this.p.stroke(125,211,252)
-    this.p.fill(224,242,254)
+    this.p.fill(224,242,254, 255*.6)
     this.p.rect(left, top, width, height, 3, 3, 3, 3)
     this.p.line(left, top + this.labelHeight, right, top + this.labelHeight)
 
@@ -209,7 +209,7 @@ class PlaylistObject extends PlaylistComponentBase {
     this.p.fill('#222')
     this.p.push()
     this.p.scale(1 / this.currentScale, 1)
-    this.p.text(this.playlistItem.path, left + 3, top + this.labelHeight - 3)
+    this.p.text(this.playlistItem.path, (left + 3) * this.currentScale, top + this.labelHeight - 3)
     this.p.pop()
   }
 

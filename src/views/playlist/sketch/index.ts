@@ -16,6 +16,7 @@ import {
   PlaylistItemPixelOffset,
   PlaylistWindow
 } from '../../../types/playlist'
+import { isObject } from 'util'
 
 export interface CanvasProps extends SketchProps {
   height: number
@@ -67,6 +68,8 @@ export class Renderer extends RendererBase {
 
   playlistTracks: Array<PlaylistTrack> = []
   playlistObjects: Array<PlaylistObject> = []
+
+  getCurrentScale = (): number => this.currentScale
 
   individualTrackHeight = (): number => 
     (this.height - staticDefaults.timelineHeight) / this.trackCount
@@ -130,8 +133,8 @@ export class Renderer extends RendererBase {
       isMouseDragged,
       mousePressedX,
       mousePressedY,
-      playlistTracks,
-      playlistObjects,
+      // playlistTracks,
+      // playlistObjects,
     } = this
 
     if(!width || !height) {
@@ -166,8 +169,14 @@ export class Renderer extends RendererBase {
         if(currentScale * scaleFactor < 1) return
 
         currentScale *= scaleFactor
+        this.currentScale *= scaleFactor
         transformX = p.mouseX - (p.mouseX * scaleFactor) + (transformX * scaleFactor)
         transformY = p.mouseY - (p.mouseY * scaleFactor) + (transformY * scaleFactor)
+
+        this.playlistObjects.forEach(obj => {
+          obj.currentScale = this.currentScale
+        })
+
         console.log("currentScale: ", currentScale)
       })
 
@@ -280,10 +289,10 @@ export class Renderer extends RendererBase {
         newPlaylistTracks.push(track)
       }
 
-      playlistObjects = newPlaylistObjects
-      playlistTracks = newPlaylistTracks
+      this.playlistObjects = newPlaylistObjects
+      this.playlistTracks = newPlaylistTracks
 
-      console.log("objects to be rendered: ", playlistObjects, playlistTracks)
+      console.log("objects to be rendered: ", this.playlistObjects, this.playlistTracks)
     }
 
     // render p5 canvas
@@ -326,11 +335,6 @@ export class Renderer extends RendererBase {
       timeline.render()
       cursor.render()
 
-      // render playlist tracks
-      playlistTracks.forEach(track => {
-        track.render()
-      })
-      
       // render vertical grid lines
       const gridStroke = .2 * (1 - currentScale) > 0 ? .2 * (1 - currentScale) : .4
       p.strokeWeight(gridStroke)
@@ -339,6 +343,11 @@ export class Renderer extends RendererBase {
         p.line(i, 0, i, height)
       }
 
+      // render playlist tracks
+      this.playlistTracks.forEach(track => {
+        track.render()
+      })
+      
       p.pop()
     }
   }
