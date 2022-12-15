@@ -1,6 +1,6 @@
 import React from 'react'
 import { invoke } from '@tauri-apps/api'
-import { initPlaylistTimeline } from '../../state/slices/playlistSlice'
+import { initPlaylist } from '../../state/slices/playlistSlice'
 import { useAppDispatch } from '../../hooks/redux'
 import PlaylistTimeline from './PlaylistTimeline'
 // import PlaylistGrid from './PlaylistGrid'
@@ -28,7 +28,7 @@ const Playlist = () => {
     }
 
     initPlaylistWorkspace().then(() => {
-      dispatch(initPlaylistTimeline())
+      dispatch(initPlaylist())
     })
   }, [])
 

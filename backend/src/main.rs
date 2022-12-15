@@ -320,7 +320,7 @@ fn remove_audiograph_node(
 fn get_node_data(
   state: tauri::State<'_, Arc<daw::InnerState>>,
   id: u64,
-) -> Result<Vec<f32>, String> {
+) -> Result<(Vec<f32>, f32), String> {
   let playlist = &state.playlist;
   let mut audiograph = playlist
     .audiograph
@@ -329,10 +329,13 @@ fn get_node_data(
   let node = audiograph
     .get_mut_node(id);
   let waveform = node.get_waveform().clone();
+  let dur = node.duration().as_secs_f32();
+  let ratio = dur / audiograph.max_beats() as f32;
+
   // println!("waveform nums: {:?}", waveform);
 
-  // return the svg path and viewbox data
-  Ok(waveform)
+  // return waveform data
+  Ok((waveform, dur))
 }
 
 #[tauri::command]
@@ -362,20 +365,44 @@ fn get_playlist_sample_offset(
 }
 
 #[tauri::command]
-fn get_playlist_timeline(
+fn get_playlist_data(
   state: tauri::State<'_, Arc<daw::InnerState>>
-) -> Result<(u64, u64, u32), String> {
-  let max_playlist_beats = state.playlist.max_beats.load(Ordering::SeqCst);
+) -> Result<(u64, u64, f32, u32), String> {
+  let audiograph = state
+    .playlist
+    .audiograph
+    .lock()
+    .unwrap();
+  let max_playlist_beats = state
+    .playlist
+    .max_beats
+    .load(Ordering::SeqCst);
   let max_beats_displayed = state
     .playlist
     .ui
     .lock()
     .unwrap()
     .max_beats_displayed;
-  // let ratio = max_playlist_beats as f32 / max_beats_displayed as f32;
-  let track_count = daw::get_playlist_track_count(state);
+  let track_count = match audiograph.tracks() {
+    x if x.len() > 1 => {
+      x.len() as u32
+    }
+    _ => {
+      daw::defaults::NUM_OF_TRACKS
+    }
+  };
+  let max_playlist_duration = audiograph
+    .duration_max()
+    .as_secs_f32();
 
-  Ok((max_playlist_beats, max_beats_displayed, track_count))
+  println!("max dur: {}s", max_playlist_duration);
+
+  Ok((
+    max_playlist_beats,
+    max_beats_displayed,
+    max_playlist_duration,
+    track_count
+  ))
 }
 
 #[tauri::command]
@@ -486,7 +513,7 @@ fn main() {
       remove_audiograph_node,
       get_node_data,
       get_playlist_sample_offset,
-      get_playlist_timeline,
+      get_playlist_data,
       toggle_loop_enabled,
       get_loop_enabled,
       toggle_snap_enabled,

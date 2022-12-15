@@ -21,6 +21,7 @@ export interface CanvasProps extends SketchProps {
   height: number
   width: number
   maxPlaylistBeats: number
+  duration: number
   trackCount: number
   playlistObjects: PlaylistItem[]
   onItemDrop: (pw: PlaylistWindow) => void
@@ -31,12 +32,14 @@ export const staticDefaults = {
   mouseDragDetectionThreshold: 10,
   timelineHeight: 24,
   trackHeight: 100,
+  debugMode: true,
 
   // defaults on Renderer construction, these will be reassigned
   // when the canvas renders
   height: 100,
   width: 200,
   maxPlaylistBeats: 32,
+  duration: 120,
   trackCount: 5,
 
   // class specific defaults
@@ -45,17 +48,22 @@ export const staticDefaults = {
   },
 }
 
-const fetchWaveformData = async (id: number) => {
-  const wf = await invoke<number[]>('get_node_data', { id })
+const fetchNodeData = async (id: number) => {
+  const [wf, dur] = await invoke<[number[], number]>('get_node_data', { id })
 
-  return wf
+  return {
+    wf,
+    dur,
+  }
 }
 
 export class Renderer extends RendererBase {
   height: number = staticDefaults.height
   width: number = staticDefaults.width
   maxPlaylistBeats: number = staticDefaults.maxPlaylistBeats
+  duration: number = staticDefaults.duration
   trackCount: number = staticDefaults.trackCount
+  debugMode: boolean = staticDefaults.debugMode
 
   currentScale = 1
   transformX = 0
@@ -123,6 +131,7 @@ export class Renderer extends RendererBase {
       height,
       width,
       maxPlaylistBeats,
+      duration,
       trackCount,
       currentScale,
       transformX,
@@ -231,6 +240,7 @@ export class Renderer extends RendererBase {
       width = props.width
       maxPlaylistBeats = props.maxPlaylistBeats
       trackCount = props.trackCount
+      duration = props.duration
       
       p.resizeCanvas(width, height)
 
@@ -240,7 +250,7 @@ export class Renderer extends RendererBase {
       props.playlistObjects.forEach(async (item) => {
         if(!canvas) return
 
-        const soundData = await fetchWaveformData(item.id)
+        const { wf: soundData, dur: nodeDur } = await fetchNodeData(item.id)
         const p5PlaylistObject = new PlaylistObject(
           p,
           canvas,
@@ -248,6 +258,7 @@ export class Renderer extends RendererBase {
           {
             currentScale,
             soundData,
+            duration: nodeDur,
             timelineWidth: width, 
             timelineHeight: staticDefaults.timelineHeight,
             trackNumber: item.trackNumber,

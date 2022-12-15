@@ -258,13 +258,14 @@ pub fn set_playlist_tempo(
 }
 
 pub fn get_playlist_track_count(
-  state: tauri::State<'_, Arc<state::InnerState>>,
+  state: &tauri::State<'_, Arc<state::InnerState>>,
 ) -> u32 {
-  let count: u32 = state
+  let audiograph = state
     .playlist
     .audiograph
     .lock()
-    .unwrap()
+    .unwrap();
+  let count: u32 = audiograph
     .track_numbers()
     .len()
     .try_into()

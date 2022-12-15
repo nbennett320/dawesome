@@ -14,7 +14,8 @@ export interface PlaylistState {
   ui: {
     maxPlaylistBeats: number,
     maxBeatsDisplayed: number,
-    displayRatio: number,
+    maxPlaylistDuration: number,
+    trackCount: number,
   },
 }
 
@@ -31,7 +32,8 @@ const initialState = {
   ui: {
     maxPlaylistBeats: 16,
     maxBeatsDisplayed: 16,
-    displayRatio: 1,
+    maxPlaylistDuration: 120*2,
+    trackCount: 4,
   },
 } as PlaylistState
 
@@ -235,14 +237,19 @@ export const {
   setPlaylistUI,
 } = playlistSlice.actions
 
-export const initPlaylistTimeline = () => async (dispatch: Dispatch) => {
-  const [maxPlaylistBeats, maxBeatsDisplayed, displayRatio] = 
-    await invoke<[number, number, number]>('get_playlist_timeline', {})
+export const initPlaylist = () => async (dispatch: Dispatch) => {
+  const [
+    maxPlaylistBeats,
+    maxBeatsDisplayed,
+    maxPlaylistDuration,
+    trackCount
+  ] = await invoke<[number, number, number, number]>('get_playlist_data', {})
   
   dispatch(setPlaylistUI({
     maxPlaylistBeats,
     maxBeatsDisplayed,
-    displayRatio,
+    maxPlaylistDuration,
+    trackCount,
   }))
 }
 

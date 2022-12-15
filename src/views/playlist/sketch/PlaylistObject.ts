@@ -8,6 +8,7 @@ import { PlaylistItem } from '../../../types/playlist'
 interface Props extends PlaylistComponentBaseProps {
   playlistItem: PlaylistItem
   soundData: number[]
+  duration: number
   trackNumber: number
   trackHeight: number
 }
@@ -15,6 +16,7 @@ interface Props extends PlaylistComponentBaseProps {
 class PlaylistObject extends PlaylistComponentBase {
   playlistItem: PlaylistItem
   soundData: number[] = []
+  duration: number
   trackNumber: number
   trackHeight: number = staticDefaults.trackHeight
   labelHeight: number = staticDefaults.PlaylistObject.labelHeight
@@ -31,6 +33,7 @@ class PlaylistObject extends PlaylistComponentBase {
     super(p, canvas, playlist, props)
     this.playlistItem = props.playlistItem
     this.soundData = props.soundData
+    this.duration = props.duration
     this.trackNumber = props.trackNumber
     this.trackHeight = props?.trackHeight ?? staticDefaults.trackHeight
     this.minHeight = this.trackHeight * this.trackNumber + (this.trackNumber * .3)
@@ -40,6 +43,7 @@ class PlaylistObject extends PlaylistComponentBase {
       this.canvas,
       playlist,
       {
+        duration: this.duration,
         currentScale: this.currentScale,
         timelineHeight: this.timelineHeight,
         timelineWidth: this.timelineWidth,
@@ -209,7 +213,26 @@ class PlaylistObject extends PlaylistComponentBase {
     this.p.fill('#222')
     this.p.push()
     this.p.scale(1 / this.currentScale, 1)
-    this.p.text(this.playlistItem.path, (left + 3) * this.currentScale, top + this.labelHeight - 3)
+    this.p.textWrap(this.p.CHAR)
+    this.p.text(
+      this.playlistItem.path,
+      (left + 1) * this.currentScale,
+      top + 6,
+      width * this.currentScale - 1,
+      this.labelHeight,
+    )
+
+    if((this.renderer as Renderer)?.debugMode) {
+      // text width debug
+      this.p.fill(255,187,153,255*.3)
+      this.p.rect(
+        (left + 1) * this.currentScale,
+        top + 6,
+        width * this.currentScale - 1,
+        this.labelHeight,
+      )
+    }
+
     this.p.pop()
   }
 
@@ -221,10 +244,14 @@ class PlaylistObject extends PlaylistComponentBase {
     // render waveform
     waveform.render()
 
-    const { pixelOffset } = this.playlistItem
-    this.p.strokeWeight(2)
-    this.p.stroke(255,187,153)
-    this.p.line(pixelOffset.xOffset, pixelOffset.yOffset, pixelOffset.xOffset+100, pixelOffset.yOffset)
+    if((this.renderer as Renderer)?.debugMode) {
+      // mouse drop height debug
+      const { pixelOffset } = this.playlistItem
+      this.p.strokeWeight(2)
+      this.p.stroke(255,187,153)
+      this.p.line(pixelOffset.xOffset, pixelOffset.yOffset, pixelOffset.xOffset + waveform.boundingBox().width, pixelOffset.yOffset)
+
+    }
   }
 }
 

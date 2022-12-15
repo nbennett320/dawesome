@@ -20,6 +20,7 @@ const PlaylistCanvas = () => {
   const [height, setHeight] = React.useState<number>()
   const [width, setWidth] = React.useState<number>()
   const [limit, setLimit] = React.useState<number>(16)
+  const [duration, setDuration] = React.useState<number>(120)
   const [trackCount, setTrackCount] = React.useState<number>(5)
   const [playlistWindow, setPlaylistWindow] = React.useState<PlaylistWindow>()
   const range = [...Array(limit).keys()].map(e => e + 1)
@@ -135,14 +136,19 @@ const PlaylistCanvas = () => {
   }, [ref.current])
 
   React.useEffect(() => {
-    const getPlaylistTimeline = async () => {
-      const [maxPlaylistBeats, maxBeatsDisplayed, calculatedTrackCount] = 
-        await invoke<[number, number, number]>('get_playlist_timeline', {})
+    const getPlaylistData = async () => {
+      const [
+        maxPlaylistBeats,
+        maxBeatsDisplayed,
+        maxPlaylistDuration,
+        calculatedTrackCount
+      ] = await invoke<[number, number, number, number]>('get_playlist_data', {})
       setLimit(maxPlaylistBeats)
       setTrackCount(calculatedTrackCount)
+      setDuration(maxPlaylistDuration)
     }
 
-    getPlaylistTimeline()
+    getPlaylistData()
   }, [])
 
   return (
@@ -156,6 +162,7 @@ const PlaylistCanvas = () => {
           height={height}
           width={width}
           maxPlaylistBeats={limit}
+          duration={duration}
           trackCount={trackCount}
           playlistObjects={items}
           onItemDrop={handleItemDrop}

@@ -290,6 +290,10 @@ impl AudioNode {
   pub fn stop(self) {
 
   }
+
+  pub fn duration(&self) -> Duration {
+    self.duration
+  }
   
   // pub fn get_samples(self) -> Arc<Mutex<SamplesConverter<Decoder<BufReader<File>>, f32>>> {
   //   self.samples

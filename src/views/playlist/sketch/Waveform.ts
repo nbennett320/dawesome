@@ -7,6 +7,7 @@ import { PlaylistItemPixelOffset } from '../../../types/playlist'
 interface Props extends PlaylistComponentBaseProps {
   // id: number
   soundData: number[]
+  duration: number
   trackNumber: number
   minHeight: number
   maxHeight: number
@@ -16,6 +17,7 @@ interface Props extends PlaylistComponentBaseProps {
 
 class Waveform extends PlaylistComponentBase {
   soundData: number[]
+  duration: number
   trackNumber: number
   pixelOffset: PlaylistItemPixelOffset
   height: number
@@ -32,6 +34,7 @@ class Waveform extends PlaylistComponentBase {
   ) {
     super(p, canvas, playlist, props)
     this.soundData = props.soundData
+    this.duration = props.duration
     this.trackNumber = props.trackNumber
     this.pixelOffset = props.pixelOffset
     this.minHeight = props.minHeight
@@ -40,7 +43,7 @@ class Waveform extends PlaylistComponentBase {
     this.trackHeight = props.trackHeight
   }
 
-  #getWidth = () => this.soundData.length / 2
+  #getWidth = () => (this.soundData.length / 2) * this.duration
 
   // to do: return actual width
   boundingBox = () => ({
@@ -58,12 +61,12 @@ class Waveform extends PlaylistComponentBase {
     const { currentScale, minHeight, trackHeight, height, labelHeight } = this
     const { xOffset, yOffset, y } = this.pixelOffset
 
-    this.p.strokeWeight(1)
+    this.p.strokeWeight(.5)
     this.p.stroke(0, 0, 0)
     for(let i = 0; i < this.soundData.length; i+=2) {
-      const x0 = (this.soundData[i] * currentScale) + xOffset
+      const x0 = (this.soundData[i] * currentScale * this.duration) + xOffset
       const y0 = minHeight + labelHeight*2 + (trackHeight/2) + (this.soundData[i+1] * (height - labelHeight)) - (y - yOffset)
-      const x1 = (this.soundData[i+2] * currentScale) + xOffset
+      const x1 = (this.soundData[i+2] * currentScale * this.duration) + xOffset
       const y1 = minHeight + labelHeight*2 + (trackHeight/2) + (this.soundData[i+3] * (height - labelHeight)) - (y - yOffset)
       this.p.line(x0, y0, x1, y1)
     }
