@@ -36,7 +36,7 @@ class PlaylistObject extends PlaylistComponentBase {
     this.duration = props.duration
     this.trackNumber = props.trackNumber
     this.trackHeight = props?.trackHeight ?? staticDefaults.trackHeight
-    this.minHeight = this.trackHeight * this.trackNumber + (this.trackNumber * .3)
+    this.minHeight = this.trackHeight * this.trackNumber + (this.trackNumber * .3) + staticDefaults.timelineHeight
     this.maxHeight = this.minHeight + this.trackHeight
     this.waveform = new Waveform(
       this.p,

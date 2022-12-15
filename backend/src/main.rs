@@ -395,7 +395,7 @@ fn get_playlist_data(
     .duration_max()
     .as_secs_f32();
 
-  println!("max dur: {}s", max_playlist_duration);
+  println!("max dur: {}s, track count: {}", max_playlist_duration, track_count);
 
   Ok((
     max_playlist_beats,

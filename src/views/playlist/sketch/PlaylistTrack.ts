@@ -29,7 +29,7 @@ class PlaylistTrack extends PlaylistComponentBase {
     this.trackNumber = props.trackNumber
     this.trackCount = props.trackCount
     this.trackHeight = props?.trackHeight ?? staticDefaults.trackHeight
-    this.minHeight = this.trackHeight * this.trackNumber + (this.trackNumber * .3)
+    this.minHeight = this.trackHeight * this.trackNumber + (this.trackNumber * .3) + staticDefaults.timelineHeight
     this.maxHeight = this.minHeight + this.trackHeight
     this.playlistObjects = props.playlistObjects
   }
@@ -38,6 +38,7 @@ class PlaylistTrack extends PlaylistComponentBase {
     const { 
       p,
       timelineWidth,
+      trackNumber,
       minHeight,
       maxHeight,
       playlistObjects,
@@ -80,8 +81,13 @@ class PlaylistTrack extends PlaylistComponentBase {
     // render track lines
     p.stroke(0, 0, 0)
     p.strokeWeight(.3)
-    p.line(0, minHeight, timelineWidth, minHeight)
-    p.line(0, maxHeight+.3, timelineWidth, maxHeight+.3)
+    // if(trackNumber < 1) {
+      p.line(0, minHeight, timelineWidth, minHeight)
+      p.line(0, maxHeight+.3, timelineWidth, maxHeight+.3)
+    // } else {
+      // p.line(0, minHeight, timelineWidth, minHeight)
+      // p.line(0, maxHeight+.3, timelineWidth, maxHeight+.3)
+    // }
 
   }
 }

@@ -33,7 +33,7 @@ const initialState = {
     maxPlaylistBeats: 16,
     maxBeatsDisplayed: 16,
     maxPlaylistDuration: 120*2,
-    trackCount: 4,
+    trackCount: 5,
   },
 } as PlaylistState
 
