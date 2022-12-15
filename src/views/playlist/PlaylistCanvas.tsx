@@ -125,14 +125,25 @@ const PlaylistCanvas = () => {
 
   console.log("items", items)
 
+  const updateWidthAndHeight = () => {
+    console.log("resized!!!!")
+    setWidth(ref.current?.clientWidth)
+    setHeight(ref.current?.clientHeight)
+  }
+
   React.useEffect(() => {
+    console.log("mount for event", ref.current?.clientWidth, ref.current?.clientHeight)
     if(ref.current) {
       const { height: h, width: w } = ref.current.getBoundingClientRect()
       setHeight(h)
       setWidth(w)
       playlistRenderer.setHeight(h)
       playlistRenderer.setWidth(w)
+
+      window.addEventListener('resize', updateWidthAndHeight)
     }
+
+    return () => window.removeEventListener('resize', updateWidthAndHeight)
   }, [ref.current])
 
   React.useEffect(() => {
