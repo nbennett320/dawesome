@@ -249,13 +249,17 @@ export class Renderer extends RendererBase {
       width = props.width
       maxPlaylistBeats = props.maxPlaylistBeats
       trackCount = props.trackCount
-      
-      this.playing = props.playing
 
       if(props.playing) {
         this.playlistStart = Date.now()
       } else {
         this.playlistStart = null
+      }
+
+      if(props.playing !== this.playing) {
+        // save on resources if only `playing` prop changed
+        this.playing = props.playing
+        return
       }
       
       p.resizeCanvas(width, height)
