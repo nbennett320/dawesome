@@ -16,27 +16,30 @@ class Cursor extends PlaylistComponentBase {
     super(p, canvas, playlist, props)
   }
 
-  drawTriangle = () => {
+  #currentRatio = (): number | null => {
     const now = Date.now()
     const { playlistStart } = this.renderer as Renderer
 
-    if(!playlistStart) return
+    if(!playlistStart) return null
 
     const delta = now - playlistStart
     const ratio = delta / ((this.renderer as Renderer).maxPlaylistBeats / 4)
+    return ratio * this.currentScale
+  }
+
+  drawTriangle = () => {
+    const ratio = this.#currentRatio()
+
+    if(!ratio) return
 
     this.p.triangle(0 + ratio, 0, 8+ ratio, 0, 0 + ratio, 8)
     this.p.stroke(1)
   }
 
   drawCursorLine = () => {
-    const now = Date.now()
-    const { playlistStart } = this.renderer as Renderer
+    const ratio = this.#currentRatio()
 
-    if(!playlistStart) return
-
-    const delta = now - playlistStart
-    const ratio = delta / ((this.renderer as Renderer).maxPlaylistBeats / 4)
+    if(!ratio) return
 
     this.p.line(0 + ratio, 0, 0 + ratio, this.renderer.height)
   }
