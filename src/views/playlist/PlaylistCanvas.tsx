@@ -7,6 +7,7 @@ import {
   moveNodeInPlaylist,
   removeFromPlaylist,
   selectPlaylistItems,
+  selectPlaylistPlaying,
   selectPlaylistUI
 } from '../../state/slices/playlistSlice'
 import { selectSidebar } from '../../state/slices/windowSlice'
@@ -30,6 +31,7 @@ const PlaylistCanvas = () => {
   }
 
   const dispatch = useAppDispatch()
+  const playing = useAppSelector(selectPlaylistPlaying)
   const sidebar = useAppSelector(selectSidebar)
   const playlistTrackBoxRef = React.useRef<HTMLDivElement>(null)
   const [{ canDrop, isOver }, dropRef] = useDrop(() => ({
@@ -182,6 +184,7 @@ const PlaylistCanvas = () => {
           sketch={playlistRenderer.sketch}
           height={height}
           width={width}
+          playing={playing}
           maxPlaylistBeats={limit}
           duration={duration}
           trackCount={trackCount}

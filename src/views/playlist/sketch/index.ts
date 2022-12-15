@@ -20,6 +20,7 @@ import {
 export interface CanvasProps extends SketchProps {
   height: number
   width: number
+  playing: boolean,
   maxPlaylistBeats: number
   trackCount: number
   playlistObjects: PlaylistItem[]
@@ -31,6 +32,7 @@ export const staticDefaults = {
   mouseDragDetectionThreshold: 10,
   timelineHeight: 24,
   trackHeight: 100,
+  playing: false,
   debugMode: false,
 
   // defaults on Renderer construction, these will be reassigned
@@ -70,6 +72,9 @@ export class Renderer extends RendererBase {
   mousePressedX: number | null = null
   mousePressedY: number | null = null
 
+  playing: boolean = staticDefaults.playing
+  playlistStart: number | null = null
+
   playlistTracks: Array<PlaylistTrack> = []
   playlistObjects: Array<PlaylistObject> = []
 
@@ -81,7 +86,7 @@ export class Renderer extends RendererBase {
   // calculate the min and max height of a particular track
   calculateTrackRange = (
     trackNumber: number,
-    dropData: PlaylistItemPixelOffset
+    dropData: PlaylistItemPixelOffset,
   ): [number, number] => {
     if(trackNumber > this.trackCount) {
       console.error(`Invalid trackNumber passed to calculate track range: ${trackNumber}`)
@@ -244,6 +249,14 @@ export class Renderer extends RendererBase {
       width = props.width
       maxPlaylistBeats = props.maxPlaylistBeats
       trackCount = props.trackCount
+      
+      this.playing = props.playing
+
+      if(props.playing) {
+        this.playlistStart = Date.now()
+      } else {
+        this.playlistStart = null
+      }
       
       p.resizeCanvas(width, height)
 
