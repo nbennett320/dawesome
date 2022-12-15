@@ -13,7 +13,7 @@ built with Rust, Tauri, React, and Typescript.
   alt="the playlist ui interface can no be zoomed in" 
 />
 
-_An early screenshot of Dawesome running on Mac_
+_Early screenshots of Dawesome running on Mac_
 <!-- _An early screenshot of Dawesome running on Xubuntu_ -->
 
 <br />
