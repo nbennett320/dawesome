@@ -9,6 +9,7 @@ import {
   selectPlaylistItems,
   selectPlaylistUI
 } from '../../state/slices/playlistSlice'
+import { selectSidebar } from '../../state/slices/windowSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
 import { PlaylistWindow, PlaylistTypes, PlaylistItemPixelOffset } from '../../types/playlist'
 import { Renderer } from './sketch'
@@ -23,13 +24,13 @@ const PlaylistCanvas = () => {
   const [duration, setDuration] = React.useState<number>(120)
   const [trackCount, setTrackCount] = React.useState<number>(5)
   const [playlistWindow, setPlaylistWindow] = React.useState<PlaylistWindow>()
-  const range = [...Array(limit).keys()].map(e => e + 1)
 
   const handleItemDrop = (pw: PlaylistWindow) => {
     setPlaylistWindow(pw)
   }
 
   const dispatch = useAppDispatch()
+  const sidebar = useAppSelector(selectSidebar)
   const playlistTrackBoxRef = React.useRef<HTMLDivElement>(null)
   const [{ canDrop, isOver }, dropRef] = useDrop(() => ({
     accept: [
@@ -126,25 +127,30 @@ const PlaylistCanvas = () => {
   console.log("items", items)
 
   const updateWidthAndHeight = () => {
-    console.log("resized!!!!")
     setWidth(ref.current?.clientWidth)
     setHeight(ref.current?.clientHeight)
   }
 
   React.useEffect(() => {
-    console.log("mount for event", ref.current?.clientWidth, ref.current?.clientHeight)
     if(ref.current) {
       const { height: h, width: w } = ref.current.getBoundingClientRect()
       setHeight(h)
       setWidth(w)
       playlistRenderer.setHeight(h)
       playlistRenderer.setWidth(w)
-
-      window.addEventListener('resize', updateWidthAndHeight)
     }
+  }, [ref.current, sidebar])
 
-    return () => window.removeEventListener('resize', updateWidthAndHeight)
-  }, [ref.current])
+  React.useEffect(() => {
+    // resize when sizebar changes
+    if(ref.current) {
+      const { height: h, width: w } = ref.current.getBoundingClientRect()
+      setHeight(h)
+      setWidth(w)
+      playlistRenderer.setHeight(h)
+      playlistRenderer.setWidth(w)
+    }
+  }, [sidebar])
 
   React.useEffect(() => {
     const getPlaylistData = async () => {
@@ -159,7 +165,11 @@ const PlaylistCanvas = () => {
       setDuration(maxPlaylistDuration)
     }
 
+    window.addEventListener('resize', updateWidthAndHeight)
+
     getPlaylistData()
+
+    return () => window.removeEventListener('resize', updateWidthAndHeight)
   }, [])
 
   return (
