@@ -261,10 +261,10 @@ impl AudioNode {
 
   // play the audio node
   pub async fn play(self) {
-    println!("playing sample");
+    println!("playing sample ({})", self.sample_path);
     thread::spawn(move || {
       if *self.running.lock().unwrap() {
-        println!("node is running");
+        println!("node is running ({})", self.sample_path);
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
         let sink = Sink::try_new(&stream_handle).unwrap();
         let samples = self.samples.lock().unwrap();
@@ -273,7 +273,7 @@ impl AudioNode {
         sink.append(samples.to_owned());
         
         if !sink.empty() {
-          println!("sample should play");
+          println!("sample should play ({})", self.sample_path);
           sink.play();
           // let samples = self.samples.lock().unwrap().to_owned();
           // sink.append(samples);
