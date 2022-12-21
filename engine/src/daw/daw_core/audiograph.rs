@@ -464,7 +464,6 @@ impl AudioGraph<'static> {
         node.buffer_sink();
         
         // sleep this thread until it's time to play the sample, then play it
-        thread::sleep(dur);
         if *running.lock().unwrap() {
           node.toggle_running();
           
@@ -575,7 +574,7 @@ impl AudioGraph<'static> {
     start_offset: Duration,
     track_number: u32
   ) {
-    let mut node = self.get_mut_node(id);
+    let node = self.get_mut_node(id).unwrap();
     node.start_offset = start_offset;
     node.track_number = track_number;
 
@@ -662,9 +661,8 @@ impl AudioGraph<'static> {
     }
   }
 
-  pub fn get_mut_node(&mut self, id: u64) -> &mut AudioNode {
-    let idx = self.nodes.iter().position(|a| a.id == id);
-    &mut self.nodes[idx.unwrap()]
+  pub fn get_mut_node(&mut self, id: u64) -> Option<&mut AudioNode> {
+    self.nodes.iter_mut().find(|e| { e.id == id })
   }
 
   // get the id of all nodes in a given playlist track

@@ -142,7 +142,6 @@ export class Renderer extends RendererBase {
     return trackNumber
   }
 
-
   #handleRightClick = (ev: MouseEvent, p: P5CanvasInstance<CanvasProps>) => {
     console.log("handled right click", ev)
 
@@ -181,16 +180,20 @@ export class Renderer extends RendererBase {
 
     p.setup = () => {
       canvas = p.createCanvas(width, height)
+      p.frameRate(60)
       p.noStroke()
 
       // handle mouse press and dropping
-      canvas.mousePressed(() => {
-        mousePressedX = p.mouseX
-        mousePressedY = p.mouseY
+      canvas.mousePressed((ev: MouseEvent) => {
+        if(ev.button === 0) {
+          console.log("started press")
+          mousePressedX = p.mouseX
+          mousePressedY = p.mouseY
 
-        this.isMouseDragged = true
-        p.mouseReleased = () => {
-          this.isMouseDragged = false
+          this.isMouseDragged = true
+          p.mouseReleased = () => {
+            this.isMouseDragged = false
+          }
         }
       })
 

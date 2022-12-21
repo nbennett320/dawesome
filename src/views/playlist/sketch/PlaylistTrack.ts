@@ -19,10 +19,6 @@ class PlaylistTrack extends PlaylistComponentBase {
   maxHeight: number
   playlistObjects: Array<PlaylistObject>
 
-  // const handleItemRightClick = async (id: number) => {
-     
-  // }
-
   constructor(
     p: P5CanvasInstance<CanvasProps>,
     canvas: p5.Renderer,
@@ -38,11 +34,62 @@ class PlaylistTrack extends PlaylistComponentBase {
     this.playlistObjects = props.playlistObjects
   }
 
+  drawDraggingPlaylistItem = (item: PlaylistObject) => {
+    const { 
+      p,
+      minHeight,
+    } = this
+
+    const dragX = p.pmouseX
+    const dragY = p.pmouseY
+    const {
+      top,
+      left,
+      right,
+      height,
+      width,
+    } = item.waveform.boundingBox()
+
+    // draw bounding box
+    this.p.strokeWeight(1)
+    this.p.stroke(125,211,252)
+    this.p.fill(224,242,254, 255*.3)
+    this.p.rect(dragX, dragY, width, height, 3, 3, 3, 3)
+    this.p.line(dragX, dragY + item.labelHeight, dragX + width, dragY + item.labelHeight)
+
+    // draw item waveform
+    const { currentScale, trackHeight, labelHeight } = item.waveform
+    const { xOffset, yOffset, y } = item.waveform.pixelOffset
+
+    this.p.strokeWeight(.5)
+    this.p.stroke(0, 0, 0, 255*.3)
+    for(let i = 0; i < item.waveform.soundData.length; i+=2) {
+      const x0 = (item.waveform.soundData[i] * currentScale * item.waveform.duration) + xOffset + dragX - left
+      const y0 = minHeight + labelHeight*2 + (trackHeight/2) + (item.waveform.soundData[i+1] * (height - labelHeight)) - (y - yOffset) + dragY - top
+      const x1 = (item.waveform.soundData[i+2] * currentScale * item.waveform.duration) + xOffset + dragX - left
+      const y1 = minHeight + labelHeight*2 + (trackHeight/2) + (item.waveform.soundData[i+3] * (height - labelHeight)) - (y - yOffset) + dragY - top
+      this.p.line(x0, y0, x1, y1)
+    }
+
+    // draw item text
+    this.p.noStroke()
+    this.p.fill(34,34,34,255*.3)
+    this.p.push()
+    this.p.scale(1 / this.currentScale, 1)
+    this.p.textWrap(this.p.CHAR)
+    this.p.text(
+      item.playlistItem.path,
+      (dragX + 1) * this.currentScale,
+      dragY + 6,
+      width * this.currentScale - 1,
+      item.labelHeight,
+    )
+  }
+
   render = () => {
     const { 
       p,
       timelineWidth,
-      trackNumber,
       minHeight,
       maxHeight,
       playlistObjects,
@@ -77,7 +124,9 @@ class PlaylistTrack extends PlaylistComponentBase {
           console.log("right clicked on item: ", item.playlistItem.path, ev)
 
           const { id } = item.playlistItem;
-          (this.renderer as Renderer).onNodeRightClick(id)
+          (this.renderer as Renderer).onNodeRightClick(id);
+          (this.renderer as Renderer).isMouseDragged = false
+          item.isDragging = false
 
           // reset cursor to arrow after removing an item from the playlist
           setTimeout(() => {
@@ -92,19 +141,7 @@ class PlaylistTrack extends PlaylistComponentBase {
         item.onDrag(() => {
           if(item.isDragging) {
             p.cursor('grabbing')
-            const dragX = p.pmouseX
-            const dragY = p.pmouseY
-            const {
-              top,
-              left,
-              height,
-              width,
-            } = item.waveform.boundingBox()
-
-            this.p.strokeWeight(1)
-            this.p.stroke(125,211,252)
-            this.p.fill(224,242,254, 255*.3)
-            this.p.rect(dragX, dragY, width, height, 3, 3, 3, 3)
+            this.drawDraggingPlaylistItem(item)
           }
         }, () => {
           p.cursor(p.ARROW)

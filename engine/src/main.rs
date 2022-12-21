@@ -327,7 +327,7 @@ fn get_node_data(
     .lock()
     .unwrap();
   let node = audiograph
-    .get_mut_node(id);
+    .get_mut_node(id).unwrap();
   let waveform = node.get_waveform().clone();
   let dur = node.duration().as_secs_f32();
   let ratio = dur / audiograph.max_beats() as f32;
