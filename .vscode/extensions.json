@@ -1,4 +1,0 @@
-{
-  "recommendations": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode", "matklad.rust-analyzer"],
-  "unwantedRecommendations": ["rust-lang.rust"]
-}

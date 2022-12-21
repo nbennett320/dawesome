@@ -12,7 +12,7 @@ import {
 } from '../../state/slices/playlistSlice'
 import { selectSidebar } from '../../state/slices/windowSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
-import { PlaylistWindow, PlaylistTypes, PlaylistItemPixelOffset } from '../../types/playlist'
+import { PlaylistWindow, PlaylistTypes, PlaylistItemPixelOffset, PlaylistItem } from '../../types/playlist'
 import { Renderer } from './sketch'
 
 const playlistRenderer = new Renderer()
@@ -79,31 +79,6 @@ const PlaylistCanvas = () => {
             )
           }
           break
-        case PlaylistTypes.PlaylistTrackItem:
-          // handle drag and drop from nodes already existent in the playlist
-          if(dropCoords && ref.current) { 
-            const { x, y } = dropCoords
-            const { left, top, right, bottom } = ref.current.getBoundingClientRect()
-            const pixelOffset = x - left
-
-            dispatch(moveNodeInPlaylist(
-              item.id, 
-              item.name as string,
-              2,
-              x,
-              y,
-              pixelOffset,
-            ))
-          } else {
-            // eslint-disable-next-line no-console
-            console.error(
-              "Error dropping: no playlist track ref, or null drop coordinates:", 
-              item, 
-              dropCoords, 
-              ref.current
-            )
-          }
-          break
         default:
           // unrecognised drop
           // eslint-disable-next-line no-console
@@ -130,6 +105,7 @@ const PlaylistCanvas = () => {
   }
 
   React.useEffect(() => {
+    // set width when ref or sidebar update
     if(ref.current) {
       const { height: h, width: w } = ref.current.getBoundingClientRect()
       setHeight(h)
@@ -174,10 +150,51 @@ const PlaylistCanvas = () => {
     setPlaylistWindow(pw)
   }
 
-  const handleItemRightClick = async (id: number) => {
+  const handleNodeRightClick = async (id: number) => {
     dispatch(removeFromPlaylist(id)) 
   }
 
+  const handleNodeMove = (
+    item: PlaylistItem,
+    dropCoords: { x: number, y: number },
+  ) => {
+    // handle drag and drop from nodes already existent in the playlist
+    if(dropCoords && ref.current) { 
+      const { x, y } = dropCoords
+      const { left, top, right, bottom } = ref.current.getBoundingClientRect()
+      const dropData = {
+        x,
+        y,
+        left,
+        top,
+        right,
+        bottom,
+      } as PlaylistItemPixelOffset
+      const trackNumber = playlistRenderer.calculateTrackNumber(dropData)
+
+      dispatch(moveNodeInPlaylist(
+        item.id,
+        item.path as string, 
+        trackNumber,
+        {
+          x,
+          y,
+          left,
+          top,
+          right,
+          bottom,
+        },
+      ))
+    } else {
+      // eslint-disable-next-line no-console
+      console.error(
+        "Error moving node: no playlist track ref, or null drop coordinates:", 
+        item, 
+        dropCoords, 
+        ref.current
+      )
+    }
+  }
 
   return (
     <div 
@@ -195,7 +212,8 @@ const PlaylistCanvas = () => {
           trackCount={trackCount}
           playlistObjects={items}
           onItemDrop={handleItemDrop}
-          onItemRightClick={handleItemRightClick}
+          onNodeRightClick={handleNodeRightClick}
+          onNodeMove={handleNodeMove}
         />
       </div>}
     </div>
