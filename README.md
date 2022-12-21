@@ -20,10 +20,6 @@ _Early screenshots of Dawesome running on Mac_
 
 ## About
 
-<!-- ### Backend? Frontend? Oh my... -->
-
-<!-- ### Why just why -->
-
 ### Project design
 
 On compilation, Tauri generates bindings for

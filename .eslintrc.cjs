@@ -15,7 +15,7 @@ module.exports = {
     'vite.config.ts',
     'postcss.config.js',
     'tailwind.config.js',
-    'backend/**',
+    'engine/**',
     'pnpm-lock.yaml',
   ],
   settings: {
