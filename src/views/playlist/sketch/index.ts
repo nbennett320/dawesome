@@ -25,6 +25,7 @@ export interface CanvasProps extends SketchProps {
   trackCount: number
   playlistObjects: PlaylistItem[]
   onItemDrop: (pw: PlaylistWindow) => void
+  onItemRightClick: (id: number) => void
 }
 
 export const staticDefaults = {
@@ -58,6 +59,7 @@ const fetchNodeData = async (id: number) => {
 }
 
 export class Renderer extends RendererBase {
+  canvasEl = document.getElementById('playlist-canvas')
   height: number = staticDefaults.height
   width: number = staticDefaults.width
   maxPlaylistBeats: number = staticDefaults.maxPlaylistBeats
@@ -77,6 +79,9 @@ export class Renderer extends RendererBase {
 
   playlistTracks: Array<PlaylistTrack> = []
   playlistObjects: Array<PlaylistObject> = []
+
+  // reassigned function definitions
+  onItemRightClick!: (id: number) => void
 
   getCurrentScale = (): number => this.currentScale
 
@@ -129,6 +134,22 @@ export class Renderer extends RendererBase {
     return trackNumber
   }
 
+
+  #handleRightClick = (ev: MouseEvent, p: P5CanvasInstance<CanvasProps>) => {
+    console.log("handled right click", ev)
+
+    this.playlistObjects.forEach(item => {
+      if(item.isMouseOver()) {
+        const { mouseX, mouseY } = p
+        item.onRightClick(ev, {
+          mouseX,
+          mouseY,
+          playlistObject: item,
+        })
+      }
+    })
+  }
+
   sketch: Sketch<CanvasProps> = (p: P5CanvasInstance<CanvasProps>) => {
     let {
       canvas,
@@ -154,6 +175,7 @@ export class Renderer extends RendererBase {
       canvas = p.createCanvas(width, height)
       p.noStroke()
 
+      // handle mouse press and dropping
       canvas.mousePressed(() => {
         mousePressedX = p.mouseX
         mousePressedY = p.mouseY
@@ -175,6 +197,7 @@ export class Renderer extends RendererBase {
           scaleFactor = 1
         }
 
+        // limit scaling
         if(currentScale * scaleFactor < 1) return
 
         currentScale *= scaleFactor
@@ -182,6 +205,7 @@ export class Renderer extends RendererBase {
         transformX = p.mouseX - (p.mouseX * scaleFactor) + (transformX * scaleFactor)
         transformY = p.mouseY - (p.mouseY * scaleFactor) + (transformY * scaleFactor)
 
+        // scall all playlist items
         this.playlistObjects.forEach(obj => {
           obj.currentScale = this.currentScale
         })
@@ -212,6 +236,13 @@ export class Renderer extends RendererBase {
         console.log("dropped this: ", dropped)
       })
 
+      // handle right click
+      this.canvasEl = document.getElementById(canvas.id())
+      this.canvasEl?.addEventListener('contextmenu', (e) => {
+        e.preventDefault()
+        this.#handleRightClick(e, p)
+      })
+
       const newPlaylistTracks: Array<PlaylistTrack> = []
       for(let i = 0; i < trackCount; i++) {
         if(!canvas) return
@@ -237,6 +268,7 @@ export class Renderer extends RendererBase {
       this.playlistTracks = newPlaylistTracks
     }
 
+
     // handle canvas recieved props
     p.updateWithProps = props => {
       console.log("updating with props", props)
@@ -249,6 +281,8 @@ export class Renderer extends RendererBase {
       width = props.width
       maxPlaylistBeats = props.maxPlaylistBeats
       trackCount = props.trackCount
+
+      this.onItemRightClick = props.onItemRightClick
 
       if(props.playing) {
         this.playlistStart = Date.now()

@@ -267,7 +267,7 @@ impl AudioNode {
 
   pub fn buffer_sink(&mut self) {
     let sink = self.sink.lock().unwrap();
-    let samples = self.samples.lock().unwrap().to_owned();
+    let samples = self.buffer.decoder().convert_samples::<f32>();
     sink.pause();
     sink.append(samples);
     println!("buffered samples for: {}", self.sample_path);
@@ -280,8 +280,16 @@ impl AudioNode {
       if *self.running.lock().unwrap() {
         println!("node is running ({})", self.sample_path);
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-        stream_handle.play_raw(self.buffer.decoder().convert_samples()).unwrap();
-        thread::sleep(self.duration);
+        let samples = self.buffer.decoder().convert_samples::<f32>();
+        // stream_handle.play_raw(self.buffer.decoder().convert_samples()).unwrap();
+        let sink = Sink::try_new(&stream_handle).unwrap();
+    sink.pause();
+    sink.append(samples);
+
+        if !sink.empty() {
+          sink.play();
+          sink.sleep_until_end();
+        }
 
         *self.running.lock().unwrap() = false;
       }
@@ -428,43 +436,43 @@ impl AudioGraph<'static> {
     let (_stream, stream_handle) = OutputStream::try_default().unwrap();
     let sink = Sink::try_new(&stream_handle).unwrap();
     
-    let source: Sink
+    // let source: Sink;
 
-    // run  on each node in time slice
-    for mut node in slice {
-      let start_offset = Arc::new(Mutex::new(node.start_offset));
-      let current_offset = Arc::new(Mutex::new(self_arc.lock().unwrap().current_offset));
-      let running = Arc::new(Mutex::new(self_arc.lock().unwrap().running));
-
-      self.controller.add(node.buffer.decoder().convert_samples());
-
-    }
-    thread::sleep(dur);
-
+    // // run  on each node in time slice
     // for mut node in slice {
-    //   println!("node.start_offset: {}ms", node.start_offset.as_millis());
     //   let start_offset = Arc::new(Mutex::new(node.start_offset));
     //   let current_offset = Arc::new(Mutex::new(self_arc.lock().unwrap().current_offset));
     //   let running = Arc::new(Mutex::new(self_arc.lock().unwrap().running));
 
-    //   // run time slice
-    //   thread::spawn(move || {
-    //     // calculate time until sample is played
-    //     let dur = *start_offset.lock().unwrap() - current_offset.lock().unwrap().unwrap();
+    //   self.controller.add(node.buffer.decoder().convert_samples());
 
-    //     // prepare the sink to be played
-    //     // node.buffer_sink();
-        
-    //     // sleep this thread until it's time to play the sample, then play it
-    //     thread::sleep(dur);
-    //     if *running.lock().unwrap() {
-    //       node.toggle_running();
-          
-    //       futures::executor::block_on(node.play());
-    //       // node.toggle_running();
-    //     }
-    //   });
     // }
+    // thread::sleep(dur);
+
+    for mut node in slice {
+      println!("node.start_offset: {}ms", node.start_offset.as_millis());
+      let start_offset = Arc::new(Mutex::new(node.start_offset));
+      let current_offset = Arc::new(Mutex::new(self_arc.lock().unwrap().current_offset));
+      let running = Arc::new(Mutex::new(self_arc.lock().unwrap().running));
+
+      // run time slice
+      thread::spawn(move || {
+        // calculate time until sample is played
+        let dur = *start_offset.lock().unwrap() - current_offset.lock().unwrap().unwrap();
+
+        // prepare the sink to be played
+        node.buffer_sink();
+        
+        // sleep this thread until it's time to play the sample, then play it
+        thread::sleep(dur);
+        if *running.lock().unwrap() {
+          node.toggle_running();
+          
+          futures::executor::block_on(node.play());
+          // node.toggle_running();
+        }
+      });
+    }
   }
 
   pub fn set_tempo(&mut self, tempo: f32) {
