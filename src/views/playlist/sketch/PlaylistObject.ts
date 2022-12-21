@@ -4,6 +4,7 @@ import PlaylistComponentBase, { PlaylistComponentBaseProps } from './PlaylistCom
 import Waveform from './Waveform'
 import { CanvasProps, Renderer, staticDefaults } from './index'
 import { PlaylistItem } from '../../../types/playlist'
+import { debounce } from '../../../util/debounce'
 
 interface Props extends PlaylistComponentBaseProps {
   playlistItem: PlaylistItem
@@ -126,31 +127,17 @@ class PlaylistObject extends PlaylistComponentBase {
   }
 
   // call function on right click
+  // eslint-disable-next-line class-methods-use-this
   onRightClick = (
-    fn: (
-      ev: MouseEvent,
-      data: {
-        playlistObject: PlaylistObject
-        mouseX: number
-        mouseY: number
-      }
-    ) => void
-  ) => {
-    this.onMouseOver(() => {
-      this.canvas.mouseClicked((ev: MouseEvent) => {
-        if(ev.button === 2) {
-          ev.preventDefault()
-          const { mouseX, mouseY } = this.p
-
-          fn(ev, { 
-            mouseX, 
-            mouseY,
-            playlistObject: this,
-          })
-        }
-      })
-    })
-  }
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _ev: MouseEvent,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _data: {
+      playlistObject: PlaylistObject
+      mouseX: number
+      mouseY: number
+    }
+  ) => {}
 
   // call a function when double clicking on this component
   onDoubleClick = (

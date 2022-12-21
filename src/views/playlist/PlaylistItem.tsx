@@ -1,8 +1,10 @@
 import React from 'react'
 import { invoke } from '@tauri-apps/api'
 import { useDrag } from 'react-dnd'
+import { useAppSelector, useAppDispatch } from '../../hooks/redux'
 import PlaylistItemWaveform from './PlaylistItemWaveform'
 import { PlaylistTypes, PlaylistItemWaveformData } from '../../types/playlist'
+import { removeFromPlaylist } from '../../state/slices/playlistSlice'
 import styles from './styles.module.scss'
 
 interface Props {

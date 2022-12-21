@@ -26,10 +26,6 @@ const PlaylistCanvas = () => {
   const [trackCount, setTrackCount] = React.useState<number>(5)
   const [playlistWindow, setPlaylistWindow] = React.useState<PlaylistWindow>()
 
-  const handleItemDrop = (pw: PlaylistWindow) => {
-    setPlaylistWindow(pw)
-  }
-
   const dispatch = useAppDispatch()
   const playing = useAppSelector(selectPlaylistPlaying)
   const sidebar = useAppSelector(selectSidebar)
@@ -174,13 +170,22 @@ const PlaylistCanvas = () => {
     return () => window.removeEventListener('resize', updateWidthAndHeight)
   }, [])
 
+  const handleItemDrop = (pw: PlaylistWindow) => {
+    setPlaylistWindow(pw)
+  }
+
+  const handleItemRightClick = async (id: number) => {
+    dispatch(removeFromPlaylist(id)) 
+  }
+
+
   return (
     <div 
       ref={ref}
       className='w-full h-full'
     >
       {ref.current && <div ref={dropRef}>
-        <ReactP5Wrapper 
+        <ReactP5Wrapper
           sketch={playlistRenderer.sketch}
           height={height}
           width={width}
@@ -190,6 +195,7 @@ const PlaylistCanvas = () => {
           trackCount={trackCount}
           playlistObjects={items}
           onItemDrop={handleItemDrop}
+          onItemRightClick={handleItemRightClick}
         />
       </div>}
     </div>

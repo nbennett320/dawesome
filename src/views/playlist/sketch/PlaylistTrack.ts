@@ -3,6 +3,7 @@ import { P5CanvasInstance } from 'react-p5-wrapper'
 import PlaylistComponentBase, { PlaylistComponentBaseProps } from './PlaylistComponentBase'
 import { CanvasProps, Renderer, staticDefaults } from './index'
 import PlaylistObject from './PlaylistObject'
+import { removeFromPlaylist, removePlaylistItem } from '../../../state/slices/playlistSlice'
 
 interface Props extends PlaylistComponentBaseProps {
   trackNumber: number
@@ -18,6 +19,10 @@ class PlaylistTrack extends PlaylistComponentBase {
   minHeight: number
   maxHeight: number
   playlistObjects: Array<PlaylistObject>
+
+  // const handleItemRightClick = async (id: number) => {
+     
+  // }
 
   constructor(
     p: P5CanvasInstance<CanvasProps>,
@@ -59,15 +64,27 @@ class PlaylistTrack extends PlaylistComponentBase {
         }
 
         item.onClick((ev, data) => {
-          if(ev.button === 0) {
+          if(p.mouseButton === p.LEFT) {
             // handle left click
             console.log("left clicked on item: ", item.playlistItem.path, ev)
-          } else if(ev.button === 2) {
-            // handle right click
-            ev.preventDefault()
-            console.log("right clicked on item: ", item.playlistItem.path, ev)
-          }
+          } 
         })
+
+        // handle right click
+        // right click function is called in Renderer.#handleRightClick
+        // because p5's left/right click handle appears to not be working
+        // in the webview canvas
+        item.onRightClick = async (ev, data) => {
+          console.log("right clicked on item: ", item.playlistItem.path, ev)
+
+          const { id } = item.playlistItem;
+          (this.renderer as Renderer).onItemRightClick(id)
+
+          // reset cursor to arrow after removing an item from the playlist
+          setTimeout(() => {
+            p.cursor(p.ARROW)
+          })
+        }
 
         item.onDoubleClick((ev, data) => {
           console.log("yay it double clicked", ev)

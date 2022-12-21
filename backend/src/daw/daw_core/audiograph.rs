@@ -1,8 +1,9 @@
+use crate::daw::SoundBuffer;
 use crate::{
   daw,
   util,
 };
-use std::thread;
+use std::{thread};
 use std::sync::{
   Arc, 
   Mutex,
@@ -25,6 +26,8 @@ use rodio::source::{
   SamplesConverter, 
   Buffered, 
   Source,
+  TakeDuration,
+  SkipDuration,
 };
 use rodio::dynamic_mixer::{
   DynamicMixer,
@@ -194,6 +197,10 @@ pub struct AudioNode {
   channels: u16,
   sink: Arc<Mutex<Sink>>,
   handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
+  buffer: daw::sound_buffer::SoundBuffer,
+  // buffer: Buffered<
+  //   TakeDuration<TakeDuration<SkipDuration<Buffered<BufReader<File>>>>>
+  // >,
   running: Arc<Mutex<bool>>,
   duration: Duration,
   sample_rate: u32,
@@ -210,6 +217,8 @@ impl AudioNode {
     track_number: u32,
     sample_rate: u32,
   ) -> Self {
+    let sound_buf = SoundBuffer::load(&sample_path).unwrap();
+
     let file_buf = BufReader::new(File::open(&sample_path).unwrap());
     let source = Decoder::new(file_buf).unwrap();
     let sample_buf = source.buffered();
@@ -234,6 +243,7 @@ impl AudioNode {
     println!("track number: {}", track_number);
     let waveform = daw::calc_waveform_from_samples(samples, channels);
 
+
     AudioNode {
       id,
       sample_path,
@@ -244,6 +254,10 @@ impl AudioNode {
       channels,
       sink: Arc::new(Mutex::from(sink)),
       handle: Arc::new(Mutex::from(None)),
+      buffer: sound_buf,
+      // buffer: Buffered<
+      //   TakeDuration<TakeDuration<SkipDuration<Buffered<BufReader<File>>>>
+      // >,
       running: Arc::new(Mutex::from(false)),
       duration,
       sample_rate,
@@ -253,7 +267,7 @@ impl AudioNode {
 
   pub fn buffer_sink(&mut self) {
     let sink = self.sink.lock().unwrap();
-    let samples = self.samples.lock().unwrap().to_owned();
+    let samples = self.buffer.decoder().convert_samples::<f32>();
     sink.pause();
     sink.append(samples);
     println!("buffered samples for: {}", self.sample_path);
@@ -266,21 +280,16 @@ impl AudioNode {
       if *self.running.lock().unwrap() {
         println!("node is running ({})", self.sample_path);
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+        let samples = self.buffer.decoder().convert_samples::<f32>();
+        // stream_handle.play_raw(self.buffer.decoder().convert_samples()).unwrap();
         let sink = Sink::try_new(&stream_handle).unwrap();
-        let samples = self.samples.lock().unwrap();
-        
-        sink.pause();
-        sink.append(samples.to_owned());
-        
+    sink.pause();
+    sink.append(samples);
+
         if !sink.empty() {
-          println!("sample should play ({})", self.sample_path);
           sink.play();
-          // let samples = self.samples.lock().unwrap().to_owned();
-          // sink.append(samples);
           sink.sleep_until_end();
         }
-
-        *self.sink.lock().unwrap() = sink;
 
         *self.running.lock().unwrap() = false;
       }
@@ -338,8 +347,8 @@ pub struct AudioGraph<'a> {
   pub started_time: Option<Instant>,
   pub current_offset: Option<Duration>,
   // stream_handle: Arc<Mutex<OutputStream>>,
-  controller: Arc<DynamicMixerController<i16>>,
-  mixer: DynamicMixer<i16>,
+  controller: Arc<DynamicMixerController<f32>>,
+  mixer: DynamicMixer<f32>,
   sample_rate: u32,
   tempo: f32,
   max_beats: u64,
@@ -420,13 +429,28 @@ impl AudioGraph<'static> {
     println!("start, end: {}, {}", idx_start, idx_end);
 
     let self_arc = Arc::new(Mutex::new(self));
-
     // schedule samples within this timeslice to play
     let slice = self_arc.lock().unwrap().nodes[idx_start..idx_end].to_vec();
     println!("slice len: {}, self.nodes len: {}",slice.len(), self.nodes.len());
+
+    let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+    let sink = Sink::try_new(&stream_handle).unwrap();
+    
+    // let source: Sink;
+
+    // // run  on each node in time slice
+    // for mut node in slice {
+    //   let start_offset = Arc::new(Mutex::new(node.start_offset));
+    //   let current_offset = Arc::new(Mutex::new(self_arc.lock().unwrap().current_offset));
+    //   let running = Arc::new(Mutex::new(self_arc.lock().unwrap().running));
+
+    //   self.controller.add(node.buffer.decoder().convert_samples());
+
+    // }
+    // thread::sleep(dur);
+
     for mut node in slice {
       println!("node.start_offset: {}ms", node.start_offset.as_millis());
-      // let sample_path = Arc::new(Mutex::new(Box::from(node.sample_path.as_ref())));
       let start_offset = Arc::new(Mutex::new(node.start_offset));
       let current_offset = Arc::new(Mutex::new(self_arc.lock().unwrap().current_offset));
       let running = Arc::new(Mutex::new(self_arc.lock().unwrap().running));
@@ -443,6 +467,7 @@ impl AudioGraph<'static> {
         thread::sleep(dur);
         if *running.lock().unwrap() {
           node.toggle_running();
+          
           futures::executor::block_on(node.play());
           // node.toggle_running();
         }
