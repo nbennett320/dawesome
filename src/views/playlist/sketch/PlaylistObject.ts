@@ -24,6 +24,7 @@ class PlaylistObject extends PlaylistComponentBase {
   minHeight: number
   maxHeight: number
   waveform: Waveform
+  isDragging = false
 
   constructor(
     p: P5CanvasInstance<CanvasProps>,
@@ -165,20 +166,36 @@ class PlaylistObject extends PlaylistComponentBase {
 
   // call a function on dragging an item
   onDrag = (
-    fn: (
-      ev: MouseEvent, 
-      data: {
-        playlistObject: PlaylistObject
-        mouseX: number
-        mouseY: number
-      }
-    ) => void
+    dragFn: () => void,
+    dropFn: () => void,
   ) => {
-    if((this.renderer as Renderer).isMouseDragged) {
-      console.log("dragging yeah")
+    this.onMouseOver(() => {
+      if((this.renderer as Renderer).isMouseDragged) {
+        this.canvas.mouseReleased(() => {
+          this.isDragging = false
+          console.log("it dropped")
+          dropFn()
+        })
 
-    }
+        this.isDragging = true
+      }
+    })
+
+    dragFn()
   }
+
+  // call function on right click
+  // eslint-disable-next-line class-methods-use-this
+  onDrop = (
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _ev: MouseEvent,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _data: {
+      playlistObject: PlaylistObject
+      mouseX: number
+      mouseY: number
+    }
+  ) => {}
 
   drawBoundingBox = () => {
     const {

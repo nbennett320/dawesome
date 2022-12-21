@@ -3,7 +3,6 @@ import { P5CanvasInstance } from 'react-p5-wrapper'
 import PlaylistComponentBase, { PlaylistComponentBaseProps } from './PlaylistComponentBase'
 import { CanvasProps, Renderer, staticDefaults } from './index'
 import PlaylistObject from './PlaylistObject'
-import { removeFromPlaylist, removePlaylistItem } from '../../../state/slices/playlistSlice'
 
 interface Props extends PlaylistComponentBaseProps {
   trackNumber: number
@@ -74,11 +73,11 @@ class PlaylistTrack extends PlaylistComponentBase {
         // right click function is called in Renderer.#handleRightClick
         // because p5's left/right click handle appears to not be working
         // in the webview canvas
-        item.onRightClick = async (ev, data) => {
+        item.onRightClick = (ev, data) => {
           console.log("right clicked on item: ", item.playlistItem.path, ev)
 
           const { id } = item.playlistItem;
-          (this.renderer as Renderer).onItemRightClick(id)
+          (this.renderer as Renderer).onNodeRightClick(id)
 
           // reset cursor to arrow after removing an item from the playlist
           setTimeout(() => {
@@ -90,9 +89,32 @@ class PlaylistTrack extends PlaylistComponentBase {
           console.log("yay it double clicked", ev)
         })
         
-        // item.onDrag(ev => {
+        item.onDrag(() => {
+          if(item.isDragging) {
+            p.cursor('grabbing')
+            const dragX = p.pmouseX
+            const dragY = p.pmouseY
+            const {
+              top,
+              left,
+              height,
+              width,
+            } = item.waveform.boundingBox()
 
-        // })
+            this.p.strokeWeight(1)
+            this.p.stroke(125,211,252)
+            this.p.fill(224,242,254, 255*.3)
+            this.p.rect(dragX, dragY, width, height, 3, 3, 3, 3)
+          }
+        }, () => {
+          p.cursor(p.ARROW)
+          const dropCoords = {
+            x: p.winMouseX,
+            y: p.winMouseY,
+          };
+
+          (this.renderer as Renderer).onNodeMove(item.playlistItem, dropCoords)
+        })
     })
 
     // render track lines

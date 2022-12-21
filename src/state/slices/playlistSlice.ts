@@ -60,7 +60,6 @@ export const playlistSlice = createSlice({
       state.playlistItems.push({
         id: action.payload.id,
         path: action.payload.path,
-        // offset: action.payload.offset,
         trackNumber: action.payload.trackNumber,
         pixelOffset: action.payload.pixelOffset,
       } as PlaylistItem)
@@ -73,7 +72,6 @@ export const playlistSlice = createSlice({
           state.playlistItems[i] = {
             id: action.payload.id,
             path: action.payload.path,
-            // offset: action.payload.offset,
             trackNumber: action.payload.trackNumber,
             pixelOffset: action.payload.pixelOffset,
           } as PlaylistItem
@@ -198,12 +196,12 @@ export const addToPlaylist = (
 
 export const moveNodeInPlaylist = (
   id: number,
-  path: string, 
+  path: string,
   trackNumber: number,
-  dropX: number,
-  dropY: number,
-  pixelOffset: number,
+  pixelOffset: Omit<PlaylistItemPixelOffset, 'xOffset' | 'yOffset'>,
 ) => async (dispatch: Dispatch) => {
+  const dropX = pixelOffset.x
+  const dropY = pixelOffset.y
   await invoke('move_audiograph_node', {
     id,
     trackNumber,
@@ -215,7 +213,11 @@ export const moveNodeInPlaylist = (
     id,
     path,
     trackNumber,
-    pixelOffset,
+    pixelOffset: {
+      ...pixelOffset,
+      xOffset: pixelOffset.x - pixelOffset.left,
+      yOffset: pixelOffset.y - pixelOffset.top,
+    },
   } as PlaylistItem))
 }
 

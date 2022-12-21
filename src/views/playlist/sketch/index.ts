@@ -25,7 +25,8 @@ export interface CanvasProps extends SketchProps {
   trackCount: number
   playlistObjects: PlaylistItem[]
   onItemDrop: (pw: PlaylistWindow) => void
-  onItemRightClick: (id: number) => void
+  onNodeRightClick: (id: number) => void
+  onNodeMove: () => void
 }
 
 export const staticDefaults = {
@@ -49,6 +50,7 @@ export const staticDefaults = {
   },
 }
 
+// get waveform data and duration of individual audio nodes
 const fetchNodeData = async (id: number) => {
   const [wf, dur] = await invoke<[number[], number]>('get_node_data', { id })
 
@@ -81,10 +83,16 @@ export class Renderer extends RendererBase {
   playlistObjects: Array<PlaylistObject> = []
 
   // reassigned function definitions
-  onItemRightClick!: (id: number) => void
+  onNodeRightClick!: (id: number) => void
+  onNodeMove!: (
+    item: PlaylistItem,
+    dropCoords: { x: number, y: number },
+  ) => void
 
+  // return the current zoom/scale
   getCurrentScale = (): number => this.currentScale
 
+  // calculate the height of playlist tracks
   individualTrackHeight = (): number => 
     (this.height - staticDefaults.timelineHeight) / this.trackCount
 
@@ -150,6 +158,7 @@ export class Renderer extends RendererBase {
     })
   }
 
+  // p5 sketch function
   sketch: Sketch<CanvasProps> = (p: P5CanvasInstance<CanvasProps>) => {
     let {
       canvas,
@@ -160,7 +169,6 @@ export class Renderer extends RendererBase {
       currentScale,
       transformX,
       transformY,
-      isMouseDragged,
       mousePressedX,
       mousePressedY,
       // playlistTracks,
@@ -180,9 +188,9 @@ export class Renderer extends RendererBase {
         mousePressedX = p.mouseX
         mousePressedY = p.mouseY
 
-        isMouseDragged = true
+        this.isMouseDragged = true
         p.mouseReleased = () => {
-          isMouseDragged = false
+          this.isMouseDragged = false
         }
       })
 
@@ -217,15 +225,15 @@ export class Renderer extends RendererBase {
       canvas.mouseReleased(() => {
         mousePressedX = null
         mousePressedY = null
-        isMouseDragged = false
+        this.isMouseDragged = false
       })
 
       // handle mouse drag
       canvas.mouseMoved((ev: MouseEvent) => {
-        if(isMouseDragged) {
+        if(this.isMouseDragged) {
           const dist = p.dist(mousePressedX ?? 0, mousePressedY ?? 0, p.mouseX, p.mouseY)
           if(dist > staticDefaults.mouseDragDetectionThreshold) {
-            isMouseDragged = true
+            this.isMouseDragged = true
             transformX -= (p.mouseX - ev.offsetX)
             transformY -= (p.mouseY - ev.offsetY)
           }
@@ -268,7 +276,6 @@ export class Renderer extends RendererBase {
       this.playlistTracks = newPlaylistTracks
     }
 
-
     // handle canvas recieved props
     p.updateWithProps = props => {
       console.log("updating with props", props)
@@ -282,7 +289,8 @@ export class Renderer extends RendererBase {
       maxPlaylistBeats = props.maxPlaylistBeats
       trackCount = props.trackCount
 
-      this.onItemRightClick = props.onItemRightClick
+      this.onNodeRightClick = props.onNodeRightClick
+      this.onNodeMove = props.onNodeMove
 
       if(props.playing) {
         this.playlistStart = Date.now()
