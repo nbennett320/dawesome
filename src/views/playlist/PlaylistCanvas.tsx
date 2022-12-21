@@ -151,6 +151,7 @@ const PlaylistCanvas = () => {
   }
 
   const handleNodeRightClick = async (id: number) => {
+    console.log("remove: ", id)
     dispatch(removeFromPlaylist(id)) 
   }
 
