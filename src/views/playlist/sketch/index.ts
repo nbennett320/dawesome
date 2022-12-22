@@ -35,7 +35,7 @@ export const staticDefaults = {
   timelineHeight: 24,
   trackHeight: 100,
   playing: false,
-  debugMode: false,
+  debugMode: true,
 
   // defaults on Renderer construction, these will be reassigned
   // when the canvas renders
@@ -201,8 +201,10 @@ export class Renderer extends RendererBase {
       canvas.mouseWheel((ev: WheelEvent) => {
         let scaleFactor = null
         if(ev?.deltaY < 0) {
+          // zoom in
           scaleFactor = 1 + staticDefaults.zoomSensitivity
         } else if(ev?.deltaY > 0) {
+          // zoom out
           scaleFactor = 1 - staticDefaults.zoomSensitivity
         } else {
           scaleFactor = 1
@@ -211,8 +213,19 @@ export class Renderer extends RendererBase {
         // limit scaling
         if(currentScale * scaleFactor < 1) return
 
+        if(
+          ev?.deltaY > 0 &&
+          currentScale * scaleFactor - 1 < staticDefaults.zoomSensitivity
+        ) {
+          // handle fp rounding error
+          scaleFactor = 1
+          currentScale = 1
+          this.currentScale = 1
+        }
+
         currentScale *= scaleFactor
         this.currentScale *= scaleFactor
+
         transformX = p.mouseX - (p.mouseX * scaleFactor) + (transformX * scaleFactor)
         transformY = p.mouseY - (p.mouseY * scaleFactor) + (transformY * scaleFactor)
 
@@ -417,6 +430,44 @@ export class Renderer extends RendererBase {
       })
       
       p.pop()
+      
+      // render debug window
+      if(this.debugMode) {
+        const debugWinWidth = 120
+        const debugWinHeight = 200
+        p.noStroke()
+        p.fill(255,187,153,255*.6)
+        p.rect(
+          p.width - debugWinWidth, 
+          p.height - debugWinHeight,
+          debugWinWidth - 10, 
+          debugWinHeight - 10
+        )
+
+        p.stroke(0,0,0)
+        p.fill(0,0,0)
+        p.strokeWeight(.1)
+        p.textSize(11)
+        p.textAlign(p.LEFT)
+        p.textFont('Courier New')
+
+        // debug info
+        const fps = p.frameRate().toFixed(2)
+        const scale = this.currentScale
+        const nodeCount = this.playlistObjects.length
+        p.text(
+          `
+          fps: ${fps}
+          scale: ${scale}
+          dragging: ${this.isMouseDragged}
+          nodeCount: ${nodeCount}
+          trackCount: ${this.trackCount}
+          playing: ${this.playing}
+          `,
+          p.width - debugWinWidth - 11*6 + 11/2,
+          p.height - debugWinHeight
+        )
+      }
     }
   }
 }
