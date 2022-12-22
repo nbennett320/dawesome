@@ -201,8 +201,10 @@ export class Renderer extends RendererBase {
       canvas.mouseWheel((ev: WheelEvent) => {
         let scaleFactor = null
         if(ev?.deltaY < 0) {
+          // zoom in
           scaleFactor = 1 + staticDefaults.zoomSensitivity
         } else if(ev?.deltaY > 0) {
+          // zoom out
           scaleFactor = 1 - staticDefaults.zoomSensitivity
         } else {
           scaleFactor = 1
@@ -211,8 +213,19 @@ export class Renderer extends RendererBase {
         // limit scaling
         if(currentScale * scaleFactor < 1) return
 
+        if(
+          ev?.deltaY > 0 &&
+          currentScale * scaleFactor - 1 < staticDefaults.zoomSensitivity
+        ) {
+          // handle fp rounding error
+          scaleFactor = 1
+          currentScale = 1
+          this.currentScale = 1
+        }
+
         currentScale *= scaleFactor
         this.currentScale *= scaleFactor
+
         transformX = p.mouseX - (p.mouseX * scaleFactor) + (transformX * scaleFactor)
         transformY = p.mouseY - (p.mouseY * scaleFactor) + (transformY * scaleFactor)
 
