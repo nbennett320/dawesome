@@ -226,23 +226,13 @@ impl AudioNode {
     let sink = Sink::try_new(&stream_handle).unwrap();
 
     let channels = sample_buf.channels();
-
-    // todo: find a better way of calculating sample length
-    // without reading the file buffer twice
-    let file_buf_len = BufReader::new(File::open(&sample_path).unwrap());
-    let source_len = Decoder::new(file_buf_len).unwrap();
-    let mut samples = Vec::<i16>::new();
-    for sample in source_len {
-      samples.push(sample);
-    }
-
+    let samples: Vec<i16> = sample_buf.clone().collect();
     let dur_ms = (samples.len() as f32 / sample_rate as f32) * 1_000 as f32 / channels as f32;
     let duration = Duration::from_millis(dur_ms.round() as u64);
     println!("length of sample in ms: {:?}", dur_ms);
     println!("channels: {:?}", channels);
     println!("track number: {}", track_number);
     let waveform = daw::calc_waveform_from_samples(samples, channels);
-
 
     AudioNode {
       id,
