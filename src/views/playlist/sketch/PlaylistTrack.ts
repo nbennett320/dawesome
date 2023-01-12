@@ -58,15 +58,16 @@ class PlaylistTrack extends PlaylistComponentBase {
     this.p.line(dragX, dragY + item.labelHeight, dragX + width, dragY + item.labelHeight)
 
     // draw item waveform
+    const timePerPixel = (this.renderer as Renderer).timePerPixel()
     const { currentScale, trackHeight, labelHeight } = item.waveform
     const { xOffset, yOffset, y } = item.waveform.pixelOffset
 
-    this.p.strokeWeight(.5)
+    this.p.strokeWeight(.3)
     this.p.stroke(0, 0, 0, 255*.3)
     for(let i = 0; i < item.waveform.soundData.length; i+=2) {
-      const x0 = (item.waveform.soundData[i] * currentScale * item.waveform.duration) + xOffset + dragX - left
+      const x0 = (item.waveform.soundData[i] * currentScale * timePerPixel) + xOffset + dragX - left
       const y0 = minHeight + labelHeight*2 + (trackHeight/2) + (item.waveform.soundData[i+1] * (height - labelHeight)) - (y - yOffset) + dragY - top
-      const x1 = (item.waveform.soundData[i+2] * currentScale * item.waveform.duration) + xOffset + dragX - left
+      const x1 = (item.waveform.soundData[i+2] * currentScale * timePerPixel) + xOffset + dragX - left
       const y1 = minHeight + labelHeight*2 + (trackHeight/2) + (item.waveform.soundData[i+3] * (height - labelHeight)) - (y - yOffset) + dragY - top
       this.p.line(x0, y0, x1, y1)
     }

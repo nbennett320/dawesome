@@ -43,6 +43,7 @@ export const staticDefaults = {
   width: 200,
   maxPlaylistBeats: 32,
   trackCount: 5,
+  tempo: 120,
 
   // class specific defaults
   PlaylistObject: {
@@ -66,6 +67,7 @@ export class Renderer extends RendererBase {
   width: number = staticDefaults.width
   maxPlaylistBeats: number = staticDefaults.maxPlaylistBeats
   trackCount: number = staticDefaults.trackCount
+  tempo: number = staticDefaults.tempo
   debugMode: boolean = staticDefaults.debugMode
 
   currentScale = 1
@@ -140,6 +142,12 @@ export class Renderer extends RendererBase {
 
     console.log("calculated trackNumber: ", trackNumber)
     return trackNumber
+  }
+
+  timePerPixel = () => {
+    const { tempo, width, maxPlaylistBeats } = this
+
+    return tempo / 60 * maxPlaylistBeats / width
   }
 
   #handleRightClick = (ev: MouseEvent, p: P5CanvasInstance<CanvasProps>) => {

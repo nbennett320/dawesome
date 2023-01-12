@@ -1,4 +1,3 @@
-use crate::daw::SoundBuffer;
 use crate::{
   daw,
   util,
@@ -20,7 +19,7 @@ use futures;
 use rodio::{
   Decoder, 
   OutputStream, 
-  Sink
+  Sink, Sample
 };
 use rodio::source::{
   SamplesConverter, 
@@ -28,6 +27,7 @@ use rodio::source::{
   Source,
   TakeDuration,
   SkipDuration,
+  Zero,
 };
 use rodio::dynamic_mixer::{
   DynamicMixer,
@@ -197,7 +197,7 @@ pub struct AudioNode {
   channels: u16,
   sink: Arc<Mutex<Sink>>,
   handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
-  buffer: daw::sound_buffer::SoundBuffer,
+  buffer: daw::sound_buffer::SampleBuffer,
   // buffer: Buffered<
   //   TakeDuration<TakeDuration<SkipDuration<Buffered<BufReader<File>>>>>
   // >,
@@ -217,7 +217,7 @@ impl AudioNode {
     track_number: u32,
     sample_rate: u32,
   ) -> Self {
-    let sound_buf = SoundBuffer::load(&sample_path).unwrap();
+    let sound_buf = daw::SampleBuffer::load(&sample_path).unwrap();
 
     let file_buf = BufReader::new(File::open(&sample_path).unwrap());
     let source = Decoder::new(file_buf).unwrap();
@@ -226,23 +226,13 @@ impl AudioNode {
     let sink = Sink::try_new(&stream_handle).unwrap();
 
     let channels = sample_buf.channels();
-
-    // todo: find a better way of calculating sample length
-    // without reading the file buffer twice
-    let file_buf_len = BufReader::new(File::open(&sample_path).unwrap());
-    let source_len = Decoder::new(file_buf_len).unwrap();
-    let mut samples = Vec::<i16>::new();
-    for sample in source_len {
-      samples.push(sample);
-    }
-
+    let samples: Vec<i16> = sample_buf.clone().collect();
     let dur_ms = (samples.len() as f32 / sample_rate as f32) * 1_000 as f32 / channels as f32;
     let duration = Duration::from_millis(dur_ms.round() as u64);
     println!("length of sample in ms: {:?}", dur_ms);
     println!("channels: {:?}", channels);
     println!("track number: {}", track_number);
     let waveform = daw::calc_waveform_from_samples(samples, channels);
-
 
     AudioNode {
       id,
@@ -346,9 +336,8 @@ pub struct AudioGraph<'a> {
   pub running: bool,
   pub started_time: Option<Instant>,
   pub current_offset: Option<Duration>,
-  // stream_handle: Arc<Mutex<OutputStream>>,
   controller: Arc<DynamicMixerController<f32>>,
-  mixer: DynamicMixer<f32>,
+  mixer: Arc<Mutex<DynamicMixer<f32>>>,
   sample_rate: u32,
   tempo: f32,
   max_beats: u64,
@@ -361,7 +350,6 @@ impl AudioGraph<'static> {
     tempo: f32,
     max_beats: u64,
   ) -> Self {
-    let (_stream, stream_handle) = OutputStream::try_default().unwrap();
     let (controller, mixer) = rodio::dynamic_mixer::mixer(2, sample_rate);
 
     AudioGraph {
@@ -369,9 +357,8 @@ impl AudioGraph<'static> {
       running: false,
       started_time: None,
       current_offset: Some(Duration::ZERO),
-      // stream_handle: Arc::new(Mutex::from(stream_handle)),
       controller,
-      mixer,
+      mixer: Arc::new(Mutex::from(mixer)),
       sample_rate,
       tempo,
       max_beats,
@@ -433,45 +420,39 @@ impl AudioGraph<'static> {
     let slice = self_arc.lock().unwrap().nodes[idx_start..idx_end].to_vec();
     println!("slice len: {}, self.nodes len: {}",slice.len(), self.nodes.len());
 
-    let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-    let sink = Sink::try_new(&stream_handle).unwrap();
-    
-    // let source: Sink;
+    // let root = rodio::source::Zero::<f32>::new(2, 44_100).take_duration(dur);
+    let (controller, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, self.sample_rate);
 
-    // // run  on each node in time slice
-    // for mut node in slice {
-    //   let start_offset = Arc::new(Mutex::new(node.start_offset));
-    //   let current_offset = Arc::new(Mutex::new(self_arc.lock().unwrap().current_offset));
-    //   let running = Arc::new(Mutex::new(self_arc.lock().unwrap().running));
+    println!("items (len: {}) in nodes[{}..{}]:", self.nodes.len(), idx_start, idx_end);
+    for node in &slice {
+      println!("path: {}", node.sample_path);
+    }
 
-    //   self.controller.add(node.buffer.decoder().convert_samples());
-
-    // }
-    // thread::sleep(dur);
-
-    for mut node in slice {
+    for node in slice {
       println!("node.start_offset: {}ms", node.start_offset.as_millis());
       let start_offset = Arc::new(Mutex::new(node.start_offset));
       let current_offset = Arc::new(Mutex::new(self_arc.lock().unwrap().current_offset));
-      let running = Arc::new(Mutex::new(self_arc.lock().unwrap().running));
 
-      // run time slice
-      thread::spawn(move || {
-        // calculate time until sample is played
-        let dur = *start_offset.lock().unwrap() - current_offset.lock().unwrap().unwrap();
-
-        // prepare the sink to be played
-        node.buffer_sink();
-        
-        // sleep this thread until it's time to play the sample, then play it
-        if *running.lock().unwrap() {
-          node.toggle_running();
-          
-          futures::executor::block_on(node.play());
-          // node.toggle_running();
-        }
-      });
+      let delay_offset = *start_offset.lock().unwrap() - current_offset.lock().unwrap().unwrap();
+      println!("delay offset: {}ms", delay_offset.as_millis());
+      let source = node.buffer.decoder().delay(delay_offset).convert_samples();
+      controller.add(source);
+      println!("added node: {}", node.sample_path);
     }
+
+    let running = self.running;
+    thread::spawn(move || {
+      if running {
+        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+        let sink = Sink::try_new(&stream_handle).unwrap();
+        sink.pause();
+        sink.append(mixer);
+        sink.play();
+        sink.sleep_until_end();
+        // stream_handle.play_raw(mixer).unwrap();
+        // thread::sleep(dur);
+      }
+    });
   }
 
   pub fn set_tempo(&mut self, tempo: f32) {

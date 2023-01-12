@@ -5,7 +5,6 @@ use std::time::{
   Duration, 
   SystemTime
 };
-use daw::{MusicalTiming, waveform};
 use tauri;
 
 mod app;
@@ -326,13 +325,12 @@ fn get_node_data(
     .audiograph
     .lock()
     .unwrap();
-  let node = audiograph
-    .get_mut_node(id).unwrap();
+  let node = audiograph.get_mut_node(id).unwrap();
   let waveform = node.get_waveform().clone();
   let dur = node.duration().as_secs_f32();
   let ratio = dur / audiograph.max_beats() as f32;
 
-  // println!("waveform nums: {:?}", waveform);
+  println!("waveform dur: {:?}", dur);
 
   // return waveform data
   Ok((waveform, dur))
