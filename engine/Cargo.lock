@@ -81,6 +81,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "futures",
+ "lazy_static",
  "libpulse-binding",
  "libpulse-simple-binding",
  "num-traits",

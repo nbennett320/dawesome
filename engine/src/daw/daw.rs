@@ -1,8 +1,11 @@
 use crate::daw::{
-  daw_core, 
+  daw_core::{
+    self,
+    SampleBuffer,
+  }, 
   state, 
+  MusicalTiming,
 };
-use crate::daw::{MusicalTiming};
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::{
@@ -27,6 +30,21 @@ use tauri;
 use psimple;
 #[cfg(target_os = "linux")]
 use pulse;
+
+const METRONOME_TICK_PATH: &str = "assets/assets_66-hh-01-or.wav";
+const METRONOME_TICK_ACCENTED_PATH: &str = "assets/assets_66-hh-01-or-2.wav";
+
+lazy_static! {
+  static ref METRONOME_TICK_SOURCE: SampleBuffer = {
+    SampleBuffer::load(METRONOME_TICK_PATH).unwrap()
+  };
+}
+
+lazy_static! {
+  static ref METRONOME_TICK_ACCENTED_SOURCE: SampleBuffer = {
+    SampleBuffer::load(METRONOME_TICK_ACCENTED_PATH).unwrap()
+  };
+}
 
 /**
 Play a single sound sample for its entire length
@@ -92,15 +110,34 @@ pub async fn play_sample(path: &str) {
   });
 }
 
+#[cfg(not(target_os = "linux"))]
+pub async fn play_buffer<S>(
+  buf: S,
+) 
+  where
+    S: Source<Item = f32> + Send + 'static,
+{
+  thread::spawn(move || {
+    // read and decode audio file, and append to a sound sink
+    let dur = buf.total_duration().unwrap();
+    let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+    
+    stream_handle.play_raw(buf).unwrap();
+    thread::sleep(dur);
+  });
+}
+
 pub fn play_metronome(state_ref: &Arc<state::InnerState>) {
   let state = state_ref.clone();
 
   if state.playlist.current_beat.load(Ordering::SeqCst) > 0 {
     // default metronome tick
-    futures::executor::block_on(play_sample("assets/assets_66-hh-01-or.wav"));
+    let buf = METRONOME_TICK_SOURCE.convert_samples();
+    futures::executor::block_on(play_buffer(buf));
   } else {
     // play accented metronome tick
-    futures::executor::block_on(play_sample("assets/assets_66-hh-01-or-2.wav"));
+    let buf = METRONOME_TICK_ACCENTED_SOURCE.convert_samples();
+    futures::executor::block_on(play_buffer(buf));
   }
 }
 
