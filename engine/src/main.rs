@@ -7,6 +7,9 @@ use std::time::{
 };
 use tauri;
 
+#[macro_use(lazy_static)]
+extern crate lazy_static;
+
 mod app;
 mod daw;
 mod util;
