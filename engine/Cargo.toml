@@ -24,6 +24,8 @@ svg = "0.10.0"
 tauri = { version = "1.0.0-rc.5", features = ["api-all"] }
 num-traits = "0.2.15"
 lazy_static = "1.4.0"
+hound = "3.5.0"
+symphonia = "0.5.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 pulse = { version = "2.26.*", package= "libpulse-binding" }

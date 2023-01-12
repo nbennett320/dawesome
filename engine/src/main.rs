@@ -489,6 +489,14 @@ fn init_playlist_workspace(
       max_bound_y);
 }
 
+#[tauri::command]
+fn toggle_record_input(
+  state: tauri::State<'_, Arc<daw::InnerState>>,
+) {
+  println!("toggling input recording");
+  daw::input::record_input();
+}
+
 fn main() {
   tauri::Builder::default()
     .setup(app::window::setup)
@@ -520,7 +528,8 @@ fn main() {
       toggle_snap_enabled,
       get_snap_enabled,
       get_playlist_max_length,
-      init_playlist_workspace
+      init_playlist_workspace,
+      toggle_record_input
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
