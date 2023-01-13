@@ -52,6 +52,7 @@ impl PlaylistUI {
 
 pub struct Playlist {
   pub playing: AtomicBool,
+  pub recording: AtomicBool,
   pub started_time: Arc<Mutex<Option<Instant>>>,
   pub total_beats: AtomicU64,
   pub current_beat: AtomicU16,
@@ -70,6 +71,7 @@ impl Playlist {
   pub fn default() -> Self {
     Playlist {
       playing: AtomicBool::from(false),
+      recording: AtomicBool::from(false),
       started_time: Arc::new(Mutex::from(None)),
       total_beats: AtomicU64::from(0),
       current_beat: AtomicU16::from(0),

@@ -18,7 +18,11 @@ use std::{
   },
   sync::{
     Arc,
-    Mutex,
+    Mutex, 
+    atomic::{
+      AtomicBool,
+      Ordering,
+    },
   },
   io::{
     BufWriter,
@@ -29,8 +33,10 @@ use std::{
   time::{
     self,
     SystemTime,
-  }
+  },
+  thread,
 };
+
 
 fn sample_format(format: cpal::SampleFormat) -> hound::SampleFormat {
   if TypeId::of::<f32>() == format.type_id() {
@@ -66,7 +72,7 @@ where
   }
 }
 
-pub fn record_input() {
+pub fn record_input(recording: &AtomicBool) {
   let host = cpal::default_host();
   let device = host.default_input_device().unwrap();
 
@@ -83,7 +89,7 @@ pub fn record_input() {
   let writer = hound::WavWriter::create(&path, spec).unwrap();
   let writer = Arc::new(Mutex::new(Some(writer)));
 
-  println!("Begin recording...");
+  println!("recording started");
 
   let writer2 = writer.clone();
 
@@ -106,7 +112,15 @@ pub fn record_input() {
   };
 
   stream.play().unwrap();
-  std::thread::sleep(std::time::Duration::from_secs(3));
+
+  loop {
+    if recording.load(Ordering::SeqCst) {
+      break;
+    }
+
+    thread::sleep(std::time::Duration::from_secs(1));
+  }
+
   drop(stream);
   writer.lock().unwrap().take().unwrap().finalize().unwrap();
   println!("Recording {} complete!", &path);
