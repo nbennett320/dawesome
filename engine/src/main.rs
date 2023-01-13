@@ -494,7 +494,11 @@ fn toggle_record_input(
   state: tauri::State<'_, Arc<daw::InnerState>>,
 ) {
   println!("toggling input recording");
-  daw::input::record_input();
+
+  let recording = &state
+    .playlist
+    .recording;
+  daw::input::record_input(recording);
 }
 
 fn main() {
