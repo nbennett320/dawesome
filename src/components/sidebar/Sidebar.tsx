@@ -38,6 +38,9 @@ const Sidebar = (props: React.PropsWithChildren<Props>) => {
         </div>
         {open && page === SidebarPage.FileBrowser &&
         <div className={`${styles.SidebarBody} shadow-sm`}>
+          <div className='w-full text-sm bg-gray-100'>
+            search..
+          </div>
           <SampleBrowser />
         </div>}
       </div>
