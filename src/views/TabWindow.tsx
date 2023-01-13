@@ -11,7 +11,6 @@ import './styles.scss'
 
 const TabWindow = () => {
   const [selectedIndex, setSelectedIndex] = React.useState<number>(0)
-  console.log("selected tab:", selectedIndex)
 
   return (
     <div className='h-full'>

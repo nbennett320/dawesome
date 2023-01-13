@@ -2,11 +2,9 @@ import React from 'react'
 import { useAppSelector, useAppDispatch } from './hooks/redux'
 import Topbar from './components/topbar/Topbar'
 import Sidebar from './components/sidebar/Sidebar'
-import Playlist from './views/playlist/Playlist'
 import TabWindow from './views/TabWindow'
 import { listeners } from './events/window'
 import { selectDevicePreferences } from './state/slices/windowSlice'
-import DevicePreferences from './views/device-preferences/DevicePreferences'
 
 const App = () => {
   const devicePreferences = useAppSelector(selectDevicePreferences)
@@ -23,10 +21,6 @@ const App = () => {
         <Sidebar />
         <div className="w-full">
           <TabWindow />
-          {/* {devicePreferences 
-            ? <DevicePreferences />
-            : <Playlist />
-          } */}
         </div>
       </div>
     </div>

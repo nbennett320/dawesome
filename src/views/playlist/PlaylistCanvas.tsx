@@ -98,7 +98,6 @@ const PlaylistCanvas = () => {
   const items = useAppSelector(selectPlaylistItems)
 
   console.log("items", items)
-  console.log("ref: ", height)
 
   const updateWidthAndHeight = () => {
     setWidth(ref.current?.clientWidth)
