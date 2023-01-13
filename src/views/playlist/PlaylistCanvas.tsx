@@ -98,6 +98,7 @@ const PlaylistCanvas = () => {
   const items = useAppSelector(selectPlaylistItems)
 
   console.log("items", items)
+  console.log("ref: ", height)
 
   const updateWidthAndHeight = () => {
     setWidth(ref.current?.clientWidth)
@@ -204,6 +205,7 @@ const PlaylistCanvas = () => {
       {ref.current && <div ref={dropRef}>
         <ReactP5Wrapper
           sketch={playlistRenderer.sketch}
+          style={{ height: '100%' }}
           height={height}
           width={width}
           playing={playing}

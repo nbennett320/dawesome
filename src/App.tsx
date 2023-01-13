@@ -22,10 +22,11 @@ const App = () => {
       <div className="WorkspaceContainer flex flex-row w-full">
         <Sidebar />
         <div className="w-full">
-          {devicePreferences 
+          <TabWindow />
+          {/* {devicePreferences 
             ? <DevicePreferences />
             : <Playlist />
-          }
+          } */}
         </div>
       </div>
     </div>
