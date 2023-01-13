@@ -204,6 +204,7 @@ const PlaylistCanvas = () => {
       {ref.current && <div ref={dropRef}>
         <ReactP5Wrapper
           sketch={playlistRenderer.sketch}
+          style={{ height: '100%' }}
           height={height}
           width={width}
           playing={playing}
