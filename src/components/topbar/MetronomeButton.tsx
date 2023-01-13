@@ -8,7 +8,13 @@ import Button from '../common/Button'
 import MetronomeIcon from '../icons/MetronomeIcon'
 import styles from './styles.module.scss'
 
-const MetronomeButton = () => {
+interface Props {
+  className?: string
+  height?: number
+  width?: number
+}
+
+const MetronomeButton = (props: Props) => {
   const metronome = useAppSelector(selectMetronomeEnabled)
   const dispatch = useAppDispatch()
 
@@ -17,9 +23,9 @@ const MetronomeButton = () => {
       <Button
         onClick={() => dispatch(toggleMetronome())}
         aria-label="Play/Pause Button"
-        className={`${metronome ? 'bg-blue-400 hover:bg-blue-300' : 'bg-gray-300 hover:bg-gray-400' } py-1 px-3 rounded inline-flex items-center`}
+        className={`${metronome ? 'bg-blue-400 hover:bg-blue-300' : 'bg-gray-300 hover:bg-gray-400' } py-1 px-3 rounded inline-flex items-center ${props.className}`}
       >
-        <MetronomeIcon fill="white" />
+        <MetronomeIcon fill="white" height={props.height} width={props.width} />
       </Button>
     </div>
   )
