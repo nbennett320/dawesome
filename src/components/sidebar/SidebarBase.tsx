@@ -19,7 +19,7 @@ const SidebarBase = (props: React.PropsWithChildren<Props>) => {
   }, [props, props.open])
 
   return (
-    <div className={`${styles.SidebarBase} ${props.open ? "visible" : "hidden"}`}>
+    <div className={`${styles.SidebarBase}`}>
       {props.children}
     </div>
   )

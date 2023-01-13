@@ -12,7 +12,7 @@ abstract class RendererBase {
 
   setHeight = (height: number) => { this.height = height }
   setWidth = (width: number) => { this.width = width }
-  
+
   // render the p5 sketch. 
   // warning: method should only be implemented, not called
   // because p5 will run this method

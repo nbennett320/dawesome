@@ -9,9 +9,10 @@
 
   &__tab {
     display: inline-block;
-    border: 1px solid transparent;
+    border-left: 1px solid transparent;
+    border-right: 1px solid transparent;
     border-bottom: none;
-    bottom: -1px;
+    // bottom: -1px;
     position: relative;
     list-style: none;
     padding: 6px 12px;
@@ -21,7 +22,7 @@
       background: #fff;
       border-color: #aaa;
       color: black;
-      border-radius: 5px 5px 0 0;
+      // border-radius: 5px 5px 0 0;
     }
 
     &--disabled {
@@ -39,7 +40,6 @@
         left: -4px;
         right: -4px;
         bottom: -5px;
-        background: #fff;
       }
     }
   }
