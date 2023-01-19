@@ -48,6 +48,7 @@ export const staticDefaults = {
   // class specific defaults
   PlaylistObject: {
     labelHeight: 20,
+    tabHeight: 28,
   },
 }
 
