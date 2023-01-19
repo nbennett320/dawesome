@@ -25,6 +25,7 @@ class Waveform extends PlaylistComponentBase {
   minHeight: number
   trackHeight: number
   labelHeight: number = staticDefaults.PlaylistObject.labelHeight
+  tabHeight: number = staticDefaults.PlaylistObject.tabHeight
 
   constructor(
     p: P5CanvasInstance<CanvasProps>,
@@ -60,16 +61,16 @@ class Waveform extends PlaylistComponentBase {
   
   render = () => {
     const timePerPixel = (this.renderer as Renderer).timePerPixel()
-    const { currentScale, minHeight, trackHeight, height, labelHeight } = this
+    const { currentScale, minHeight, trackHeight, height, labelHeight, tabHeight } = this
     const { xOffset, yOffset, y } = this.pixelOffset
 
     this.p.strokeWeight(.3)
     this.p.stroke(0, 0, 0)
     for(let i = 0; i < this.soundData.length; i+=2) {
       const x0 = (this.soundData[i] * currentScale * timePerPixel) + xOffset
-      const y0 = minHeight + labelHeight*2 + (trackHeight/2) + (this.soundData[i+1] * (height - labelHeight)) - (y - yOffset)
+      const y0 = minHeight + labelHeight*2 + tabHeight + (trackHeight/2) + (this.soundData[i+1] * (height - labelHeight)) - (y - yOffset)
       const x1 = (this.soundData[i+2] * currentScale * timePerPixel) + xOffset
-      const y1 = minHeight + labelHeight*2 + (trackHeight/2) + (this.soundData[i+3] * (height - labelHeight)) - (y - yOffset)
+      const y1 = minHeight + labelHeight*2 + tabHeight + (trackHeight/2) + (this.soundData[i+3] * (height - labelHeight)) - (y - yOffset)
       this.p.line(x0, y0, x1, y1)
     }
   }
