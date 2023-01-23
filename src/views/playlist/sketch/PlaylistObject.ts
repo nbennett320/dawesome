@@ -1,12 +1,12 @@
 import p5 from 'p5'
 import { P5CanvasInstance } from 'react-p5-wrapper'
-import PlaylistComponentBase, { PlaylistComponentBaseProps } from './PlaylistComponentBase'
+import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import Waveform from './Waveform'
 import { CanvasProps, Renderer, staticDefaults } from './index'
 import { PlaylistItem } from '../../../types/playlist'
 import { debounce } from '../../../util/debounce'
 
-interface Props extends PlaylistComponentBaseProps {
+interface Props extends PlaylistComponentProps {
   playlistItem: PlaylistItem
   soundData: number[]
   duration: number
@@ -14,7 +14,7 @@ interface Props extends PlaylistComponentBaseProps {
   trackHeight: number
 }
 
-class PlaylistObject extends PlaylistComponentBase {
+class PlaylistObject extends PlaylistComponent {
   playlistItem: PlaylistItem
   soundData: number[] = []
   duration: number

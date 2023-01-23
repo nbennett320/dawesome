@@ -1,10 +1,10 @@
 import p5 from 'p5'
 import { P5CanvasInstance } from 'react-p5-wrapper'
-import PlaylistComponentBase, { PlaylistComponentBaseProps } from './PlaylistComponentBase'
+import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import { CanvasProps, Renderer, staticDefaults } from './index'
 import { PlaylistItemPixelOffset } from '../../../types/playlist'
 
-interface Props extends PlaylistComponentBaseProps {
+interface Props extends PlaylistComponentProps {
   // id: number
   soundData: number[]
   duration: number
@@ -15,7 +15,7 @@ interface Props extends PlaylistComponentBaseProps {
   pixelOffset: PlaylistItemPixelOffset
 }
 
-class Waveform extends PlaylistComponentBase {
+class Waveform extends PlaylistComponent {
   soundData: number[]
   duration: number
   trackNumber: number
@@ -45,7 +45,7 @@ class Waveform extends PlaylistComponentBase {
   }
 
   #getWidth = () => 
-    (this.soundData.length / 2) * (this.renderer as Renderer).timePerPixel()
+    (this.soundData.length / 2) * (this.playlist as Renderer).timePerPixel()
 
   // to do: return actual width
   boundingBox = () => ({

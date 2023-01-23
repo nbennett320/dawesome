@@ -1,17 +1,17 @@
 import p5 from 'p5'
 import { P5CanvasInstance } from 'react-p5-wrapper'
-import PlaylistComponentBase, { PlaylistComponentBaseProps } from './PlaylistComponentBase'
+import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import { CanvasProps, Renderer, staticDefaults } from './index'
 import PlaylistObject from './PlaylistObject'
 
-interface Props extends PlaylistComponentBaseProps {
+interface Props extends PlaylistComponentProps {
   trackNumber: number
   trackCount: number
   trackHeight?: number
   playlistObjects: Array<PlaylistObject>
 }
 
-class PlaylistTrack extends PlaylistComponentBase {
+class PlaylistTrack extends PlaylistComponent {
   trackNumber: number
   trackCount: number
   trackHeight: number = staticDefaults.trackHeight

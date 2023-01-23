@@ -1,12 +1,12 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import p5 from 'p5'
 import { P5CanvasInstance } from 'react-p5-wrapper'
-import PlaylistComponentBase, { PlaylistComponentBaseProps } from './PlaylistComponentBase'
+import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import { Renderer, CanvasProps } from './index'
 
-interface Props extends PlaylistComponentBaseProps {}
+interface Props extends PlaylistComponentProps {}
 
-class Cursor extends PlaylistComponentBase {
+class Cursor extends PlaylistComponent {
   constructor(
     p: P5CanvasInstance<CanvasProps>,
     canvas: p5.Renderer,

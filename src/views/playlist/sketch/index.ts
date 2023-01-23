@@ -75,6 +75,7 @@ export class Renderer extends RendererBase {
   transformX = 0
   transformY = 0
   
+  isMouseDown = false
   isMouseDragged = false
   mousePressedX: number | null = null
   mousePressedY: number | null = null
@@ -199,8 +200,9 @@ export class Renderer extends RendererBase {
           mousePressedX = p.mouseX
           mousePressedY = p.mouseY
 
-          this.isMouseDragged = true
+          this.isMouseDown = true
           p.mouseReleased = () => {
+            this.isMouseDown = false
             this.isMouseDragged = false
           }
         }
@@ -250,12 +252,13 @@ export class Renderer extends RendererBase {
       canvas.mouseReleased(() => {
         mousePressedX = null
         mousePressedY = null
+        this.isMouseDown = false
         this.isMouseDragged = false
       })
 
       // handle mouse drag
       canvas.mouseMoved((ev: MouseEvent) => {
-        if(this.isMouseDragged) {
+        if(this.isMouseDown) {
           const dist = p.dist(mousePressedX ?? 0, mousePressedY ?? 0, p.mouseX, p.mouseY)
           if(dist > staticDefaults.mouseDragDetectionThreshold) {
             this.isMouseDragged = true
@@ -468,6 +471,7 @@ export class Renderer extends RendererBase {
           `
           fps: ${fps}
           scale: ${scale}
+          mousedown: ${this.isMouseDown}
           dragging: ${this.isMouseDragged}
           nodeCount: ${nodeCount}
           trackCount: ${this.trackCount}
