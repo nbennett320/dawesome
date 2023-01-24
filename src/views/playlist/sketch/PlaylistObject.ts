@@ -61,48 +61,6 @@ class PlaylistObject extends PlaylistComponent {
 
   boundingBox = (): P5BoundingBox => this.waveform.boundingBox()
 
-  // return true if mouse is over the particular playlist object
-  // isMouseOver = (): boolean => {
-  //   const { mouseX, mouseY } = this.p
-  //   const { top, left, bottom, right } = this.waveform.boundingBox()
-
-  //   return (
-  //     left <= mouseX && mouseX <= right &&
-  //     top <= mouseY && mouseY <= bottom
-  //   )
-  // }
-
-  // call a function when the mouse is over this component
-  // onMouseOver = (fn: () => void) => {
-  //   if(this.isMouseOver()) {
-  //     fn()
-  //   }
-  // }
-
-  // // call a function when clicking on this component
-  // onClick = (
-  //   fn: (
-  //     ev: MouseEvent,
-  //     data: {
-  //       playlistObject: PlaylistObject
-  //       mouseX: number
-  //       mouseY: number
-  //     }
-  //   ) => void
-  // ) => {
-  //   this.onMouseOver(() => {
-  //     this.canvas.mouseClicked((ev: MouseEvent) => {
-  //       const { mouseX, mouseY } = this.p
-
-  //       fn(ev, { 
-  //         mouseX, 
-  //         mouseY,
-  //         playlistObject: this,
-  //       })
-  //     })
-  //   })
-  // }
-
   // call a function on dragging an item
   onDrag = (
     dragFn: () => void,
