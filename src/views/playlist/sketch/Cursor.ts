@@ -1,12 +1,13 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import p5 from 'p5'
 import { P5CanvasInstance } from 'react-p5-wrapper'
-import PlaylistComponentBase, { PlaylistComponentBaseProps } from './PlaylistComponentBase'
+import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import { Renderer, CanvasProps } from './index'
+import { P5BoundingBox } from '../../../render/P5Component'
 
-interface Props extends PlaylistComponentBaseProps {}
+interface Props extends PlaylistComponentProps {}
 
-class Cursor extends PlaylistComponentBase {
+class Cursor extends PlaylistComponent {
   constructor(
     p: P5CanvasInstance<CanvasProps>,
     canvas: p5.Renderer,
@@ -14,6 +15,19 @@ class Cursor extends PlaylistComponentBase {
     props: Props,
   ) {
     super(p, canvas, playlist, props)
+  }
+
+  boundingBox = (): P5BoundingBox => {
+    return {
+      bottom: 0,
+      top: 0,
+      left: 0,
+      right: 0,
+      height: 0,
+      width: 0,
+      minHeight: 0,
+      maxHeight: 0,
+    }
   }
 
   #currentRatio = (): number | null => {

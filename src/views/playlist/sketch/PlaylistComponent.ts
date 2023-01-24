@@ -1,16 +1,16 @@
 
 import p5 from 'p5'
 import { P5CanvasInstance } from 'react-p5-wrapper'
-import P5ComponentBase from '../../../render/P5ComponentBase'
+import P5Component from '../../../render/P5Component'
 import { CanvasProps, Renderer } from './index'
 
-export interface PlaylistComponentBaseProps {
+export interface PlaylistComponentProps {
   timelineWidth: number
   timelineHeight: number
   currentScale: number
 }
 
-abstract class PlaylistComponentBase extends P5ComponentBase<CanvasProps> {
+abstract class PlaylistComponent extends P5Component<CanvasProps> {
   timelineWidth: number
   timelineHeight: number
   currentScale: number
@@ -18,16 +18,18 @@ abstract class PlaylistComponentBase extends P5ComponentBase<CanvasProps> {
   constructor(
     p: P5CanvasInstance<CanvasProps>,
     canvas: p5.Renderer,
-    renderer: Renderer,
-    props: PlaylistComponentBaseProps,
+    playlist: Renderer,
+    props: PlaylistComponentProps,
   ) {
-    super(p, canvas, renderer)
+    super(p, canvas, playlist)
     this.timelineWidth = props.timelineWidth
     this.timelineHeight = props.timelineHeight
     this.currentScale = props.currentScale
   }
 
+  get playlist() { return this.renderer }
+
   abstract render(): void
 }
 
-export default PlaylistComponentBase
+export default PlaylistComponent

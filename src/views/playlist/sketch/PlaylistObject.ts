@@ -1,12 +1,12 @@
 import p5 from 'p5'
 import { P5CanvasInstance } from 'react-p5-wrapper'
-import PlaylistComponentBase, { PlaylistComponentBaseProps } from './PlaylistComponentBase'
+import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import Waveform from './Waveform'
 import { CanvasProps, Renderer, staticDefaults } from './index'
 import { PlaylistItem } from '../../../types/playlist'
-import { debounce } from '../../../util/debounce'
+import { P5BoundingBox } from '../../../render/P5Component'
 
-interface Props extends PlaylistComponentBaseProps {
+interface Props extends PlaylistComponentProps {
   playlistItem: PlaylistItem
   soundData: number[]
   duration: number
@@ -14,7 +14,7 @@ interface Props extends PlaylistComponentBaseProps {
   trackHeight: number
 }
 
-class PlaylistObject extends PlaylistComponentBase {
+class PlaylistObject extends PlaylistComponent {
   playlistItem: PlaylistItem
   soundData: number[] = []
   duration: number
@@ -59,110 +59,7 @@ class PlaylistObject extends PlaylistComponentBase {
     )
   }
 
-  // return true if mouse is over the particular playlist object
-  isMouseOver = (): boolean => {
-    const { mouseX, mouseY } = this.p
-    const { top, left, bottom, right } = this.waveform.boundingBox()
-
-    return (
-      left <= mouseX && mouseX <= right &&
-      top <= mouseY && mouseY <= bottom
-    )
-  }
-
-  // call a function when the mouse is over this component
-  onMouseOver = (fn: () => void) => {
-    if(this.isMouseOver()) {
-      fn()
-    }
-  }
-
-  // call a function when clicking on this component
-  onClick = (
-    fn: (
-      ev: MouseEvent,
-      data: {
-        playlistObject: PlaylistObject
-        mouseX: number
-        mouseY: number
-      }
-    ) => void
-  ) => {
-    this.onMouseOver(() => {
-      this.canvas.mouseClicked((ev: MouseEvent) => {
-        const { mouseX, mouseY } = this.p
-
-        fn(ev, { 
-          mouseX, 
-          mouseY,
-          playlistObject: this,
-        })
-      })
-    })
-  }
-
-  // call function on left click
-  onLeftClick = (
-    fn: (
-      ev: MouseEvent,
-      data: {
-        playlistObject: PlaylistObject
-        mouseX: number
-        mouseY: number
-      }
-    ) => void
-  ) => {
-    this.onMouseOver(() => {
-      this.canvas.mouseClicked((ev: MouseEvent) => {
-        if(ev.button === 0) {
-          const { mouseX, mouseY } = this.p
-
-          fn(ev, { 
-            mouseX, 
-            mouseY,
-            playlistObject: this,
-          })
-        }
-      })
-    })
-  }
-
-  // call function on right click
-  // eslint-disable-next-line class-methods-use-this
-  onRightClick = (
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _ev: MouseEvent,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _data: {
-      playlistObject: PlaylistObject
-      mouseX: number
-      mouseY: number
-    }
-  ) => {}
-
-  // call a function when double clicking on this component
-  onDoubleClick = (
-    fn: (
-      ev: MouseEvent, 
-      data: {
-        playlistObject: PlaylistObject
-        mouseX: number
-        mouseY: number
-      }
-    ) => void
-  ) => {
-    this.onMouseOver(() => {
-      this.canvas.doubleClicked((ev) => {
-        const { mouseX, mouseY } = this.p
-
-        fn(ev, { 
-          mouseX, 
-          mouseY,
-          playlistObject: this,
-        })
-      })
-    })
-  }
+  boundingBox = (): P5BoundingBox => this.waveform.boundingBox()
 
   // call a function on dragging an item
   onDrag = (
