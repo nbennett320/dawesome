@@ -3,6 +3,7 @@ import p5 from 'p5'
 import { P5CanvasInstance } from 'react-p5-wrapper'
 import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import { CanvasProps, Renderer } from './index'
+import { P5BoundingBox } from '../../../render/P5Component'
 
 interface Props extends PlaylistComponentProps {}
 
@@ -14,6 +15,19 @@ class Timeline extends PlaylistComponent {
     props: Props,
   ) {
     super(p, canvas, playlist, props)
+  }
+
+  boundingBox = (): P5BoundingBox => {
+    return {
+      bottom: 0,
+      top: this.timelineHeight,
+      left: 0,
+      right: this.timelineWidth,
+      height: this.timelineHeight,
+      width: this.timelineWidth,
+      minHeight: 0,
+      maxHeight: this.timelineHeight,
+    }
   }
 
   drawNumbers() {

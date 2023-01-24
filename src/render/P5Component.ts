@@ -18,48 +18,19 @@ export type P5BoundingBox = {
 }
 
 abstract class P5Component<T extends SketchProps> extends P5ComponentBase<T> {
-  minHeight: number
-  maxHeight: number
-  bottom: number
-  top: number
-  left: number
-  right: number
-  height: number
-  width: number 
-
   constructor(
     p: P5CanvasInstance<T>,
     canvas: p5.Renderer,
     renderer: RendererBase
   ) {
     super(p, canvas, renderer)
-    
-    const {
-      minHeight,
-      maxHeight,
-      bottom,
-      top,
-      left,
-      right,
-      height,
-      width,
-    } = this.boundingBox()
-
-    this.minHeight = minHeight
-    this.maxHeight = maxHeight
-    this.bottom = bottom
-    this.top = top
-    this.left = left
-    this.right = right
-    this.height = height
-    this.width = width
   }
 
   abstract boundingBox(): P5BoundingBox
 
-  #mouseOver = (): boolean => {
+  mouseOver = (): boolean => {
     const { mouseX, mouseY } = this.p
-    const { top, left, bottom, right } = this
+    const { top, left, bottom, right } = this.boundingBox()
 
     return (
       left <= mouseX && mouseX <= right &&
@@ -69,7 +40,7 @@ abstract class P5Component<T extends SketchProps> extends P5ComponentBase<T> {
 
   // call a function when the mouse is over this component
   onMouseOver = (fn: () => void) => {
-    if(this.#mouseOver()) {
+    if(this.mouseOver()) {
       fn()
     }
   }

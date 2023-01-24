@@ -3,6 +3,7 @@ import { P5CanvasInstance } from 'react-p5-wrapper'
 import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import { CanvasProps, Renderer, staticDefaults } from './index'
 import PlaylistObject from './PlaylistObject'
+import { P5BoundingBox } from '../../../render/P5Component'
 
 interface Props extends PlaylistComponentProps {
   trackNumber: number
@@ -32,6 +33,19 @@ class PlaylistTrack extends PlaylistComponent {
     this.minHeight = this.trackHeight * this.trackNumber + (this.trackNumber * .3) + staticDefaults.timelineHeight
     this.maxHeight = this.minHeight + this.trackHeight
     this.playlistObjects = props.playlistObjects
+  }
+
+  boundingBox = (): P5BoundingBox => {
+    return {
+      bottom: 0,
+      top: 0,
+      left: 0,
+      right: 0,
+      width: 0,
+      height: 0,
+      minHeight: this.minHeight,
+      maxHeight: this.maxHeight,
+    }
   }
 
   drawDraggingPlaylistItem = (item: PlaylistObject) => {
@@ -104,7 +118,7 @@ class PlaylistTrack extends PlaylistComponent {
       .forEach(item => {
         item.render()
 
-        if(item.isMouseOver()) {
+        if(item.mouseOver()) {
           p.cursor(p.HAND)
         } else {
           p.cursor(p.ARROW)

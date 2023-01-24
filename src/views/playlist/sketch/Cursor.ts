@@ -3,6 +3,7 @@ import p5 from 'p5'
 import { P5CanvasInstance } from 'react-p5-wrapper'
 import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import { Renderer, CanvasProps } from './index'
+import { P5BoundingBox } from '../../../render/P5Component'
 
 interface Props extends PlaylistComponentProps {}
 
@@ -14,6 +15,19 @@ class Cursor extends PlaylistComponent {
     props: Props,
   ) {
     super(p, canvas, playlist, props)
+  }
+
+  boundingBox = (): P5BoundingBox => {
+    return {
+      bottom: 0,
+      top: 0,
+      left: 0,
+      right: 0,
+      height: 0,
+      width: 0,
+      minHeight: 0,
+      maxHeight: 0,
+    }
   }
 
   #currentRatio = (): number | null => {

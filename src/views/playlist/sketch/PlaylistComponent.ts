@@ -27,6 +27,8 @@ abstract class PlaylistComponent extends P5Component<CanvasProps> {
     this.currentScale = props.currentScale
   }
 
+  get playlist() { return this.renderer }
+
   abstract render(): void
 }
 
