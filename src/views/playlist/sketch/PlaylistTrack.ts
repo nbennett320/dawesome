@@ -3,7 +3,7 @@ import { P5CanvasInstance } from 'react-p5-wrapper'
 import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import { CanvasProps, Renderer, staticDefaults } from './index'
 import PlaylistObject from './PlaylistObject'
-import { P5BoundingBox } from '../../../render/P5Component'
+import { P5BoundingBox, State as ComponentState } from '../../../render/P5Component'
 
 interface Props extends PlaylistComponentProps {
   trackNumber: number
@@ -12,10 +12,15 @@ interface Props extends PlaylistComponentProps {
   playlistObjects: Array<PlaylistObject>
 }
 
-class PlaylistTrack extends PlaylistComponent {
+type State = ComponentState<{
+  
+}>
+
+class PlaylistTrack extends PlaylistComponent<State> {
   trackNumber: number
   trackCount: number
   trackHeight: number = staticDefaults.trackHeight
+  tabHeight: number = staticDefaults.PlaylistObject.tabHeight
   minHeight: number
   maxHeight: number
   playlistObjects: Array<PlaylistObject>
@@ -52,6 +57,7 @@ class PlaylistTrack extends PlaylistComponent {
     const { 
       p,
       minHeight,
+      tabHeight,
     } = this
 
     const dragX = p.pmouseX
@@ -80,9 +86,9 @@ class PlaylistTrack extends PlaylistComponent {
     this.p.stroke(0, 0, 0, 255*.3)
     for(let i = 0; i < item.waveform.soundData.length; i+=2) {
       const x0 = (item.waveform.soundData[i] * currentScale * timePerPixel) + xOffset + dragX - left
-      const y0 = minHeight + labelHeight*2 + (trackHeight/2) + (item.waveform.soundData[i+1] * (height - labelHeight)) - (y - yOffset) + dragY - top
+      const y0 = minHeight + labelHeight*2 + tabHeight + (trackHeight/2) + (item.waveform.soundData[i+1] * (height - labelHeight)) - (y - yOffset) + dragY - top
       const x1 = (item.waveform.soundData[i+2] * currentScale * timePerPixel) + xOffset + dragX - left
-      const y1 = minHeight + labelHeight*2 + (trackHeight/2) + (item.waveform.soundData[i+3] * (height - labelHeight)) - (y - yOffset) + dragY - top
+      const y1 = minHeight + labelHeight*2 + tabHeight + (trackHeight/2) + (item.waveform.soundData[i+3] * (height - labelHeight)) - (y - yOffset) + dragY - top
       this.p.line(x0, y0, x1, y1)
     }
 

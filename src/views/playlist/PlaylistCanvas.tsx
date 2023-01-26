@@ -158,6 +158,7 @@ const PlaylistCanvas = () => {
     item: PlaylistItem,
     dropCoords: { x: number, y: number },
   ) => {
+    console.log("node move")
     // handle drag and drop from nodes already existent in the playlist
     if(dropCoords && ref.current) { 
       const { x, y } = dropCoords

@@ -10,7 +10,7 @@ export interface PlaylistComponentProps {
   currentScale: number
 }
 
-abstract class PlaylistComponent extends P5Component<CanvasProps> {
+abstract class PlaylistComponent<S> extends P5Component<CanvasProps, S> {
   timelineWidth: number
   timelineHeight: number
   currentScale: number

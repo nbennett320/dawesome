@@ -4,7 +4,7 @@ import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import Waveform from './Waveform'
 import { CanvasProps, Renderer, staticDefaults } from './index'
 import { PlaylistItem } from '../../../types/playlist'
-import { P5BoundingBox } from '../../../render/P5Component'
+import { P5BoundingBox, State as ComponentState } from '../../../render/P5Component'
 
 interface Props extends PlaylistComponentProps {
   playlistItem: PlaylistItem
@@ -14,7 +14,11 @@ interface Props extends PlaylistComponentProps {
   trackHeight: number
 }
 
-class PlaylistObject extends PlaylistComponent {
+type State = ComponentState<{
+  isDragging: boolean
+}>
+
+class PlaylistObject extends PlaylistComponent<State> {
   playlistItem: PlaylistItem
   soundData: number[] = []
   duration: number
@@ -24,7 +28,7 @@ class PlaylistObject extends PlaylistComponent {
   minHeight: number
   maxHeight: number
   waveform: Waveform
-  isDragging = false
+  // isDragging = false
 
   constructor(
     p: P5CanvasInstance<CanvasProps>,
@@ -33,6 +37,11 @@ class PlaylistObject extends PlaylistComponent {
     props: Props,
   ) {
     super(p, canvas, playlist, props)
+
+    this.setState({
+      isDragging: false,
+    })
+
     this.playlistItem = props.playlistItem
     this.soundData = props.soundData
     this.duration = props.duration
@@ -61,6 +70,8 @@ class PlaylistObject extends PlaylistComponent {
 
   boundingBox = (): P5BoundingBox => this.waveform.boundingBox()
 
+  get isDragging(): boolean { return this.state.isDragging }
+
   // call a function on dragging an item
   onDrag = (
     dragFn: () => void,
@@ -69,12 +80,24 @@ class PlaylistObject extends PlaylistComponent {
     this.onMouseOver(() => {
       if((this.renderer as Renderer).isMouseDragged) {
         this.canvas.mouseReleased(() => {
-          this.isDragging = false
-          console.log("it dropped")
-          dropFn()
+
+          if(this.state.isDragging) {
+            // this.isDragging = false
+            console.log("it dropped")
+            dropFn()
+            this.setState({
+              ...this.state,
+              isDragging: false,
+            })
+
+          }
         })
 
-        this.isDragging = true
+        // this.isDragging = true
+        this.setState({
+          ...this.state,
+          isDragging: true,
+        })
       }
     })
 

@@ -1,3 +1,4 @@
+/* eslint-disable no-underscore-dangle */
 import p5 from 'p5'
 import {
   P5CanvasInstance,
@@ -5,6 +6,9 @@ import {
 } from 'react-p5-wrapper'
 import P5ComponentBase from './P5ComponentBase'
 import RendererBase from './RendererBase'
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type State<S> = S | Record<string, any>
 
 export type P5BoundingBox = {
   minHeight: number
@@ -17,13 +21,35 @@ export type P5BoundingBox = {
   width: number 
 }
 
-abstract class P5Component<T extends SketchProps> extends P5ComponentBase<T> {
+abstract class P5Component<T extends SketchProps, S> extends P5ComponentBase<T> {
+  private _state: State<S> = {}
+
   constructor(
     p: P5CanvasInstance<T>,
     canvas: p5.Renderer,
     renderer: RendererBase
   ) {
     super(p, canvas, renderer)
+  }
+
+  private componentDidUpdate(prevState: State<S>): void {
+
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-dupe-class-members, class-methods-use-this
+  set state(newState: State<S>) {
+    this._state = newState
+  }
+
+  get state(): State<S> {
+    return this._state
+  }
+
+  setState(newState: State<S>) {
+    const prevState = this.state
+
+    this.state = newState
+    this.componentDidUpdate(prevState)
   }
 
   abstract boundingBox(): P5BoundingBox
@@ -50,7 +76,7 @@ abstract class P5Component<T extends SketchProps> extends P5ComponentBase<T> {
     fn: (
       ev: MouseEvent,
       data: {
-        target: P5Component<T> 
+        target: P5Component<T, S> 
         mouseX: number
         mouseY: number
       }
@@ -76,7 +102,7 @@ abstract class P5Component<T extends SketchProps> extends P5ComponentBase<T> {
     _ev: MouseEvent,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _data: {
-      target: P5Component<T>
+      target: P5Component<T, S>
       mouseX: number
       mouseY: number
     }
@@ -87,7 +113,31 @@ abstract class P5Component<T extends SketchProps> extends P5ComponentBase<T> {
     fn: (
       ev: MouseEvent, 
       data: {
-        target: P5Component<T> 
+        target: P5Component<T, S> 
+        mouseX: number
+        mouseY: number
+      }
+    ) => void
+  ) => {
+    this.onMouseOver(() => {
+      this.canvas.doubleClicked((ev) => {
+        const { mouseX, mouseY } = this.p
+
+        fn(ev, { 
+          mouseX, 
+          mouseY,
+          target: this,
+        })
+      })
+    })
+  }
+
+  // call a function when releasing on this component
+  onMouseReleased = (
+    fn: (
+      ev: MouseEvent, 
+      data: {
+        target: P5Component<T, S> 
         mouseX: number
         mouseY: number
       }
