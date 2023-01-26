@@ -156,12 +156,12 @@ export class Renderer extends RendererBase {
     console.log("handled right click", ev)
 
     this.playlistObjects.forEach(item => {
-      if(item.isMouseOver()) {
+      if(item.mouseOver()) {
         const { mouseX, mouseY } = p
         item.onRightClick(ev, {
           mouseX,
           mouseY,
-          playlistObject: item,
+          target: item,
         })
       }
     })
