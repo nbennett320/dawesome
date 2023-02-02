@@ -75,18 +75,33 @@ const TabWindow = (props: TabWindowProps) => {
           <div className='h-full w-full'>
             <div>sample details</div>
             <div>yoberry</div>
-            {/* <SampleDetails /> */}
-            {/* <SplitPane split='horizontal'>
-              <div>yoberry3</div>
-            </SplitPane> */}
             <DynamicPane 
               id='root'
-              data={[
-                {
-                  id: 'playlist',
-                  child: (<div>im the child</div>)
+              root={{
+                id: 'root',
+                left: {
+                  id: 'combined',
+                  left: {
+                    id: 'playlist',
+                    left: {
+                      id: 'playlist',
+                      child: <div>playlist</div>,
+                    },
+                    right: {
+                      id: 'blue',
+                      child: <div>blue</div>,
+                    }
+                  },
+                  right: {
+                    id: 'other',
+                    child: <div>other node</div>,
+                  }
+                },
+                right: {
+                  id: 'details',
+                  child: <div>details node</div>,
                 }
-              ]}
+              }}
             />
           </div>
         </TabPanel>

@@ -1,118 +1,112 @@
 import React from 'react'
 import SplitPane from 'react-split-pane'
-import { v4 as uuidv4 } from 'uuid'
 import './styles.scss'
+
+export type Node = {
+  id: string
+  left?: Node
+  right?: Node
+  child?: React.ReactChild
+}
+
+type SplitDirection = 'vertical' | 'horizontal'
+
 
 export interface Props {
   id: string
-  data: Array<{
-    id: string,
-    child: React.ReactChild,
-  }>
+  root: Node
   onRemove?: (childId: string) => void
   onToggleParentSplit?: () => void
 }
 
-enum SplitDirection {
-  Horizontal,
-  Vertical,
-}
-
-export type SplitNode = {
-  options?: {
-    split: SplitDirection,
-  }
-  primaryId?: string
-  secondaryId?: string
-}
 
 const DynamicPane = (props: Props) => {
-  const [splitNode, setSplitNode] = React.useState<SplitNode | undefined>()
-  const [nodeCount, setNodeCount] = React.useState<number>(1)
+  console.log("dynamic pane props '" + props.root.id + "': ", props)
+  const ref = React.useRef<HTMLDivElement>(null)
+  const [mouseLeft, setMouseLeft] = React.useState()
 
-  const handleSplit = () => {
-    const primaryId = uuidv4()
-    const secondaryId = uuidv4()
-    const newNode = {
-      ...splitNode, 
-      options: {
-        split: SplitDirection.Vertical,
-      },
-      primaryId,
-      secondaryId,
+  const handleMouseEnter = (e: MouseEvent) => {
+    console.log("ref:", ref)
+
+    if(ref.current) {
+      const { width, height, left } = ref.current.getBoundingClientRect()
+
+      if(e.clientX > left) {
+        console.log("left!!!", e.clientX, left)
+      }
+
     }
-
-    setSplitNode(newNode)
   }
 
-  const renderChild = () => (
-    <div>
-      <div>
-        child
-      </div>
-
-      <button className='bg-slate-300' onClick={handleSplit}>split</button>
-    </div>
-  )
-
-  const renderHorizontalSplit = () => (
-    <SplitPane
-      split='horizontal'
-    >
-      {splitNode?.primaryId ? (
-        <DynamicPane 
-          id={splitNode.primaryId}
-        /> 
-      ) : (
-        <div>Error</div>
-      )}
-      {splitNode?.secondaryId ? (
-        <DynamicPane 
-          id={splitNode.secondaryId}
-        /> 
-      ) : (
-        <div>Error</div>
-      )}
-    </SplitPane>
-  )
-
-  const renderVerticalSplit = () => (
-    <SplitPane
-      split='vertical'
-    >
-      {splitNode?.primaryId ? (
-        <DynamicPane 
-          id={splitNode.primaryId}
-          data={[
-            {
-              id: 'playlist',
-              child: props.data[0].child
-            }
-          ]}
-        /> 
-      ) : (
-        <div>Error</div>
-      )}
-      {splitNode?.secondaryId ? (
-        <DynamicPane 
-          id={splitNode.secondaryId}
-        /> 
-      ) : (
-        <div>Error</div>
-      )}
-    </SplitPane>
-  )
-
   const renderRoot = () => {
-    if(splitNode?.options) {
-      return splitNode.options.split === SplitDirection.Horizontal ? renderHorizontalSplit() : renderVerticalSplit()
+    const { left, right } = props.root
+
+    if(left?.child && right?.child) {
+      // render left and right children
+      return (
+        <SplitPane split='vertical'>
+          {left.child}
+          {right.child}
+        </SplitPane>
+      )
     }
 
-    return renderChild()
+    if(left?.child && right && !right?.child) {
+      // render left child and right root
+      return (
+        <SplitPane split='vertical'>
+          {left.child}
+
+          <DynamicPane 
+            id={right.id}
+            root={right}
+          />
+        </SplitPane>
+      )
+    }
+
+    if(left && !left?.child && right?.child) {
+      // render left tree and right children
+      return (
+        <SplitPane split='vertical'>
+          <DynamicPane 
+            id={left.id}
+            root={left}
+          />
+
+          {right.child}
+        </SplitPane>
+      )
+    }
+
+    if(left && !left?.child && right && !right?.child) {
+      // render left and right tree
+      return (
+        <SplitPane split='vertical'>
+          <DynamicPane 
+            id={left.id}
+            root={left}
+          />
+
+          <DynamicPane 
+            id={right.id}
+            root={right}
+          />
+        </SplitPane>
+      )
+    }
+
+    return (
+      <div>Error rendering pane tree</div>
+    )
   }
 
   return (
-    <div className='w-full'>
+    <div 
+      ref={ref}
+      onMouseEnter={(e) => { handleMouseEnter(e) }}
+      className='w-full'
+    >
       {renderRoot()}
     </div>
   )
