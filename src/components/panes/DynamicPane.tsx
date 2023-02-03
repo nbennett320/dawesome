@@ -1,24 +1,19 @@
 import React from 'react'
 import SplitPane from 'react-split-pane'
+import { WindowNode } from '../../types/ui'
 import './styles.scss'
-
-export type Node = {
-  id: string
-  left?: Node
-  right?: Node
-  child?: React.ReactChild
-}
-
-type SplitDirection = 'vertical' | 'horizontal'
 
 
 export interface Props {
   id: string
-  root: Node
+  root: WindowNode
   onRemove?: (childId: string) => void
   onToggleParentSplit?: () => void
 }
 
+const LeftChildError = () => (
+  <div>Error rendering left child</div>
+)
 
 const DynamicPane = (props: Props) => {
   console.log("dynamic pane props '" + props.root.id + "': ", props)
