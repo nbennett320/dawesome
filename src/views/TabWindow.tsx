@@ -6,42 +6,43 @@ import {
   TabPanel
 } from 'react-tabs'
 import { useDrag } from 'react-dnd'
-import SplitPane from 'react-split-pane'
+import SplitPane, { Pane } from 'react-split-pane'
+import {
+  selectWindowPane,
+} from '../state/slices/windowSlice'
+import { useAppSelector } from '../hooks/redux'
 import DynamicPane from '../components/panes/DynamicPane'
 import Playlist from './playlist/Playlist'
 import SampleDetails from './sample-details/SampleDetails'
-import { TabTypes } from '../types/ui'
+import { TabTypes, PaneTab, View } from '../types/ui'
 import './styles.scss'
-
-
-// interface TabData {
-//   tabLabels: string[]
-//   tabChildren: React.ReactNode[]
-// }
 
 interface WindowPane {
 }
 
-// const Window = () => {
-//   const [panes, setPanes] = React.useState<WindowPane[]>([])
-
-//   return (
-//     <div className='h-full'>
-//       {panes.length > 1 ? (
-//         <></>
-//       ) : (
-//         <></>
-//       )}
-//     </div>
-//   )
-// }
-
+export const matchViewComponent = (view: View): JSX.Element => {
+  switch(view) {
+    case View.Playlist:
+      return <Playlist />
+    case View.Test: 
+      return <div style={{ height: '100px' }}>test component</div>
+    default:
+      console.error("Tab does not have matching componenr: ", view)
+      return <Playlist />
+  }
+}
 
 interface Props {}
 
 const TabWindow = (props: Props) => {
-  const [tabs, setTabs] = React.useState<TabData[]>([])
+  const [tabs, setTabs] = React.useState<PaneTab[]>([])
   const [selectedIndex, setSelectedIndex] = React.useState<number>(0)
+
+  
+
+  const windowPane = useAppSelector(selectWindowPane)
+  console.log("tabs: ", tabs)
+  console.log("window: ", windowPane)
 
   return (
     <div className='h-full'>
@@ -52,11 +53,10 @@ const TabWindow = (props: Props) => {
         selectedTabPanelClassName='react-tabs__tab-panel--selected h-full'
       >
         <TabList className='text-xs'>
-          {tabs.map(tab => (
+          {windowPane.tabs.map(tab => (
             <Tab
               key={tab.label}
               style={{ userSelect: 'none' }}
-              
               draggable
             >
               {tab.label}
@@ -64,12 +64,24 @@ const TabWindow = (props: Props) => {
           ))}
         </TabList>
 
+        {/* <TabPanel>
+          {tabs.map(tab => (
+            <div className='h-full w-full z-30'>
+              {matchViewComponent(tab.component)}
+            </div>
+          ))
+
+          }
+        </TabPanel> */}
         <TabPanel>
-          <div className='h-full w-full z-30'>
-            <Playlist />
+          <div className='h-full w-full'>
+            <DynamicPane 
+              id='root'
+              root={windowPane}
+            />
           </div>
         </TabPanel>
-        <TabPanel>
+        {/* <TabPanel>
           <div className='h-full w-full'>
             <div>sample details</div>
             <div>yoberry</div>
@@ -102,7 +114,7 @@ const TabWindow = (props: Props) => {
               }}
             />
           </div>
-        </TabPanel>
+        </TabPanel> */}
       </Tabs>
     </div>
   )

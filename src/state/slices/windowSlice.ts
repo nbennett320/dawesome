@@ -1,7 +1,6 @@
 import { createSlice, Dispatch } from '@reduxjs/toolkit'
 import { RootState } from 'state/store'
-import { WindowPane, PaneTab, WindowNode } from '../../types/ui'
-import Playlist from '../../views/playlist/Playlist'
+import { WindowPane, PaneTab, WindowNode, View } from '../../types/ui'
 
 // util binary search
 const findWindowNode = (
@@ -78,14 +77,20 @@ const initialState = {
     id: 'dawesome',
     root: {
       id: 'root',
-      child: Playlist(),
+      child: View.Playlist,
       tabs: [
         {
           label: 'Playlist',
           index: 0,
           active: true,
-          component: Playlist(),
+          component: View.Playlist,
         },
+        {
+          label: 'Test',
+          index: 1,
+          active: false,
+          component: View.Test
+        }
       ]
     }
   }

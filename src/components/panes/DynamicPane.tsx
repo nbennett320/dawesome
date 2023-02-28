@@ -1,8 +1,8 @@
 import React from 'react'
 import SplitPane from 'react-split-pane'
 import { WindowNode } from '../../types/ui'
+import { matchViewComponent } from '../../views/TabWindow' 
 import './styles.scss'
-
 
 export interface Props {
   id: string
@@ -40,8 +40,8 @@ const DynamicPane = (props: Props) => {
       // render left and right children
       return (
         <SplitPane split='vertical'>
-          {left.child}
-          {right.child}
+          {matchViewComponent(left.child)}
+          {matchViewComponent(right.child)}
         </SplitPane>
       )
     }
@@ -50,7 +50,7 @@ const DynamicPane = (props: Props) => {
       // render left child and right root
       return (
         <SplitPane split='vertical'>
-          {left.child}
+          {matchViewComponent(left.child)}
 
           <DynamicPane 
             id={right.id}
@@ -69,7 +69,7 @@ const DynamicPane = (props: Props) => {
             root={left}
           />
 
-          {right.child}
+          {matchViewComponent(right.child)}
         </SplitPane>
       )
     }
@@ -90,7 +90,14 @@ const DynamicPane = (props: Props) => {
         </SplitPane>
       )
     }
+    
+    if(props.root.id === 'root' && (props.root.child === 0 || props.root.child)) {
+      return (
+        matchViewComponent(props.root.child)
+      )
+    }
 
+    console.log("error", left, right)
     return (
       <div>Error rendering pane tree</div>
     )
