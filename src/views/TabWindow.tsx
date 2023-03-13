@@ -8,13 +8,15 @@ import {
 import { useDrag } from 'react-dnd'
 import SplitPane, { Pane } from 'react-split-pane'
 import {
+  removeTab,
   selectWindowPane,
 } from '../state/slices/windowSlice'
-import { useAppSelector } from '../hooks/redux'
+import { useAppSelector, useAppDispatch } from '../hooks/redux'
 import DynamicPane from '../components/panes/DynamicPane'
 import Playlist from './playlist/Playlist'
 import SampleDetails from './sample-details/SampleDetails'
 import { TabTypes, PaneTab, View } from '../types/ui'
+import Close from '../components/icons/Close'
 import './styles.scss'
 
 interface WindowPane {
@@ -37,12 +39,14 @@ interface Props {}
 const TabWindow = (props: Props) => {
   const [tabs, setTabs] = React.useState<PaneTab[]>([])
   const [selectedIndex, setSelectedIndex] = React.useState<number>(0)
-
-  
+  const dispatch = useAppDispatch()
 
   const windowPane = useAppSelector(selectWindowPane)
-  console.log("tabs: ", tabs)
   console.log("window: ", windowPane)
+
+  const closeTab = (tab: PaneTab) => {
+    dispatch(removeTab(tab, windowPane.id))
+  } 
 
   return (
     <div className='h-full'>
@@ -59,7 +63,20 @@ const TabWindow = (props: Props) => {
               style={{ userSelect: 'none' }}
               draggable
             >
-              {tab.label}
+              <div className='flex row items-center justify-between'>
+                <span className=''>{tab.label}</span>
+
+                <button 
+                  className='ml-1 border-0 rounded-sm hover:bg-slate-200'
+                  onClick={() => { closeTab(tab) }}
+                >
+                  <Close
+                    height={16}
+                    width={16}
+                    fill='rgba(0, 0, 0, 0.67)'
+                  />
+                </button>
+              </div>
             </Tab>
           ))}
         </TabList>
@@ -81,40 +98,6 @@ const TabWindow = (props: Props) => {
             />
           </div>
         </TabPanel>
-        {/* <TabPanel>
-          <div className='h-full w-full'>
-            <div>sample details</div>
-            <div>yoberry</div>
-            <DynamicPane 
-              id='root'
-              root={{
-                id: 'root',
-                left: {
-                  id: 'combined',
-                  left: {
-                    id: 'playlist',
-                    left: {
-                      id: 'playlist2',
-                      child: <div>playlist</div>,
-                    },
-                    right: {
-                      id: 'blue',
-                      child: <div>blue</div>,
-                    }
-                  },
-                  right: {
-                    id: 'other',
-                    child: <div>other node</div>,
-                  }
-                },
-                right: {
-                  id: 'details',
-                  child: <div>details node</div>,
-                }
-              }}
-            />
-          </div>
-        </TabPanel> */}
       </Tabs>
     </div>
   )

@@ -1,5 +1,6 @@
 import { createSlice, Dispatch } from '@reduxjs/toolkit'
 import { RootState } from 'state/store'
+import PlaylistComponentBase from 'views/sample-details/sketch/PlaylistComponentBase'
 import { WindowPane, PaneTab, WindowNode, View } from '../../types/ui'
 
 // util binary search
@@ -131,6 +132,15 @@ export const windowSlice = createSlice({
       // add tab to window pane
       state.windowPane = action.payload
 
+    },
+    reduceRemoveTab: (
+      state,
+      action: {
+        type: string
+        payload: WindowPane
+      }
+    ) => {
+      state.windowPane = action.payload
     }
   },
 })
@@ -160,12 +170,44 @@ export const selectDevicePreferences = (state: RootState) =>
   state.window.devicePreferences
 // end show device preferences methods
 
+// select window pane
+export const selectWindowPane = (state: RootState) => state.window.windowPane.root
+
 // start window layout methods
 export const addTab = (tab: PaneTab, paneId: string) => async (dispatch: Dispatch) => {
 
 }
 
-export const selectWindowPane = (state: RootState) => state.window.windowPane.root
+export const { reduceRemoveTab } = windowSlice.actions
+
+export const removeTab = (
+  tab: PaneTab,
+  paneId: string
+) => async (dispatch: Dispatch, getState: () => RootState) => {
+  const state = getState().window
+  const res = findWindowNode(state.windowPane.root, paneId)
+
+  if(!res) return
+
+  const [target, path] = res
+
+  // filter tabs and realign indecies
+  const updated = target.tabs
+    .filter(t => t.index !== tab.index)
+    .map((t, idx) => ({ ...t, index: idx }))
+
+  // update window pane
+  const v = {
+    ...state.windowPane,
+    root: {
+      ...state.windowPane.root,
+      tabs: updated,
+    }
+  } as WindowPane
+
+  dispatch(reduceRemoveTab(v))
+}
+
 
 // export root reducer for this slice
 export default windowSlice.reducer
