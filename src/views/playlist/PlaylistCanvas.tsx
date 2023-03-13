@@ -10,7 +10,7 @@ import {
   selectPlaylistPlaying,
   selectPlaylistUI
 } from '../../state/slices/playlistSlice'
-import { selectSidebar } from '../../state/slices/windowSlice'
+import { selectSidebar, selectWindowPane } from '../../state/slices/windowSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
 import { PlaylistWindow, PlaylistTypes, PlaylistItemPixelOffset, PlaylistItem } from '../../types/playlist'
 import { Renderer } from './sketch'
@@ -29,6 +29,7 @@ const PlaylistCanvas = () => {
   const dispatch = useAppDispatch()
   const playing = useAppSelector(selectPlaylistPlaying)
   const sidebar = useAppSelector(selectSidebar)
+  const windowPane = useAppDispatch(selectWindowPane)
   const playlistTrackBoxRef = React.useRef<HTMLDivElement>(null)
   const [{ canDrop, isOver }, dropRef] = useDrop(() => ({
     accept: [
@@ -112,8 +113,13 @@ const PlaylistCanvas = () => {
       setWidth(w)
       playlistRenderer.setHeight(h)
       playlistRenderer.setWidth(w)
+      if(!h) {
+        console.log("setting it bigger")
+        playlistRenderer.setHeight(1000)
+      }
+      console.log("the height:", h)
     }
-  }, [ref.current, sidebar])
+  }, [ref.current, sidebar, windowPane])
 
   React.useEffect(() => {
     // resize when sizebar changes
@@ -201,6 +207,7 @@ const PlaylistCanvas = () => {
     <div 
       ref={ref}
       className='w-full h-full'
+      style={{ minHeight: '100vh' }}
     >
       {ref.current && <div ref={dropRef}>
         <ReactP5Wrapper

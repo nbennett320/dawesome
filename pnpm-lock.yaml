@@ -46,6 +46,7 @@ specifiers:
   react-dom: 18.0.0
   react-p5-wrapper: ^3.4.0
   react-redux: ^8.0.0-beta.4
+  react-split-pane: github:zirkelc/react-split-pane
   react-tabs: ^6.0.0
   sass: 1.49.10
   swr: 1.2.2
@@ -53,6 +54,7 @@ specifiers:
   ts-jest: 27.1.4
   ts-node: 10.7.0
   typescript: 4.6.3
+  uuid: ^9.0.0
   vite: 2.9.1
   vite-plugin-svgr: 1.1.0
 
@@ -78,6 +80,7 @@ dependencies:
   react-dom: 18.0.0_react@18.0.0
   react-p5-wrapper: 3.4.0_react-dom@18.0.0+react@18.0.0
   react-redux: 8.0.0-beta.4_react-dom@18.0.0+react@18.0.0
+  react-split-pane: github.com/zirkelc/react-split-pane/aefd95dba62fb242c08fe5592b3373adc1d70393_react-dom@18.0.0+react@18.0.0
   react-tabs: 6.0.0_react@18.0.0
   sass: 1.49.10
   swr: 1.2.2_react@18.0.0
@@ -85,6 +88,7 @@ dependencies:
   ts-jest: 27.1.4_2180725f085be08ef97d2f2110d50da1
   ts-node: 10.7.0_ddaac8e123aeb260f586984cee874848
   typescript: 4.6.3
+  uuid: 9.0.0
   vite: 2.9.1_sass@1.49.10
   vite-plugin-svgr: 1.1.0_vite@2.9.1
 
@@ -4899,6 +4903,10 @@ packages:
     resolution: {integrity: sha512-yUcBYdBBbo3QiPsgYDcfQcIkGZHfxOaoE6HLSnr1sPzMhdyxusbfKOSUbSd/ocGi32dxcj366PsTj+5oggeKKw==}
     dev: false
 
+  /react-lifecycles-compat/3.0.4:
+    resolution: {integrity: sha512-fBASbA6LnOU9dOU2eW7aQ8xmYBSXUIWr+UmF9b1efZBazGNO+rcXT/icdKnYm2pTwcRylVUYwW7H1PHfLekVzA==}
+    dev: false
+
   /react-p5-wrapper/3.4.0_react-dom@18.0.0+react@18.0.0:
     resolution: {integrity: sha512-YkcdS6T5zLLEiuC/U+0MCI5EMHfTWVwbcf+7ZeV1AOpQ+Eab9VlxIXZ9oltvwc86++FZmX3tiJR1YHakYt0sfQ==}
     peerDependencies:
@@ -4936,6 +4944,12 @@ packages:
   /react-refresh/0.11.0:
     resolution: {integrity: sha512-F27qZr8uUqwhWZboondsPx8tnC3Ct3SxZA3V5WyEvujRyyNv0VYPhoBg1gZ8/MV5tubQp76Trw8lTv9hzRBa+A==}
     engines: {node: '>=0.10.0'}
+    dev: false
+
+  /react-style-proptype/3.2.2:
+    resolution: {integrity: sha512-ywYLSjNkxKHiZOqNlso9PZByNEY+FTyh3C+7uuziK0xFXu9xzdyfHwg4S9iyiRRoPCR4k2LqaBBsWVmSBwCWYQ==}
+    dependencies:
+      prop-types: 15.8.1
     dev: false
 
   /react-tabs/6.0.0_react@18.0.0:
@@ -5597,6 +5611,11 @@ packages:
     resolution: {integrity: sha1-RQ1Nyfpw3nMnYvvS1KKJgUGaDM8=}
     dev: false
 
+  /uuid/9.0.0:
+    resolution: {integrity: sha512-MXcSTerfPa4uqyzStbRoTgt5XIe3x5+42+q1sDuy3R5MDk66URdLMOZe5aPX/SQd+kuYAh0FdP/pO28IkQyTeg==}
+    hasBin: true
+    dev: false
+
   /v8-compile-cache-lib/3.0.0:
     resolution: {integrity: sha512-mpSYqfsFvASnSn5qMiwrr4VKfumbPyONLCOPmsR3A6pTY/r0+tSaVbgPWSAIuzbk3lCTa+FForeTiO+wBQGkjA==}
     dev: false
@@ -5802,4 +5821,20 @@ packages:
   /yn/3.1.1:
     resolution: {integrity: sha512-Ux4ygGWsu2c7isFWe8Yu1YluJmqVhxqK2cLXNQA5AcC3QfbGNpM7fu0Y8b/z16pXLnFxZYvWhd3fhBY9DLmC6Q==}
     engines: {node: '>=6'}
+    dev: false
+
+  github.com/zirkelc/react-split-pane/aefd95dba62fb242c08fe5592b3373adc1d70393_react-dom@18.0.0+react@18.0.0:
+    resolution: {tarball: https://codeload.github.com/zirkelc/react-split-pane/tar.gz/aefd95dba62fb242c08fe5592b3373adc1d70393}
+    id: github.com/zirkelc/react-split-pane/aefd95dba62fb242c08fe5592b3373adc1d70393
+    name: react-split-pane
+    version: 0.1.92
+    peerDependencies:
+      react: '>=16'
+      react-dom: '>=16'
+    dependencies:
+      prop-types: 15.8.1
+      react: 18.0.0
+      react-dom: 18.0.0_react@18.0.0
+      react-lifecycles-compat: 3.0.4
+      react-style-proptype: 3.2.2
     dev: false
