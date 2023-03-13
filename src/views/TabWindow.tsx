@@ -37,14 +37,16 @@ export const matchViewComponent = (view: View): JSX.Element => {
 interface Props {}
 
 const TabWindow = (props: Props) => {
-  const [tabs, setTabs] = React.useState<PaneTab[]>([])
   const [selectedIndex, setSelectedIndex] = React.useState<number>(0)
   const dispatch = useAppDispatch()
 
   const windowPane = useAppSelector(selectWindowPane)
-  console.log("window: ", windowPane)
 
   const closeTab = (tab: PaneTab) => {
+    if(tab.index === selectedIndex) {
+      setSelectedIndex(0)
+    }
+
     dispatch(removeTab(tab, windowPane.id))
   } 
 
@@ -81,15 +83,6 @@ const TabWindow = (props: Props) => {
           ))}
         </TabList>
 
-        {/* <TabPanel>
-          {tabs.map(tab => (
-            <div className='h-full w-full z-30'>
-              {matchViewComponent(tab.component)}
-            </div>
-          ))
-
-          }
-        </TabPanel> */}
         <TabPanel>
           <div className='h-full w-full'>
             <DynamicPane 
