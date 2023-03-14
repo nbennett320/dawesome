@@ -72,7 +72,7 @@ where
   }
 }
 
-pub fn record_input(recording: &AtomicBool) {
+pub fn record_input(recording: bool) {
   let host = cpal::default_host();
   let device = host.default_input_device().unwrap();
 
@@ -114,7 +114,7 @@ pub fn record_input(recording: &AtomicBool) {
   stream.play().unwrap();
 
   loop {
-    if recording.load(Ordering::SeqCst) {
+    if recording {
       break;
     }
 

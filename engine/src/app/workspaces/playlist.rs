@@ -26,4 +26,3 @@ pub fn calc_sample_offset(
 
   dur
 }
-
