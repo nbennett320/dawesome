@@ -16,10 +16,12 @@ use std::vec::{Vec};
 use std::fs::{File};
 use std::io::{BufReader};
 use futures;
+use num_traits::Float;
 use rodio::{
   Decoder, 
   OutputStream, 
-  Sink, Sample
+  Sink,
+  Sample,
 };
 use rodio::source::{
   SamplesConverter, 
@@ -33,6 +35,7 @@ use rodio::dynamic_mixer::{
   DynamicMixer,
   DynamicMixerController,
 };
+use rodio::buffer::{SamplesBuffer};
 
 #[cfg(target_os = "linux")]
 use psimple;
@@ -216,7 +219,7 @@ impl AudioNode {
     start_offset: Duration,
     track_number: u32,
     sample_rate: u32,
-  ) -> Self {
+  ) -> Self where Self: Sized {
     let sound_buf = daw::SampleBuffer::load(&sample_path).unwrap();
 
     let file_buf = BufReader::new(File::open(&sample_path).unwrap());
@@ -323,11 +326,67 @@ impl AudioNode {
   }
 }
 
+// impl Iterator for AudioNode {
+//   type Item = dyn Sample;
+
+//   fn next(&mut self) -> Option<Self::Item> {
+//     self.samples.lock().unwrap().next()
+//   }
+// }
+
+// impl Source for AudioNode {
+//   fn channels(&self) -> u16 {
+//     self.channels
+//   }
+
+//   fn current_frame_len(&self) -> Option<usize> {
+//     if self.duration.is_zero() {
+//       return Some(0)
+//     }
+
+//     let res = self.duration.as_secs_f64() * self.sample_rate as f64;
+
+//     Some(res.round().into())
+//   }
+
+//   fn sample_rate(&self) -> u32 {
+//     self.sample_rate
+//   }
+
+//   fn total_duration(&self) -> Option<Duration> {
+//     Some(self.duration)
+//   }
+// }
+
 // implemement node destructor
 impl Drop for AudioNode {
   fn drop(&mut self) {
     let sink = &*self.sink.lock().unwrap();
     drop(sink);
+  }
+}
+
+pub struct Track {
+  pub name: String,
+  pub idx: usize,
+  pub nodes: Vec<AudioNode>,
+}
+
+impl Track {
+  pub fn new(name: String, idx: usize) -> Self {
+    Track {
+      name,
+      idx,
+      nodes: Vec::<AudioNode>::new(),
+    }
+  }
+
+  pub fn sort(&mut self) {
+    self.nodes.sort_by(|a, b| a.start_offset.cmp(&b.start_offset));
+  }
+
+  pub fn buffer_from(&self, start_offset: Duration) {
+
   }
 }
 
@@ -390,15 +449,38 @@ impl AudioGraph<'static> {
       println!("Tried to run audio graph. No nodes in graph!");
       return;
     }
+
+    let silence = rodio::source::Zero::<f32>::new(2, self.sample_rate).take_duration(dur);
+    let (controller, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, self.sample_rate);
+
+    controller.add(silence);
+    controller.add(daw::METRONOME_TICK_SOURCE.convert_samples());
     
     // get starting index of nodes within this time slice
     let idx_start_opt = self.nodes.iter()
       .position(|node| 
-          node.start_offset >= self.current_offset.unwrap() &&
-          node.start_offset < (self.current_offset.unwrap() + dur));
+        node.start_offset >= self.current_offset.unwrap() &&
+        node.start_offset < (self.current_offset.unwrap() + dur));
 
     if idx_start_opt == None {
       println!("No start index!");
+
+      let running = self.running;
+      thread::spawn(move || {
+        if running {
+          let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+          let sink = Sink::try_new(&stream_handle).unwrap();
+          sink.pause();
+          sink.append(mixer);
+          println!("System time (PB): {:?}", std::time::Instant::now());
+          sink.play();
+          sink.sleep_until_end();
+          
+          // sink.detach();
+          // stream_handle.play_raw(mixer).unwrap();
+          // thread::sleep(dur);
+        }
+      });
       return;
     }
 
@@ -420,8 +502,6 @@ impl AudioGraph<'static> {
     let slice = self_arc.lock().unwrap().nodes[idx_start..idx_end].to_vec();
     println!("slice len: {}, self.nodes len: {}",slice.len(), self.nodes.len());
 
-    // let root = rodio::source::Zero::<f32>::new(2, 44_100).take_duration(dur);
-    let (controller, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, self.sample_rate);
 
     println!("items (len: {}) in nodes[{}..{}]:", self.nodes.len(), idx_start, idx_end);
     for node in &slice {
@@ -447,12 +527,77 @@ impl AudioGraph<'static> {
         let sink = Sink::try_new(&stream_handle).unwrap();
         sink.pause();
         sink.append(mixer);
+        println!("System time (PB): {:?}", std::time::Instant::now());
         sink.play();
         sink.sleep_until_end();
+        
+        // sink.detach();
         // stream_handle.play_raw(mixer).unwrap();
         // thread::sleep(dur);
       }
     });
+  }
+
+  pub fn buffer_for(&self, dur: Duration) -> Option<DynamicMixer<f32>> {
+    let frames_per_slice = (dur.as_secs_f64() * self.sample_rate as f64).round() as i32;
+
+    if self.nodes.len() == 0 {
+      println!("No nodes in graph! Filling with {} frames of silence.", frames_per_slice);
+
+      let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+      
+      let silence = rodio::source::Zero::<f32>::new(2, self.sample_rate).take_duration(dur);
+      let (controller, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, self.sample_rate);
+      controller.add(silence);
+      return Some(mixer);
+    }
+
+    // get starting index of nodes within this time slice
+    let idx_start_opt = self.nodes.iter()
+      .position(|node| 
+          node.start_offset >= self.current_offset.unwrap() &&
+          node.start_offset < (self.current_offset.unwrap() + dur));
+
+    if idx_start_opt == None {
+      println!("No start index!");
+      return None;
+    }
+
+    let idx_start = idx_start_opt.unwrap();
+
+    // get last index of nodes within this time slice
+    let idx_end_opt = self.nodes.iter()
+      .rposition(|node| node.start_offset > (self.current_offset.unwrap() + dur));
+    
+    let idx_end = match idx_end_opt {
+      Some(x) => x,
+      None => idx_start + 1,
+    };
+    
+    println!("buffer start, end: {}, {}", idx_start, idx_end);
+
+    let self_arc = Arc::new(Mutex::new(self));
+    // schedule samples within this timeslice to play
+    let slice = self_arc.lock().unwrap().nodes[idx_start..idx_end].to_vec();
+    println!("slice len: {}, self.nodes len: {}",slice.len(), self.nodes.len());
+
+    // let root = rodio::source::Zero::<f32>::new(2, 44_100).take_duration(dur);
+    let (controller, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, self.sample_rate);
+
+    println!("items (len: {}) in nodes[{}..{}]:", self.nodes.len(), idx_start, idx_end);
+    for node in slice {
+      println!("node.start_offset: {}ms", node.start_offset.as_millis());
+      let start_offset = Arc::new(Mutex::new(node.start_offset));
+      let current_offset = Arc::new(Mutex::new(self_arc.lock().unwrap().current_offset));
+
+      let delay_offset = *start_offset.lock().unwrap() - current_offset.lock().unwrap().unwrap();
+      println!("delay offset: {}ms", delay_offset.as_millis());
+      let source = node.buffer.decoder().delay(delay_offset).convert_samples();
+      controller.add(source);
+      println!("added node: {}", node.sample_path);
+    }
+
+    Some(mixer)
   }
 
   pub fn set_tempo(&mut self, tempo: f32) {

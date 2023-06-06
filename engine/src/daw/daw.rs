@@ -35,7 +35,7 @@ const METRONOME_TICK_PATH: &str = "assets/assets_66-hh-01-or.wav";
 const METRONOME_TICK_ACCENTED_PATH: &str = "assets/assets_66-hh-01-or-2.wav";
 
 lazy_static! {
-  static ref METRONOME_TICK_SOURCE: SampleBuffer = {
+  pub static ref METRONOME_TICK_SOURCE: SampleBuffer = {
     SampleBuffer::load(METRONOME_TICK_PATH).unwrap()
   };
 }
@@ -122,6 +122,7 @@ pub async fn play_buffer<S>(
     let dur = buf.total_duration().unwrap();
     let (_stream, stream_handle) = OutputStream::try_default().unwrap();
     
+    println!("System time (M): {:?}", std::time::Instant::now());
     stream_handle.play_raw(buf).unwrap();
     thread::sleep(dur);
   });
@@ -156,16 +157,23 @@ pub fn run_playlist(state_ref: &Arc<state::InnerState>) {
       println!("tick: {}ms", &state.playlist.audiograph.lock().unwrap().current_offset.unwrap().as_millis());
 
       // play metronome if enabled
-      if state.metronome_enabled.load(Ordering::SeqCst) 
-        && state.playlist.playing() {
-        play_metronome(&state);
-      }
+      // if state.metronome_enabled.load(Ordering::SeqCst) 
+      //   && state.playlist.playing() {
+      //   play_metronome(&state);
+      // }
 
       // run ahead n milliseconds and schedule the next
       // samples in the audio graph to be played
       let mut audiograph_ref = state.playlist.audiograph.lock().unwrap();
 
       audiograph_ref.run_for(tempo_interval);
+      // let m = audiograph_ref.buffer_for(tempo_interval);
+      // match m {
+      //   Some(x) => { 
+      //     futures::executor::block_on(play_buffer(x.take_duration(tempo_interval).buffered()));
+      //   }
+      //   None => {}
+      // }
 
       // sleep this thread for the length of a single beat
       thread::sleep(tempo_interval);
