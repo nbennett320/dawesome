@@ -110,6 +110,14 @@ fn get_playlist_runtime_formatted(
 }
 
 #[tauri::command]
+fn get_playlist_beat_count(
+  state: tauri::State<'_, Arc<daw::InnerState>>
+) -> Result<u64, String> {
+  let beat_count = state.playlist.total_beats.load(Ordering::SeqCst);
+  Ok(beat_count)
+}
+
+#[tauri::command]
 fn get_playlist_time_signature(
   state: tauri::State<'_, Arc<daw::InnerState>>
 ) -> Result<(u16, u16), String> {
@@ -515,6 +523,7 @@ fn main() {
       toggle_metronome_enabled,
       get_metronome_enabled,
       get_playlist_runtime_formatted,
+      get_playlist_beat_count,
       get_playlist_time_signature,
       set_playlist_time_signature,
       get_sidebar_samples,
