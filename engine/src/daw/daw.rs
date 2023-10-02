@@ -31,8 +31,8 @@ use psimple;
 #[cfg(target_os = "linux")]
 use pulse;
 
-const METRONOME_TICK_PATH: &str = "assets/assets_66-hh-01-or.wav";
-const METRONOME_TICK_ACCENTED_PATH: &str = "assets/assets_66-hh-01-or-2.wav";
+pub const METRONOME_TICK_PATH: &str = "assets/assets_66-hh-01-or.wav";
+pub const METRONOME_TICK_ACCENTED_PATH: &str = "assets/assets_66-hh-01-or-2.wav";
 
 lazy_static! {
   pub static ref METRONOME_TICK_SOURCE: SampleBuffer = {
