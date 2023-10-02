@@ -784,7 +784,7 @@ impl AudioGraph<'static> {
   }
 
   // get the id of all nodes in a given playlist track
-  pub fn get_nodes_in_playlist_track(
+  pub fn get_node_ids_in_playlist_track(
     &mut self, 
     track_number: u32
   ) -> Vec<u64> {
@@ -879,8 +879,6 @@ impl AudioGraph<'static> {
 
 #[cfg(test)]
 mod tests {
-
-// Note this useful idiom: importing names from outer (for mod tests) scope.
   use super::*;
   use crate::daw;
   use futures_test::{self};
@@ -985,14 +983,7 @@ mod tests {
 
   #[futures_test::test]
   async fn test_audiograph_buffer_slice_with_silence() {
-    let id = 1;
-    let sample_path = daw::METRONOME_TICK_PATH.to_string();
-    let start_offset = Duration::from_millis(650);
-    let track_number = 0;
     let sample_rate = 44_100;
-
-    let node = AudioNode::new(id, sample_path, start_offset, track_number, sample_rate);
-
     let tempo = 120f32;
     let max_beats: u64 = 8;
 
@@ -1052,5 +1043,89 @@ mod tests {
     });
 
     assert_eq!(node_samples.len() * 2, nonzero_samples.len());
+  }
+
+  #[futures_test::test]
+  async fn test_audiograph_buffer_set_functions() {
+    let sample_rate = 44_100;
+    let tempo = 120f32;
+    let max_beats: u64 = 8;
+
+    let mut audiograph = AudioGraph::new(sample_rate, tempo, max_beats);
+
+    assert_eq!(audiograph.current_offset.unwrap().as_millis(), 0);
+    audiograph.set_current_offset(Some(Duration::from_secs(2)));
+    assert_eq!(audiograph.current_offset.unwrap().as_millis(), 2_000);
+
+    assert_eq!(audiograph.max_beats(), max_beats);
+    audiograph.set_max_beats(500);
+    assert_eq!(audiograph.max_beats(), 500);
+
+    assert_eq!(audiograph.tempo(), tempo);
+    audiograph.set_tempo(75f32);
+    assert_eq!(audiograph.tempo(), 75f32);
+  }
+
+  #[futures_test::test]
+  async fn test_audiograph_node_functions() {
+    let id = 1;
+    let sample_path = daw::METRONOME_TICK_PATH.to_string();
+    let start_offset = Duration::from_millis(350);
+    let sample_rate = 44_100;
+
+    let node = AudioNode::new(
+      id,
+      sample_path,
+      start_offset,
+      0,
+      sample_rate);
+
+    let tempo = 120f32;
+    let max_beats: u64 = 8;
+
+    let mut audiograph = AudioGraph::new(sample_rate, tempo, max_beats);
+    let buf = node.buffer.clone();
+
+    audiograph.add_node(node);
+    audiograph.construct_and_add_node(
+      "assets/assets_66-bd-01.wav".to_string(),
+      Duration::from_millis(100),
+      1);
+    audiograph.construct_and_add_node_with_snap(
+      "assets/assets_66-sd-01.wav".to_string(),
+      Duration::from_millis(600),
+      1,
+      daw::timing::QuarterNote::new());
+    
+    assert_eq!(audiograph.len(), 3);
+    
+    let target_id = audiograph.get_mut_node(1).unwrap().id;
+    audiograph.move_node(
+      target_id, 
+      Duration::from_millis(0),
+      2);
+    let target = &audiograph.nodes[0];
+
+    assert_eq!(target.id, target_id);
+    assert_eq!(target.track_number, 2);
+    assert_eq!(target.start_offset.as_millis(), 0);
+
+    let runtime = Duration::from_secs(1);
+
+    let (_controller, mixer) = audiograph.buffer_slice(runtime).unwrap();
+
+    let mut nonzero_samples = Vec::<f32>::new();
+    mixer.for_each(|x| {
+      if x != 0f32 {
+        nonzero_samples.push(x);
+      }
+    });
+
+    let mut node_samples = Vec::<f32>::new();
+    buf.convert_samples().for_each(|x| {
+      if x != 0f32 {
+        node_samples.push(x);
+      }
+    });
   }
 }
