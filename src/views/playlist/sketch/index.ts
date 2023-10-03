@@ -42,7 +42,7 @@ export const staticDefaults = {
   height: 100,
   width: 200,
   maxPlaylistBeats: 32,
-  trackCount: 5,
+  trackCount: 4,
   tempo: 120,
 
   // class specific defaults
@@ -433,7 +433,8 @@ export class Renderer extends RendererBase {
       p.strokeWeight(gridStroke)
       p.stroke(100, 100, 100)
       for(let i = 0; i < width; i += width/maxPlaylistBeats) {
-        p.line(i, 0, i, height)
+        // p.line(i, 0, i, height)
+        p.line(i, 0, i, trackCount * staticDefaults.trackHeight + staticDefaults.timelineHeight + 1)
       }
 
       // render playlist tracks

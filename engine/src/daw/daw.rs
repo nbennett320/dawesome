@@ -31,11 +31,11 @@ use psimple;
 #[cfg(target_os = "linux")]
 use pulse;
 
-const METRONOME_TICK_PATH: &str = "assets/assets_66-hh-01-or.wav";
-const METRONOME_TICK_ACCENTED_PATH: &str = "assets/assets_66-hh-01-or-2.wav";
+pub const METRONOME_TICK_PATH: &str = "assets/assets_66-hh-01-or.wav";
+pub const METRONOME_TICK_ACCENTED_PATH: &str = "assets/assets_66-hh-01-or-2.wav";
 
 lazy_static! {
-  static ref METRONOME_TICK_SOURCE: SampleBuffer = {
+  pub static ref METRONOME_TICK_SOURCE: SampleBuffer = {
     SampleBuffer::load(METRONOME_TICK_PATH).unwrap()
   };
 }
@@ -122,6 +122,7 @@ pub async fn play_buffer<S>(
     let dur = buf.total_duration().unwrap();
     let (_stream, stream_handle) = OutputStream::try_default().unwrap();
     
+    println!("System time (M): {:?}", std::time::Instant::now());
     stream_handle.play_raw(buf).unwrap();
     thread::sleep(dur);
   });
@@ -156,23 +157,30 @@ pub fn run_playlist(state_ref: &Arc<state::InnerState>) {
       println!("tick: {}ms", &state.playlist.audiograph.lock().unwrap().current_offset.unwrap().as_millis());
 
       // play metronome if enabled
-      if state.metronome_enabled.load(Ordering::SeqCst) 
-        && state.playlist.playing.load(Ordering::SeqCst) {
-        play_metronome(&state);
-      }
+      // if state.metronome_enabled.load(Ordering::SeqCst) 
+      //   && state.playlist.playing() {
+      //   play_metronome(&state);
+      // }
 
       // run ahead n milliseconds and schedule the next
       // samples in the audio graph to be played
       let mut audiograph_ref = state.playlist.audiograph.lock().unwrap();
 
       audiograph_ref.run_for(tempo_interval);
+      // let m = audiograph_ref.buffer_for(tempo_interval);
+      // match m {
+      //   Some(x) => { 
+      //     futures::executor::block_on(play_buffer(x.take_duration(tempo_interval).buffered()));
+      //   }
+      //   None => {}
+      // }
 
       // sleep this thread for the length of a single beat
       thread::sleep(tempo_interval);
       
       let curr = audiograph_ref.current_offset.unwrap();
 
-      if state.playlist.playing.load(Ordering::SeqCst) {
+      if state.playlist.playing() {
         audiograph_ref.set_current_offset(Some(curr + tempo_interval));
       } else {
         audiograph_ref.set_current_offset(Some(curr));
@@ -185,7 +193,7 @@ pub fn run_playlist(state_ref: &Arc<state::InnerState>) {
         state.playlist.current_beat.load(Ordering::SeqCst);
       let next_beat = (current_beat + 1) % current_time_signature.numerator;
       
-      if state.playlist.playing.load(Ordering::SeqCst) {
+      if state.playlist.playing() {
         // loop the playlist by setting the current offset to zero,
         // if looping is enabled, otherwise, add and store the next 
         // current beat
@@ -221,7 +229,7 @@ pub fn run_playlist(state_ref: &Arc<state::InnerState>) {
         state.playlist.loop_enabled.load(Ordering::SeqCst)
       );
 
-      if !state.playlist.playing.load(Ordering::SeqCst) {
+      if !state.playlist.playing() {
         break;
       }
     });
@@ -246,8 +254,7 @@ pub fn pause_playlist(state: tauri::State<'_, Arc<state::InnerState>>) {
   // set playlist state to paused
   state
     .playlist
-    .playing
-    .store(false, Ordering::SeqCst);
+    .set_playing(false);
 
   // pause the audiograph, clearing all start times
   let mut audiograph_ref = state.playlist.audiograph.lock().unwrap();
@@ -259,8 +266,7 @@ pub fn start_playlist(state: tauri::State<'_, Arc<state::InnerState>>) {
   println!("playing playlist");
   state
     .playlist
-    .playing
-    .store(true, Ordering::SeqCst);
+    .set_playing(true);
 
   // set playlist start time
   let now = Instant::now();

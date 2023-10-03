@@ -7,6 +7,7 @@ export interface PlaylistState {
   playing: boolean
   tempo: number
   runtime?: string | null
+  currentBeat?: number | null
   metronomeEnabled: boolean,
   loopEnabled: boolean,
   snapEnabled: boolean,
@@ -25,6 +26,7 @@ const initialState = {
   playing: false,
   tempo: 120,
   runtime: null,
+  currentBeat: null,
   metronomeEnabled: true,
   loopEnabled: true,
   snapEnabled: true,
@@ -33,7 +35,7 @@ const initialState = {
     maxPlaylistBeats: 16,
     maxBeatsDisplayed: 16,
     maxPlaylistDuration: 120*2,
-    trackCount: 5,
+    trackCount: 4,
   },
 } as PlaylistState
 
@@ -49,6 +51,9 @@ export const playlistSlice = createSlice({
     },
     setRuntime: (state, action) => {
       state.runtime = action.payload
+    },
+    setBeatCount: (state, action) => {
+      state.currentBeat = action.payload
     },
     setMetronomeEnabled: (state, action) => {
       state.metronomeEnabled = action.payload
@@ -133,6 +138,18 @@ export const fetchPlaylistRuntime = () => async (dispatch: Dispatch) => {
 
 export const selectPlaylistRuntime = (state: RootState) =>
   state.playlist.runtime
+// end rutime methods
+
+// start beat count methods
+export const { setBeatCount } = playlistSlice.actions
+
+export const fetchPlaylistBeatCount = () => async (dispatch: Dispatch) => {
+  const count = await invoke<string>('get_playlist_beat_count', {})
+  dispatch(setBeatCount(count))
+}
+
+export const selectPlaylistBeatCount = (state: RootState) =>
+  state.playlist.currentBeat
 // end rutime methods
 
 // start metronome enable/disable methods

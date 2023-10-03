@@ -25,7 +25,7 @@ const SampleItem = (props: Props) => {
     end: (item, monitor) => {
       const dropResult = monitor.getDropResult<Props>()
       if (item && dropResult) {
-        console.log("dropped, from sample item")
+        console.log("dropped, from sample item", dropResult)
       }
     },
     collect: (monitor) => ({

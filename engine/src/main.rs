@@ -16,7 +16,7 @@ mod util;
 
 #[tauri::command]
 fn toggle_playlist(state: tauri::State<'_, Arc<daw::InnerState>>) {
-  if state.playlist.playing.load(Ordering::SeqCst) {
+  if state.playlist.playing() {
     daw::pause_playlist(state);
   } else {
     // start playlist
@@ -28,7 +28,7 @@ fn toggle_playlist(state: tauri::State<'_, Arc<daw::InnerState>>) {
 fn get_playlist_playing(
   state: tauri::State<'_, Arc<daw::InnerState>>
 ) -> Result<bool, String> {
-  Ok(state.playlist.playing.load(Ordering::SeqCst))
+  Ok(state.playlist.playing())
 }
 
 #[cfg(target_os = "windows")]
@@ -107,6 +107,14 @@ fn get_playlist_runtime_formatted(
   let start_time = state.playlist.started_time.lock().unwrap().unwrap();
   let res = util::format_playlist_runtime(start_time);
   Ok(res)
+}
+
+#[tauri::command]
+fn get_playlist_beat_count(
+  state: tauri::State<'_, Arc<daw::InnerState>>
+) -> Result<u64, String> {
+  let beat_count = state.playlist.total_beats.load(Ordering::SeqCst);
+  Ok(beat_count)
 }
 
 #[tauri::command]
@@ -497,8 +505,8 @@ fn toggle_record_input(
 
   let recording = &state
     .playlist
-    .recording;
-  daw::input::record_input(recording);
+    .recording();
+  daw::input::record_input(*recording);
 }
 
 fn main() {
@@ -515,6 +523,7 @@ fn main() {
       toggle_metronome_enabled,
       get_metronome_enabled,
       get_playlist_runtime_formatted,
+      get_playlist_beat_count,
       get_playlist_time_signature,
       set_playlist_time_signature,
       get_sidebar_samples,

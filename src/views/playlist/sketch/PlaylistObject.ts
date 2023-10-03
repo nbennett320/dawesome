@@ -72,6 +72,8 @@ class PlaylistObject extends PlaylistComponent<State> {
 
   get isDragging(): boolean { return this.state.isDragging }
 
+  set isDragging(val: boolean) { this.state.isDragging = val }
+
   // call a function on dragging an item
   onDrag = (
     dragFn: () => void,
@@ -82,7 +84,7 @@ class PlaylistObject extends PlaylistComponent<State> {
         this.canvas.mouseReleased(() => {
 
           if(this.state.isDragging) {
-            // this.isDragging = false
+            this.isDragging = false
             console.log("it dropped")
             dropFn()
             this.setState({
