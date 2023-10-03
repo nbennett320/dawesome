@@ -551,4 +551,19 @@ mod tests {
     let interp = sample_to_n_elements(&xs, 3);
     assert_eq!(interp.unwrap().len(), 3);
   }
+
+  #[test]
+  fn test_f_normalize() {
+    let xs: Vec<f32> = vec![4.32, 522.345, -9.284, 1234.542, 1.023, -2.003, 3.1423, 2.];    
+    let normalized = f_normalize(xs);
+
+    let mut greater_than_one = Vec::<f32>::new();
+    for x in normalized {
+      if x.abs() > 1. {
+        greater_than_one.push(x);
+      }
+    }
+
+    assert_eq!(greater_than_one.len(), 0);
+  }
 }
