@@ -336,7 +336,7 @@ fn get_node_data(
     .audiograph
     .lock()
     .unwrap();
-  let node = audiograph.get_mut_node(id).unwrap();
+  let node = audiograph.get_mut_node_by_id(id).unwrap();
   let waveform = node.get_waveform().clone();
   let dur = node.duration().as_secs_f32();
   let ratio = dur / audiograph.max_beats() as f32;
@@ -392,14 +392,7 @@ fn get_playlist_data(
     .lock()
     .unwrap()
     .max_beats_displayed;
-  let track_count = match audiograph.tracks() {
-    x if x.len() > 1 => {
-      x.len() as u32
-    }
-    _ => {
-      daw::defaults::NUM_OF_TRACKS
-    }
-  };
+  let track_count = audiograph.track_count();
   let max_playlist_duration = audiograph
     .duration_max()
     .as_secs_f32();

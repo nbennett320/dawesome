@@ -270,83 +270,30 @@ pub fn interpolate_to<
   Some((xns, yns))
 }
 
-pub fn round_to_nearest_signed_multiple<
-  T: 
-    Num +
-    NumOps +
-    Signed +
-    PartialOrd +
-    From<U> + 
-    Copy,
-  U:
-    PrimInt +
-    Unsigned
->(
-  n: T,
-  multiple: U,
-) -> T {
-  let remainder = n.abs() % multiple.into();
-  let ceil = n + multiple.into() - remainder;
-  let floor = n - multiple.into() + remainder;
-
-  if multiple.is_zero() {
-    return n;
-  }
-
-  if remainder.is_zero() {
-    return n;
-  }
-
-  // if n.is_negative() {
-  //   return -(n.abs() - remainder);
-  // }
-
-  let ceil_diff = (n - ceil).abs();
-  let floor_diff = (n - floor).abs();
-
-  if ceil_diff <= floor_diff { ceil } else { floor }
-}
-
-pub fn round_to_nearest_unsigned_multiple<
+pub fn round_to_nearest_multiple<
   T: 
     PrimInt +
     Num +
     NumOps +
-    Unsigned +
     PartialOrd +
     From<U> +
+    From<u32> +
     Copy +
     std::fmt::Display,
   U:
     PrimInt +
-    Unsigned +
+    Num +
+    NumOps +
+    PartialOrd +
     From<T> +
+    Into<T> +
+    Copy +
     std::fmt::Display
 >(
   n: T,
   multiple: U,
 ) -> T {
-  println!("rounding to nearest unsigned mult: {}, {}", n, multiple);
-  let remainder = n % multiple.into();
-  let mult: T = multiple.into();
-  println!("calculatd remainder: {}", remainder);
-  let ceil = n + multiple.into() - remainder;
-  let floor = n - multiple.into() + (mult - remainder);
-
-  if multiple.is_zero() {
-    return n;
-  }
-
-  if remainder.is_zero() {
-    return n;
-  }
-
-  let ceil_diff = (n + n) - ceil;
-  let floor_diff = (n + n) - floor;
-
-  println!("ceil: {}, floor: {}", ceil, floor);
-
-  if ceil_diff <= floor_diff { ceil } else { floor }
+  ((n + multiple.into() / 2.into()) / multiple.into()) * multiple.into()
 }
 
 pub fn vec_itof32 <

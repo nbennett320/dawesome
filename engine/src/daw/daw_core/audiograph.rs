@@ -365,6 +365,25 @@ impl Drop for AudioNode {
   }
 }
 
+impl std::fmt::Display for AudioNode {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    writeln!(f, "AudioNode {{
+  id: {},
+  start_offset (ms): {}ms,
+  track_number: {},
+  sample_path: {},
+  channels: {},
+  duration (ms): {}ms,
+}}", 
+      self.id, 
+      self.start_offset.as_millis(), 
+      self.track_number, 
+      self.sample_path, 
+      self.channels, 
+      self.duration().as_millis())
+  }
+}
+
 pub struct Track {
   pub name: String,
   pub idx: usize,
@@ -690,7 +709,7 @@ impl AudioGraph<'static> {
     start_offset: Duration,
     track_number: u32
   ) {
-    let node = self.get_mut_node(id).unwrap();
+    let node = self.get_mut_node_by_id(id).unwrap();
     node.start_offset = start_offset;
     node.track_number = track_number;
 
@@ -761,6 +780,11 @@ impl AudioGraph<'static> {
     let res = self.nodes.len();
     res
   }
+
+  pub fn count_nodes(&self) -> usize {
+    let res = self.nodes.len();
+    res
+  }
   
   // adjust all node start times to match tempo
   pub fn fit_nodes_to_tempo(
@@ -779,8 +803,12 @@ impl AudioGraph<'static> {
     }
   }
 
-  pub fn get_mut_node(&mut self, id: u64) -> Option<&mut AudioNode> {
+  pub fn get_mut_node_by_id(&mut self, id: u64) -> Option<&mut AudioNode> {
     self.nodes.iter_mut().find(|e| { e.id == id })
+  }
+
+  pub fn get_node_by_id(&self, id: u64) -> Option<&AudioNode> {
+    self.nodes.iter().find(|e| { e.id == id })
   }
 
   // get the id of all nodes in a given playlist track
@@ -830,11 +858,11 @@ impl AudioGraph<'static> {
       self.tempo,
       subdivision);
 
-    let nearest_offset_millis = util::math::round_to_nearest_unsigned_multiple(
-      offset.as_millis(),
-      interval.as_millis());
+    let nearest_offset_micros = util::math::round_to_nearest_multiple(
+      offset.as_micros(),
+      interval.as_micros());
 
-    Duration::from_millis(nearest_offset_millis.try_into().unwrap())
+    Duration::from_nanos(nearest_offset_micros.try_into().unwrap())
   }
   
   // return the unique audio tracks numbers in the graph
@@ -850,8 +878,20 @@ impl AudioGraph<'static> {
     counted
   }
 
+  // count number of tracks
+  pub fn track_count(&self) -> u32 {
+    match self.track_numbers().len() {
+      x if x > 1 => {
+        x as u32
+      }
+      _ => {
+        daw::defaults::NUM_OF_TRACKS
+      }
+    }
+  }
+
   // get a vector of AudioNodes with the specified track number
-  pub fn track(&self, track_number: u32) -> Vec<&AudioNode> {
+  pub fn get_track_by_track_number(&self, track_number: u32) -> Vec<&AudioNode> {
     let mut track_nodes: Vec<&AudioNode> = Vec::new();
 
     for node in &self.nodes {
@@ -868,7 +908,7 @@ impl AudioGraph<'static> {
     let mut tracks: Vec<Vec<&AudioNode>> = Vec::new();
 
     for track_num in self.track_numbers() {
-      let track = self.track(track_num);
+      let track = self.get_track_by_track_number(track_num);
 
       tracks.push(track)
     }
@@ -880,7 +920,7 @@ impl AudioGraph<'static> {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::daw;
+  use crate::daw::{self, MusicalSubdivision};
   use futures_test::{self};
 
   #[test]
@@ -1068,7 +1108,7 @@ mod tests {
 
   #[futures_test::test]
   async fn test_audiograph_node_functions() {
-    let id = 1;
+    let id = 100;
     let sample_path = daw::METRONOME_TICK_PATH.to_string();
     let start_offset = Duration::from_millis(350);
     let sample_rate = 44_100;
@@ -1087,45 +1127,46 @@ mod tests {
     let buf = node.buffer.clone();
 
     audiograph.add_node(node);
-    audiograph.construct_and_add_node(
+    let id2 = audiograph.construct_and_add_node(
       "assets/assets_66-bd-01.wav".to_string(),
       Duration::from_millis(100),
       1);
-    audiograph.construct_and_add_node_with_snap(
+    let id3 = audiograph.construct_and_add_node_with_snap(
       "assets/assets_66-sd-01.wav".to_string(),
       Duration::from_millis(600),
-      1,
+      2,
       daw::timing::QuarterNote::new());
     
     assert_eq!(audiograph.len(), 3);
+    assert_eq!(audiograph.track_count(), 3);
+    assert_eq!(audiograph.get_node_by_id(id2).unwrap().start_offset.as_millis(), 100);
+    assert_eq!(audiograph.get_node_by_id(id3).unwrap().start_offset.as_millis(), 0);
     
-    let target_id = audiograph.get_mut_node(1).unwrap().id;
+    let target = audiograph.get_node_by_id(id).unwrap();
+
+    assert_eq!(target.id, id);
+    assert_eq!(target.track_number, 0);
+    assert_eq!(target.start_offset.as_millis(), start_offset.as_millis());
+
     audiograph.move_node(
-      target_id, 
+      id, 
       Duration::from_millis(0),
       2);
     let target = &audiograph.nodes[0];
 
-    assert_eq!(target.id, target_id);
+    assert_eq!(target.id, id);
     assert_eq!(target.track_number, 2);
     assert_eq!(target.start_offset.as_millis(), 0);
 
-    let runtime = Duration::from_secs(1);
+    audiograph.move_node_with_snap(
+      id, 
+      Duration::from_millis(12),
+      1,
+    daw::timing::HalfNote::new());
+    let target = &audiograph.nodes[0];
 
-    let (_controller, mixer) = audiograph.buffer_slice(runtime).unwrap();
-
-    let mut nonzero_samples = Vec::<f32>::new();
-    mixer.for_each(|x| {
-      if x != 0f32 {
-        nonzero_samples.push(x);
-      }
-    });
-
-    let mut node_samples = Vec::<f32>::new();
-    buf.convert_samples().for_each(|x| {
-      if x != 0f32 {
-        node_samples.push(x);
-      }
-    });
+    assert_eq!(target.id, id);
+    assert_eq!(target.track_number, 1);
+    assert_eq!(target.start_offset.as_millis(), 0);
   }
 }
