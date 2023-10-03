@@ -17,7 +17,8 @@ use num_traits::{
   PrimInt,
   Signed,
   Unsigned,
-  Float, ToPrimitive,
+  Float,
+  ToPrimitive,
 };
 use rodio::cpal::Sample;
 use std::iter::{
@@ -270,83 +271,32 @@ pub fn interpolate_to<
   Some((xns, yns))
 }
 
-pub fn round_to_nearest_signed_multiple<
+pub fn round_to_nearest_multiple<
   T: 
+    // PrimInt +
     Num +
     NumOps +
-    Signed +
-    PartialOrd +
-    From<U> + 
-    Copy,
-  U:
-    PrimInt +
-    Unsigned
->(
-  n: T,
-  multiple: U,
-) -> T {
-  let remainder = n.abs() % multiple.into();
-  let ceil = n + multiple.into() - remainder;
-  let floor = n - multiple.into() + remainder;
-
-  if multiple.is_zero() {
-    return n;
-  }
-
-  if remainder.is_zero() {
-    return n;
-  }
-
-  // if n.is_negative() {
-  //   return -(n.abs() - remainder);
-  // }
-
-  let ceil_diff = (n - ceil).abs();
-  let floor_diff = (n - floor).abs();
-
-  if ceil_diff <= floor_diff { ceil } else { floor }
-}
-
-pub fn round_to_nearest_unsigned_multiple<
-  T: 
-    PrimInt +
-    Num +
-    NumOps +
-    Unsigned +
     PartialOrd +
     From<U> +
+    From<u8> +
+    Into<T> +
     Copy +
     std::fmt::Display,
   U:
     PrimInt +
-    Unsigned +
+    Num +
+    NumOps +
+    PartialOrd +
     From<T> +
+    Into<T> +
+    Copy +
     std::fmt::Display
 >(
   n: T,
   multiple: U,
 ) -> T {
-  println!("rounding to nearest unsigned mult: {}, {}", n, multiple);
-  let remainder = n % multiple.into();
-  let mult: T = multiple.into();
-  println!("calculatd remainder: {}", remainder);
-  let ceil = n + multiple.into() - remainder;
-  let floor = n - multiple.into() + (mult - remainder);
-
-  if multiple.is_zero() {
-    return n;
-  }
-
-  if remainder.is_zero() {
-    return n;
-  }
-
-  let ceil_diff = (n + n) - ceil;
-  let floor_diff = (n + n) - floor;
-
-  println!("ceil: {}, floor: {}", ceil, floor);
-
-  if ceil_diff <= floor_diff { ceil } else { floor }
+  let denom: u8 = 2;
+  ((n + multiple.into() / denom.into()) / multiple.into()) * multiple.into()
 }
 
 pub fn vec_itof32 <
@@ -539,5 +489,81 @@ pub fn sample_to_n_elements<
       Some(res)
     }
     _ => None
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_round_to_nearest_multiple() {
+    let val: u32 = round_to_nearest_multiple(12 as u32, 5 as u32);
+    assert_eq!(val, 10);
+
+    let val: u32 = round_to_nearest_multiple(13 as u32, 5 as u32);
+    assert_eq!(val, 15);
+
+    let val: u32 = round_to_nearest_multiple(149 as u32, 10 as u32);
+    assert_eq!(val, 150);
+
+    let val: i32 = round_to_nearest_multiple::<i32, i32>(201, 10);
+    assert_eq!(val, 200);
+
+    let val: i32 = round_to_nearest_multiple::<i32, i32>(143, 12);
+    assert_eq!(val, 144);
+
+    // todo: make multiple unsigned
+    let val: i32 = round_to_nearest_multiple::<i32, i32>(-1001, -100);
+    assert_eq!(val, -1000);
+
+    let val: u8 = round_to_nearest_multiple::<u8, u8>(127, 8);
+    assert_eq!(val, 128);
+
+    let val: i16 = round_to_nearest_multiple::<i16, i16>(127, 6);
+    assert_eq!(val, 126);
+
+    // // todo: handle floats
+    // let val: f32 = round_to_nearest_multiple::<f32, i32>(99.9, 10);
+    // assert_eq!(val, 126);
+  }
+
+  #[test]
+  fn test_gaussian_1d() {
+    let xs: Vec<f32> = vec![12.4, -3.321, 3.143222, 593.098];
+    let radius = 1.;
+
+    let gauss = gaussian_1d(&xs, radius, false);
+    assert_eq!(gauss.unwrap(), [0.019367829, -0.0051928335, 0.004914897, 0.06218239]);
+
+    let radius = 0.001;
+    let gauss = gaussian_1d(&xs, radius, false);
+    assert_eq!(gauss.unwrap(), [0.0, -8.281204e-37, 5.3503775e-33, 0.0]);
+  }
+
+  #[test]
+  fn test_sample_to_n_elements() {
+    let xs: Vec<f32> = vec![4.32, 522.345, -9.284, 1234.542, 1.023, -2.003, 3.1423, 2.];    
+
+    let interp = sample_to_n_elements(&xs, 4);
+    assert_eq!(interp.unwrap().len(), 4);
+
+    let interp = sample_to_n_elements(&xs, 3);
+    assert_eq!(interp.unwrap().len(), 3);
+  }
+
+  #[test]
+  fn test_f_normalize() {
+    let xs: Vec<f32> = vec![4.32, 522.345, -9.284, 1234.542, 1.023, -2.003, 3.1423, 2.];    
+    let normalized = f_normalize(xs);
+
+    let mut greater_than_one = Vec::<f32>::new();
+    for x in normalized {
+      if x.abs() > 1. {
+        greater_than_one.push(x);
+      }
+    }
+
+    assert_eq!(greater_than_one.len(), 0);
   }
 }
