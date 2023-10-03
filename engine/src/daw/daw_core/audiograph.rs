@@ -920,7 +920,7 @@ impl AudioGraph<'static> {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::daw::{self, MusicalSubdivision};
+  use crate::daw::{self};
   use futures_test::{self};
 
   #[test]
@@ -1016,7 +1016,7 @@ mod tests {
     assert_ne!(now_elapsed.as_millis(), later.elapsed().as_millis());
 
     let diff = now_elapsed - runtime;
-    let result = diff.as_nanos() >= 0;
+    let result = diff.as_millis() < 10;
 
     assert_eq!(result, true);
   }
