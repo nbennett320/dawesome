@@ -337,11 +337,11 @@ fn get_node_data(
     .lock()
     .unwrap();
   let node = audiograph.get_mut_node_by_id(id).unwrap();
+  println!("offset dur: {:?}", node.start_offset.as_millis());
   let waveform = node.get_waveform().clone();
   let dur = node.duration().as_secs_f32();
   let ratio = dur / audiograph.max_beats() as f32;
 
-  println!("waveform dur: {:?}", dur);
 
   // return waveform data
   Ok((waveform, dur))
