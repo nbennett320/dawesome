@@ -12,7 +12,7 @@ pub fn calc_sample_offset(
   let width = max_bound_x - min_bound_x;
   // let adjusted_min_x = 0. as f32;
   let adjusted_max_x = width;
-  let adjusted_drop_x = drop_x - min_bound_x;
+  let adjusted_drop_x = drop_x - min_bound_x - 100.;
   println!("drop_x: {}, min_bound_x: {}, max_bound_x: {}, adjusted_drop_x: {}", drop_x, min_bound_x, max_bound_x, adjusted_drop_x);
 
   let ratio = adjusted_drop_x / max_bound_x;

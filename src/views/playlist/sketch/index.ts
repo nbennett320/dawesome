@@ -134,7 +134,7 @@ export class Renderer extends RendererBase {
     for(let i = 0; i < this.playlistTracks.length; i++) {
       const track = this.playlistTracks[i]
       const [min, max] = [track.minHeight, track.maxHeight]
-      console.log("min, max, dropy", min, max, dropY)
+      console.log("track data: min, max, dropy", min, max, dropY)
       
       if(min < dropY && dropY < max) {
         trackNumber = track.trackNumber
@@ -432,7 +432,7 @@ export class Renderer extends RendererBase {
       const gridStroke = .2 * (1 - currentScale) > 0 ? .2 * (1 - currentScale) : .4
       p.strokeWeight(gridStroke)
       p.stroke(100, 100, 100)
-      for(let i = 0; i < width; i += width/maxPlaylistBeats) {
+      for(let i = 0; i < width; i += width/16) {
         // p.line(i, 0, i, height)
         p.line(i, 0, i, trackCount * staticDefaults.trackHeight + staticDefaults.timelineHeight + 1)
       }
