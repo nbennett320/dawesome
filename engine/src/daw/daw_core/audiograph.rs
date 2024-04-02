@@ -35,11 +35,13 @@ use rodio::dynamic_mixer::{
   DynamicMixerController,
 };
 use rodio::buffer::{SamplesBuffer};
+use futures;
 
 #[cfg(target_os = "linux")]
 use psimple;
 #[cfg(target_os = "linux")]
 use pulse;
+use serde::__private::de;
 
 #[cfg(target_os = "linux")]
 #[derive(Clone)]
@@ -211,7 +213,7 @@ pub struct AudioNode {
 
 // audio node implementation for Mac/Windows
 #[cfg(not(target_os = "linux"))]
-impl AudioNode {  
+impl AudioNode {
   pub fn new(
     id: u64,
     sample_path: String,
@@ -456,9 +458,27 @@ impl AudioGraph<'static> {
     self.running = true;
   }
 
-  // pub fn play_node(&self, node: &AudioNode) {
-  //   self.controller.add(node.samples.lock().unwrap());
-  // }
+  pub fn run(&self) {
+    let (_controller, mixer) = self.buffer_graph().unwrap();
+
+    println!("running full graph:");
+    let running = self.running;
+    thread::spawn(move || {
+      if running {
+        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+        let sink = Sink::try_new(&stream_handle).unwrap();
+        sink.pause();
+        sink.append(mixer);
+        println!("System time (PB): {:?}", std::time::Instant::now());
+        sink.play();
+        sink.sleep_until_end();
+        
+        // sink.detach();
+        // stream_handle.play_raw(mixer).unwrap();
+        // thread::sleep(dur);
+      }
+    });
+  }
 
   // run graph and schedule nodes to be played
   // n milliseconds in advance
@@ -488,14 +508,48 @@ impl AudioGraph<'static> {
     });
   }
 
-  pub fn buffer_slice(&self, dur: Duration) -> Option<(Arc<DynamicMixerController<f32>>, DynamicMixer<f32>)> {
-    let silence = rodio::source::Zero::<f32>::new(2, self.sample_rate).take_duration(dur);
+  pub fn buffer_graph(&self) -> Option<(Arc<DynamicMixerController<f32>>, DynamicMixer<f32>)> {
     let (controller, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, self.sample_rate);
+
+    // find total play duration
+    if self.nodes.len() == 0 {
+      return Some((controller, mixer));
+    }
+
+    // let dur = self.duration();
+    if self.nodes.len() == 0 { return Some((controller, mixer)); }
+    let last: &AudioNode = self.nodes.last().unwrap();
+
+    let dur = last.start_offset + last.duration();
+
+    // buffer silence
+    let silence = rodio::source::Zero::<f32>::new(2, self.sample_rate).take_duration(dur);
+    controller.add(silence);
+    
+    // buffer nodes
+    let self_arc = Arc::new(Mutex::new(self));
+    let slice = self_arc.lock().unwrap().nodes[0..self.nodes.len()].to_vec();
+
+    for node in slice {
+      let start_offset = Arc::new(Mutex::new(node.start_offset));
+      let delay: Duration = *start_offset.lock().unwrap();
+      println!("delay: {}ms",delay.as_millis());
+
+      let source = node.buffer.decoder().delay(*start_offset.lock().unwrap()).convert_samples();
+      controller.add(source);
+    }
+
+    Some((controller, mixer))
+  }
+
+  pub fn buffer_slice(&self, dur: Duration) -> Option<(Arc<DynamicMixerController<f32>>, DynamicMixer<f32>)> {
+    let (controller, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, self.sample_rate);
+    let silence = rodio::source::Zero::<f32>::new(2, self.sample_rate).take_duration(dur);
 
     controller.add(silence);
     
     // todo: add conditional for metronome state
-    // controller.add(daw::METRONOME_TICK_SOURCE.convert_samples());
+    controller.add(daw::METRONOME_TICK_SOURCE.convert_samples());
     
     // get starting index of nodes within this time slice
     let idx_start_opt = self.nodes.iter()
@@ -666,6 +720,7 @@ impl AudioGraph<'static> {
       track_number,
       self.sample_rate,
     );
+    println!("start offset is: {}ms", start_offset.as_millis());
 
     self.add_node(node);
 
@@ -921,7 +976,12 @@ impl AudioGraph<'static> {
 mod tests {
   use super::*;
   use crate::daw::{self};
-  use futures_test::{self};
+
+  macro_rules! aw {
+    ($e:expr) => {
+      futures::executor::block_on($e)
+    };
+  }
 
   #[test]
   fn test_node_initialization() {
@@ -941,8 +1001,8 @@ mod tests {
     assert_eq!(node.track_number, track_number);
   }
 
-  #[futures_test::test]
-  async fn test_node_play() {
+  #[test]
+  fn test_node_play() {
     let id = 1;
     let sample_path = daw::METRONOME_TICK_PATH.to_string();
     let start_offset = Duration::from_millis(0);
@@ -953,7 +1013,7 @@ mod tests {
 
     let now = Instant::now();
 
-    node.play().await;
+    aw!(node.play());
 
     thread::sleep(Duration::from_millis(100));
 
@@ -987,8 +1047,8 @@ mod tests {
     assert_eq!(audiograph.duration(), start_offset + node_dur);
   }
 
-  #[futures_test::test]
-  async fn test_audiograph_run() {
+  #[test]
+  fn test_audiograph_run() {
     let id = 1;
     let sample_path = daw::METRONOME_TICK_PATH.to_string();
     let start_offset = Duration::from_millis(650);
@@ -1021,8 +1081,8 @@ mod tests {
     assert_eq!(result, true);
   }
 
-  #[futures_test::test]
-  async fn test_audiograph_buffer_slice_with_silence() {
+  #[test]
+  fn test_audiograph_buffer_slice_with_silence() {
     let sample_rate = 44_100;
     let tempo = 120f32;
     let max_beats: u64 = 8;
@@ -1030,7 +1090,7 @@ mod tests {
     let audiograph = AudioGraph::new(sample_rate, tempo, max_beats);
     let runtime = Duration::from_secs(1);
 
-    let (_controller, mixer) = audiograph.buffer_slice(runtime).unwrap();
+    let mixer = audiograph.buffer_for(runtime).unwrap();
 
     let mut zero_samples = Vec::<f32>::new();
     let mut nonzero_samples = Vec::<f32>::new();
@@ -1046,8 +1106,46 @@ mod tests {
     assert_eq!(nonzero_samples.len(), 0);
   }
 
-  #[futures_test::test]
-  async fn test_audiograph_buffer_slice_with_node() {
+  fn test_audiograph_buffer_graph() {
+    let id = 1;
+    let sample_path = daw::METRONOME_TICK_PATH.to_string();
+    let start_offset = Duration::from_millis(650);
+    let track_number = 0;
+    let sample_rate = 44_100;
+
+    let node = AudioNode::new(id, sample_path, start_offset, track_number, sample_rate);
+
+    let tempo = 120f32;
+    let max_beats: u64 = 8;
+
+    let mut audiograph = AudioGraph::new(sample_rate, tempo, max_beats);
+    let buf = node.buffer.clone();
+
+    audiograph.add_node(node);
+    
+    let runtime = Duration::from_secs(1);
+
+    let (_controller, mixer) = audiograph.buffer_graph().unwrap();
+
+    let mut nonzero_samples = Vec::<f32>::new();
+    mixer.for_each(|x| {
+      if x != 0f32 {
+        nonzero_samples.push(x);
+      }
+    });
+
+    let mut node_samples = Vec::<f32>::new();
+    buf.convert_samples().for_each(|x| {
+      if x != 0f32 {
+        node_samples.push(x);
+      }
+    });
+
+    assert_eq!(node_samples.len() * 4, nonzero_samples.len());
+  }
+
+  #[test]
+  fn test_audiograph_buffer_slice_with_node() {
     let id = 1;
     let sample_path = daw::METRONOME_TICK_PATH.to_string();
     let start_offset = Duration::from_millis(650);
@@ -1082,11 +1180,11 @@ mod tests {
       }
     });
 
-    assert_eq!(node_samples.len() * 2, nonzero_samples.len());
+    assert_eq!(node_samples.len() * 4, nonzero_samples.len());
   }
 
-  #[futures_test::test]
-  async fn test_audiograph_buffer_set_functions() {
+  #[test]
+  fn test_audiograph_buffer_set_functions() {
     let sample_rate = 44_100;
     let tempo = 120f32;
     let max_beats: u64 = 8;
@@ -1106,8 +1204,8 @@ mod tests {
     assert_eq!(audiograph.tempo(), 75f32);
   }
 
-  #[futures_test::test]
-  async fn test_audiograph_node_functions() {
+  #[test]
+  fn test_audiograph_node_functions() {
     let id = 100;
     let sample_path = daw::METRONOME_TICK_PATH.to_string();
     let start_offset = Duration::from_millis(350);

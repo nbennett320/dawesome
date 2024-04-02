@@ -46,3 +46,5 @@ impl InnerState {
       .set_tempo(tempo);
   }
 }
+
+pub type TState<'a> = tauri::State<'a, Arc<InnerState>>;

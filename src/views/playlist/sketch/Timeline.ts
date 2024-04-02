@@ -35,12 +35,14 @@ class Timeline extends PlaylistComponent {
     this.p.fill('#222')
     this.p.textFont('Helvetica')
 
-    for(let i = 0; i < 32; i++) {
+    const limit = 16
+
+    for(let i = 0; i < limit; i++) {
       this.p.push()
       this.p.scale(1 / this.currentScale, 1)
       this.p.text(
         i+1, 
-        (i * (this.timelineWidth * this.currentScale / 32) + 2), 
+        (i * (this.timelineWidth * this.currentScale / limit) + 2), 
         this.timelineHeight - 2
       )
       this.p.pop()

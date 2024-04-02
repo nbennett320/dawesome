@@ -37,7 +37,7 @@ class Cursor extends PlaylistComponent {
     if(!playlistStart) return null
 
     const delta = now - playlistStart
-    const ratio = delta / (((this.renderer as Renderer).width - (this.renderer as Renderer).maxPlaylistBeats) / (this.renderer as Renderer).maxPlaylistBeats) * 4
+    const ratio = delta * 16 / ((this.renderer as Renderer).width / 16)
     return ratio * this.currentScale
   }
 
