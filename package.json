@@ -11,6 +11,7 @@
     "build": "tauri build",
     "build:assets:link": "ln -s engine/assets/ engine/target/assets",
     "dev": "tauri dev",
+    "debug": "cd engine && cargo run -- --debug",
     "lint": "eslint . --ignore-path .gitignore && prettier --check .",
     "lint:fix": "eslint . --fix --ignore-path .gitignore && pnpm format",
     "format": "prettier -w src/"

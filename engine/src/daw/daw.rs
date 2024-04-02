@@ -15,7 +15,7 @@ use std::sync::{
 use std::sync::atomic::{Ordering};
 use std::thread;
 use std::time::{
-  Duration, 
+  Duration,
   Instant,
 };
 use rodio::{Source};
