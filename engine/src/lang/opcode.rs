@@ -28,6 +28,7 @@ pub enum Opcode {
     Jump,
     Loop,
     Call,
+    DawesomeGlobal,
 
     Unknown,
 }
@@ -63,7 +64,9 @@ impl Opcode {
             25 => Opcode::JumpIfFalse,
             26 => Opcode::Jump,
             27 => Opcode::Loop,
-            28 => Opcode::Call,
+            28 => Opcode::Call, 
+            29 => Opcode::DawesomeGlobal,
+
             _ => Opcode::Unknown,
         }
     }
