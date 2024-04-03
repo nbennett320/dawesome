@@ -1,85 +1,50 @@
 mod app;
 mod daw;
 mod util;
-mod lang;
+// mod lang;
 mod event_dispatch;
 
 use std::env;
-use std::sync::{Arc};
-use std::io::{self, stdout, Write};
+use std::sync::{Arc, Mutex};
+use std::io::{self, Write};
+use daw::InnerState;
 use tauri;
+use mlua;
 
 #[macro_use(lazy_static)]
 extern crate lazy_static;
 
+lazy_static! {
+  pub static ref STATE: Arc<daw::InnerState> = Arc::new(daw::InnerState::default());
+  // pub static ref STATE: Arc<Mutex<daw::InnerState>> = Arc::new(Mutex::from(daw::InnerState::default()));
+}
+
 fn debug(){
   println!("debug mode:");
+  use mlua::prelude::*;
+  let lua = Lua::new();
+  let globals = lua.globals();
+  // let state = Arc::new(Mutex::from(daw::InnerState::default()));
 
-  let mut vm = lang::vm::Vm::new();
-  let mut line_num = 1;
   let mut input = String::new();
 
   loop {
     print!("> ");
     io::stdout().flush().ok();
+    io::stdin().read_line(&mut input).ok();
 
-    let mut line = String::new();
-    io::stdin().read_line(&mut line).ok();
-
-    if line == "exit\n" {
+    if input == "exit\n" {
       break;
     }
 
-    let res = lang::parser::Parser::new(line).compile();
-    match res {
-      Ok(func) => {
-        func.chunk
-          .disassemble(format!("repl line {}", line_num).as_str());
-        let res = vm.run(func);
-        match res {
-          Ok(value) => println!("{}", value),
-          _ => todo!("Handle runtime error"),
-        }
-      }
-      Err(_) => println!("Compile error"),
-    }
+    println!("input: \"{}\"", input);
 
-    line_num += 1;
+    event_dispatch::bind_functions(&lua);
+
+    lua.load(&input).exec().unwrap();
+
+    input = "".to_string();
   }
-
-  // while input != "exit" {
-  //   match io::stdin().read_line(&mut input) {
-  //     Ok(_n) => {
-  //       match &*input {
-  //         "exit\n" => {
-  //           break;
-  //         }
-  //         _ => {
-  //           println!("exec: \"{}\"", input.trim());
-  //           let res = lang::parser::Parser::new(input).compile();
-
-  //           match res {
-  //             Ok(func) => {
-  //               func.chunk
-  //                 .disassemble(format!("repl line {}", line_num).as_str());
-  //               let res = vm.run(func);
-  //               match res {
-  //                 Ok(value) => println!("{}", value),
-  //                 _ => todo!("Handle runtime error"),
-  //               }
-  //             }
-  //             Err(_) => println!("Compile error"),
-  //           }
-
-  //           line_num += 1;
-  //         }
-  //       }
-  //     }
-  //     Err(error) => println!("error: {error}"),
-  //   }
-
-  //   // input = "".to_string();
-  // }
 }
 
 fn init_tauri() {
@@ -91,7 +56,7 @@ fn init_tauri() {
     .manage(Arc::new(daw::InnerState::default()))
     .invoke_handler(tauri::generate_handler![
       get_playlist_playing,
-      toggle_playlist,
+      t_toggle_playlist,
       get_playlist_start_time,
       get_playlist_tempo,
       set_playlist_tempo,
@@ -103,9 +68,9 @@ fn init_tauri() {
       set_playlist_time_signature,
       get_sidebar_samples,
       enumerate_directory,
-      preview_sample,
+      t_preview_sample,
       get_audio_drivers,
-      add_audiograph_node,
+      t_add_audiograph_node,
       move_audiograph_node,
       remove_audiograph_node,
       get_node_data,

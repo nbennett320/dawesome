@@ -56,6 +56,7 @@ pub enum TokenType {
     True,
     Var,
     While,
+    DawesomeFn,
 
     // Misc tokens
     Error(String),
@@ -298,6 +299,11 @@ impl TokenType {
                 infix: None,
                 precedence: Precedence::None,
             },
+            TokenType::DawesomeFn => &ParseRule {
+                prefix: None,
+                infix: None,
+                precedence: Precedence::None,
+            },
             TokenType::Error(_) => &ParseRule {
                 prefix: None,
                 infix: None,
@@ -353,6 +359,7 @@ impl Display for TokenType {
             TokenType::True => write!(f, "True"),
             TokenType::Var => write!(f, "Var"),
             TokenType::While => write!(f, "While"),
+            TokenType::DawesomeFn => write!(f, "DawesomeFn"),
             TokenType::Error(_) => write!(f, "Error"),
         }
     }

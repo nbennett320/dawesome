@@ -1,18 +1,24 @@
 use std::sync::atomic::{Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{SystemTime};
 use tauri;
+use mlua;
 
-use crate::{app, daw, util};
+use crate::{app, daw, util, STATE};
 
-#[tauri::command]
-pub fn toggle_playlist(state: daw::TState<'_>) {
+fn toggle_playlist(state: &Arc<daw::InnerState>) {
   if state.playlist.playing() {
     daw::pause_playlist(state);
   } else {
     // start playlist
     daw::start_playlist(state);
   }
+}
+
+#[tauri::command]
+pub fn t_toggle_playlist(state: daw::TState<'_>) {
+  toggle_playlist(state.inner());
 }
 
 #[tauri::command]
@@ -154,14 +160,18 @@ pub fn enumerate_directory(dir_path: String) -> Result<(
   Ok((samples, samples_paths, dirs, dirs_paths))
 }
 
-#[tauri::command]
-pub fn preview_sample(
-  _state: daw::TState<'_>,
-  path: String,
-) {
+fn preview_sample(path: String) {
   thread::spawn(move || {
     futures::executor::block_on(daw::play_sample(&path));
   });
+}
+
+#[tauri::command]
+pub fn t_preview_sample(
+  _state: daw::TState<'_>,
+  path: String,
+) {
+  preview_sample(path)
 }
 
 #[tauri::command]
@@ -169,8 +179,51 @@ pub fn get_audio_drivers() -> Result<Vec<String>, String> {
   Ok(daw::drivers::get_sound_host_names())
 }
 
+fn add_audiograph_node(
+  state: &daw::InnerState,
+  sample_path: String,
+  track_number: u32,
+  start_offset: std::time::Duration,
+  snap_enabled: bool,
+) -> u64 {
+  // println!("added sample: {}, with offset of: {}ms", sample_path, start_offset.as_millis());
+
+  let id: u64;
+  if snap_enabled {
+    println!("snapping the sample");
+    // snap to nearest snap subdivision
+    let subdivision = state
+      .playlist
+      .ui
+      .lock()
+      .unwrap()
+      .snap_subdivision;
+
+    id = state
+      .playlist
+      .audiograph
+      .lock()
+      .unwrap()
+      .construct_and_add_node_with_snap(
+        sample_path, 
+        start_offset, 
+        track_number,
+        daw::timing::SixteenthNote::new());
+  } else {
+    // don't snap
+    id = state
+      .playlist
+      .audiograph
+      .lock()
+      .unwrap()
+      .construct_and_add_node(sample_path, start_offset, track_number);
+  }
+
+  id
+}
+
 #[tauri::command]
-pub fn add_audiograph_node(
+pub fn t_add_audiograph_node(
   state: daw::TState<'_>,
   sample_path: String,
   track_number: u32,
@@ -202,41 +255,11 @@ pub fn add_audiograph_node(
     max_playlist_dur
   );
 
-  println!("added sample: {}, with offset of: {}ms", sample_path, start_offset.as_millis());
+  let snap_enabled = state.playlist.ui.lock().unwrap().snap_enabled;
 
-  let id: u64;
-  if state.playlist.ui.lock().unwrap().snap_enabled {
-    println!("snapping the sample");
-    // snap to nearest snap subdivision
-    let subdivision = state
-      .playlist
-      .ui
-      .lock()
-      .unwrap()
-      .snap_subdivision;
+  // let id = add_audiograph_node(state.inner(), sample_path, track_number, start_offset, snap_enabled);
 
-    id = state
-      .playlist
-      .audiograph
-      .lock()
-      .unwrap()
-      .construct_and_add_node_with_snap(
-        sample_path, 
-        start_offset, 
-        track_number,
-        daw::timing::SixteenthNote::new());
-  } else {
-    // don't snap
-    id = state
-      .playlist
-      .audiograph
-      .lock()
-      .unwrap()
-      .construct_and_add_node(sample_path, start_offset, track_number);
-  }
-
-  // returns the id of the new node, offset
-  Ok(id)
+  Ok(4)
 }
 
 #[tauri::command]
@@ -491,4 +514,63 @@ pub fn toggle_record_input(
     .playlist
     .recording();
   daw::input::record_input(*recording);
+}
+
+pub fn bind_functions(
+  lua: &mlua::Lua,
+  // state: &Arc<daw::InnerState>,
+) {
+  let globals = lua.globals();
+
+  // preview_sample
+  let f_preview_sample = 
+    lua.create_function(|_, path: String| {
+    preview_sample(path);
+
+    Ok(())
+  }).unwrap();
+
+  globals.set("preview_sample", f_preview_sample).unwrap();
+  
+  // add_audiograph_node
+  let f_add_audiograph_node = 
+    lua.create_function(|_, (path, track_number, start_offset_ms): (String, u32, u64)| {
+    let start_offset = std::time::Duration::from_millis(start_offset_ms);
+
+    // add_audiograph_node(state, path, track_number, start_offset, false);
+
+    let id: u64;
+    // don't snap
+    id = crate::STATE
+      .playlist
+      .audiograph
+      .lock()
+      .unwrap()
+      .construct_and_add_node(path, start_offset, track_number);
+
+    Ok(id)
+  }).unwrap();
+
+  globals.set("add_audiograph_node", f_add_audiograph_node).unwrap();
+  
+  // add_audiograph_node
+  let f_toggle_playlist = 
+    lua.create_function(|_, (): ()| {    
+    toggle_playlist(&crate::STATE);
+
+    Ok(())
+  }).unwrap();
+
+  globals.set("toggle_playlist", f_toggle_playlist).unwrap();
+
+  let f_print_state = 
+    lua.create_function(|_, (): ()| {
+    println!("playlist.playing: {}", crate::STATE.playlist.playing());
+    println!("# nodes: {}", crate::STATE.playlist.audiograph.lock().unwrap().nodes.len());
+
+    Ok(())
+  }).unwrap();
+
+  globals.set("print_state", f_print_state).unwrap();
+
 }

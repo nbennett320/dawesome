@@ -116,6 +116,7 @@ impl Scanner {
 
     fn make_token(&self, token_type: TokenType) -> Token {
         let len = self.pos - self.start;
+        println!("token: {}", self.line);
         Token::new(token_type, self.line, self.start, len)
     }
 
@@ -238,6 +239,7 @@ impl Scanner {
         let t = match c {
             'a' => self.check_keyword(1, 2, "nd", TokenType::And),
             'c' => self.check_keyword(1, 4, "lass", TokenType::Class),
+            // 'd' => self.check_keyword(1, 10, "awesome_fn", TokenType::DawesomeFn),
             'e' => self.check_keyword(1, 3, "lse", TokenType::Else),
             'i' => self.check_keyword(1, 1, "f", TokenType::If),
             'f' => {
@@ -278,6 +280,10 @@ impl Scanner {
             let ident = &self.source[self.start..self.pos];
             if ident == "fn" {
                 TokenType::Fn
+            } else if ident == "dawesome_fn" {
+                println!("exec dawesome f");
+                
+                TokenType::DawesomeFn
             } else {
                 TokenType::Identifier(String::from(ident))
             }

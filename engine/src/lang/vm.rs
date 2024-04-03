@@ -180,6 +180,9 @@ impl Vm {
                     let cf = CallFrame::new(f.clone(), self.stack.len() - num_args);
                     self.frames.push(cf);
                 }
+                Opcode::DawesomeGlobal => {
+                    println!("dawesome global vm");
+                }
                 _ => return Err(InterpretError::CompileError),
             };
         }
@@ -217,7 +220,14 @@ impl Vm {
     }
 
     fn pop(&mut self) -> Value {
-        self.stack.pop().unwrap()
+        match self.stack.pop() {
+            Some(x) => x,
+            _ => {
+                println!("Stack is empty!");
+
+                Value::Nil
+            }
+        }
     }
 
     fn peek(&self, offset: usize) -> &Value {

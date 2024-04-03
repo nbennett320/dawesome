@@ -80,6 +80,7 @@ impl Chunk {
             Opcode::Jump => self.jump_instruction("Jump", 1, offset),
             Opcode::Loop => self.jump_instruction("Loop", -1, offset),
             Opcode::Call => self.byte_instruction("Call", offset),
+            Opcode::DawesomeGlobal => self.simple_instruction("DawesomeGlobal", offset),
             _ => {
                 println!("Unknown opcode: {}", instruction);
                 offset + 1

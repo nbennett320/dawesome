@@ -27,6 +27,7 @@ num-traits = "0.2.15"
 lazy_static = "1.4.0"
 hound = "3.5.0"
 symphonia = "0.5.1"
+mlua = { version = "*", features = [ "lua54" ] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 pulse = { version = "2.26.*", package= "libpulse-binding" }

@@ -240,7 +240,7 @@ pub fn run_playlist(state_ref: &Arc<state::InnerState>) {
   println!("continuing");
 }
 
-pub fn pause_playlist(state: tauri::State<'_, Arc<state::InnerState>>) {
+pub fn pause_playlist(state: &Arc<state::InnerState>) {
   println!("pausing playlist");
   
   // reset playlist to 0 beats
@@ -263,7 +263,7 @@ pub fn pause_playlist(state: tauri::State<'_, Arc<state::InnerState>>) {
   audiograph_ref.pause();
 }
 
-pub fn start_playlist(state: tauri::State<'_, Arc<state::InnerState>>) {
+pub fn start_playlist(state: &Arc<state::InnerState>) {
   // start playlist
   println!("playing playlist");
   state
@@ -286,7 +286,7 @@ pub fn start_playlist(state: tauri::State<'_, Arc<state::InnerState>>) {
     .unwrap()
     .init(now);
 
-  let state_ref = state.inner();
+  let state_ref = &Arc::from(state);
   run_playlist(state_ref);
 }
 
