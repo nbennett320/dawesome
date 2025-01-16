@@ -101,7 +101,7 @@ export const playlistSlice = createSlice({
 export const { setPlaying } = playlistSlice.actions
 
 export const togglePlay = () => async (dispatch: Dispatch) => {
-  invoke<void>('toggle_playlist', {})
+  invoke<void>('t_toggle_playlist', {})
   const playing = await invoke<boolean>('get_playlist_playing', {})
   dispatch(setPlaying(playing))
 }
@@ -156,7 +156,7 @@ export const selectPlaylistBeatCount = (state: RootState) =>
 export const { setMetronomeEnabled } = playlistSlice.actions
 
 export const toggleMetronome = () => async (dispatch: Dispatch) => {
-  await invoke<void>('toggle_metronome_enabled', {})
+  await invoke<void>('t_toggle_metronome_enabled', {})
   const enabled = await invoke<boolean>('get_metronome_enabled', {})
   dispatch(setMetronomeEnabled(enabled))
 }
@@ -169,7 +169,7 @@ export const selectMetronomeEnabled = (state: RootState) =>
 export const { setLoopEnabled } = playlistSlice.actions
 
 export const toggleLoop = () => async (dispatch: Dispatch) => {
-  await invoke<void>('toggle_loop_enabled', {})
+  await invoke<void>('t_toggle_loop_enabled', {})
   const enabled = await invoke<boolean>('get_loop_enabled', {})
   dispatch(setLoopEnabled(enabled))
 }

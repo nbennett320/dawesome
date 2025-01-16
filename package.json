@@ -38,7 +38,7 @@
     "react-dom": "18.0.0",
     "react-p5-wrapper": "^3.4.0",
     "react-redux": "^8.0.0-beta.4",
-    "react-split-pane": "github:zirkelc/react-split-pane",
+    "react-split-pane": "^0.1.92",
     "react-tabs": "^6.0.0",
     "sass": "1.49.10",
     "swr": "1.2.2",

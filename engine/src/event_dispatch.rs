@@ -2,9 +2,11 @@ use std::sync::atomic::{Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{SystemTime};
+use num_traits::ToPrimitive;
 use tauri;
 use mlua;
 
+use crate::daw::{beat_interval_from_tempo, InnerState};
 use crate::{app, daw, util, STATE};
 
 fn toggle_playlist(state: &Arc<daw::InnerState>) {
@@ -82,12 +84,18 @@ pub fn set_playlist_tempo(
   daw::set_playlist_tempo(state, val);
 }
 
-#[tauri::command]
-pub fn toggle_metronome_enabled(
-  state: daw::TState<'_>
+fn toggle_metronome_enabled(
+  state: &Arc<daw::InnerState>
 ) {
   let val = !state.metronome_enabled.load(Ordering::SeqCst);
   state.metronome_enabled.store(val, Ordering::SeqCst);
+}
+
+#[tauri::command]
+pub fn t_toggle_metronome_enabled(
+  state: daw::TState<'_>
+) {
+  toggle_metronome_enabled(state.inner());
 }
 
 #[tauri::command]
@@ -421,9 +429,8 @@ pub fn get_playlist_data(
   ))
 }
 
-#[tauri::command]
-pub fn toggle_loop_enabled(
-  state: daw::TState<'_>
+fn toggle_loop_enabled(
+  state: &Arc<InnerState>
 ) {
   let val = !state
     .playlist
@@ -434,6 +441,13 @@ pub fn toggle_loop_enabled(
     .playlist
     .loop_enabled
     .store(val, Ordering::SeqCst);
+}
+
+#[tauri::command]
+pub fn t_toggle_loop_enabled(
+  state: daw::TState<'_>
+) {
+  toggle_loop_enabled(state.inner());
 }
 
 #[tauri::command]
@@ -530,11 +544,11 @@ pub fn bind_functions(
     Ok(())
   }).unwrap();
 
-  globals.set("preview_sample", f_preview_sample).unwrap();
   
   // add_audiograph_node
+  // todo: refactor to use consistent state
   let f_add_audiograph_node = 
-    lua.create_function(|_, (path, track_number, start_offset_ms): (String, u32, u64)| {
+    lua.create_function(|_, (path, start_offset_ms, track_number): (String, u64, u32)| {
     let start_offset = std::time::Duration::from_millis(start_offset_ms);
 
     // add_audiograph_node(state, path, track_number, start_offset, false);
@@ -551,9 +565,22 @@ pub fn bind_functions(
     Ok(id)
   }).unwrap();
 
-  globals.set("add_audiograph_node", f_add_audiograph_node).unwrap();
+  let f_add_audiograph_node = 
+    lua.create_function(|_, (path, beat_offset, track_number): (String, u64, u32)| {
+    let start_offset = daw::n_beat_duration_from_tempo(crate::STATE.tempo(), beat_offset.to_u32().unwrap());
+
+    let id: u64;
+    // don't snap
+    id = crate::STATE
+      .playlist
+      .audiograph
+      .lock()
+      .unwrap()
+      .construct_and_add_node(path, start_offset, track_number);
+
+    Ok(id)
+  }).unwrap();
   
-  // add_audiograph_node
   let f_toggle_playlist = 
     lua.create_function(|_, (): ()| {    
     toggle_playlist(&crate::STATE);
@@ -561,16 +588,46 @@ pub fn bind_functions(
     Ok(())
   }).unwrap();
 
-  globals.set("toggle_playlist", f_toggle_playlist).unwrap();
-
   let f_print_state = 
     lua.create_function(|_, (): ()| {
     println!("playlist.playing: {}", crate::STATE.playlist.playing());
     println!("# nodes: {}", crate::STATE.playlist.audiograph.lock().unwrap().nodes.len());
+    println!("# metronome_enabled: {:?}", crate::STATE.metronome_enabled.load(Ordering::SeqCst));
+    println!("# loop_enabled: {:?}", crate::STATE.playlist.loop_enabled.load(Ordering::SeqCst));
+    println!("# total_beats: {:?}", crate::STATE.playlist.total_beats.load(Ordering::SeqCst));
 
     Ok(())
   }).unwrap();
 
+  let f_print_nodes = 
+    lua.create_function(|_, (): ()| {
+      
+    println!("# nodes: {:?}", crate::STATE.playlist.audiograph.lock().unwrap().nodes.first().unwrap().start_offset);
+
+    Ok(())
+  }).unwrap();
+
+  let f_toggle_metronome_enabled = 
+    lua.create_function(|_, (): ()| {
+    toggle_metronome_enabled(&crate::STATE);
+
+    Ok(())
+  }).unwrap();
+
+  let f_toggle_loop_enabled = 
+    lua.create_function(|_, (): ()| {
+    toggle_loop_enabled(&crate::STATE);
+
+    Ok(())
+  }).unwrap();
+
+  globals.set("preview_sample", f_preview_sample).unwrap();
+  globals.set("add", f_add_audiograph_node).unwrap();
+  // globals.set("add_audiograph_node_on_beat", f_add_audiograph_node).unwrap();
+  globals.set("tp", f_toggle_playlist).unwrap();
   globals.set("print_state", f_print_state).unwrap();
+  globals.set("print_nodes", f_print_nodes).unwrap();
+  globals.set("toggle_metronome_enabled", f_toggle_metronome_enabled).unwrap();
+  globals.set("toggle_loop_enabled", f_toggle_loop_enabled).unwrap();
 
 }

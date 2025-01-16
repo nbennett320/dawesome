@@ -37,7 +37,7 @@ fn debug(){
       break;
     }
 
-    println!("input: \"{}\"", input);
+    // println!("input: \"{}\"", input);
 
     event_dispatch::bind_functions(&lua);
 
@@ -60,7 +60,7 @@ fn init_tauri() {
       get_playlist_start_time,
       get_playlist_tempo,
       set_playlist_tempo,
-      toggle_metronome_enabled,
+      t_toggle_metronome_enabled,
       get_metronome_enabled,
       get_playlist_runtime_formatted,
       get_playlist_beat_count,
@@ -76,7 +76,7 @@ fn init_tauri() {
       get_node_data,
       get_playlist_sample_offset,
       get_playlist_data,
-      toggle_loop_enabled,
+      t_toggle_loop_enabled,
       get_loop_enabled,
       toggle_snap_enabled,
       get_snap_enabled,

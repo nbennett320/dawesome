@@ -363,7 +363,7 @@ impl AudioNode {
 impl Drop for AudioNode {
   fn drop(&mut self) {
     let sink = &*self.sink.lock().unwrap();
-    drop(sink);
+    let _ = sink;
   }
 }
 

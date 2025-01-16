@@ -151,50 +151,32 @@ pub fn run_playlist(state_ref: &Arc<state::InnerState>) {
     .lock()
     .unwrap()
     .interval_of_subdivision(daw_core::timing::WholeNote::new());
+  // let graph = &state.playlist.audiograph.lock().unwrap();
+  // // graph.run();
+  // graph.run_for(tempo_interval);
 
-  let graph = &state.playlist.audiograph.lock().unwrap();
-  graph.run();
-  // pool.exec(move || {
-  //   thread::spawn(move || loop {
-  //     println!("tick: {}ms", &state.playlist.audiograph.lock().unwrap().current_offset.unwrap().as_millis());
-
-  //     // play metronome if enabled
-  //     // if state.metronome_enabled.load(Ordering::SeqCst) 
-  //     //   && state.playlist.playing() {
-  //     //   play_metronome(&state);
-  //     // }
-
-  //     // run ahead n milliseconds and schedule the next
-  //     // samples in the audio graph to be played
-  //     let mut audiograph_ref = state.playlist.audiograph.lock().unwrap();
-
-  //     audiograph_ref.run_for(tempo_interval);
-  //     // let m = audiograph_ref.buffer_for(tempo_interval);
-  //     // match m {
-  //     //   Some(x) => { 
-  //     //     futures::executor::block_on(play_buffer(x.take_duration(tempo_interval).buffered()));
-  //     //   }
-  //     //   None => {}
-  //     // }
-
-  //     // sleep this thread for the length of a single beat
-  //     thread::sleep(tempo_interval);
-      
-  //     let curr = audiograph_ref.current_offset.unwrap();
-
-  //     if state.playlist.playing() {
-  //       audiograph_ref.set_current_offset(Some(curr + tempo_interval));
-  //     } else {
-  //       audiograph_ref.set_current_offset(Some(curr));
+  // thread::spawn(move || {
+  //   let tempo_interval = state
+  //     .playlist
+  //     .audiograph
+  //     .lock()
+  //     .unwrap()
+  //     .interval_of_subdivision(daw_core::timing::WholeNote::new());
+  //   let graph = &state.playlist.audiograph.lock().unwrap();
+  //   loop {
+  //     graph.run_for(tempo_interval);
+  //     if state.metronome_enabled.load(Ordering::SeqCst) && state.playlist.playing() {
+  //       play_metronome(&state);
   //     }
 
-  //     // increment the beat counter
+  //     graph.run_for(tempo_interval);
+
   //     let current_time_signature =
   //       state.playlist.time_signature.lock().unwrap();
   //     let current_beat =
   //       state.playlist.current_beat.load(Ordering::SeqCst);
   //     let next_beat = (current_beat + 1) % current_time_signature.numerator;
-      
+
   //     if state.playlist.playing() {
   //       // loop the playlist by setting the current offset to zero,
   //       // if looping is enabled, otherwise, add and store the next 
@@ -202,7 +184,7 @@ pub fn run_playlist(state_ref: &Arc<state::InnerState>) {
   //       if state.playlist.loop_enabled.load(Ordering::SeqCst)
   //         && ((state.playlist.total_beats.load(Ordering::SeqCst) + 1) as u64 
   //         >= state.playlist.max_beats.load(Ordering::SeqCst)) {
-  //         audiograph_ref.set_current_offset(Some(Duration::ZERO));
+  //         // state.playlist.audiograph.set_current_offset(Some(Duration::ZERO));
 
   //         state
   //           .playlist
@@ -221,21 +203,95 @@ pub fn run_playlist(state_ref: &Arc<state::InnerState>) {
   //           .fetch_add(1, Ordering::SeqCst);
   //       }
   //     } else {
-  //       state.playlist.current_beat.store(0, Ordering::SeqCst);
+  //       break
   //     }
-
-  //     println!(
-  //       "current beat: {}, total beats played: {}, looping: {}",
-  //       state.playlist.current_beat.load(Ordering::SeqCst),
-  //       state.playlist.total_beats.load(Ordering::SeqCst),
-  //       state.playlist.loop_enabled.load(Ordering::SeqCst)
-  //     );
-
-  //     if !state.playlist.playing() {
-  //       break;
-  //     }
-  //   });
+  //   }
   // });
+
+
+
+  pool.exec(move || {
+    thread::spawn(move || loop {
+      println!("tick: {}ms", &state.playlist.audiograph.lock().unwrap().current_offset.unwrap().as_millis());
+
+      // play metronome if enabled
+      // if state.metronome_enabled.load(Ordering::SeqCst) 
+      //   && state.playlist.playing() {
+      //   play_metronome(&state);
+      // }
+
+      // run ahead n milliseconds and schedule the next
+      // samples in the audio graph to be played
+      let mut audiograph_ref = state.playlist.audiograph.lock().unwrap();
+
+      audiograph_ref.run_for(tempo_interval);
+      // let m = audiograph_ref.buffer_for(tempo_interval);
+      // match m {
+      //   Some(x) => { 
+      //     futures::executor::block_on(play_buffer(x.take_duration(tempo_interval).buffered()));
+      //   }
+      //   None => {}
+      // }
+
+      // sleep this thread for the length of a single beat
+      thread::sleep(tempo_interval);
+      
+      let curr = audiograph_ref.current_offset.unwrap();
+
+      if state.playlist.playing() {
+        audiograph_ref.set_current_offset(Some(curr + tempo_interval));
+      } else {
+        audiograph_ref.set_current_offset(Some(curr));
+      }
+
+      // increment the beat counter
+      let current_time_signature =
+        state.playlist.time_signature.lock().unwrap();
+      let current_beat =
+        state.playlist.current_beat.load(Ordering::SeqCst);
+      let next_beat = (current_beat + 1) % current_time_signature.numerator;
+      
+      if state.playlist.playing() {
+        // loop the playlist by setting the current offset to zero,
+        // if looping is enabled, otherwise, add and store the next 
+        // current beat
+        if state.playlist.loop_enabled.load(Ordering::SeqCst)
+          && ((state.playlist.total_beats.load(Ordering::SeqCst) + 1) as u64 
+          >= state.playlist.max_beats.load(Ordering::SeqCst)) {
+          audiograph_ref.set_current_offset(Some(Duration::ZERO));
+
+          state
+            .playlist
+            .current_beat
+            .store(next_beat, Ordering::SeqCst);
+          state
+            .playlist
+            .total_beats
+            .store(0, Ordering::SeqCst);
+        } else {
+          state
+            .playlist.current_beat
+            .store(next_beat, Ordering::SeqCst);
+          state
+            .playlist.total_beats
+            .fetch_add(1, Ordering::SeqCst);
+        }
+      } else {
+        state.playlist.current_beat.store(0, Ordering::SeqCst);
+      }
+
+      println!(
+        "current beat: {}, total beats played: {}, looping: {}",
+        state.playlist.current_beat.load(Ordering::SeqCst),
+        state.playlist.total_beats.load(Ordering::SeqCst),
+        state.playlist.loop_enabled.load(Ordering::SeqCst)
+      );
+
+      if !state.playlist.playing() {
+        break;
+      }
+    });
+  });
 
   println!("continuing");
 }
