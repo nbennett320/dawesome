@@ -2,6 +2,7 @@ use std::sync::atomic::{Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{SystemTime};
+use std::process;
 use num_traits::ToPrimitive;
 use tauri;
 use mlua;
@@ -544,6 +545,13 @@ pub fn bind_functions(
     Ok(())
   }).unwrap();
 
+  let f_list_samples = lua.create_function(|_, (): ()| {
+    let mut ls = process::Command::new("ls");
+    ls.arg("./assets");
+    ls.status().expect("ls didnt work");
+    println!();
+    Ok(())
+  }).unwrap();
   
   // add_audiograph_node
   // todo: refactor to use consistent state
@@ -568,6 +576,8 @@ pub fn bind_functions(
   let f_add_audiograph_node = 
     lua.create_function(|_, (path, beat_offset, track_number): (String, u64, u32)| {
     let start_offset = daw::n_beat_duration_from_tempo(crate::STATE.tempo(), beat_offset.to_u32().unwrap());
+    let sample_path = String::from("./assets/") + &path;
+    println!("adding {} to beat {} on track {}", sample_path, beat_offset, track_number);
 
     let id: u64;
     // don't snap
@@ -576,7 +586,7 @@ pub fn bind_functions(
       .audiograph
       .lock()
       .unwrap()
-      .construct_and_add_node(path, start_offset, track_number);
+      .construct_and_add_node(sample_path, start_offset, track_number);
 
     Ok(id)
   }).unwrap();
@@ -622,6 +632,7 @@ pub fn bind_functions(
   }).unwrap();
 
   globals.set("preview_sample", f_preview_sample).unwrap();
+  globals.set("ls", f_list_samples).unwrap();
   globals.set("add", f_add_audiograph_node).unwrap();
   // globals.set("add_audiograph_node_on_beat", f_add_audiograph_node).unwrap();
   globals.set("tp", f_toggle_playlist).unwrap();
