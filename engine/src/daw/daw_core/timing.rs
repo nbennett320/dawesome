@@ -167,7 +167,7 @@ impl MusicalTiming for SixteenthNote {
 
 // calculate the interval of one beat, given a tempo
 pub fn beat_interval_from_tempo(tempo: f32) -> Duration {
-  let beats_per_sec = tempo / 60.;
+  let beats_per_sec = 60. / tempo;
   let dur = Duration::from_secs_f32(beats_per_sec);
 
   dur

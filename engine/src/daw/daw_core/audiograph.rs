@@ -482,13 +482,13 @@ impl AudioGraph<'static> {
 
   // run graph and schedule nodes to be played
   // n milliseconds in advance
-  pub fn run_for(&self, dur: Duration) {
+  pub fn run_for(&self, dur: Duration, metronome_enabled: bool) {
     if self.nodes.len() == 0 {
       println!("Tried to run audio graph. No nodes in graph!");
       return;
     }
 
-    let (_controller, mixer) = self.buffer_slice(dur).unwrap();
+    let (_controller, mixer) = self.buffer_slice(dur, metronome_enabled).unwrap();
 
     let running = self.running;
     thread::spawn(move || {
@@ -542,14 +542,16 @@ impl AudioGraph<'static> {
     Some((controller, mixer))
   }
 
-  pub fn buffer_slice(&self, dur: Duration) -> Option<(Arc<DynamicMixerController<f32>>, DynamicMixer<f32>)> {
+  pub fn buffer_slice(&self, dur: Duration, metronome_enabled: bool) -> Option<(Arc<DynamicMixerController<f32>>, DynamicMixer<f32>)> {
     let (controller, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, self.sample_rate);
     let silence = rodio::source::Zero::<f32>::new(2, self.sample_rate).take_duration(dur);
 
     controller.add(silence);
     
     // todo: add conditional for metronome state
-    controller.add(daw::METRONOME_TICK_SOURCE.convert_samples());
+    if metronome_enabled {
+      controller.add(daw::METRONOME_TICK_SOURCE.convert_samples());
+    }
     
     // get starting index of nodes within this time slice
     let idx_start_opt = self.nodes.iter()
@@ -1067,7 +1069,7 @@ mod tests {
     let runtime = Duration::from_secs(1);
     let now = Instant::now();
 
-    audiograph.run_for(runtime);
+    audiograph.run_for(runtime, true);
     thread::sleep(runtime);
 
     let now_elapsed = now.elapsed();
@@ -1164,7 +1166,7 @@ mod tests {
     
     let runtime = Duration::from_secs(1);
 
-    let (_controller, mixer) = audiograph.buffer_slice(runtime).unwrap();
+    let (_controller, mixer) = audiograph.buffer_slice(runtime, true).unwrap();
 
     let mut nonzero_samples = Vec::<f32>::new();
     mixer.for_each(|x| {

@@ -3,6 +3,7 @@ mod daw;
 mod util;
 // mod lang;
 mod event_dispatch;
+mod bind_functions;
 
 use std::env;
 use std::sync::{Arc, Mutex};
@@ -39,7 +40,7 @@ fn debug(){
 
     // println!("input: \"{}\"", input);
 
-    event_dispatch::bind_functions(&lua);
+    bind_functions::bind_functions(&lua);
 
     lua.load(&input).exec().unwrap();
 

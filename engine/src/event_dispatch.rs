@@ -2,15 +2,12 @@ use std::sync::atomic::{Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{SystemTime};
-use std::process;
-use num_traits::ToPrimitive;
 use tauri;
-use mlua;
 
-use crate::daw::{beat_interval_from_tempo, InnerState};
+use crate::daw::{InnerState};
 use crate::{app, daw, util, STATE};
 
-fn toggle_playlist(state: &Arc<daw::InnerState>) {
+pub fn toggle_playlist(state: &Arc<daw::InnerState>) {
   if state.playlist.playing() {
     daw::pause_playlist(state);
   } else {
@@ -85,7 +82,7 @@ pub fn set_playlist_tempo(
   daw::set_playlist_tempo(state, val);
 }
 
-fn toggle_metronome_enabled(
+pub fn toggle_metronome_enabled(
   state: &Arc<daw::InnerState>
 ) {
   let val = !state.metronome_enabled.load(Ordering::SeqCst);
@@ -169,7 +166,7 @@ pub fn enumerate_directory(dir_path: String) -> Result<(
   Ok((samples, samples_paths, dirs, dirs_paths))
 }
 
-fn preview_sample(path: String) {
+pub fn preview_sample(path: String) {
   thread::spawn(move || {
     futures::executor::block_on(daw::play_sample(&path));
   });
@@ -430,7 +427,7 @@ pub fn get_playlist_data(
   ))
 }
 
-fn toggle_loop_enabled(
+pub fn toggle_loop_enabled(
   state: &Arc<InnerState>
 ) {
   let val = !state
@@ -529,116 +526,4 @@ pub fn toggle_record_input(
     .playlist
     .recording();
   daw::input::record_input(*recording);
-}
-
-pub fn bind_functions(
-  lua: &mlua::Lua,
-  // state: &Arc<daw::InnerState>,
-) {
-  let globals = lua.globals();
-
-  // preview_sample
-  let f_preview_sample = 
-    lua.create_function(|_, path: String| {
-    preview_sample(path);
-
-    Ok(())
-  }).unwrap();
-
-  let f_list_samples = lua.create_function(|_, (): ()| {
-    let mut ls = process::Command::new("ls");
-    ls.arg("./assets");
-    ls.status().expect("ls didnt work");
-    println!();
-    Ok(())
-  }).unwrap();
-  
-  // add_audiograph_node
-  // todo: refactor to use consistent state
-  let f_add_audiograph_node = 
-    lua.create_function(|_, (path, start_offset_ms, track_number): (String, u64, u32)| {
-    let start_offset = std::time::Duration::from_millis(start_offset_ms);
-
-    // add_audiograph_node(state, path, track_number, start_offset, false);
-
-    let id: u64;
-    // don't snap
-    id = crate::STATE
-      .playlist
-      .audiograph
-      .lock()
-      .unwrap()
-      .construct_and_add_node(path, start_offset, track_number);
-
-    Ok(id)
-  }).unwrap();
-
-  let f_add_audiograph_node = 
-    lua.create_function(|_, (path, beat_offset, track_number): (String, u64, u32)| {
-    let start_offset = daw::n_beat_duration_from_tempo(crate::STATE.tempo(), beat_offset.to_u32().unwrap());
-    let sample_path = String::from("./assets/") + &path;
-    println!("adding {} to beat {} on track {}", sample_path, beat_offset, track_number);
-
-    let id: u64;
-    // don't snap
-    id = crate::STATE
-      .playlist
-      .audiograph
-      .lock()
-      .unwrap()
-      .construct_and_add_node(sample_path, start_offset, track_number);
-
-    Ok(id)
-  }).unwrap();
-  
-  let f_toggle_playlist = 
-    lua.create_function(|_, (): ()| {    
-    toggle_playlist(&crate::STATE);
-
-    Ok(())
-  }).unwrap();
-
-  let f_print_state = 
-    lua.create_function(|_, (): ()| {
-    println!("playlist.playing: {}", crate::STATE.playlist.playing());
-    println!("# nodes: {}", crate::STATE.playlist.audiograph.lock().unwrap().nodes.len());
-    println!("# metronome_enabled: {:?}", crate::STATE.metronome_enabled.load(Ordering::SeqCst));
-    println!("# loop_enabled: {:?}", crate::STATE.playlist.loop_enabled.load(Ordering::SeqCst));
-    println!("# total_beats: {:?}", crate::STATE.playlist.total_beats.load(Ordering::SeqCst));
-
-    Ok(())
-  }).unwrap();
-
-  let f_print_nodes = 
-    lua.create_function(|_, (): ()| {
-      
-    println!("# nodes: {:?}", crate::STATE.playlist.audiograph.lock().unwrap().nodes.first().unwrap().start_offset);
-
-    Ok(())
-  }).unwrap();
-
-  let f_toggle_metronome_enabled = 
-    lua.create_function(|_, (): ()| {
-    toggle_metronome_enabled(&crate::STATE);
-
-    Ok(())
-  }).unwrap();
-
-  let f_toggle_loop_enabled = 
-    lua.create_function(|_, (): ()| {
-    toggle_loop_enabled(&crate::STATE);
-
-    Ok(())
-  }).unwrap();
-
-  globals.set("preview_sample", f_preview_sample).unwrap();
-  globals.set("ls", f_list_samples).unwrap();
-  globals.set("add", f_add_audiograph_node).unwrap();
-  // globals.set("add_audiograph_node_on_beat", f_add_audiograph_node).unwrap();
-  globals.set("tp", f_toggle_playlist).unwrap();
-  globals.set("print_state", f_print_state).unwrap();
-  globals.set("print_nodes", f_print_nodes).unwrap();
-  globals.set("toggle_metronome_enabled", f_toggle_metronome_enabled).unwrap();
-  globals.set("toggle_loop_enabled", f_toggle_loop_enabled).unwrap();
-
 }

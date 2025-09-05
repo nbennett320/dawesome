@@ -150,7 +150,9 @@ pub fn run_playlist(state_ref: &Arc<state::InnerState>) {
     .audiograph
     .lock()
     .unwrap()
-    .interval_of_subdivision(daw_core::timing::WholeNote::new());
+    .interval_of_subdivision(daw_core::timing::WholeNote::new())/2;
+
+  println!("TEMPO INTERVAL {:?}", tempo_interval);
   // let graph = &state.playlist.audiograph.lock().unwrap();
   // // graph.run();
   // graph.run_for(tempo_interval);
@@ -224,7 +226,7 @@ pub fn run_playlist(state_ref: &Arc<state::InnerState>) {
       // samples in the audio graph to be played
       let mut audiograph_ref = state.playlist.audiograph.lock().unwrap();
 
-      audiograph_ref.run_for(tempo_interval);
+      audiograph_ref.run_for(tempo_interval, state.metronome_enabled.load(Ordering::SeqCst));
       // let m = audiograph_ref.buffer_for(tempo_interval);
       // match m {
       //   Some(x) => { 
