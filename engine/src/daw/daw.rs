@@ -150,7 +150,7 @@ pub fn run_playlist(state_ref: &Arc<state::InnerState>) {
     .audiograph
     .lock()
     .unwrap()
-    .interval_of_subdivision(daw_core::timing::WholeNote::new())/2;
+    .interval_of_subdivision(daw_core::timing::WholeNote::new());
 
   println!("TEMPO INTERVAL {:?}", tempo_interval);
   // let graph = &state.playlist.audiograph.lock().unwrap();

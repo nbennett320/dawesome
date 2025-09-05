@@ -95,7 +95,15 @@ pub fn bind_functions(
   let f_print_nodes = 
     lua.create_function(|_, (): ()| {
       
-    println!("# nodes: {:?}", crate::STATE.playlist.audiograph.lock().unwrap().nodes.first().unwrap().start_offset);
+      let nodes = &crate::STATE.playlist.audiograph.lock().unwrap().nodes;
+      println!("# nodes: {}", nodes.len());
+
+      for node in nodes {
+        println!("-----------");
+        println!("start_offset: {}", node.start_offset.as_millis());
+        println!("track_number: {}", node.track_number);
+      }
+      println!("-----------");
 
     Ok(())
   }).unwrap();

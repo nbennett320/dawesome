@@ -469,7 +469,6 @@ impl AudioGraph<'static> {
         let sink = Sink::try_new(&stream_handle).unwrap();
         sink.pause();
         sink.append(mixer);
-        println!("System time (PB): {:?}", std::time::Instant::now());
         sink.play();
         sink.sleep_until_end();
         
@@ -555,7 +554,7 @@ impl AudioGraph<'static> {
     
     // get starting index of nodes within this time slice
     let idx_start_opt = self.nodes.iter()
-      .position(|node| 
+      .position(|node|
         node.start_offset >= self.current_offset.unwrap() &&
         node.start_offset < (self.current_offset.unwrap() + dur));
 
@@ -568,13 +567,14 @@ impl AudioGraph<'static> {
 
     // get last index of nodes within this time slice
     let idx_end_opt = self.nodes.iter()
-      .rposition(|node| node.start_offset > (self.current_offset.unwrap() + dur));
+      .position(|node| node.start_offset > (self.current_offset.unwrap() + dur));
     
     let idx_end = match idx_end_opt {
       Some(x) => x,
       None => idx_start + 1,
     };
     
+    println!("current offset: {}", self.current_offset.unwrap().as_millis());
     println!("start, end: {}, {}", idx_start, idx_end);
 
     let self_arc = Arc::new(Mutex::new(self));

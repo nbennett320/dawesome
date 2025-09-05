@@ -192,7 +192,7 @@ export const addToPlaylist = (
 ) => async (dispatch: Dispatch) => {
   const dropX = pixelOffset.x - pixelOffset.left
   const dropY = pixelOffset.y - pixelOffset.top
-  const id = await invoke<number>('add_audiograph_node', {
+  const id = await invoke<number>('t_add_audiograph_node', {
     samplePath: path,
     trackNumber,
     dropX,

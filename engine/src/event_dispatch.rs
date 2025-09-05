@@ -263,9 +263,9 @@ pub fn t_add_audiograph_node(
 
   let snap_enabled = state.playlist.ui.lock().unwrap().snap_enabled;
 
-  // let id = add_audiograph_node(state.inner(), sample_path, track_number, start_offset, snap_enabled);
+  let id = add_audiograph_node(state.inner(), sample_path, track_number, start_offset, snap_enabled);
 
-  Ok(4)
+  Ok(id)
 }
 
 #[tauri::command]
@@ -361,7 +361,6 @@ pub fn get_node_data(
   let waveform = node.get_waveform().clone();
   let dur = node.duration().as_secs_f32();
   let ratio = dur / audiograph.max_beats() as f32;
-
 
   // return waveform data
   Ok((waveform, dur))

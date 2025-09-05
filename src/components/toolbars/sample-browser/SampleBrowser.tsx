@@ -42,7 +42,7 @@ const SampleBrowser = (props: React.PropsWithChildren<Props>) => {
 
   const handlePrimaryAction = (item: TreeItem<BrowserSampleItem>, treeId: string) => {
     if(item.itemType === BrowserItemTypes.Sample) {
-      invoke('preview_sample', {
+      invoke('t_preview_sample', {
         path: item.path
       })
     } else if(item.itemType === BrowserItemTypes.Directory) {

@@ -38,14 +38,14 @@ const SampleItem = (props: Props) => {
 
   const previewSample = () => {
     console.log("playing")
-    invoke('preview_sample', {
+    invoke('t_preview_sample', {
       path: props.item.path
     })
   }
 
   const handleClick = () => {
     if(props.item.itemType === BrowserItemTypes.Sample) {
-      invoke('preview_sample', {
+      invoke('t_preview_sample', {
         path: props.item.path
       })
     } else if(props.item.itemType === BrowserItemTypes.Directory) {
