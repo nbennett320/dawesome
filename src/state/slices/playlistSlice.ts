@@ -4,6 +4,7 @@ import { RootState } from 'state/store'
 import { PlaylistItem, PlaylistItemPixelOffset } from '../../types/playlist'
 import { View } from '../../types/ui'
 import {
+  ClipInfo,
   ClipSettings,
   clampClipSettings,
   defaultClipSettings,
@@ -38,9 +39,11 @@ export interface PlaylistState {
   playlistItems: Array<PlaylistItem>
   // the clip shown in the Sample tab
   inspectedClipId: number | null
-  // how each clip is played back, by clip id. clips without an entry use
-  // defaultClipSettings
+  // how each clip is played back, by clip id, as last loaded from or sent to
+  // the engine. clips without an entry use defaultClipSettings
   clipSettings: Record<number, ClipSettings>
+  // each clip's sample length in seconds, before any speed change, by clip id
+  clipSampleDurations: Record<number, number>
   ui: {
     maxPlaylistBeats: number,
     maxBeatsDisplayed: number,
@@ -63,6 +66,7 @@ const initialState = {
   playlistItems: [],
   inspectedClipId: null,
   clipSettings: {},
+  clipSampleDurations: {},
   ui: {
     maxPlaylistBeats: 16,
     maxBeatsDisplayed: 16,
@@ -127,28 +131,28 @@ export const playlistSlice = createSlice({
       }
 
       delete state.clipSettings[action.payload.id]
+      delete state.clipSampleDurations[action.payload.id]
     },
     setInspectedClip: (state, action: { type: string, payload: number | null }) => {
       state.inspectedClipId = action.payload
     },
-    // change some of a clip's settings
-    // - sampleSeconds: the sample's length before any speed change, to keep
-    //   fades within the clip once the new pitch is applied
-    updateClipSettings: (
+    // a clip's settings and length, as the engine has them
+    setClipInfo: (state, action: { type: string, payload: { id: number } & ClipInfo }) => {
+      const { id, settings, sampleDuration } = action.payload
+      state.clipSettings[id] = settings
+      state.clipSampleDurations[id] = sampleDuration
+    },
+    // change some of a clip's settings, kept in range like the engine does
+    reduceClipSettings: (
       state,
-      action: {
-        type: string
-        payload: { id: number, settings: Partial<ClipSettings>, sampleSeconds?: number }
-      },
+      action: { type: string, payload: { id: number, settings: Partial<ClipSettings> } },
     ) => {
-      const { id, settings, sampleSeconds } = action.payload
+      const { id, settings } = action.payload
       const merged = { ...(state.clipSettings[id] ?? defaultClipSettings), ...settings }
+      const sampleSeconds = state.clipSampleDurations[id]
       const played = sampleSeconds === undefined ? undefined : playedDuration(merged, sampleSeconds)
 
       state.clipSettings[id] = clampClipSettings(merged, played)
-    },
-    resetClipSettings: (state, action: { type: string, payload: number }) => {
-      delete state.clipSettings[action.payload]
     },
     setPlaylistUI: (state, action) => {
       state.ui = action.payload
@@ -327,9 +331,17 @@ export const selectPlaylistItems = (state: RootState) => state.playlist.playlist
 export const { setInspectedClip } = playlistSlice.actions
 
 // show a clip in the Sample tab, opening the tab if it was closed
-export const inspectClip = (id: number) => (dispatch: Dispatch) => {
+export const inspectClip = (id: number) => async (dispatch: Dispatch) => {
   dispatch(setInspectedClip(id))
   dispatch(openTab(View.SamplePreview))
+
+  try {
+    const info = await invoke<ClipInfo>('get_clip', { id })
+    dispatch(playlistSlice.actions.setClipInfo({ id, ...info }))
+  } catch(e) {
+    // eslint-disable-next-line no-console
+    console.error(`could not load clip ${id}:`, e)
+  }
 }
 
 export const selectInspectedClip = (state: RootState): PlaylistItem | undefined => {
@@ -339,12 +351,73 @@ export const selectInspectedClip = (state: RootState): PlaylistItem | undefined 
 // end inspected clip methods
 
 // start clip settings methods
-// (kept in the frontend for now, the engine will apply them next)
-export const { updateClipSettings, resetClipSettings } = playlistSlice.actions
+// the frontend shows changes straight away and sends them to the engine,
+// which applies them the next time the clip starts playing
+
+// how often a clip's settings are sent while a control is being dragged
+const SEND_SETTINGS_EVERY_MS = 50
+
+// per clip: settings waiting to be sent, while a send was recent
+const queuedSettings = new Map<number, ClipSettings | null>()
+
+const sendSettingsNow = (id: number, settings: ClipSettings) =>
+  invoke<ClipInfo>('set_clip_settings', { id, settings })
+    // eslint-disable-next-line no-console
+    .catch(e => console.error(`could not update clip ${id}:`, e))
+
+// send a clip's settings, at most every SEND_SETTINGS_EVERY_MS. the latest
+// settings are always sent last
+const sendSettings = (id: number, settings: ClipSettings) => {
+  if(queuedSettings.has(id)) {
+    queuedSettings.set(id, settings)
+    return
+  }
+
+  sendSettingsNow(id, settings)
+  queuedSettings.set(id, null)
+
+  const flush = () => {
+    const queued = queuedSettings.get(id)
+
+    if(queued) {
+      sendSettingsNow(id, queued)
+      queuedSettings.set(id, null)
+      setTimeout(flush, SEND_SETTINGS_EVERY_MS)
+    } else {
+      queuedSettings.delete(id)
+    }
+  }
+
+  setTimeout(flush, SEND_SETTINGS_EVERY_MS)
+}
 
 export const selectClipSettings = (id: number | undefined) =>
   (state: RootState): ClipSettings =>
     (id === undefined ? undefined : state.playlist.clipSettings[id]) ?? defaultClipSettings
+
+// the clip's sample length in seconds, before any speed change, once loaded
+export const selectClipSampleDuration = (id: number | undefined) =>
+  (state: RootState): number | undefined =>
+    (id === undefined ? undefined : state.playlist.clipSampleDurations[id])
+
+// change some of a clip's settings
+export const updateClipSettings = (id: number, settings: Partial<ClipSettings>) => (
+  dispatch: Dispatch,
+  getState: () => RootState,
+) => {
+  dispatch(playlistSlice.actions.reduceClipSettings({ id, settings }))
+  sendSettings(id, selectClipSettings(id)(getState()))
+}
+
+export const resetClipSettings = (id: number) => (dispatch: Dispatch, getState: () => RootState) =>
+  updateClipSettings(id, defaultClipSettings)(dispatch, getState)
+
+// play a clip on its own, with its current settings
+export const auditionClip = (id: number) => async (_: Dispatch, getState: () => RootState) => {
+  // make sure the engine has the latest settings first
+  await sendSettingsNow(id, selectClipSettings(id)(getState()))
+  await invoke('t_preview_node', { id })
+}
 // end clip settings methods
 
 // start playlist ui methods

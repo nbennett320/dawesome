@@ -207,9 +207,12 @@ pub struct AudioNode {
   //   TakeDuration<TakeDuration<SkipDuration<Buffered<BufReader<File>>>>>
   // >,
   running: Arc<Mutex<bool>>,
+  // the sample's length, before the clip's settings change its speed
   duration: Duration,
   sample_rate: u32,
   waveform: Vec<f32>,
+  // how the clip is played back
+  settings: daw::ClipSettings,
 }
 
 // a sample's length and the waveform drawn for it
@@ -300,6 +303,7 @@ impl AudioNode {
       duration,
       sample_rate,
       waveform,
+      settings: daw::ClipSettings::default(),
     })
   }
 
@@ -338,8 +342,29 @@ impl AudioNode {
 
   }
 
+  // how long the clip plays for, once its settings change its speed
   pub fn duration(&self) -> Duration {
+    self.settings.played_duration(self.duration)
+  }
+
+  // the sample's length, before any speed change
+  pub fn sample_duration(&self) -> Duration {
     self.duration
+  }
+
+  pub fn settings(&self) -> daw::ClipSettings {
+    self.settings
+  }
+
+  // change how the clip is played back, returns the settings kept in range
+  pub fn set_settings(&mut self, settings: daw::ClipSettings) -> daw::ClipSettings {
+    self.settings = settings.clamped(self.duration);
+    self.settings
+  }
+
+  // the clip's audio, played with its settings (always stereo)
+  pub fn source(&self) -> impl Source<Item = f32> + Send + 'static {
+    self.settings.apply(self.buffer.decoder().convert_samples::<f32>(), self.duration)
   }
   
   // pub fn get_samples(self) -> Arc<Mutex<SamplesConverter<Decoder<BufReader<File>>, f32>>> {
@@ -570,7 +595,7 @@ impl AudioGraph<'static> {
       let delay: Duration = *start_offset.lock().unwrap();
       println!("delay: {}ms",delay.as_millis());
 
-      let source = node.buffer.decoder().delay(*start_offset.lock().unwrap()).convert_samples();
+      let source = node.source().delay(*start_offset.lock().unwrap());
       controller.add(source);
     }
 
@@ -607,7 +632,7 @@ impl AudioGraph<'static> {
     for node in self.nodes_in_window(window_start, dur) {
       let delay_offset = node.start_offset - window_start;
       println!("added node: {} (delay offset: {}ms)", node.sample_path, delay_offset.as_millis());
-      let source = node.buffer.decoder().delay(delay_offset).convert_samples();
+      let source = node.source().delay(delay_offset);
       controller.add(source);
     }
 
@@ -640,7 +665,7 @@ impl AudioGraph<'static> {
     for node in window_nodes {
       let delay_offset = node.start_offset - window_start;
       println!("added node: {} (delay offset: {}ms)", node.sample_path, delay_offset.as_millis());
-      let source = node.buffer.decoder().delay(delay_offset).convert_samples();
+      let source = node.source().delay(delay_offset);
       controller.add(source);
     }
 
@@ -1215,9 +1240,33 @@ mod tests {
     let (dur, waveform) = preview_sample(path, 44_100).unwrap();
     let node = AudioNode::new(0, path.to_string(), Duration::ZERO, 0, 44_100).unwrap();
 
-    assert_eq!(dur, node.duration());
+    assert_eq!(dur, node.sample_duration());
     assert_eq!(&waveform, &node.waveform);
     assert!(preview_sample("does/not/exist.wav", 44_100).is_err());
+  }
+
+  #[test]
+  fn test_node_settings_change_its_length() {
+    let path = daw::METRONOME_TICK_PATH;
+    let mut node = AudioNode::new(0, path.to_string(), Duration::ZERO, 0, 44_100).unwrap();
+    let sample_dur = node.sample_duration();
+    assert_eq!(node.duration(), sample_dur);
+
+    // an octave up plays twice as fast, so half as long
+    let kept = node.set_settings(daw::ClipSettings {
+      pitch: 12.,
+      attack_ms: 1_000_000.,
+      ..Default::default()
+    });
+    assert_eq!(node.duration(), sample_dur.div_f32(2.));
+    assert_eq!(node.sample_duration(), sample_dur);
+    // the fade was kept within the clip
+    assert!((kept.attack_ms - node.duration().as_secs_f32() * 1000.).abs() < 0.01);
+
+    // where the graph ends follows the clip's played length
+    let mut audiograph = AudioGraph::new(44_100, 120., 16);
+    audiograph.add_node(node);
+    assert_eq!(audiograph.duration(), sample_dur.div_f32(2.));
   }
 
   #[test]

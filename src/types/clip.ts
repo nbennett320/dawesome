@@ -18,6 +18,16 @@ export interface ClipSettings {
 
 export type ClipSetting = keyof ClipSettings
 
+// a clip's settings and lengths, from the engine's get_clip and
+// set_clip_settings (mirrors ClipInfo in engine/src/event_dispatch.rs)
+export interface ClipInfo {
+  settings: ClipSettings
+  // seconds, before the settings change the clip's speed
+  sampleDuration: number
+  // seconds the clip plays for
+  playedDuration: number
+}
+
 export const defaultClipSettings: ClipSettings = {
   gainDb: 0,
   pan: 0,

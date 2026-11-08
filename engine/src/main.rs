@@ -85,6 +85,9 @@ fn init_tauri() {
       get_snap_setting,
       set_snap_subdivision,
       get_sample_preview,
+      get_clip,
+      set_clip_settings,
+      t_preview_node,
       get_playlist_max_length,
       init_playlist_workspace,
       toggle_record_input

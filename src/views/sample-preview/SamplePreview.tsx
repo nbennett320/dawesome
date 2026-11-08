@@ -1,7 +1,9 @@
 import React from 'react'
 import { invoke } from '@tauri-apps/api'
 import {
+  auditionClip,
   resetClipSettings,
+  selectClipSampleDuration,
   selectClipSettings,
   selectInspectedClip,
   selectPlaylistTempo,
@@ -23,9 +25,9 @@ import SettingControl from './SettingControl'
 type Loaded =
   | { state: 'loading' }
   | { state: 'error', message: string }
-  | { state: 'ready', data: WaveformData }
+  | { state: 'ready', points: number[] }
 
-// the inspected clip's waveform and length, from the engine
+// the inspected clip's waveform points, from the engine
 const useClipWaveform = (id: number | undefined): Loaded | null => {
   const [loaded, setLoaded] = React.useState<Loaded | null>(null)
 
@@ -39,9 +41,11 @@ const useClipWaveform = (id: number | undefined): Loaded | null => {
     let current = true
     setLoaded({ state: 'loading' })
 
+    // (the duration it also returns is the played length, which changes with
+    // the clip's pitch. the sample's own length comes from get_clip)
     invoke<[number[], number]>('get_node_data', { id })
-      .then(([points, duration]) => {
-        if(current) setLoaded({ state: 'ready', data: { points, duration } })
+      .then(([points]) => {
+        if(current) setLoaded({ state: 'ready', points })
       })
       .catch(e => {
         if(current) setLoaded({ state: 'error', message: String(e) })
@@ -69,6 +73,7 @@ const SamplePreview = () => {
   const clip = useAppSelector(selectInspectedClip)
   const tempo = useAppSelector(selectPlaylistTempo)
   const settings = useAppSelector(selectClipSettings(clip?.id))
+  const sampleDuration = useAppSelector(selectClipSampleDuration(clip?.id))
   const waveform = useClipWaveform(clip?.id)
 
   if(!clip) {
@@ -80,15 +85,13 @@ const SamplePreview = () => {
   }
 
   const name = clip.path.split(/[\\/]/).pop() ?? clip.path
-  const sampleDuration = waveform?.state === 'ready' ? waveform.data.duration : null
-  const played = sampleDuration === null ? null : playedDuration(settings, sampleDuration)
+  const played = sampleDuration === undefined ? null : playedDuration(settings, sampleDuration)
+  const waveformData: WaveformData | null = waveform?.state === 'ready' && sampleDuration !== undefined
+    ? { points: waveform.points, duration: sampleDuration }
+    : null
 
   const update = (change: Partial<ClipSettings>) => {
-    dispatch(updateClipSettings({
-      id: clip.id,
-      settings: change,
-      sampleSeconds: sampleDuration ?? undefined,
-    }))
+    dispatch(updateClipSettings(clip.id, change))
   }
 
   // the props every control shares, for one setting
@@ -125,8 +128,8 @@ const SamplePreview = () => {
         <div className='flex flex-row gap-2 shrink-0'>
           <button
             className='px-2 py-1 text-xs rounded border border-gray-300 hover:bg-slate-100'
-            title="Play the sample (its settings aren't applied yet)"
-            onClick={() => { invoke('t_preview_sample', { path: clip.path }) }}
+            title='Play the clip with its settings'
+            onClick={() => { dispatch(auditionClip(clip.id)) }}
           >
             Audition
           </button>
@@ -144,15 +147,15 @@ const SamplePreview = () => {
         className='flex-1 rounded border border-gray-300 overflow-hidden'
         style={{ minHeight: 140 }}
       >
-        {waveform?.state === 'ready' && (
+        {waveformData && (
           <ClipWaveform
-            data={waveform.data}
+            data={waveformData}
             settings={settings}
             tempo={tempo}
             onEnvelopeChange={update}
           />
         )}
-        {waveform?.state === 'loading' && (
+        {!waveformData && waveform?.state !== 'error' && (
           <div className='h-full flex items-center justify-center text-xs text-gray-500'>
             Loading waveform…
           </div>

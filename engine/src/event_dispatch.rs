@@ -428,6 +428,96 @@ pub fn get_node_data(
   Ok((waveform, dur))
 }
 
+// a clip's playback settings and lengths (seconds), for the Sample tab
+#[derive(serde::Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipInfo {
+  settings: daw::ClipSettings,
+  // the sample's length, before the settings change its speed
+  sample_duration: f32,
+  // how long the clip plays for
+  played_duration: f32,
+}
+
+fn clip_info(node: &daw::AudioNode) -> ClipInfo {
+  ClipInfo {
+    settings: node.settings(),
+    sample_duration: node.sample_duration().as_secs_f32(),
+    played_duration: node.duration().as_secs_f32(),
+  }
+}
+
+fn get_clip_of(state: &daw::InnerState, id: u64) -> Result<ClipInfo, String> {
+  let audiograph = state.playlist.audiograph.lock().unwrap();
+  let node = audiograph.get_node_by_id(id)
+    .ok_or_else(|| format!("no node with id {}", id))?;
+
+  Ok(clip_info(node))
+}
+
+fn set_clip_settings_of(
+  state: &daw::InnerState,
+  id: u64,
+  settings: daw::ClipSettings,
+) -> Result<ClipInfo, String> {
+  let mut audiograph = state.playlist.audiograph.lock().unwrap();
+  let node = audiograph.get_mut_node_by_id(id)
+    .ok_or_else(|| format!("no node with id {}", id))?;
+  node.set_settings(settings);
+
+  Ok(clip_info(node))
+}
+
+#[tauri::command]
+pub fn get_clip(
+  state: daw::TState<'_>,
+  id: u64,
+) -> Result<ClipInfo, String> {
+  get_clip_of(&state, id)
+}
+
+// change how a clip plays back. settings are kept in range, and the clip's
+// info is returned with the settings that were kept
+//
+// takes effect the next time the clip starts playing
+#[tauri::command]
+pub fn set_clip_settings(
+  state: daw::TState<'_>,
+  id: u64,
+  settings: daw::ClipSettings,
+) -> Result<ClipInfo, String> {
+  set_clip_settings_of(&state, id, settings)
+}
+
+// play a clip on its own, with its settings
+#[tauri::command]
+pub fn t_preview_node(
+  state: daw::TState<'_>,
+  id: u64,
+) -> Result<(), String> {
+  let source = state.playlist.audiograph.lock().unwrap()
+    .get_node_by_id(id)
+    .ok_or_else(|| format!("no node with id {}", id))?
+    .source();
+
+  thread::spawn(move || {
+    let played = rodio::OutputStream::try_default()
+      .map_err(|e| e.to_string())
+      .and_then(|(_stream, handle)| {
+        let sink = rodio::Sink::try_new(&handle).map_err(|e| e.to_string())?;
+        sink.append(source);
+        sink.sleep_until_end();
+        Ok(())
+      });
+
+    if let Err(e) = played {
+      println!("could not preview clip {}: {}", id, e);
+    }
+  });
+
+  Ok(())
+}
+
 // waveform data and duration (seconds) of a sample that isn't in the
 // playlist yet, in the same shape as get_node_data
 // used to draw a clip while it's dragged in from the sidebar
@@ -718,6 +808,35 @@ mod tests {
     state.playlist.ui.lock().unwrap().snap_subdivision = daw::timing::Note::SixteenthNote;
     let id4 = add_audiograph_node(&state, sample, 0, Duration::from_millis(700), true).unwrap();
     assert_eq!(ms(id4), 750);
+  }
+
+  #[test]
+  fn test_clip_settings() {
+    let state = daw::InnerState::default();
+    let sample = daw::METRONOME_TICK_PATH.to_string();
+    let id = add_audiograph_node(&state, sample, 0, Duration::ZERO, false).unwrap();
+
+    let info = get_clip_of(&state, id).unwrap();
+    assert_eq!(info.settings, daw::ClipSettings::default());
+    assert_eq!(info.sample_duration, info.played_duration);
+
+    // an octave up halves the played length, and out of range values are kept in range
+    let info = set_clip_settings_of(&state, id, daw::ClipSettings {
+      pitch: 12.,
+      gain_db: 99.,
+      ..Default::default()
+    }).unwrap();
+    assert_eq!(info.settings.pitch, 12.);
+    assert_eq!(info.settings.gain_db, 12.);
+    assert!((info.played_duration - info.sample_duration / 2.).abs() < 1e-4);
+    assert_eq!(get_clip_of(&state, id).unwrap(), info);
+
+    // the frontend's names deserialize
+    let settings: daw::ClipSettings = serde_json::from_str(
+      r#"{"gainDb":-6,"pan":0.5,"pitch":0,"attackMs":10,"decayMs":20}"#).unwrap();
+    assert_eq!(settings.pan, 0.5);
+
+    assert!(get_clip_of(&state, 9999).is_err());
   }
 
   #[test]
