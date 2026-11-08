@@ -25,6 +25,7 @@ const initialState = {
       tabs: [
         { label: viewLabels[View.Playlist], component: View.Playlist },
         { label: viewLabels[View.SamplePreview], component: View.SamplePreview },
+        { label: viewLabels[View.Mixer], component: View.Mixer },
       ],
       activeView: View.Playlist,
     },

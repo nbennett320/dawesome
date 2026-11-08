@@ -1,5 +1,5 @@
-// saving and loading projects: the playlist's clips, their settings, and the
-// playlist's settings, in a JSON file (.dawesome)
+// saving and loading projects: the playlist's clips, their settings, the
+// playlist's settings, and the mixer, in a JSON file (.dawesome)
 //
 // sample paths inside the project's folder are saved relative to it, so a
 // project folder can be moved or shared. other samples are saved as
@@ -64,6 +64,8 @@ pub struct Project {
   #[serde(flatten)]
   pub settings: ProjectSettings,
   pub clips: Vec<ProjectClip>,
+  // only tracks changed from their defaults, or named, are saved
+  pub mixer: daw::MixerSettings,
 }
 
 impl Default for Project {
@@ -72,6 +74,7 @@ impl Default for Project {
       version: PROJECT_VERSION,
       settings: ProjectSettings::default(),
       clips: Vec::new(),
+      mixer: daw::MixerSettings::default(),
     }
   }
 }
@@ -138,6 +141,8 @@ pub struct LoadedProject {
   pub settings: ProjectSettings,
   pub clips: Vec<LoadedClip>,
   pub missing: Vec<MissingSample>,
+  // every track's strip, up to the playlist's track count
+  pub mixer: daw::MixerSettings,
 }
 
 // the folder a project file is in, which its relative sample paths start from
@@ -208,6 +213,9 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
 
   let ui = *state.playlist.ui.lock().unwrap();
 
+  let mut mixer = state.playlist.mixer.settings(0);
+  mixer.tracks.retain(|track| track.settings != daw::ChannelSettings::default() || track.name.is_some());
+
   Project {
     version: PROJECT_VERSION,
     settings: ProjectSettings {
@@ -219,6 +227,7 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
       snap_note: ui.snap_subdivision,
     },
     clips,
+    mixer,
   }
 }
 
@@ -241,6 +250,8 @@ pub fn apply(
     ui.snap_enabled = settings.snap_enabled;
     ui.snap_subdivision = settings.snap_note;
   }
+
+  state.playlist.mixer.apply(&project.mixer);
 
   let mut audiograph = state.playlist.audiograph.lock().unwrap();
   audiograph.clear();
@@ -281,7 +292,9 @@ pub fn apply(
     }
   }
 
-  LoadedProject { settings, clips, missing }
+  let mixer = state.playlist.mixer.settings(audiograph.track_count());
+
+  LoadedProject { settings, clips, missing, mixer }
 }
 
 // write the current playlist to a project file. the file is written next to
@@ -499,5 +512,46 @@ mod tests {
     // ids aren't reused, so a stale id from the old project names nothing
     let new_id = add_clip(&state, daw::METRONOME_TICK_PATH, 0, 0.);
     assert!(new_id > old_id);
+  }
+
+  #[test]
+  fn test_mixer_saved_and_loaded() {
+    let dir = test_dir("mixer");
+    let project_path = dir.join("mix.dawesome");
+
+    let state = daw::InnerState::default();
+    state.playlist.mixer.set_volume_db(2, -12.);
+    state.playlist.mixer.set_solo(2, true);
+    state.playlist.mixer.set_master_volume_db(-3.);
+    state.playlist.mixer.set_name(3, "Bass");
+    save_to(&state, &project_path).unwrap();
+
+    // only the changed and named tracks are saved
+    let saved = Project::from_json(&fs::read_to_string(&project_path).unwrap()).unwrap();
+    let saved_tracks: Vec<u32> = saved.mixer.tracks.iter().map(|t| t.track_number).collect();
+    assert_eq!(saved_tracks, vec![2, 3]);
+
+    let other = daw::InnerState::default();
+    other.playlist.mixer.set_mute(0, true);
+    let loaded = load_from(&other, &project_path).unwrap();
+
+    let track = |n: u32| loaded.mixer.tracks.iter().find(|t| t.track_number == n).unwrap().settings;
+    let name = |n: u32| loaded.mixer.tracks.iter().find(|t| t.track_number == n).unwrap().name.clone();
+    assert_eq!(name(3).as_deref(), Some("Bass"));
+    assert_eq!(name(2), None);
+    assert_eq!(track(2), daw::ChannelSettings { volume_db: -12., pan: 0., mute: false, solo: true });
+    // the loading app's own changes don't carry over
+    assert_eq!(track(0), daw::ChannelSettings::default());
+    assert_eq!(loaded.mixer.master.volume_db, -3.);
+    // every track the playlist shows is listed
+    assert_eq!(loaded.mixer.tracks.len(), daw::defaults::NUM_OF_TRACKS as usize);
+
+    // an older project without a mixer loads with a flat one
+    let old = Project::from_json(r#"{"version": 1, "tempo": 100}"#).unwrap();
+    let loaded = apply(&other, &old, None);
+    assert!(loaded.mixer.tracks.iter().all(|t| t.settings == daw::ChannelSettings::default()));
+    assert_eq!(loaded.mixer.master.volume_db, 0.);
+
+    fs::remove_dir_all(dir).unwrap();
   }
 }

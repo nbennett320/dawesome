@@ -1,7 +1,9 @@
 import { ClipInfo } from './clip'
+import { MixerSettings } from './mixer'
 import type { SnapNote } from '../state/slices/playlistSlice'
 
-// project files (.dawesome) hold the playlist's clips and settings. the
+// project files (.dawesome) hold the playlist's clips and settings, and the
+// mixer. the
 // engine reads and writes them (see engine/src/project.rs, which these types
 // mirror)
 
@@ -42,4 +44,6 @@ export interface MissingSample {
 export interface LoadedProject extends ProjectSettings {
   clips: LoadedClip[]
   missing: MissingSample[]
+  // every track's strip, up to the playlist's track count
+  mixer: MixerSettings
 }

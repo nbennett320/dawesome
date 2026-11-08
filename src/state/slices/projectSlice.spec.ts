@@ -28,6 +28,7 @@ const emptyProject: LoadedProject = {
   snapNote: 'QuarterNote',
   clips: [],
   missing: [],
+  mixer: { tracks: [], master: { volumeDb: 0, pan: 0, mute: false, solo: false } },
 }
 
 // the engine's answers to the commands these tests use

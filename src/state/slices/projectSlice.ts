@@ -5,6 +5,7 @@ import { documentDir, join } from '@tauri-apps/api/path'
 import type { RootState } from 'state/store'
 import { MissingSample, PROJECT_EXTENSION } from '../../types/project'
 import { newProject, openProject, saveProject } from './playlistSlice'
+import { clearPendingMixerSends } from './mixerSlice'
 
 // the File menu's project commands (ids of the engine's menu items, see
 // engine/src/app/window.rs)
@@ -125,6 +126,8 @@ const exclusive = async (run: () => Promise<void>) => {
 // whether it opened
 const openFrom = async (dispatch: Dispatch, path: string): Promise<boolean> => {
   try {
+    // fader moves not sent yet belong to the old project
+    clearPendingMixerSends()
     const missing = await openProject(path)(dispatch)
     dispatch(setProjectPath(path))
     dispatch(setProjectNotice(missing.length > 0 ? { kind: 'missing', samples: missing } : null))
@@ -168,6 +171,7 @@ export const runProjectCommand = (command: ProjectCommand) => (
       if(!(await okToReplace(getState))) break
 
       try {
+        clearPendingMixerSends()
         await newProject()(dispatch)
         dispatch(setProjectPath(null))
         dispatch(setProjectNotice(null))

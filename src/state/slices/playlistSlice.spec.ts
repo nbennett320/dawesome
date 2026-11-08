@@ -23,6 +23,7 @@ const loaded: LoadedProject = {
     },
   ],
   missing: [],
+  mixer: { tracks: [], master: { volumeDb: 0, pan: 0, mute: false, solo: false } },
 }
 
 describe('reduceLoadedProject', () => {

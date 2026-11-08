@@ -46,6 +46,12 @@ pub fn setup(
           }).unwrap();
         }
       }
+      // Window menu: the frontend opens the tab, e.g. "view-mixer" → "mixer"
+      id if id.starts_with("view-") => {
+        window_cp.app_handle().emit_all("menu-open-view", EventPayload {
+          data: id.trim_start_matches("view-").into()
+        }).unwrap();
+      }
       "device" => {
         println!("emit device preference");
         window_cp.app_handle().emit_all("menu-device-preference", EventPayload {
@@ -82,6 +88,14 @@ pub fn build_menu(recent: &RecentProjects) -> tauri::Menu {
     .add_item(save_menu)
     .add_item(save_as_menu));
   
+  // define window menu: opens (or selects) a tab. the frontend knows the
+  // views by these names (see src/events/window.ts)
+  let window_submenu = tauri::Submenu::new("Window", tauri::Menu::new()
+    .add_item(tauri::CustomMenuItem::new("view-playlist".to_string(), "Playlist"))
+    .add_item(tauri::CustomMenuItem::new("view-sample".to_string(), "Sample"))
+    .add_item(tauri::CustomMenuItem::new("view-mixer".to_string(), "Mixer")
+      .accelerator("CmdOrCtrl+Shift+M")));
+
   // define preference menu
   let device_menu = tauri::CustomMenuItem::new("device".to_string(), "Devices");
   let preference_submenu = tauri::Submenu::new("Preferences", tauri::Menu::new()
@@ -90,5 +104,6 @@ pub fn build_menu(recent: &RecentProjects) -> tauri::Menu {
   tauri::Menu::new()
     .add_submenu(main_submenu)
     .add_submenu(file_submenu)
+    .add_submenu(window_submenu)
     .add_submenu(preference_submenu)
 }

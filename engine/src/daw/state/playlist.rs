@@ -59,6 +59,11 @@ pub struct Playlist {
   pub time_signature: Arc<Mutex<timing::TimeSignature>>,
   pub loop_enabled: AtomicBool,
   pub audiograph: Arc<Mutex<daw::AudioGraph<'static>>>,
+  // the same mixer the audio graph plays clips through, reachable without
+  // the graph's lock
+  pub mixer: Arc<daw::Mixer>,
+  // set to stop the current run's master bus (see daw::run_playlist)
+  pub bus_stop: Mutex<Option<Arc<AtomicBool>>>,
   pub ui: Arc<Mutex<PlaylistUI>>,
 }
 
@@ -68,6 +73,13 @@ impl Playlist {
   }
 
   pub fn default() -> Self {
+    let audiograph = daw::AudioGraph::new(
+      daw::state::defaults::SAMPLE_RATE,
+      daw::state::defaults::TEMPO,
+      daw::state::defaults::MAX_BEATS
+    );
+    let mixer = audiograph.mixer.clone();
+
     Playlist {
       playing: AtomicBool::from(false),
       recording: AtomicBool::from(false),
@@ -82,13 +94,9 @@ impl Playlist {
         },
       )),
       loop_enabled: AtomicBool::from(true),
-      audiograph: Arc::new(Mutex::new(
-        daw::AudioGraph::new(
-          daw::state::defaults::SAMPLE_RATE,
-          daw::state::defaults::TEMPO,
-          daw::state::defaults::MAX_BEATS
-        ),
-      )),
+      audiograph: Arc::new(Mutex::new(audiograph)),
+      mixer,
+      bus_stop: Mutex::new(None),
       ui: Arc::new(Mutex::from(PlaylistUI::new())),
     }
   }

@@ -3,6 +3,7 @@ import playlistReducer from './slices/playlistSlice'
 import windowReducer from './slices/windowSlice'
 import envReducer from './slices/envSlice'
 import projectReducer from './slices/projectSlice'
+import mixerReducer from './slices/mixerSlice'
 
 export const store = configureStore({
   reducer: {
@@ -10,6 +11,7 @@ export const store = configureStore({
     window: windowReducer,
     env: envReducer,
     project: projectReducer,
+    mixer: mixerReducer,
   },
 })
 

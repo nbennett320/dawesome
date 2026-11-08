@@ -10,6 +10,7 @@ import {
   updateClipSettings,
 } from '../../state/slices/playlistSlice'
 import { useAppDispatch, useAppSelector } from '../../hooks/redux'
+import { selectTrackName } from '../../state/slices/mixerSlice'
 import {
   ClipSetting,
   ClipSettings,
@@ -75,6 +76,7 @@ const SamplePreview = () => {
   const settings = useAppSelector(selectClipSettings(clip?.id))
   const sampleDuration = useAppSelector(selectClipSampleDuration(clip?.id))
   const waveform = useClipWaveform(clip?.id)
+  const trackName = useAppSelector(selectTrackName(clip?.trackNumber ?? 0))
 
   if(!clip) {
     return (
@@ -113,8 +115,7 @@ const SamplePreview = () => {
           <h2 className='text-base font-medium truncate' title={clip.path}>{name}</h2>
 
           <div className='mt-1 flex flex-row flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500'>
-            {/* tracks are numbered from 0 in the playlist */}
-            <span>Track <span className='text-gray-800'>{clip.trackNumber + 1}</span></span>
+            <span className='text-gray-800'>{trackName}</span>
             <span>Starts at beat <span className='text-gray-800'>{round(clip.startBeat)}</span></span>
             {played !== null && (
               <span>
