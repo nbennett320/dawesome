@@ -1,7 +1,6 @@
 import React from 'react'
 import { ReactP5Wrapper } from 'react-p5-wrapper'
 import { invoke } from '@tauri-apps/api'
-import { useDrop } from 'react-dnd'
 import { 
   addToPlaylist,
   moveNodeInPlaylist,
@@ -13,8 +12,10 @@ import {
 } from '../../state/slices/playlistSlice'
 import { selectSidebar, selectWindowPane } from '../../state/slices/windowSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
-import { PlaylistWindow, PlaylistTypes, PlaylistItemPixelOffset, PlaylistItem } from '../../types/playlist'
+import { PlaylistWindow, PlaylistItem } from '../../types/playlist'
 import { Renderer } from './sketch'
+import { onSampleDrag } from '../../state/sampleDrag'
+import SampleDragGhost from './SampleDragGhost'
 
 const playlistRenderer = new Renderer()
 
@@ -34,73 +35,41 @@ const PlaylistCanvas = () => {
   const sidebar = useAppSelector(selectSidebar)
   const windowPane = useAppDispatch(selectWindowPane)
   const playlistTrackBoxRef = React.useRef<HTMLDivElement>(null)
-  const [{ canDrop, isOver }, dropRef] = useDrop(() => ({
-    accept: [
-      PlaylistTypes.SidebarSampleItem, 
-      PlaylistTypes.PlaylistTrackItem,
-    ],
-    drop: async (item: Record<string, any>, monitor) => {
-      const dropCoords = monitor.getClientOffset()
-      const itemType = monitor.getItemType()
-      console.log("dropped: ", item)
-      switch(itemType) {
-        case PlaylistTypes.SidebarSampleItem: 
-          // handle samples dropped from the sidebar
-          if(dropCoords && ref.current) { 
-            const { x, y } = dropCoords
-            const { left, top, right, bottom } = ref.current.getBoundingClientRect()
-            const canvas = ref.current.firstChild?.firstChild?.firstChild
-            const dropData = {
-              x,
-              y,
-              left,
-              top,
-              right,
-              bottom,
-            } as PlaylistItemPixelOffset
-            const trackNumber = playlistRenderer.calculateTrackNumber(dropData)
-            console.log("dropped on ref:", ref.current, canvas)
-
-            dispatch(addToPlaylist(
-              item.name as string, 
-              trackNumber,
-              playlistRenderer.screenXToBeat(x - left),
-              {
-                x,
-                y,
-                left,
-                top,
-                right,
-                bottom,
-              },
-            ))
-          } else {
-            // eslint-disable-next-line no-console
-            console.error(
-              "Error dropping: no playlist track ref, or null drop coordinates:", 
-              item, 
-              dropCoords, 
-              playlistTrackBoxRef.current
-            )
-          }
-          break
-        default:
-          // unrecognised drop
-          // eslint-disable-next-line no-console
-          console.error(
-            "Error dropping: unknown type for the item being dropped:", 
-            item, 
-            monitor.getItemType()
-          )
-      }
-    },
-    collect: (monitor) => ({
-      isOver: monitor.isOver(),
-      canDrop: monitor.canDrop(),
-    }),
-  }))
-
   const items = useAppSelector(selectPlaylistItems)
+
+  // samples dragged in from the sidebar: show the clip under the mouse while
+  // it's over the playlist, and add it where the preview showed on release
+  React.useEffect(() => onSampleDrag(({ type, path, clientX, clientY }) => {
+    const el = ref.current
+    if(!el) return
+
+    // the element actually under the mouse, so other panes covering the
+    // playlist's box don't count as being over it
+    const over = el.contains(document.elementFromPoint(clientX, clientY))
+    const { left, top, right, bottom } = el.getBoundingClientRect()
+    const x = clientX - left
+    const y = clientY - top
+
+    if(type === 'move' && over) {
+      playlistRenderer.setSampleDrag(path, x, y, top)
+      return
+    }
+
+    playlistRenderer.clearSampleDrag()
+
+    if(type === 'drop' && over) {
+      const { beat, trackNumber } = playlistRenderer.dropTarget(x, y)
+
+      dispatch(addToPlaylist(path, trackNumber, beat, {
+        x: clientX,
+        y: clientY,
+        left,
+        top,
+        right,
+        bottom,
+      }))
+    }
+  }), [])
 
   console.log("items", items)
 
@@ -165,48 +134,22 @@ const PlaylistCanvas = () => {
     dispatch(removeFromPlaylist(id)) 
   }
 
+  // a clip already in the playlist was dragged and dropped. the renderer
+  // works out the beat (accounting for zoom, pan, and where the clip was
+  // grabbed) and the track from the mouse position
   const handleNodeMove = (
     item: PlaylistItem,
-    dropCoords: { x: number, y: number },
+    dropBeat: number,
+    trackNumber: number,
   ) => {
-    console.log("node move")
-    // handle drag and drop from nodes already existent in the playlist
-    if(dropCoords && ref.current) { 
-      const { x, y } = dropCoords
-      const { left, top, right, bottom } = ref.current.getBoundingClientRect()
-      const dropData = {
-        x,
-        y,
-        left,
-        top,
-        right,
-        bottom,
-      } as PlaylistItemPixelOffset
-      const trackNumber = playlistRenderer.calculateTrackNumber(dropData)
-
-      dispatch(moveNodeInPlaylist(
-        item.id,
-        item.path as string, 
-        trackNumber,
-        playlistRenderer.screenXToBeat(x - left),
-        {
-          x,
-          y,
-          left,
-          top,
-          right,
-          bottom,
-        },
-      ))
-    } else {
-      // eslint-disable-next-line no-console
-      console.error(
-        "Error moving node: no playlist track ref, or null drop coordinates:", 
-        item, 
-        dropCoords, 
-        ref.current
-      )
-    }
+    dispatch(moveNodeInPlaylist(
+      item.id,
+      item.path,
+      trackNumber,
+      dropBeat,
+      // keep the vertical offset the clip was first drawn with
+      item.pixelOffset,
+    ))
   }
 
   return (
@@ -215,7 +158,7 @@ const PlaylistCanvas = () => {
       className='w-full h-full'
       style={{ minHeight: '100vh' }}
     >
-      {ref.current && <div ref={dropRef}>
+      {ref.current && <div>
         <ReactP5Wrapper
           sketch={playlistRenderer.sketch}
           style={{ height: '100%' }}
@@ -233,6 +176,7 @@ const PlaylistCanvas = () => {
           onNodeMove={handleNodeMove}
         />
       </div>}
+      <SampleDragGhost playlistRef={ref} />
     </div>
   )
 }

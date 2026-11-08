@@ -3,6 +3,21 @@ import { invoke } from '@tauri-apps/api'
 import { RootState } from 'state/store'
 import { PlaylistItem, PlaylistItemPixelOffset } from '../../types/playlist'
 
+// mirrors daw::timing::Note in the engine
+export type SnapNote =
+  | 'WholeNote'
+  | 'HalfNote'
+  | 'QuarterNote'
+  | 'EighthNote'
+  | 'SixteenthNote'
+
+// mirrors SnapSetting in engine/src/event_dispatch.rs
+interface SnapSetting {
+  enabled: boolean
+  note: SnapNote
+  beats: number
+}
+
 export interface PlaylistState {
   playing: boolean
   tempo: number
@@ -11,6 +26,7 @@ export interface PlaylistState {
   metronomeEnabled: boolean,
   loopEnabled: boolean,
   snapEnabled: boolean,
+  snapNote: SnapNote,
   playlistItems: Array<PlaylistItem>
   ui: {
     maxPlaylistBeats: number,
@@ -30,6 +46,7 @@ const initialState = {
   metronomeEnabled: true,
   loopEnabled: true,
   snapEnabled: true,
+  snapNote: 'QuarterNote',
   playlistItems: [],
   ui: {
     maxPlaylistBeats: 16,
@@ -95,6 +112,9 @@ export const playlistSlice = createSlice({
     },
     setSnapEnabled: (state, action) => {
       state.snapEnabled = action.payload
+    },
+    setSnapNote: (state, action) => {
+      state.snapNote = action.payload
     },
   },
 })
@@ -279,6 +299,11 @@ export const initPlaylist = () => async (dispatch: Dispatch) => {
     maxPlaylistDuration,
     trackCount,
   }))
+
+  // the engine owns the snap defaults
+  const snap = await invoke<SnapSetting>('get_snap_setting', {})
+  dispatch(playlistSlice.actions.setSnapEnabled(snap.enabled))
+  dispatch(playlistSlice.actions.setSnapNote(snap.note))
 }
 
 export const selectPlaylistUI = (state: RootState) => state.playlist.ui
@@ -295,7 +320,16 @@ export const toggleSnap = () => async (dispatch: Dispatch) => {
 
 export const selectSnapEnabled = (state: RootState) =>
   state.playlist.snapEnabled
-// end loop methods
+
+// set the note value clips snap to
+export const setSnapSubdivision = (note: SnapNote) => async (dispatch: Dispatch) => {
+  const snap = await invoke<SnapSetting>('set_snap_subdivision', { note })
+  dispatch(playlistSlice.actions.setSnapNote(snap.note))
+}
+
+export const selectSnapNote = (state: RootState) =>
+  state.playlist.snapNote
+// end snap methods
 
 // export root reducer for this slice
 export default playlistSlice.reducer

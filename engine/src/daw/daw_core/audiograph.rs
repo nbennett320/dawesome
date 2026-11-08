@@ -212,6 +212,41 @@ pub struct AudioNode {
   waveform: Vec<f32>,
 }
 
+// a sample's length and the waveform drawn for it
+// - samples: interleaved samples for all channels
+fn duration_and_waveform(
+  sample_path: &str,
+  samples: Vec<i16>,
+  channels: u16,
+  sample_rate: u32,
+) -> Result<(Duration, Vec<f32>), String> {
+  if samples.is_empty() || channels == 0 {
+    return Err(format!("sample '{}' contains no audio", sample_path));
+  }
+  let dur_s = (samples.len() as f32 / sample_rate as f32) as f32 / channels as f32;
+  let duration = Duration::from_secs_f32(dur_s);
+  let waveform = daw::calc_waveform_from_samples(samples, channels)
+    .ok_or_else(|| format!("sample '{}' is too short to draw a waveform", sample_path))?;
+
+  Ok((duration, waveform))
+}
+
+// decode a sample's length and waveform without creating a node,
+// so the frontend can draw a clip before it's dropped into the playlist
+pub fn preview_sample(
+  sample_path: &str,
+  sample_rate: u32,
+) -> Result<(Duration, Vec<f32>), String> {
+  let file_buf = BufReader::new(File::open(sample_path)
+    .map_err(|e| format!("could not open sample '{}': {}", sample_path, e))?);
+  let source = Decoder::new(file_buf)
+    .map_err(|e| format!("could not decode sample '{}': {}", sample_path, e))?;
+  let channels = source.channels();
+  let samples: Vec<i16> = source.collect();
+
+  duration_and_waveform(sample_path, samples, channels, sample_rate)
+}
+
 // audio node implementation for Mac/Windows
 #[cfg(not(target_os = "linux"))]
 impl AudioNode {
@@ -241,16 +276,11 @@ impl AudioNode {
 
     let channels = sample_buf.channels();
     let samples: Vec<i16> = sample_buf.clone().collect();
-    if samples.is_empty() || channels == 0 {
-      return Err(format!("sample '{}' contains no audio", sample_path));
-    }
-    let dur_s = (samples.len() as f32 / sample_rate as f32) as f32 / channels as f32;
-    let duration = Duration::from_secs_f32(dur_s);
+    let (duration, waveform) =
+      duration_and_waveform(&sample_path, samples, channels, sample_rate)?;
     println!("length of sample in ms: {:?}", duration.as_millis());
     println!("channels: {:?}", channels);
     println!("track number: {}", track_number);
-    let waveform = daw::calc_waveform_from_samples(samples, channels)
-      .ok_or_else(|| format!("sample '{}' is too short to draw a waveform", sample_path))?;
 
     Ok(AudioNode {
       id,
@@ -631,6 +661,10 @@ impl AudioGraph<'static> {
 
   pub fn max_beats(&self) -> u64 {
     self.max_beats
+  }
+
+  pub fn sample_rate(&self) -> u32 {
+    self.sample_rate
   }
 
   // length of one beat at the current tempo (60 / bpm seconds)
@@ -1173,6 +1207,17 @@ mod tests {
     let id = audiograph.construct_and_add_node(
       daw::METRONOME_TICK_PATH.to_string(), Duration::ZERO, 0).unwrap();
     assert_eq!(id, 0);
+  }
+
+  #[test]
+  fn test_preview_sample_matches_a_node() {
+    let path = daw::METRONOME_TICK_PATH;
+    let (dur, waveform) = preview_sample(path, 44_100).unwrap();
+    let node = AudioNode::new(0, path.to_string(), Duration::ZERO, 0, 44_100).unwrap();
+
+    assert_eq!(dur, node.duration());
+    assert_eq!(&waveform, &node.waveform);
+    assert!(preview_sample("does/not/exist.wav", 44_100).is_err());
   }
 
   #[test]

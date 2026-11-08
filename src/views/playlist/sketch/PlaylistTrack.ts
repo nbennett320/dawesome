@@ -53,60 +53,6 @@ class PlaylistTrack extends PlaylistComponent<State> {
     }
   }
 
-  drawDraggingPlaylistItem = (item: PlaylistObject) => {
-    const { 
-      p,
-      minHeight,
-      tabHeight,
-    } = this
-
-    // the canvas is zoomed and panned while this draws,
-    // so convert the mouse into playlist x
-    const dragX = (this.renderer as Renderer).screenToPlaylistX(p.mouseX)
-    const dragY = p.mouseY
-    const {
-      top,
-      height,
-      width,
-    } = item.waveform.boundingBox()
-
-    // draw bounding box
-    this.p.strokeWeight(1)
-    this.p.stroke(125,211,252)
-    this.p.fill(224,242,254, 255*.3)
-    this.p.rect(dragX, dragY, width, height, 3, 3, 3, 3)
-    this.p.line(dragX, dragY + item.labelHeight, dragX + width, dragY + item.labelHeight)
-
-    // draw item waveform
-    const { trackHeight, labelHeight } = item.waveform
-    const { yOffset, y } = item.waveform.pixelOffset
-
-    this.p.strokeWeight(.3)
-    this.p.stroke(0, 0, 0, 255*.3)
-    for(let i = 0; i < item.waveform.soundData.length - 2; i+=2) {
-      const x0 = item.waveform.pointX(i, dragX)
-      const y0 = minHeight + labelHeight*2 + tabHeight + (trackHeight/2) + (item.waveform.soundData[i+1] * (height - labelHeight)) - (y - yOffset) + dragY - top
-      const x1 = item.waveform.pointX(i+2, dragX)
-      const y1 = minHeight + labelHeight*2 + tabHeight + (trackHeight/2) + (item.waveform.soundData[i+3] * (height - labelHeight)) - (y - yOffset) + dragY - top
-      this.p.line(x0, y0, x1, y1)
-    }
-
-    // draw item text
-    this.p.noStroke()
-    this.p.fill(34,34,34,255*.3)
-    this.p.push()
-    this.p.scale(1 / this.currentScale, 1)
-    this.p.textWrap(this.p.CHAR)
-    this.p.text(
-      item.playlistItem.path,
-      (dragX + 1) * this.currentScale,
-      dragY + 6,
-      width * this.currentScale - 1,
-      item.labelHeight,
-    )
-    this.p.pop()
-  }
-
   render = () => {
     const { 
       p,
@@ -119,16 +65,15 @@ class PlaylistTrack extends PlaylistComponent<State> {
     // render audio nodes in the playlist
     p.stroke(0, 0, 0)
     p.strokeWeight(.6)
+    // a clip being dragged is drawn by the Renderer, pinned to the mouse
+    const { clipDrag } = this.renderer as Renderer
+    const dragged = clipDrag?.active ? clipDrag.item : null
+
     playlistObjects
       .filter(item => item.playlistItem.trackNumber === this.trackNumber)
+      .filter(item => item !== dragged)
       .forEach(item => {
         item.render()
-
-        if(item.mouseOver()) {
-          p.cursor(p.HAND)
-        } else {
-          p.cursor(p.ARROW)
-        }
 
         item.onClick((ev, data) => {
           if(p.mouseButton === p.LEFT) {
@@ -147,7 +92,7 @@ class PlaylistTrack extends PlaylistComponent<State> {
           const { id } = item.playlistItem;
           (this.renderer as Renderer).onNodeRightClick(id);
           (this.renderer as Renderer).isMouseDragged = false
-          item.isDragging = false
+          ;(this.renderer as Renderer).clipDrag = null
 
           // reset cursor to arrow after removing an item from the playlist
           setTimeout(() => {
@@ -157,21 +102,6 @@ class PlaylistTrack extends PlaylistComponent<State> {
 
         item.onDoubleClick((ev, data) => {
           console.log("yay it double clicked", ev)
-        })
-        
-        item.onDrag(() => {
-          if(item.isDragging) {
-            p.cursor('grabbing')
-            this.drawDraggingPlaylistItem(item)
-          }
-        }, () => {
-          p.cursor(p.ARROW)
-          const dropCoords = {
-            x: p.winMouseX,
-            y: p.winMouseY,
-          };
-
-          (this.renderer as Renderer).onNodeMove(item.playlistItem, dropCoords)
         })
     })
 

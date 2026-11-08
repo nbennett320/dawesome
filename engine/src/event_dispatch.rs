@@ -428,6 +428,20 @@ pub fn get_node_data(
   Ok((waveform, dur))
 }
 
+// waveform data and duration (seconds) of a sample that isn't in the
+// playlist yet, in the same shape as get_node_data
+// used to draw a clip while it's dragged in from the sidebar
+#[tauri::command]
+pub fn get_sample_preview(
+  state: daw::TState<'_>,
+  sample_path: String,
+) -> Result<(Vec<f32>, f32), String> {
+  let sample_rate = state.playlist.audiograph.lock().unwrap().sample_rate();
+  let (dur, waveform) = daw::preview_sample(&sample_path, sample_rate)?;
+
+  Ok((waveform, dur.as_secs_f32()))
+}
+
 #[tauri::command]
 pub fn get_playlist_sample_offset(
   _state: daw::TState<'_>,
@@ -533,6 +547,46 @@ pub fn get_snap_enabled(
   state: daw::TState<'_>
 ) -> Result<bool, String> {
   Ok(state.playlist.ui.lock().unwrap().snap_enabled)
+}
+
+// the snap setting, so the frontend can preview where a dragged clip will land
+#[derive(serde::Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapSetting {
+  enabled: bool,
+  // the note value clips snap to
+  note: daw::timing::Note,
+  // length of one snap step, in beats
+  beats: f32,
+}
+
+fn snap_setting(state: &daw::InnerState) -> SnapSetting {
+  let ui = state.playlist.ui.lock().unwrap();
+  let (num, den) = daw::timing::MusicalTiming::ratio(&ui.snap_subdivision);
+
+  SnapSetting {
+    enabled: ui.snap_enabled,
+    note: ui.snap_subdivision,
+    beats: num as f32 / den as f32,
+  }
+}
+
+#[tauri::command]
+pub fn get_snap_setting(
+  state: daw::TState<'_>
+) -> Result<SnapSetting, String> {
+  Ok(snap_setting(state.inner()))
+}
+
+// set the note value clips snap to, returns the new snap setting
+#[tauri::command]
+pub fn set_snap_subdivision(
+  state: daw::TState<'_>,
+  note: daw::timing::Note,
+) -> Result<SnapSetting, String> {
+  state.playlist.ui.lock().unwrap().snap_subdivision = note;
+
+  Ok(snap_setting(state.inner()))
 }
 
 #[tauri::command]
@@ -664,6 +718,29 @@ mod tests {
     state.playlist.ui.lock().unwrap().snap_subdivision = daw::timing::Note::SixteenthNote;
     let id4 = add_audiograph_node(&state, sample, 0, Duration::from_millis(700), true).unwrap();
     assert_eq!(ms(id4), 750);
+  }
+
+  #[test]
+  fn test_snap_setting() {
+    let state = daw::InnerState::default();
+
+    use daw::timing::Note;
+
+    // default: snap on, one beat
+    assert_eq!(
+      snap_setting(&state),
+      SnapSetting { enabled: true, note: Note::QuarterNote, beats: 1. });
+
+    state.playlist.ui.lock().unwrap().snap_subdivision = Note::SixteenthNote;
+    state.playlist.ui.lock().unwrap().toggle_snap_enabled();
+    assert_eq!(
+      snap_setting(&state),
+      SnapSetting { enabled: false, note: Note::SixteenthNote, beats: 0.25 });
+
+    // the frontend sends and receives notes by name
+    let note: Note = serde_json::from_str("\"EighthNote\"").unwrap();
+    assert_eq!(note, Note::EighthNote);
+    assert_eq!(serde_json::to_string(&Note::WholeNote).unwrap(), "\"WholeNote\"");
   }
 
   #[test]

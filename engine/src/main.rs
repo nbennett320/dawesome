@@ -82,6 +82,9 @@ fn init_tauri() {
       get_loop_enabled,
       toggle_snap_enabled,
       get_snap_enabled,
+      get_snap_setting,
+      set_snap_subdivision,
+      get_sample_preview,
       get_playlist_max_length,
       init_playlist_workspace,
       toggle_record_input

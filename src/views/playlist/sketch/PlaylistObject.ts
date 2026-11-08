@@ -14,9 +14,7 @@ interface Props extends PlaylistComponentProps {
   trackHeight: number
 }
 
-type State = ComponentState<{
-  isDragging: boolean
-}>
+type State = ComponentState<Record<string, never>>
 
 class PlaylistObject extends PlaylistComponent<State> {
   playlistItem: PlaylistItem
@@ -28,7 +26,6 @@ class PlaylistObject extends PlaylistComponent<State> {
   minHeight: number
   maxHeight: number
   waveform: Waveform
-  // isDragging = false
 
   constructor(
     p: P5CanvasInstance<CanvasProps>,
@@ -37,10 +34,6 @@ class PlaylistObject extends PlaylistComponent<State> {
     props: Props,
   ) {
     super(p, canvas, playlist, props)
-
-    this.setState({
-      isDragging: false,
-    })
 
     this.playlistItem = props.playlistItem
     this.soundData = props.soundData
@@ -70,42 +63,6 @@ class PlaylistObject extends PlaylistComponent<State> {
   }
 
   boundingBox = (): P5BoundingBox => this.waveform.boundingBox()
-
-  get isDragging(): boolean { return this.state.isDragging }
-
-  set isDragging(val: boolean) { this.state.isDragging = val }
-
-  // call a function on dragging an item
-  onDrag = (
-    dragFn: () => void,
-    dropFn: () => void,
-  ) => {
-    this.onMouseOver(() => {
-      if((this.renderer as Renderer).isMouseDragged) {
-        this.canvas.mouseReleased(() => {
-
-          if(this.state.isDragging) {
-            this.isDragging = false
-            console.log("it dropped")
-            dropFn()
-            this.setState({
-              ...this.state,
-              isDragging: false,
-            })
-
-          }
-        })
-
-        // this.isDragging = true
-        this.setState({
-          ...this.state,
-          isDragging: true,
-        })
-      }
-    })
-
-    dragFn()
-  }
 
   // call function on right click
   // eslint-disable-next-line class-methods-use-this

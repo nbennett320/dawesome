@@ -12,7 +12,8 @@ pub trait MusicalTiming {
   fn ratio(&self) -> (u32, u32);
 }
 
-#[derive(Clone, Copy, PartialEq, PartialOrd, Debug)]
+// serialized by name ("QuarterNote", ...) for the frontend
+#[derive(Clone, Copy, PartialEq, PartialOrd, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Note {
   WholeNote,
   HalfNote,
