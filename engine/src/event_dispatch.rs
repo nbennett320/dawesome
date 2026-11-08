@@ -432,14 +432,14 @@ pub fn get_node_data(
 #[derive(serde::Serialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipInfo {
-  settings: daw::ClipSettings,
+  pub(crate) settings: daw::ClipSettings,
   // the sample's length, before the settings change its speed
-  sample_duration: f32,
+  pub(crate) sample_duration: f32,
   // how long the clip plays for
-  played_duration: f32,
+  pub(crate) played_duration: f32,
 }
 
-fn clip_info(node: &daw::AudioNode) -> ClipInfo {
+pub(crate) fn clip_info(node: &daw::AudioNode) -> ClipInfo {
   ClipInfo {
     settings: node.settings(),
     sample_duration: node.sample_duration().as_secs_f32(),

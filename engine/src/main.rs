@@ -3,6 +3,7 @@ mod daw;
 mod util;
 // mod lang;
 mod event_dispatch;
+mod project;
 mod bind_functions;
 
 use std::env;
@@ -50,6 +51,7 @@ fn debug(){
 
 fn init_tauri() {
   use event_dispatch::*;
+  use project::{save_project, load_project, new_project};
 
   tauri::Builder::default()
     .setup(app::window::setup)
@@ -88,6 +90,9 @@ fn init_tauri() {
       get_clip,
       set_clip_settings,
       t_preview_node,
+      save_project,
+      load_project,
+      new_project,
       get_playlist_max_length,
       init_playlist_workspace,
       toggle_record_input

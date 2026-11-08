@@ -356,6 +356,11 @@ impl AudioNode {
     self.settings
   }
 
+  // the path of the sample file the clip plays
+  pub fn sample_path(&self) -> &str {
+    &self.sample_path
+  }
+
   // change how the clip is played back, returns the settings kept in range
   pub fn set_settings(&mut self, settings: daw::ClipSettings) -> daw::ClipSettings {
     self.settings = settings.clamped(self.duration);
@@ -802,6 +807,13 @@ impl AudioGraph<'static> {
 
   // remove node from graph with provided id
   // returns an error if id does not exist
+  // remove every node, e.g. before loading a project. ids keep counting up,
+  // so an id from before never names a new node
+  pub fn clear(&mut self) {
+    self.nodes.clear();
+    self.current_offset = Some(Duration::ZERO);
+  }
+
   pub fn remove_node(&mut self, id: u64) -> Result<AudioNode, String> {
     let idx = self.nodes.iter().position(|a| a.id == id)
       .ok_or_else(|| format!("no node with id {}", id))?;

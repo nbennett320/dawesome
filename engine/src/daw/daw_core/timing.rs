@@ -2,6 +2,8 @@ use std::time::{Duration};
 
 // pub static MAX_SUBDIVISIONS: u32 = 508_032_000;
 
+// saved in project files as {"numerator": 4, "denominator": 4}
+#[derive(Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TimeSignature {
   pub numerator: u16,
   pub denominator: u16

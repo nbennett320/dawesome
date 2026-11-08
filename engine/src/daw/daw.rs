@@ -256,7 +256,7 @@ pub fn run_playlist(
   println!("continuing");
 }
 
-pub fn pause_playlist(state: &Arc<state::InnerState>) {
+pub fn pause_playlist(state: &state::InnerState) {
   println!("pausing playlist");
   
   // reset playlist to 0 beats
