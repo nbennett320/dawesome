@@ -12,6 +12,7 @@ import {
   isDefaultClipSettings,
   playedDuration,
 } from '../../types/clip'
+import { LoadedProject, MissingSample } from '../../types/project'
 import { openTab } from './windowSlice'
 
 // mirrors daw::timing::Note in the engine
@@ -164,6 +165,39 @@ export const playlistSlice = createSlice({
     },
     setSnapNote: (state, action) => {
       state.snapNote = action.payload
+    },
+    // replace the playlist with a project the engine just loaded (or a new,
+    // empty one). the engine has already stopped playback
+    reduceLoadedProject: (state, action: { type: string, payload: LoadedProject }) => {
+      const project = action.payload
+
+      state.playing = false
+      state.runtime = null
+      state.currentBeat = null
+      state.tempo = project.tempo
+      state.metronomeEnabled = project.metronomeEnabled
+      state.loopEnabled = project.loopEnabled
+      state.snapEnabled = project.snapEnabled
+      state.snapNote = project.snapNote
+      state.inspectedClipId = null
+
+      state.playlistItems = project.clips.map(clip => ({
+        id: clip.id,
+        path: clip.path,
+        startBeat: clip.startBeat,
+        trackNumber: clip.trackNumber,
+        // only used to debug where a clip was dropped
+        pixelOffset: {
+          x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0, xOffset: 0, yOffset: 0,
+        },
+      }))
+
+      state.clipSettings = {}
+      state.clipSampleDurations = {}
+      project.clips.forEach(clip => {
+        state.clipSettings[clip.id] = clip.settings
+        state.clipSampleDurations[clip.id] = clip.sampleDuration
+      })
     },
   },
 })
@@ -494,6 +528,56 @@ export const setSnapSubdivision = (note: SnapNote) => async (dispatch: Dispatch)
 export const selectSnapNote = (state: RootState) =>
   state.playlist.snapNote
 // end snap methods
+
+// start project methods
+// the engine reads and writes project files; the frontend then shows
+// whatever it loaded
+
+export const { reduceLoadedProject } = playlistSlice.actions
+
+// show a project the engine just loaded. returns the samples it couldn't find
+const showLoadedProject = async (
+  dispatch: Dispatch,
+  project: LoadedProject,
+): Promise<MissingSample[]> => {
+  // settings still waiting to be sent belong to clips that are gone
+  queuedSettings.clear()
+  dispatch(reduceLoadedProject(project))
+  // the playlist's length depends on its clips
+  await initPlaylist()(dispatch)
+
+  return project.missing
+}
+
+// save the playlist to a project file
+export const saveProject = (path: string) => async (
+  _: Dispatch,
+  getState: () => RootState,
+): Promise<void> => {
+  // clips changed in the last moment may not have been sent yet. send their
+  // latest settings, so the file has them
+  await Promise.all(Array.from(queuedSettings.keys()).map(id => {
+    queuedSettings.set(id, null)
+    return sendSettingsNow(id, selectClipSettings(id)(getState()))
+  }))
+
+  await invoke<void>('save_project', { path })
+}
+
+// replace the playlist with a project file. returns the samples it couldn't
+// find, which were left out. if the file can't be opened, this throws and
+// the playlist is unchanged
+export const openProject = (path: string) => async (dispatch: Dispatch): Promise<MissingSample[]> => {
+  const project = await invoke<LoadedProject>('load_project', { path })
+  return showLoadedProject(dispatch, project)
+}
+
+// replace the playlist with an empty project
+export const newProject = () => async (dispatch: Dispatch): Promise<void> => {
+  const project = await invoke<LoadedProject>('new_project', {})
+  await showLoadedProject(dispatch, project)
+}
+// end project methods
 
 // export root reducer for this slice
 export default playlistSlice.reducer
