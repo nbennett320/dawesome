@@ -19,6 +19,7 @@ use num_traits::Float;
 use rodio::{
   Decoder, 
   OutputStream, 
+  OutputStreamHandle,
   Sink,
   Sample,
 };
@@ -496,30 +497,20 @@ impl AudioGraph<'static> {
 
   // run graph and schedule nodes to be played
   // n milliseconds in advance
-  pub fn run_for(&self, dur: Duration, metronome_enabled: bool) {
+  // play the next `dur` of the graph on an already open output stream
+  pub fn run_for(&self, stream: &OutputStreamHandle, dur: Duration, metronome_enabled: bool) {
     if self.nodes.len() == 0 {
       println!("Tried to run audio graph. No nodes in graph!");
       return;
     }
 
+    if !self.running { return; }
+
     let (_controller, mixer) = self.buffer_slice(dur, metronome_enabled).unwrap();
 
-    let running = self.running;
-    thread::spawn(move || {
-      if running {
-        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-        let sink = Sink::try_new(&stream_handle).unwrap();
-        sink.pause();
-        sink.append(mixer);
-        println!("System time (PB): {:?}", std::time::Instant::now());
-        sink.play();
-        sink.sleep_until_end();
-        
-        // sink.detach();
-        // stream_handle.play_raw(mixer).unwrap();
-        // thread::sleep(dur);
-      }
-    });
+    if let Err(e) = stream.play_raw(mixer) {
+      println!("could not play slice: {}", e);
+    }
   }
 
   pub fn buffer_graph(&self) -> Option<(Arc<DynamicMixerController<f32>>, DynamicMixer<f32>)> {
@@ -1029,10 +1020,12 @@ mod tests {
 
     audiograph.add_node(node);
     
+    // open the stream before timing, it's slow to open
+    let (_stream, stream_handle) = OutputStream::try_default().unwrap();
     let runtime = Duration::from_secs(1);
     let now = Instant::now();
 
-    audiograph.run_for(runtime, true);
+    audiograph.run_for(&stream_handle, runtime, true);
     thread::sleep(runtime);
 
     let now_elapsed = now.elapsed();

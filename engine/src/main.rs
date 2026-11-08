@@ -59,6 +59,7 @@ fn init_tauri() {
       get_playlist_playing,
       t_toggle_playlist,
       get_playlist_start_time,
+      get_playlist_transport,
       get_playlist_tempo,
       set_playlist_tempo,
       t_toggle_metronome_enabled,

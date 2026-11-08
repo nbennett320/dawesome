@@ -32,6 +32,12 @@ pub fn get_playlist_playing(
 pub fn get_playlist_start_time(
   state: daw::TState<'_>
 ) -> Result<u128, String> {
+  Ok(get_start_time_ms(state.inner())? as u128)
+}
+
+// convert the engine's monotonic start time into wall clock ms
+// (since the unix epoch), which the frontend can compare to Date.now()
+fn get_start_time_ms(state: &daw::InnerState) -> Result<f64, String> {
   let elapsed = state
     .playlist
     .started_time
@@ -43,8 +49,48 @@ pub fn get_playlist_start_time(
   let now = SystemTime::now()
     .duration_since(SystemTime::UNIX_EPOCH)
     .map_err(|e| e.to_string())?;
-  let start_time = now - elapsed;
-  Ok(start_time.as_millis())
+  Ok((now - elapsed).as_secs_f64() * 1000.)
+}
+
+// everything the frontend needs to draw the playback cursor in sync with
+// the engine's beat loop, without polling every frame
+#[derive(serde::Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistTransport {
+  // engine start time of the current run, ms since the unix epoch
+  start_time_ms: f64,
+  // length of one beat tick in the engine loop
+  beat_interval_ms: f64,
+  // beats played before the engine loops back to the start
+  loop_beats: u64,
+  // beats spanned by the full playlist width
+  beats_displayed: u64,
+  loop_enabled: bool,
+}
+
+fn playlist_transport(state: &daw::InnerState) -> Result<PlaylistTransport, String> {
+  let start_time_ms = get_start_time_ms(state)?;
+  let beat_interval = state
+    .playlist
+    .audiograph
+    .lock()
+    .unwrap()
+    .interval_of_subdivision(daw::timing::WholeNote::new());
+
+  Ok(PlaylistTransport {
+    start_time_ms,
+    beat_interval_ms: beat_interval.as_secs_f64() * 1000.,
+    loop_beats: state.playlist.max_beats.load(Ordering::SeqCst),
+    beats_displayed: state.playlist.ui.lock().unwrap().max_beats_displayed,
+    loop_enabled: state.playlist.loop_enabled.load(Ordering::SeqCst),
+  })
+}
+
+#[tauri::command]
+pub fn get_playlist_transport(
+  state: daw::TState<'_>
+) -> Result<PlaylistTransport, String> {
+  playlist_transport(state.inner())
 }
 
 #[tauri::command]
@@ -554,5 +600,32 @@ mod tests {
     // at 60bpm the same width spans 16s
     state.set_tempo(60.);
     assert_eq!(ms(Some(400.)), 8_000);
+  }
+
+  #[test]
+  fn test_playlist_transport() {
+    let state = daw::InnerState::default();
+
+    // nothing to sync to before the playlist has been started
+    assert!(playlist_transport(&state).is_err());
+
+    let started = Instant::now() - std::time::Duration::from_millis(1_500);
+    *state.playlist.started_time.lock().unwrap() = Some(started);
+
+    let t = playlist_transport(&state).unwrap();
+    assert_eq!(t.beat_interval_ms, 500.); // 120bpm
+    assert_eq!(t.loop_beats, 16);
+    assert_eq!(t.beats_displayed, 16);
+    assert!(t.loop_enabled);
+
+    // start time is reported in wall clock ms, 1.5s in the past
+    let now_ms = SystemTime::now()
+      .duration_since(SystemTime::UNIX_EPOCH)
+      .unwrap()
+      .as_secs_f64() * 1000.;
+    assert!((now_ms - t.start_time_ms - 1_500.).abs() < 50.);
+
+    state.set_tempo(60.);
+    assert_eq!(playlist_transport(&state).unwrap().beat_interval_ms, 1_000.);
   }
 }

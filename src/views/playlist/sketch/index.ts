@@ -52,6 +52,15 @@ export const staticDefaults = {
   },
 }
 
+// mirrors PlaylistTransport in engine/src/event_dispatch.rs
+export interface PlaylistTransport {
+  startTimeMs: number
+  beatIntervalMs: number
+  loopBeats: number
+  beatsDisplayed: number
+  loopEnabled: boolean
+}
+
 // get waveform data and duration of individual audio nodes
 const fetchNodeData = async (id: number) => {
   const [wf, dur] = await invoke<[number[], number]>('get_node_data', { id })
@@ -81,7 +90,8 @@ export class Renderer extends RendererBase {
   mousePressedY: number | null = null
 
   playing: boolean = staticDefaults.playing
-  playlistStart: number | null = null
+  // engine timing for the current run, used to draw the playback cursor
+  transport: PlaylistTransport | null = null
 
   playlistTracks: Array<PlaylistTrack> = []
   playlistObjects: Array<PlaylistObject> = []
@@ -144,6 +154,18 @@ export class Renderer extends RendererBase {
 
     console.log("calculated trackNumber: ", trackNumber)
     return trackNumber
+  }
+
+  // fetch the engine's start time and beat length, so the cursor follows the
+  // engine's beat loop instead of a frontend timer that starts at a different time
+  syncTransport = async () => {
+    try {
+      const transport = await invoke<PlaylistTransport>('get_playlist_transport', {})
+      // playback may have stopped while waiting on the engine
+      if(this.playing) this.transport = transport
+    } catch(e) {
+      console.error('could not sync the playback cursor:', e)
+    }
   }
 
   timePerPixel = () => {
@@ -320,10 +342,12 @@ export class Renderer extends RendererBase {
       this.onNodeRightClick = props.onNodeRightClick
       this.onNodeMove = props.onNodeMove
 
-      if(props.playing) {
-        this.playlistStart = Date.now()
-      } else {
-        this.playlistStart = null
+      // only (re)sync the cursor when playback starts or stops, other prop
+      // updates (drops, moves, resizes) shouldn't reset it to the start
+      if(props.playing && !this.playing) {
+        this.syncTransport()
+      } else if(!props.playing) {
+        this.transport = null
       }
 
       if(props.playing !== this.playing) {
