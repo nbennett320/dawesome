@@ -19,7 +19,7 @@ const App = () => {
       <Topbar />
       <div className="WorkspaceContainer flex flex-row w-full">
         <Sidebar />
-        <div className="w-full">
+        <div className="w-full h-full min-w-0">
           <TabWindow />
         </div>
       </div>

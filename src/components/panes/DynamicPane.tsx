@@ -1,116 +1,30 @@
 import React from 'react'
 import SplitPane from 'react-split-pane'
 import { WindowNode } from '../../types/ui'
-import { matchViewComponent } from '../../views/TabWindow' 
+import TabbedPane from './TabbedPane'
 import './styles.scss'
 
 export interface Props {
-  id: string
-  root: WindowNode
-  onRemove?: (childId: string) => void
-  onToggleParentSplit?: () => void
+  node: WindowNode
 }
 
-const LeftChildError = () => (
-  <div>Error rendering left child</div>
-)
-
-const DynamicPane = (props: Props) => {
-  console.log("dynamic pane props '" + props.root.id + "': ", props)
-  const ref = React.useRef<HTMLDivElement>(null)
-  const [mouseLeft, setMouseLeft] = React.useState()
-
-  const handleMouseEnter = (e: MouseEvent) => {
-    console.log("ref:", ref)
-
-    if(ref.current) {
-      const { width, height, left } = ref.current.getBoundingClientRect()
-
-      if(e.clientX > left) {
-        console.log("left!!!", e.clientX, left)
-      }
-
-    }
-  }
-
-  const renderRoot = () => {
-    const { left, right } = props.root
-
-    if(left?.child && right?.child) {
-      // render left and right children
-      return (
-        <SplitPane split='vertical'>
-          {matchViewComponent(left.child)}
-          {matchViewComponent(right.child)}
-        </SplitPane>
-      )
-    }
-
-    if(left?.child && right && !right?.child) {
-      // render left child and right root
-      return (
-        <SplitPane split='vertical'>
-          {matchViewComponent(left.child)}
-
-          <DynamicPane 
-            id={right.id}
-            root={right}
-          />
-        </SplitPane>
-      )
-    }
-
-    if(left && !left?.child && right?.child) {
-      // render left tree and right children
-      return (
-        <SplitPane split='vertical'>
-          <DynamicPane 
-            id={left.id}
-            root={left}
-          />
-
-          {matchViewComponent(right.child)}
-        </SplitPane>
-      )
-    }
-
-    if(left && !left?.child && right && !right?.child) {
-      // render left and right tree
-      return (
-        <SplitPane split='vertical'>
-          <DynamicPane 
-            id={left.id}
-            root={left}
-          />
-
-          <DynamicPane 
-            id={right.id}
-            root={right}
-          />
-        </SplitPane>
-      )
-    }
-    
-    if(props.root.id === 'root' && (props.root.child === 0 || props.root.child)) {
-      return (
-        matchViewComponent(props.root.child)
-      )
-    }
-
-    console.log("error", left, right)
-    return (
-      <div>Error rendering pane tree</div>
-    )
+// a pane in the window layout: a split shows its two children with a
+// draggable divider between them, a leaf shows its tabs
+const DynamicPane = ({ node }: Props) => {
+  if(!node.left || !node.right) {
+    return <TabbedPane pane={node} />
   }
 
   return (
-    <div 
-      ref={ref}
-      onMouseEnter={(e) => { handleMouseEnter(e) }}
-      className='w-full'
+    <SplitPane
+      split={node.direction ?? 'vertical'}
+      defaultSize='50%'
+      minSize={120}
     >
-      {renderRoot()}
-    </div>
+      {/* keyed by id so a pane's view stays mounted when the layout around it changes */}
+      <DynamicPane key={node.left.id} node={node.left} />
+      <DynamicPane key={node.right.id} node={node.right} />
+    </SplitPane>
   )
 }
 

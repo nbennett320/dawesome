@@ -10,7 +10,6 @@ import {
   selectPlaylistTempo,
   selectPlaylistUI
 } from '../../state/slices/playlistSlice'
-import { selectSidebar, selectWindowPane } from '../../state/slices/windowSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
 import { PlaylistWindow, PlaylistItem } from '../../types/playlist'
 import { Renderer } from './sketch'
@@ -32,8 +31,6 @@ const PlaylistCanvas = () => {
   const dispatch = useAppDispatch()
   const playing = useAppSelector(selectPlaylistPlaying)
   const tempo = useAppSelector(selectPlaylistTempo)
-  const sidebar = useAppSelector(selectSidebar)
-  const windowPane = useAppDispatch(selectWindowPane)
   const playlistTrackBoxRef = React.useRef<HTMLDivElement>(null)
   const items = useAppSelector(selectPlaylistItems)
 
@@ -73,37 +70,31 @@ const PlaylistCanvas = () => {
 
   console.log("items", items)
 
-  const updateWidthAndHeight = () => {
-    setWidth(ref.current?.clientWidth)
-    setHeight(ref.current?.clientHeight)
-  }
-
+  // fit the canvas to the playlist's box whenever it changes size: the
+  // window resizing, the sidebar toggling, a split pane's divider moving,
+  // or the playlist's tab being shown again after another tab was selected
   React.useEffect(() => {
-    // set width when ref or sidebar update
-    if(ref.current) {
-      const { height: h, width: w } = ref.current.getBoundingClientRect()
-      setHeight(h)
-      setWidth(w)
-      playlistRenderer.setHeight(h)
-      playlistRenderer.setWidth(w)
-      if(!h) {
-        console.log("setting it bigger")
-        playlistRenderer.setHeight(1000)
-      }
-      console.log("the height:", h)
-    }
-  }, [ref.current, sidebar, windowPane])
+    const el = ref.current
+    if(!el) return undefined
 
-  React.useEffect(() => {
-    // resize when sizebar changes
-    if(ref.current) {
-      const { height: h, width: w } = ref.current.getBoundingClientRect()
+    const fit = () => {
+      const { height: h, width: w } = el.getBoundingClientRect()
+
+      // hidden behind another tab, keep the last size
+      if(!w || !h) return
+
       setHeight(h)
       setWidth(w)
       playlistRenderer.setHeight(h)
       playlistRenderer.setWidth(w)
     }
-  }, [sidebar])
+
+    fit()
+    const observer = new ResizeObserver(fit)
+    observer.observe(el)
+
+    return () => observer.disconnect()
+  }, [])
 
   React.useEffect(() => {
     const getPlaylistData = async () => {
@@ -119,11 +110,7 @@ const PlaylistCanvas = () => {
       setDuration(maxPlaylistDuration)
     }
 
-    window.addEventListener('resize', updateWidthAndHeight)
-
     getPlaylistData()
-
-    return () => window.removeEventListener('resize', updateWidthAndHeight)
   }, [])
 
   const handleItemDrop = (pw: PlaylistWindow) => {
