@@ -217,8 +217,9 @@ export const moveNodeInPlaylist = (
   trackNumber: number,
   pixelOffset: Omit<PlaylistItemPixelOffset, 'xOffset' | 'yOffset'>,
 ) => async (dispatch: Dispatch) => {
-  const dropX = pixelOffset.x
-  const dropY = pixelOffset.y
+  // relative to the playlist's top-left, same as addToPlaylist
+  const dropX = pixelOffset.x - pixelOffset.left
+  const dropY = pixelOffset.y - pixelOffset.top
   await invoke('move_audiograph_node', {
     id,
     trackNumber,

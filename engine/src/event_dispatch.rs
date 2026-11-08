@@ -187,6 +187,27 @@ fn playlist_bounds(
   }
 }
 
+// convert a drop position (pixels from the playlist's left edge)
+// into a start offset; the playlist width spans max_beats_displayed beats
+fn drop_x_to_offset(
+  state: &daw::InnerState,
+  drop_x: Option<f32>,
+) -> Result<std::time::Duration, String> {
+  let (min_bound_x, _, max_bound_x, _) = playlist_bounds(state)?;
+  let tempo = state.playlist.audiograph.lock().unwrap().tempo();
+  let max_beats_displayed = state.playlist.ui.lock().unwrap().max_beats_displayed;
+  let max_playlist_dur = daw::timing::n_beat_duration_from_tempo(
+    tempo,
+    max_beats_displayed as u32,
+  );
+
+  Ok(app::workspaces::playlist::calc_sample_offset(
+    drop_x.unwrap_or(0.),
+    max_bound_x - min_bound_x,
+    max_playlist_dur,
+  ))
+}
+
 fn add_audiograph_node(
   state: &daw::InnerState,
   sample_path: String,
@@ -238,28 +259,9 @@ pub fn t_add_audiograph_node(
   drop_x: Option<f32>,
   drop_y: Option<f32>,
 ) -> Result<u64, String> {
-  let (min_bound_x, min_bound_y, max_bound_x, max_bound_y) =
-    playlist_bounds(state.inner())?;
-  let tempo = state.playlist.audiograph.lock().unwrap().tempo();
-  let max_beats_displayed = state.playlist.ui.lock().unwrap().max_beats_displayed;
-  println!("max_beats_displayed: {}", max_beats_displayed);
-  let max_playlist_dur = daw::timing::n_subdivision_duration_from_tempo(
-    tempo, 
-    max_beats_displayed as u32,
-    daw::timing::QuarterNote::new()
-  );
-
-  println!("max playlist dur: {}ms", max_playlist_dur.as_millis());
-
-  let start_offset = app::workspaces::playlist::calc_sample_offset(
-    drop_x.unwrap_or(min_bound_x),
-    drop_y.unwrap_or(min_bound_y),
-    min_bound_x,
-    min_bound_y,
-    max_bound_x,
-    max_bound_y,
-    max_playlist_dur
-  );
+  // vertical position is already resolved into track_number by the frontend
+  let _ = drop_y;
+  let start_offset = drop_x_to_offset(state.inner(), drop_x)?;
 
   let snap_enabled = state.playlist.ui.lock().unwrap().snap_enabled;
 
@@ -274,27 +276,9 @@ pub fn move_audiograph_node(
   drop_x: Option<f32>,
   drop_y: Option<f32>,
 ) -> Result<(), String> {
-  let (min_bound_x, min_bound_y, max_bound_x, max_bound_y) =
-    playlist_bounds(state.inner())?;
-  let tempo = state.playlist.audiograph.lock().unwrap().tempo();
-  let max_beats_displayed = state.playlist.ui.lock().unwrap().max_beats_displayed;
-  println!("max_beats_displayed: {}", max_beats_displayed);
-  let max_playlist_dur = daw::timing::n_subdivision_duration_from_tempo(
-    tempo, 
-    max_beats_displayed as u32,
-    daw::timing::QuarterNote::new()
-  );
-
-  let start_offset = app::workspaces::playlist::calc_sample_offset(
-    drop_x.unwrap_or(min_bound_x),
-    drop_y.unwrap_or(min_bound_y),
-    min_bound_x,
-    min_bound_y,
-    max_bound_x,
-    max_bound_y,
-    max_playlist_dur
-  );
-
+  // vertical position is already resolved into track_number by the frontend
+  let _ = drop_y;
+  let start_offset = drop_x_to_offset(state.inner(), drop_x)?;
 
   println!("moved sample with id: {}, with offset of: {}ms", id, start_offset.as_millis());
 
@@ -547,5 +531,28 @@ mod tests {
       .set_bounding_box(0., 10., 800., 400.);
 
     assert_eq!(playlist_bounds(&state).unwrap(), (0., 10., 800., 400.));
+  }
+
+  #[test]
+  fn test_drop_x_to_offset() {
+    let state = daw::InnerState::default();
+
+    // before init_playlist_workspace there are no bounds
+    assert!(drop_x_to_offset(&state, Some(100.)).is_err());
+
+    // playlist from screen x=300 to x=1100 (800px wide)
+    state.playlist.ui.lock().unwrap()
+      .viewport.set_bounding_box(300., 0., 1_100., 400.);
+
+    // default: 120bpm, 16 beats displayed -> width spans 8s
+    let ms = |x: Option<f32>| drop_x_to_offset(&state, x).unwrap().as_millis();
+    assert_eq!(ms(Some(0.)), 0);
+    assert_eq!(ms(Some(400.)), 4_000); // middle of the playlist -> beat 9
+    assert_eq!(ms(Some(50.)), 500);    // one beat in
+    assert_eq!(ms(None), 0);
+
+    // at 60bpm the same width spans 16s
+    state.set_tempo(60.);
+    assert_eq!(ms(Some(400.)), 8_000);
   }
 }
