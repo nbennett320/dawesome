@@ -1,7 +1,6 @@
 import React from 'react'
 import { useStore } from 'react-redux'
 import { ReactP5Wrapper } from 'react-p5-wrapper'
-import { invoke } from '@tauri-apps/api'
 import { 
   addToPlaylist,
   inspectClip,
@@ -26,10 +25,6 @@ const PlaylistCanvas = () => {
   const ref = React.useRef<HTMLDivElement>(null)
   const [height, setHeight] = React.useState<number>()
   const [width, setWidth] = React.useState<number>()
-  const [limit, setLimit] = React.useState<number>(16)
-  const [beatsDisplayed, setBeatsDisplayed] = React.useState<number>(16)
-  const [duration, setDuration] = React.useState<number>(120)
-  const [trackCount, setTrackCount] = React.useState<number>(5)
   const [playlistWindow, setPlaylistWindow] = React.useState<PlaylistWindow>()
 
   const dispatch = useAppDispatch()
@@ -37,6 +32,14 @@ const PlaylistCanvas = () => {
   const tempo = useAppSelector(selectPlaylistTempo)
   const playlistTrackBoxRef = React.useRef<HTMLDivElement>(null)
   const items = useAppSelector(selectPlaylistItems)
+  // the playlist's length and tracks, from the engine. refreshed when the
+  // playlist first shows and whenever a project is loaded (see initPlaylist)
+  const {
+    maxPlaylistBeats: limit,
+    maxBeatsDisplayed: beatsDisplayed,
+    maxPlaylistDuration: duration,
+    trackCount,
+  } = useAppSelector(selectPlaylistUI)
 
   // samples dragged in from the sidebar: show the clip under the mouse while
   // it's over the playlist, and add it where the preview showed on release
@@ -119,23 +122,6 @@ const PlaylistCanvas = () => {
     observer.observe(el)
 
     return () => observer.disconnect()
-  }, [])
-
-  React.useEffect(() => {
-    const getPlaylistData = async () => {
-      const [
-        maxPlaylistBeats,
-        maxBeatsDisplayed,
-        maxPlaylistDuration,
-        calculatedTrackCount
-      ] = await invoke<[number, number, number, number]>('get_playlist_data', {})
-      setLimit(maxPlaylistBeats)
-      setBeatsDisplayed(maxBeatsDisplayed)
-      setTrackCount(calculatedTrackCount)
-      setDuration(maxPlaylistDuration)
-    }
-
-    getPlaylistData()
   }, [])
 
   const handleItemDrop = (pw: PlaylistWindow) => {

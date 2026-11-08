@@ -958,16 +958,16 @@ impl AudioGraph<'static> {
     counted
   }
 
-  // count number of tracks
+  // how many tracks the playlist shows: the default number, or enough to
+  // reach the highest track a clip is on. (counting only the tracks that
+  // have clips would hide a clip on track 4 when just two tracks are used)
   pub fn track_count(&self) -> u32 {
-    match self.track_numbers().len() {
-      x if x > 1 => {
-        x as u32
-      }
-      _ => {
-        daw::defaults::NUM_OF_TRACKS
-      }
-    }
+    let needed = self.nodes.iter()
+      .map(|node| node.track_number + 1)
+      .max()
+      .unwrap_or(0);
+
+    needed.max(daw::defaults::NUM_OF_TRACKS)
   }
 
   // get a vector of AudioNodes with the specified track number
@@ -1258,6 +1258,23 @@ mod tests {
   }
 
   #[test]
+  fn test_track_count_reaches_the_highest_track() {
+    let path = daw::METRONOME_TICK_PATH.to_string();
+    let mut audiograph = AudioGraph::new(44_100, 120., 16);
+    let default = daw::defaults::NUM_OF_TRACKS;
+
+    assert_eq!(audiograph.track_count(), default);
+
+    // two tracks used, but one is past the default number of tracks
+    audiograph.construct_and_add_node(path.clone(), Duration::ZERO, 0).unwrap();
+    audiograph.construct_and_add_node(path.clone(), Duration::ZERO, default + 1).unwrap();
+    assert_eq!(audiograph.track_count(), default + 2);
+
+    audiograph.clear();
+    assert_eq!(audiograph.track_count(), default);
+  }
+
+  #[test]
   fn test_node_settings_change_its_length() {
     let path = daw::METRONOME_TICK_PATH;
     let mut node = AudioNode::new(0, path.to_string(), Duration::ZERO, 0, 44_100).unwrap();
@@ -1442,7 +1459,8 @@ mod tests {
       daw::timing::SixteenthNote::new()).unwrap();
     
     assert_eq!(audiograph.len(), 3);
-    assert_eq!(audiograph.track_count(), 3);
+    // clips on tracks 0-2 fit in the default number of tracks
+    assert_eq!(audiograph.track_count(), daw::defaults::NUM_OF_TRACKS);
     assert_eq!(audiograph.get_node_by_id(id2).unwrap().start_offset.as_millis(), 100);
 
     // 600ms snapped to a 125ms grid (sixteenth notes at 120bpm) = 625ms

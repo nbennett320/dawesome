@@ -5,6 +5,7 @@ use tauri::{
   self, 
   Manager
 };
+use crate::recent::{self, RecentProjects};
 
 #[derive(Clone, Serialize)]
 struct EventPayload {
@@ -23,6 +24,28 @@ pub fn setup(
       "quit" => {
         std::process::exit(0);
       }
+      // the frontend asks where to open or save, then calls the engine's
+      // project commands
+      "new" | "open" | "save" | "save-as" => {
+        window_cp.app_handle().emit_all("menu-project", EventPayload {
+          data: event.menu_item_id().into()
+        }).unwrap();
+      }
+      recent::CLEAR_ID => {
+        let recent = window_cp.state::<RecentProjects>();
+        if let Err(e) = recent.update(&window_cp, |list| list.clear()) {
+          println!("could not clear recent projects: {}", e);
+        }
+      }
+      // a recent project's row: the frontend opens it, like File › Open
+      id if recent::slot_index(id).is_some() => {
+        let recent = window_cp.state::<RecentProjects>();
+        if let Some(path) = recent::slot_index(id).and_then(|i| recent.path_at(i)) {
+          window_cp.app_handle().emit_all("menu-open-recent", EventPayload {
+            data: path
+          }).unwrap();
+        }
+      }
       "device" => {
         println!("emit device preference");
         window_cp.app_handle().emit_all("menu-device-preference", EventPayload {
@@ -36,18 +59,28 @@ pub fn setup(
 }
 
 // build the containing window menus
-pub fn build_menu() -> tauri::Menu {
+pub fn build_menu(recent: &RecentProjects) -> tauri::Menu {
   // define main menu
   let quit_menu = tauri::CustomMenuItem::new("quit".to_string(), "Quit");
   let main_submenu = tauri::Submenu::new("Dawesome".to_string(), tauri::Menu::new()
     .add_item(quit_menu));
 
   // define file menu
-  let save_menu = tauri::CustomMenuItem::new("save".to_string(), "Save");
-  let load_menu = tauri::CustomMenuItem::new("load".to_string(), "Load");
+  let new_menu = tauri::CustomMenuItem::new("new".to_string(), "New Project")
+    .accelerator("CmdOrCtrl+N");
+  let open_menu = tauri::CustomMenuItem::new("open".to_string(), "Open…")
+    .accelerator("CmdOrCtrl+O");
+  let save_menu = tauri::CustomMenuItem::new("save".to_string(), "Save")
+    .accelerator("CmdOrCtrl+S");
+  let save_as_menu = tauri::CustomMenuItem::new("save-as".to_string(), "Save As…")
+    .accelerator("CmdOrCtrl+Shift+S");
   let file_submenu = tauri::Submenu::new("File", tauri::Menu::new()
+    .add_item(new_menu)
+    .add_item(open_menu)
+    .add_submenu(recent.submenu())
+    .add_native_item(tauri::MenuItem::Separator)
     .add_item(save_menu)
-    .add_item(load_menu));
+    .add_item(save_as_menu));
   
   // define preference menu
   let device_menu = tauri::CustomMenuItem::new("device".to_string(), "Devices");

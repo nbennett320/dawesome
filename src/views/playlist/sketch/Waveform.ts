@@ -75,19 +75,22 @@ class Waveform extends PlaylistComponent {
   })
   
   render = () => {
-    const { minHeight, trackHeight, height, labelHeight, tabHeight } = this
-    const { yOffset, y } = this.pixelOffset
+    const { minHeight, height, labelHeight } = this
     const left = this.#getX()
+
+    // the waveform fills the clip below its label. points are 0..1 from the
+    // engine. (this used to subtract the playlist's distance from the top of
+    // the window, taken from where the clip was dropped, so clips loaded from
+    // a project, which were never dropped, were drawn a track too low)
+    const bodyTop = minHeight + labelHeight
+    const bodyHeight = height - labelHeight
+    const pointY = (i: number) => bodyTop + this.soundData[i] * bodyHeight
 
     // no `* currentScale` here: the canvas is already scaled when this draws
     this.p.strokeWeight(.3)
     this.p.stroke(0, 0, 0)
     for(let i = 0; i < this.soundData.length - 2; i+=2) {
-      const x0 = this.pointX(i, left)
-      const y0 = minHeight + labelHeight*2 + tabHeight + (trackHeight/2) + (this.soundData[i+1] * (height - labelHeight)) - (y - yOffset)
-      const x1 = this.pointX(i+2, left)
-      const y1 = minHeight + labelHeight*2 + tabHeight + (trackHeight/2) + (this.soundData[i+3] * (height - labelHeight)) - (y - yOffset)
-      this.p.line(x0, y0, x1, y1)
+      this.p.line(this.pointX(i, left), pointY(i+1), this.pointX(i+2, left), pointY(i+3))
     }
   }
 }

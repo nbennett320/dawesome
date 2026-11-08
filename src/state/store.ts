@@ -2,12 +2,14 @@ import { configureStore } from '@reduxjs/toolkit'
 import playlistReducer from './slices/playlistSlice'
 import windowReducer from './slices/windowSlice'
 import envReducer from './slices/envSlice'
+import projectReducer from './slices/projectSlice'
 
 export const store = configureStore({
   reducer: {
     playlist: playlistReducer,
     window: windowReducer,
     env: envReducer,
+    project: projectReducer,
   },
 })
 
