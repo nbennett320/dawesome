@@ -192,7 +192,8 @@ export const addToPlaylist = (
 ) => async (dispatch: Dispatch) => {
   const dropX = pixelOffset.x - pixelOffset.left
   const dropY = pixelOffset.y - pixelOffset.top
-  const id = await invoke<number>('t_add_audiograph_node', {
+  // x is where the engine actually placed the clip (after snapping)
+  const { id, x } = await invoke<{ id: number, x: number }>('t_add_audiograph_node', {
     samplePath: path,
     trackNumber,
     dropX,
@@ -205,8 +206,8 @@ export const addToPlaylist = (
     trackNumber,
     pixelOffset: {
       ...pixelOffset,
-      xOffset: pixelOffset.x - pixelOffset.left,
-      yOffset: pixelOffset.y - pixelOffset.top,
+      xOffset: x,
+      yOffset: dropY,
     },
   } as PlaylistItem))
 }
@@ -220,7 +221,8 @@ export const moveNodeInPlaylist = (
   // relative to the playlist's top-left, same as addToPlaylist
   const dropX = pixelOffset.x - pixelOffset.left
   const dropY = pixelOffset.y - pixelOffset.top
-  await invoke('move_audiograph_node', {
+  // x is where the engine actually placed the clip (after snapping)
+  const x = await invoke<number>('move_audiograph_node', {
     id,
     trackNumber,
     dropX,
@@ -233,8 +235,8 @@ export const moveNodeInPlaylist = (
     trackNumber,
     pixelOffset: {
       ...pixelOffset,
-      xOffset: pixelOffset.x - pixelOffset.left,
-      yOffset: pixelOffset.y - pixelOffset.top,
+      xOffset: x,
+      yOffset: dropY,
     },
   } as PlaylistItem))
 }
