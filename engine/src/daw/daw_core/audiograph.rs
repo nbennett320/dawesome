@@ -919,7 +919,7 @@ impl AudioGraph<'static> {
       offset.as_micros(),
       interval.as_micros());
 
-    Duration::from_nanos(nearest_offset_micros.try_into().unwrap())
+    Duration::from_micros(nearest_offset_micros.try_into().unwrap())
   }
   
   // return the unique audio tracks numbers in the graph
@@ -1240,7 +1240,9 @@ mod tests {
     assert_eq!(audiograph.len(), 3);
     assert_eq!(audiograph.track_count(), 3);
     assert_eq!(audiograph.get_node_by_id(id2).unwrap().start_offset.as_millis(), 100);
-    assert_eq!(audiograph.get_node_by_id(id3).unwrap().start_offset.as_millis(), 0);
+
+    // 600ms snapped to a 125ms grid; 120bpm, beat / 4 = 625ms
+    assert_eq!(audiograph.get_node_by_id(id3).unwrap().start_offset.as_millis(), 625);
     
     let target = audiograph.get_node_by_id(id).unwrap();
 
