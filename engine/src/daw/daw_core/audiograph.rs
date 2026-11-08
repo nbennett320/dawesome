@@ -681,11 +681,9 @@ impl AudioGraph<'static> {
     self.max_beats
   }
 
+  // length of one beat at the current tempo (60 / bpm seconds)
   pub fn beat_interval(&self) -> Duration {
-    let beats_per_sec = self.tempo / 60. / 4.;
-    let dur = Duration::from_secs_f32(beats_per_sec);
-
-    dur
+    daw::timing::beat_interval_from_tempo(self.tempo)
   }
 
   pub fn interval_of_subdivision<T>(
@@ -1183,6 +1181,21 @@ mod tests {
     });
 
     assert_eq!(node_samples.len() * 4, nonzero_samples.len());
+  }
+
+  #[test]
+  fn test_audiograph_beat_interval() {
+    let mut audiograph = AudioGraph::new(44_100, 120f32, 8);
+    assert_eq!(audiograph.beat_interval().as_millis(), 500);
+
+    audiograph.set_tempo(140f32);
+    assert_eq!(audiograph.beat_interval().as_millis(), 428);
+
+    audiograph.set_tempo(60f32);
+    assert_eq!(audiograph.beat_interval().as_millis(), 1_000);
+    assert_eq!(audiograph.duration_max().as_millis(), 8_000);
+
+    assert_eq!(audiograph.beat_interval(), daw::timing::beat_interval_from_tempo(audiograph.tempo()));
   }
 
   #[test]
