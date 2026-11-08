@@ -556,6 +556,18 @@ impl AudioGraph<'static> {
     Some((controller, mixer))
   }
 
+  // nodes that start within [window_start, window_start + dur)
+  fn nodes_in_window(
+    &self,
+    window_start: Duration,
+    dur: Duration,
+  ) -> impl Iterator<Item = &AudioNode> {
+    let window_end = window_start + dur;
+
+    self.nodes.iter().filter(move |node|
+      node.start_offset >= window_start && node.start_offset < window_end)
+  }
+
   pub fn buffer_slice(&self, dur: Duration, metronome_enabled: bool) -> Option<(Arc<DynamicMixerController<f32>>, DynamicMixer<f32>)> {
     let (controller, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, self.sample_rate);
     let silence = rodio::source::Zero::<f32>::new(2, self.sample_rate).take_duration(dur);
@@ -567,52 +579,15 @@ impl AudioGraph<'static> {
       controller.add(daw::METRONOME_TICK_SOURCE.convert_samples());
     }
     
-    // get starting index of nodes within this time slice
-    let idx_start_opt = self.nodes.iter()
-      .position(|node|
-        node.start_offset >= self.current_offset.unwrap() &&
-        node.start_offset < (self.current_offset.unwrap() + dur));
+    let window_start = self.current_offset.unwrap_or(Duration::ZERO);
+    println!("current offset: {}", window_start.as_millis());
 
-    if idx_start_opt == None {
-      println!("No start index! Could not buffer.");
-      return Some((controller, mixer));
-    }
-
-    let idx_start = idx_start_opt.unwrap();
-
-    // get last index of nodes within this time slice
-    let idx_end_opt = self.nodes.iter()
-      .position(|node| node.start_offset > (self.current_offset.unwrap() + dur));
-    
-    let idx_end = match idx_end_opt {
-      Some(x) => x,
-      None => idx_start + 1,
-    };
-    
-    println!("current offset: {}", self.current_offset.unwrap().as_millis());
-    println!("start, end: {}, {}", idx_start, idx_end);
-
-    let self_arc = Arc::new(Mutex::new(self));
-    // schedule samples within this timeslice to play
-    let slice = self_arc.lock().unwrap().nodes[idx_start..idx_end].to_vec();
-    println!("slice len: {}, self.nodes len: {}",slice.len(), self.nodes.len());
-
-
-    println!("items (len: {}) in nodes[{}..{}]:", self.nodes.len(), idx_start, idx_end);
-    for node in &slice {
-      println!("path: {}", node.sample_path);
-    }
-
-    for node in slice {
-      println!("node.start_offset: {}ms", node.start_offset.as_millis());
-      let start_offset = Arc::new(Mutex::new(node.start_offset));
-      let current_offset = Arc::new(Mutex::new(self_arc.lock().unwrap().current_offset));
-
-      let delay_offset = *start_offset.lock().unwrap() - current_offset.lock().unwrap().unwrap();
-      println!("delay offset: {}ms", delay_offset.as_millis());
+    // schedule every node that starts within this time slice
+    for node in self.nodes_in_window(window_start, dur) {
+      let delay_offset = node.start_offset - window_start;
+      println!("added node: {} (delay offset: {}ms)", node.sample_path, delay_offset.as_millis());
       let source = node.buffer.decoder().delay(delay_offset).convert_samples();
       controller.add(source);
-      println!("added node: {}", node.sample_path);
     }
 
     Some((controller, mixer))
@@ -624,57 +599,28 @@ impl AudioGraph<'static> {
     if self.nodes.len() == 0 {
       println!("No nodes in graph! Filling with {} frames of silence.", frames_per_slice);
 
-      let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-      
       let silence = rodio::source::Zero::<f32>::new(2, self.sample_rate).take_duration(dur);
       let (controller, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, self.sample_rate);
       controller.add(silence);
       return Some(mixer);
     }
 
-    // get starting index of nodes within this time slice
-    let idx_start_opt = self.nodes.iter()
-      .position(|node| 
-          node.start_offset >= self.current_offset.unwrap() &&
-          node.start_offset < (self.current_offset.unwrap() + dur));
+    let window_start = self.current_offset.unwrap_or(Duration::ZERO);
+    let mut window_nodes = self.nodes_in_window(window_start, dur).peekable();
 
-    if idx_start_opt == None {
-      println!("No start index!");
+    if window_nodes.peek().is_none() {
+      println!("No nodes in this time slice!");
       return None;
     }
 
-    let idx_start = idx_start_opt.unwrap();
-
-    // get last index of nodes within this time slice
-    let idx_end_opt = self.nodes.iter()
-      .rposition(|node| node.start_offset > (self.current_offset.unwrap() + dur));
-    
-    let idx_end = match idx_end_opt {
-      Some(x) => x,
-      None => idx_start + 1,
-    };
-    
-    println!("buffer start, end: {}, {}", idx_start, idx_end);
-
-    let self_arc = Arc::new(Mutex::new(self));
-    // schedule samples within this timeslice to play
-    let slice = self_arc.lock().unwrap().nodes[idx_start..idx_end].to_vec();
-    println!("slice len: {}, self.nodes len: {}",slice.len(), self.nodes.len());
-
-    // let root = rodio::source::Zero::<f32>::new(2, 44_100).take_duration(dur);
     let (controller, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, self.sample_rate);
 
-    println!("items (len: {}) in nodes[{}..{}]:", self.nodes.len(), idx_start, idx_end);
-    for node in slice {
-      println!("node.start_offset: {}ms", node.start_offset.as_millis());
-      let start_offset = Arc::new(Mutex::new(node.start_offset));
-      let current_offset = Arc::new(Mutex::new(self_arc.lock().unwrap().current_offset));
-
-      let delay_offset = *start_offset.lock().unwrap() - current_offset.lock().unwrap().unwrap();
-      println!("delay offset: {}ms", delay_offset.as_millis());
+    // schedule every node that starts within this time slice
+    for node in window_nodes {
+      let delay_offset = node.start_offset - window_start;
+      println!("added node: {} (delay offset: {}ms)", node.sample_path, delay_offset.as_millis());
       let source = node.buffer.decoder().delay(delay_offset).convert_samples();
       controller.add(source);
-      println!("added node: {}", node.sample_path);
     }
 
     Some(mixer)
@@ -1273,6 +1219,77 @@ mod tests {
     audiograph.add_node(node);
     let next = audiograph.construct_and_add_node(path(), Duration::ZERO, 0).unwrap();
     assert_eq!(next, 11);
+  }
+
+  // build a graph with one metronome tick per offset (ms), each on its own track
+  fn graph_with_ticks(offsets_ms: &[u64]) -> AudioGraph<'static> {
+    let mut audiograph = AudioGraph::new(44_100, 120f32, 8);
+    for (track, ms) in offsets_ms.iter().enumerate() {
+      audiograph.construct_and_add_node(
+        daw::METRONOME_TICK_PATH.to_string(),
+        Duration::from_millis(*ms),
+        track as u32).unwrap();
+    }
+
+    audiograph
+  }
+
+  #[test]
+  fn test_nodes_in_window() {
+    let audiograph = graph_with_ticks(&[0, 0, 200, 500, 900]);
+    let beat = audiograph.beat_interval(); // 500ms at 120bpm
+    let starts = |from_ms: u64| -> Vec<u128> {
+      audiograph
+        .nodes_in_window(Duration::from_millis(from_ms), beat)
+        .map(|n| n.start_offset.as_millis())
+        .collect()
+    };
+
+    // all nodes in the window, including simultaneous ones
+    assert_eq!(starts(0), vec![0, 0, 200]);
+    // a node exactly at the window end belongs to the next window only
+    assert_eq!(starts(500), vec![500, 900]);
+    assert_eq!(starts(1_000), Vec::<u128>::new());
+  }
+
+  #[test]
+  fn test_audiograph_buffer_slice_plays_every_node_in_window() {
+    // total signal energy of the first beat, relative to a single tick
+    let energy = |offsets_ms: &[u64]| -> f64 {
+      let audiograph = graph_with_ticks(offsets_ms);
+      let (_controller, mixer) = audiograph
+        .buffer_slice(audiograph.beat_interval(), false)
+        .unwrap();
+      mixer.map(|x| x.abs() as f64).sum()
+    };
+    let one = energy(&[0]);
+    let ratio = |offsets_ms: &[u64]| (energy(offsets_ms) / one * 100.).round() / 100.;
+
+    // previously each of these mixed only the first node (1.0)
+    assert_eq!(ratio(&[0, 0, 0]), 3.);
+    assert_eq!(ratio(&[0, 200, 400]), 3.);
+    // node at 900ms is in the next beat
+    assert_eq!(ratio(&[0, 200, 400, 900]), 3.);
+  }
+
+  #[test]
+  fn test_audiograph_buffer_for_plays_every_node_in_window() {
+    let samples = |offsets_ms: &[u64]| -> f64 {
+      let audiograph = graph_with_ticks(offsets_ms);
+      audiograph
+        .buffer_for(audiograph.beat_interval())
+        .unwrap()
+        .map(|x| x.abs() as f64)
+        .sum()
+    };
+
+    let ratio = (samples(&[0, 100, 200]) / samples(&[0]) * 100.).round() / 100.;
+    assert_eq!(ratio, 3.);
+
+    // no nodes in this window
+    let mut audiograph = graph_with_ticks(&[0]);
+    audiograph.set_current_offset(Some(Duration::from_secs(1)));
+    assert!(audiograph.buffer_for(audiograph.beat_interval()).is_none());
   }
 
   #[test]
