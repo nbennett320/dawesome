@@ -191,7 +191,7 @@ fn add_audiograph_node(
   track_number: u32,
   start_offset: std::time::Duration,
   snap_enabled: bool,
-) -> u64 {
+) -> Result<u64, String> {
   // println!("added sample: {}, with offset of: {}ms", sample_path, start_offset.as_millis());
 
   let id: u64;
@@ -214,7 +214,7 @@ fn add_audiograph_node(
         sample_path, 
         start_offset, 
         track_number,
-        daw::timing::SixteenthNote::new());
+        daw::timing::SixteenthNote::new())?;
   } else {
     // don't snap
     id = state
@@ -222,10 +222,10 @@ fn add_audiograph_node(
       .audiograph
       .lock()
       .unwrap()
-      .construct_and_add_node(sample_path, start_offset, track_number);
+      .construct_and_add_node(sample_path, start_offset, track_number)?;
   }
 
-  id
+  Ok(id)
 }
 
 #[tauri::command]
@@ -263,9 +263,7 @@ pub fn t_add_audiograph_node(
 
   let snap_enabled = state.playlist.ui.lock().unwrap().snap_enabled;
 
-  let id = add_audiograph_node(state.inner(), sample_path, track_number, start_offset, snap_enabled);
-
-  Ok(id)
+  add_audiograph_node(state.inner(), sample_path, track_number, start_offset, snap_enabled)
 }
 
 #[tauri::command]

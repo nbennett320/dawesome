@@ -51,7 +51,8 @@ pub fn bind_functions(
       .audiograph
       .lock()
       .unwrap()
-      .construct_and_add_node(path, start_offset, track_number);
+      .construct_and_add_node(path, start_offset, track_number)
+      .map_err(mlua::Error::RuntimeError)?;
 
     Ok(id)
   }).unwrap();
@@ -69,7 +70,8 @@ pub fn bind_functions(
       .audiograph
       .lock()
       .unwrap()
-      .construct_and_add_node(sample_path, start_offset, track_number);
+      .construct_and_add_node(sample_path, start_offset, track_number)
+      .map_err(mlua::Error::RuntimeError)?;
 
     Ok(id)
   }).unwrap();

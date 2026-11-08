@@ -220,25 +220,38 @@ impl AudioNode {
     start_offset: Duration,
     track_number: u32,
     sample_rate: u32,
-  ) -> Self where Self: Sized {
-    let sound_buf = daw::SampleBuffer::load(&sample_path).unwrap();
+  ) -> Result<Self, String> {
+    let err = |what: &str, e: &dyn std::fmt::Display| {
+      format!("{} '{}': {}", what, sample_path, e)
+    };
 
-    let file_buf = BufReader::new(File::open(&sample_path).unwrap());
-    let source = Decoder::new(file_buf).unwrap();
+    let sound_buf = daw::SampleBuffer::load(&sample_path)
+      .map_err(|e| err("could not read sample", &e))?;
+
+    let file_buf = BufReader::new(
+      File::open(&sample_path).map_err(|e| err("could not open sample", &e))?);
+    let source = Decoder::new(file_buf)
+      .map_err(|e| err("could not decode sample", &e))?;
     let sample_buf = source.buffered();
-    let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-    let sink = Sink::try_new(&stream_handle).unwrap();
+    let (_stream, stream_handle) = OutputStream::try_default()
+      .map_err(|e| err("no audio output device for sample", &e))?;
+    let sink = Sink::try_new(&stream_handle)
+      .map_err(|e| err("could not create audio sink for sample", &e))?;
 
     let channels = sample_buf.channels();
     let samples: Vec<i16> = sample_buf.clone().collect();
+    if samples.is_empty() || channels == 0 {
+      return Err(format!("sample '{}' contains no audio", sample_path));
+    }
     let dur_s = (samples.len() as f32 / sample_rate as f32) as f32 / channels as f32;
     let duration = Duration::from_secs_f32(dur_s);
     println!("length of sample in ms: {:?}", duration.as_millis());
     println!("channels: {:?}", channels);
     println!("track number: {}", track_number);
-    let waveform = daw::calc_waveform_from_samples(samples, channels);
+    let waveform = daw::calc_waveform_from_samples(samples, channels)
+      .ok_or_else(|| format!("sample '{}' is too short to draw a waveform", sample_path))?;
 
-    AudioNode {
+    Ok(AudioNode {
       id,
       sample_path,
       start_time: None,
@@ -256,7 +269,7 @@ impl AudioNode {
       duration,
       sample_rate,
       waveform,
-    }
+    })
   }
 
   pub fn buffer_sink(&mut self) {
@@ -715,7 +728,7 @@ impl AudioGraph<'static> {
     sample_path: String,
     start_offset: Duration,
     track_number: u32,
-  ) -> u64 {
+  ) -> Result<u64, String> {
     let id = self.next_id;
     let node = AudioNode::new(
       id,
@@ -723,12 +736,12 @@ impl AudioGraph<'static> {
       start_offset,
       track_number,
       self.sample_rate,
-    );
+    )?;
     println!("start offset is: {}ms", start_offset.as_millis());
 
     self.add_node(node);
 
-    id
+    Ok(id)
   }
 
   // construct an audio node from a sample path and start offset,
@@ -740,7 +753,7 @@ impl AudioGraph<'static> {
     start_offset: Duration,
     track_number: u32,
     subdivision: T
-  ) -> u64 {
+  ) -> Result<u64, String> {
     let id = self.next_id;
     let snapped_offset = self
       .find_nearest_offset_subdivision(start_offset, subdivision);
@@ -753,11 +766,11 @@ impl AudioGraph<'static> {
       snapped_offset,
       track_number,
       self.sample_rate,
-    );
+    )?;
 
     self.add_node(node);
 
-    id
+    Ok(id)
   }
 
   // move node in graph by node id
@@ -994,7 +1007,7 @@ mod tests {
     let track_number = 0;
     let sample_rate = 44_100;
 
-    let node = AudioNode::new(id, sample_path, start_offset, track_number, sample_rate);
+    let node = AudioNode::new(id, sample_path, start_offset, track_number, sample_rate).unwrap();
 
     assert_eq!(node.start_offset, Duration::from_millis(0));
     assert_eq!(node.duration().as_millis(), daw::METRONOME_TICK_SOURCE.convert_samples().total_duration().unwrap().as_millis());
@@ -1012,7 +1025,7 @@ mod tests {
     let track_number = 0;
     let sample_rate = 44_100;
 
-    let node = AudioNode::new(id, sample_path, start_offset, track_number, sample_rate);
+    let node = AudioNode::new(id, sample_path, start_offset, track_number, sample_rate).unwrap();
 
     let now = Instant::now();
 
@@ -1033,7 +1046,7 @@ mod tests {
     let track_number = 0;
     let sample_rate = 44_100;
 
-    let node = AudioNode::new(id, sample_path, start_offset, track_number, sample_rate);
+    let node = AudioNode::new(id, sample_path, start_offset, track_number, sample_rate).unwrap();
     let node_dur = node.duration().clone();
 
     let tempo = 120f32;
@@ -1058,7 +1071,7 @@ mod tests {
     let track_number = 0;
     let sample_rate = 44_100;
 
-    let node = AudioNode::new(id, sample_path, start_offset, track_number, sample_rate);
+    let node = AudioNode::new(id, sample_path, start_offset, track_number, sample_rate).unwrap();
 
     let tempo = 120f32;
     let max_beats: u64 = 8;
@@ -1116,7 +1129,7 @@ mod tests {
     let track_number = 0;
     let sample_rate = 44_100;
 
-    let node = AudioNode::new(id, sample_path, start_offset, track_number, sample_rate);
+    let node = AudioNode::new(id, sample_path, start_offset, track_number, sample_rate).unwrap();
 
     let tempo = 120f32;
     let max_beats: u64 = 8;
@@ -1155,7 +1168,7 @@ mod tests {
     let track_number = 0;
     let sample_rate = 44_100;
 
-    let node = AudioNode::new(id, sample_path, start_offset, track_number, sample_rate);
+    let node = AudioNode::new(id, sample_path, start_offset, track_number, sample_rate).unwrap();
 
     let tempo = 120f32;
     let max_beats: u64 = 8;
@@ -1202,18 +1215,47 @@ mod tests {
   }
 
   #[test]
+  fn test_bad_sample_returns_error() {
+    let mut audiograph = AudioGraph::new(44_100, 120f32, 8);
+
+    // missing file
+    let res = audiograph.construct_and_add_node(
+      "assets/does-not-exist.wav".to_string(), Duration::ZERO, 0);
+    assert!(res.unwrap_err().contains("does-not-exist.wav"));
+
+    // todo: also test a file that exists but is not audio. currently
+    // rodio 0.15 falls back to minimp3 -> slice-deque, which hits UB
+    // (aborts in debug) on unrecognised input, so it can't be tested yet
+
+    // failed loads add nothing, don't use up ids,
+    // and leave the graph usable
+    assert_eq!(audiograph.len(), 0);
+    let id = audiograph.construct_and_add_node(
+      daw::METRONOME_TICK_PATH.to_string(), Duration::ZERO, 0).unwrap();
+    assert_eq!(id, 0);
+  }
+
+  #[test]
+  fn test_waveform_rejects_empty_and_tiny_samples() {
+    assert!(daw::calc_waveform_from_samples(vec![], 2).is_none());
+    assert!(daw::calc_waveform_from_samples(vec![1, 2, 3], 0).is_none());
+    // a few samples (< 0.25ms) used to divide by zero
+    assert!(daw::calc_waveform_from_samples(vec![100, -100, 50, -50], 1).is_some());
+  }
+
+  #[test]
   fn test_audiograph_node_ids_not_reused() {
     let mut audiograph = AudioGraph::new(44_100, 120f32, 8);
     let path = || daw::METRONOME_TICK_PATH.to_string();
 
-    let kick = audiograph.construct_and_add_node(path(), Duration::from_millis(0), 0);
-    let snare = audiograph.construct_and_add_node(path(), Duration::from_millis(500), 1);
-    let hat = audiograph.construct_and_add_node(path(), Duration::from_millis(250), 2);
+    let kick = audiograph.construct_and_add_node(path(), Duration::from_millis(0), 0).unwrap();
+    let snare = audiograph.construct_and_add_node(path(), Duration::from_millis(500), 1).unwrap();
+    let hat = audiograph.construct_and_add_node(path(), Duration::from_millis(250), 2).unwrap();
     assert_eq!((kick, snare, hat), (0, 1, 2));
 
     // removing a node must not free its id for reuse
     audiograph.remove_node(kick);
-    let clap = audiograph.construct_and_add_node(path(), Duration::from_millis(750), 3);
+    let clap = audiograph.construct_and_add_node(path(), Duration::from_millis(750), 3).unwrap();
     assert_eq!(clap, 3);
 
     // every remaining id resolves to exactly one node
@@ -1224,9 +1266,9 @@ mod tests {
     assert_eq!(audiograph.get_node_by_id(clap).unwrap().track_number, 3);
 
     // externally assigned ids push the counter forward
-    let node = AudioNode::new(10, path(), Duration::ZERO, 0, 44_100);
+    let node = AudioNode::new(10, path(), Duration::ZERO, 0, 44_100).unwrap();
     audiograph.add_node(node);
-    let next = audiograph.construct_and_add_node(path(), Duration::ZERO, 0);
+    let next = audiograph.construct_and_add_node(path(), Duration::ZERO, 0).unwrap();
     assert_eq!(next, 11);
   }
 
@@ -1263,7 +1305,7 @@ mod tests {
       sample_path,
       start_offset,
       0,
-      sample_rate);
+      sample_rate).unwrap();
 
     let tempo = 120f32;
     let max_beats: u64 = 8;
@@ -1275,12 +1317,12 @@ mod tests {
     let id2 = audiograph.construct_and_add_node(
       "assets/assets_66-bd-01.wav".to_string(),
       Duration::from_millis(100),
-      1);
+      1).unwrap();
     let id3 = audiograph.construct_and_add_node_with_snap(
       "assets/assets_66-sd-01.wav".to_string(),
       Duration::from_millis(600),
       2,
-      daw::timing::QuarterNote::new());
+      daw::timing::QuarterNote::new()).unwrap();
     
     assert_eq!(audiograph.len(), 3);
     assert_eq!(audiograph.track_count(), 3);
