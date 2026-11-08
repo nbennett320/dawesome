@@ -2,6 +2,8 @@ import { createSlice, Dispatch } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api'
 import { RootState } from 'state/store'
 import { PlaylistItem, PlaylistItemPixelOffset } from '../../types/playlist'
+import { View } from '../../types/ui'
+import { openTab } from './windowSlice'
 
 // mirrors daw::timing::Note in the engine
 export type SnapNote =
@@ -28,6 +30,8 @@ export interface PlaylistState {
   snapEnabled: boolean,
   snapNote: SnapNote,
   playlistItems: Array<PlaylistItem>
+  // the clip shown in the Sample tab
+  inspectedClipId: number | null
   ui: {
     maxPlaylistBeats: number,
     maxBeatsDisplayed: number,
@@ -48,6 +52,7 @@ const initialState = {
   snapEnabled: true,
   snapNote: 'QuarterNote',
   playlistItems: [],
+  inspectedClipId: null,
   ui: {
     maxPlaylistBeats: 16,
     maxBeatsDisplayed: 16,
@@ -106,6 +111,13 @@ export const playlistSlice = createSlice({
     },
     removePlaylistItem: (state, action) => {
       state.playlistItems = state.playlistItems.filter(e => e.id !== action.payload.id)
+
+      if(state.inspectedClipId === action.payload.id) {
+        state.inspectedClipId = null
+      }
+    },
+    setInspectedClip: (state, action: { type: string, payload: number | null }) => {
+      state.inspectedClipId = action.payload
     },
     setPlaylistUI: (state, action) => {
       state.ui = action.payload
@@ -279,6 +291,21 @@ export const removeFromPlaylist = (id: number) => async (dispatch: Dispatch) => 
 
 export const selectPlaylistItems = (state: RootState) => state.playlist.playlistItems
 // end playlist item methods
+
+// start inspected clip methods
+export const { setInspectedClip } = playlistSlice.actions
+
+// show a clip in the Sample tab, opening the tab if it was closed
+export const inspectClip = (id: number) => (dispatch: Dispatch) => {
+  dispatch(setInspectedClip(id))
+  dispatch(openTab(View.SamplePreview))
+}
+
+export const selectInspectedClip = (state: RootState): PlaylistItem | undefined => {
+  const id = state.playlist.inspectedClipId
+  return state.playlist.playlistItems.find(item => item.id === id)
+}
+// end inspected clip methods
 
 // start playlist ui methods
 export const {

@@ -100,9 +100,8 @@ class PlaylistTrack extends PlaylistComponent<State> {
           })
         }
 
-        item.onDoubleClick((ev, data) => {
-          console.log("yay it double clicked", ev)
-        })
+        // double click is handled by the Renderer, which finds the clip
+        // under the mouse when the canvas is double clicked
     })
 
     // render track lines

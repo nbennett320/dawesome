@@ -3,6 +3,7 @@ import { ReactP5Wrapper } from 'react-p5-wrapper'
 import { invoke } from '@tauri-apps/api'
 import { 
   addToPlaylist,
+  inspectClip,
   moveNodeInPlaylist,
   removeFromPlaylist,
   selectPlaylistItems,
@@ -121,6 +122,10 @@ const PlaylistCanvas = () => {
     dispatch(removeFromPlaylist(id)) 
   }
 
+  const handleNodeDoubleClick = (id: number) => {
+    dispatch(inspectClip(id))
+  }
+
   // a clip already in the playlist was dragged and dropped. the renderer
   // works out the beat (accounting for zoom, pan, and where the clip was
   // grabbed) and the track from the mouse position
@@ -161,6 +166,7 @@ const PlaylistCanvas = () => {
           onItemDrop={handleItemDrop}
           onNodeRightClick={handleNodeRightClick}
           onNodeMove={handleNodeMove}
+          onNodeDoubleClick={handleNodeDoubleClick}
         />
       </div>}
       <SampleDragGhost playlistRef={ref} />

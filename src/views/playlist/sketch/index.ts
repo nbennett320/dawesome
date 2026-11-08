@@ -29,6 +29,7 @@ export interface CanvasProps extends SketchProps {
   onItemDrop: (pw: PlaylistWindow) => void
   onNodeRightClick: (id: number) => void
   onNodeMove: () => void
+  onNodeDoubleClick: (id: number) => void
 }
 
 export const staticDefaults = {
@@ -161,6 +162,7 @@ export class Renderer extends RendererBase {
 
   // reassigned function definitions
   onNodeRightClick!: (id: number) => void
+  onNodeDoubleClick!: (id: number) => void
   onNodeMove!: (
     item: PlaylistItem,
     dropBeat: number,
@@ -603,6 +605,12 @@ export class Renderer extends RendererBase {
         this.#handleRightClick(e, p)
       })
 
+      // double clicking a clip inspects it in the Sample tab
+      this.canvasEl?.addEventListener('dblclick', () => {
+        const item = this.clipUnderMouse()
+        if(item) this.onNodeDoubleClick(item.playlistItem.id)
+      })
+
       const newPlaylistTracks: Array<PlaylistTrack> = []
       for(let i = 0; i < trackCount; i++) {
         if(!canvas) return
@@ -646,6 +654,7 @@ export class Renderer extends RendererBase {
 
       this.onNodeRightClick = props.onNodeRightClick
       this.onNodeMove = props.onNodeMove
+      this.onNodeDoubleClick = props.onNodeDoubleClick
 
       // only (re)sync the cursor when playback starts or stops, other prop
       // updates (drops, moves, resizes) shouldn't reset it to the start
