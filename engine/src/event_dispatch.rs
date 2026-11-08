@@ -75,7 +75,7 @@ fn playlist_transport(state: &daw::InnerState) -> Result<PlaylistTransport, Stri
     .audiograph
     .lock()
     .unwrap()
-    .interval_of_subdivision(daw::timing::WholeNote::new());
+    .interval_of_subdivision(daw::timing::QuarterNote::new());
 
   Ok(PlaylistTransport {
     start_time_ms,
@@ -283,7 +283,7 @@ fn add_audiograph_node(
         sample_path, 
         start_offset, 
         track_number,
-        daw::timing::SixteenthNote::new())?;
+        subdivision)?;
   } else {
     // don't snap
     id = state
@@ -347,7 +347,7 @@ pub fn move_audiograph_node(
         id, 
         start_offset, 
         track_number, 
-        daw::timing::SixteenthNote::new())
+        subdivision)
   } else {
     // don't snap
     state
@@ -560,6 +560,7 @@ pub fn toggle_record_input(
 #[cfg(test)]
 mod tests {
   use super::*;
+  use std::time::Duration;
 
   #[test]
   fn test_playlist_bounds_before_and_after_init() {
@@ -627,5 +628,28 @@ mod tests {
 
     state.set_tempo(60.);
     assert_eq!(playlist_transport(&state).unwrap().beat_interval_ms, 1_000.);
+  }
+
+  #[test]
+  fn test_add_and_move_snap_to_the_snap_setting() {
+    let state = daw::InnerState::default();
+    let sample = daw::METRONOME_TICK_PATH.to_string();
+    let ms = |id: u64| state.playlist.audiograph.lock().unwrap()
+      .get_node_by_id(id).unwrap().start_offset.as_millis();
+
+    // default snap is one beat (500ms at 120bpm)
+    let id = add_audiograph_node(&state, sample.clone(), 0, Duration::from_millis(700), true).unwrap();
+    assert_eq!(ms(id), 500);
+    let id2 = add_audiograph_node(&state, sample.clone(), 0, Duration::from_millis(800), true).unwrap();
+    assert_eq!(ms(id2), 1_000);
+
+    // snap disabled keeps the exact position
+    let id3 = add_audiograph_node(&state, sample.clone(), 0, Duration::from_millis(700), false).unwrap();
+    assert_eq!(ms(id3), 700);
+
+    // a different snap setting is respected (sixteenth notes = 125ms)
+    state.playlist.ui.lock().unwrap().snap_subdivision = daw::timing::Note::SixteenthNote;
+    let id4 = add_audiograph_node(&state, sample, 0, Duration::from_millis(700), true).unwrap();
+    assert_eq!(ms(id4), 750);
   }
 }

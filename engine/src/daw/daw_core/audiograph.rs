@@ -643,9 +643,7 @@ impl AudioGraph<'static> {
     note: T
   ) -> Duration 
   where T: daw::timing::MusicalTiming {
-    let (_, subdivision) = note.ratio();
-
-    self.beat_interval() / subdivision
+    daw::timing::subdivision_interval_from_tempo(self.tempo, note)
   }
 
   // add nodes to the audio graph and sort the graph by
@@ -1335,13 +1333,13 @@ mod tests {
       "assets/assets_66-sd-01.wav".to_string(),
       Duration::from_millis(600),
       2,
-      daw::timing::QuarterNote::new()).unwrap();
+      daw::timing::SixteenthNote::new()).unwrap();
     
     assert_eq!(audiograph.len(), 3);
     assert_eq!(audiograph.track_count(), 3);
     assert_eq!(audiograph.get_node_by_id(id2).unwrap().start_offset.as_millis(), 100);
 
-    // 600ms snapped to a 125ms grid; 120bpm, beat / 4 = 625ms
+    // 600ms snapped to a 125ms grid (sixteenth notes at 120bpm) = 625ms
     assert_eq!(audiograph.get_node_by_id(id3).unwrap().start_offset.as_millis(), 625);
     
     let target = audiograph.get_node_by_id(id).unwrap();
@@ -1364,7 +1362,7 @@ mod tests {
       id, 
       Duration::from_millis(12),
       1,
-    daw::timing::HalfNote::new()).unwrap();
+    daw::timing::EighthNote::new()).unwrap();
     let target = &audiograph.nodes[0];
 
     assert_eq!(target.id, id);
@@ -1374,7 +1372,7 @@ mod tests {
     // unknown ids return an error instead of panicking
     assert!(audiograph.move_node(9_999, Duration::ZERO, 0).is_err());
     assert!(audiograph.move_node_with_snap(
-      9_999, Duration::ZERO, 0, daw::timing::HalfNote::new()).is_err());
+      9_999, Duration::ZERO, 0, daw::timing::EighthNote::new()).is_err());
     assert!(audiograph.remove_node(9_999).is_err());
     assert_eq!(audiograph.len(), 3);
   }

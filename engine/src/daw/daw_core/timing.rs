@@ -8,14 +8,11 @@ pub struct TimeSignature {
 }
 
 pub trait MusicalTiming {
-  // fn new() -> Self where Self: Sized;
+  // length of the note in beats, as (numerator, denominator)
   fn ratio(&self) -> (u32, u32);
-  fn subdivisions(&self) -> u32;
 }
 
-pub type MusicalSubdivision = Box<dyn MusicalTiming + Send>;
-
-#[derive(Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, PartialEq, PartialOrd, Debug)]
 pub enum Note {
   WholeNote,
   HalfNote,
@@ -24,144 +21,41 @@ pub enum Note {
   SixteenthNote,
 }
 
-#[derive(Clone, Copy, PartialEq, PartialOrd)]
-pub struct WholeNote {
-  subdivision: u32,
-}
-
-impl WholeNote {
-  pub fn new() -> Self {
-    WholeNote {
-      subdivision: 1
+impl MusicalTiming for Note {
+  fn ratio(&self) -> (u32, u32) {
+    match self {
+      Note::WholeNote => (4, 1),
+      Note::HalfNote => (2, 1),
+      Note::QuarterNote => (1, 1),
+      Note::EighthNote => (1, 2),
+      Note::SixteenthNote => (1, 4),
     }
   }
 }
 
-impl MusicalTiming for WholeNote {
-  fn ratio(&self) -> (u32, u32) {
-    (1, self.subdivision)
-  }
+// a concrete type per note, so call sites read like
+// `interval_of_subdivision(QuarterNote::new())`
+macro_rules! note_type {
+  ($name:ident) => {
+    #[derive(Clone, Copy, PartialEq, Debug, Default)]
+    pub struct $name;
 
-  fn subdivisions(&self) -> u32 {
-    self.subdivision
-  }
-}
-
-#[derive(Clone, Copy, PartialEq, PartialOrd)]
-pub struct HalfNote {
-  subdivision: u32,
-}
-
-impl HalfNote {
-  pub fn new() -> Self {
-    HalfNote {
-      subdivision: 2
+    #[allow(dead_code)]
+    impl $name {
+      pub fn new() -> Self { $name }
     }
-  }
-}
 
-impl MusicalTiming for HalfNote {
-  // fn new() -> Self {
-  //   HalfNote {
-  //     subdivision: 2
-  //   }
-  // }
-
-  fn ratio(&self) -> (u32, u32) {
-   (1, self.subdivision)
-  }
-
-  fn subdivisions(&self) -> u32 {
-    self.subdivision
-  }
-}
-
-#[derive(Clone, Copy, PartialEq, PartialOrd)]
-pub struct QuarterNote {
-  subdivision: u32,
-}
-
-impl QuarterNote {
-  pub fn new() -> Self {
-    QuarterNote {
-      subdivision: 4
+    impl MusicalTiming for $name {
+      fn ratio(&self) -> (u32, u32) { Note::$name.ratio() }
     }
-  }
+  };
 }
 
-impl MusicalTiming for QuarterNote {
-  // fn new() -> Self {
-  //   QuarterNote {
-  //     subdivision: 4
-  //   }
-  // }
-
-  fn ratio(&self) -> (u32, u32) {
-   (1, self.subdivision)
-  }
-
-  fn subdivisions(&self) -> u32 {
-    self.subdivision
-  }
-}
-
-#[derive(Clone, Copy, PartialEq, PartialOrd)]
-pub struct EighthNote {
-  subdivision: u32,
-}
-
-impl EighthNote {
-  pub fn new() -> Self {
-    EighthNote {
-      subdivision: 8
-    }
-  }
-}
-
-impl MusicalTiming for EighthNote {
-  // fn new() -> Self {
-  //   EighthNote {
-  //     subdivision: 8
-  //   }
-  // }
-
-  fn ratio(&self) -> (u32, u32) {
-   (1, self.subdivision)
-  }
-
-  fn subdivisions(&self) -> u32 {
-    self.subdivision
-  }
-}
-
-#[derive(Clone, Copy, PartialEq, PartialOrd)]
-pub struct SixteenthNote {
-  subdivision: u32,
-}
-
-impl SixteenthNote {
-  pub fn new() -> Self {
-    SixteenthNote {
-      subdivision: 16
-    }
-  }
-}
-
-impl MusicalTiming for SixteenthNote {
-  // fn new() -> Self {
-  //   SixteenthNote {
-  //     subdivision: 16
-  //   }
-  // }
-
-  fn ratio(&self) -> (u32, u32) {
-   (1, self.subdivision)
-  }
-
-  fn subdivisions(&self) -> u32 {
-    self.subdivision
-  }
-}
+note_type!(WholeNote);
+note_type!(HalfNote);
+note_type!(QuarterNote);
+note_type!(EighthNote);
+note_type!(SixteenthNote);
 
 // util functions
 
@@ -177,9 +71,9 @@ pub fn subdivision_interval_from_tempo<T: MusicalTiming>(
   tempo: f32, 
   note: T
 ) -> Duration {
-  let interval = beat_interval_from_tempo(tempo);
-  
-  interval / note.subdivisions()
+  let (beats, per) = note.ratio();
+
+  beat_interval_from_tempo(tempo) * beats / per
 }
 
 // calculate the duration for n beats to execute
@@ -203,4 +97,27 @@ pub fn n_subdivision_duration_from_tempo<T: MusicalTiming>(
   println!("beat interval: {}ms", interval.as_millis());
 
   interval * n
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_note_lengths() {
+    // 120bpm: one beat (a quarter note) is 500ms
+    let ms = |note: Note| subdivision_interval_from_tempo(120., note).as_millis();
+    assert_eq!(ms(Note::WholeNote), 2_000);
+    assert_eq!(ms(Note::HalfNote), 1_000);
+    assert_eq!(ms(Note::QuarterNote), 500);
+    assert_eq!(ms(Note::EighthNote), 250);
+    assert_eq!(ms(Note::SixteenthNote), 125);
+
+    // the note types match the enum
+    assert_eq!(WholeNote::new().ratio(), Note::WholeNote.ratio());
+    assert_eq!(HalfNote::new().ratio(), Note::HalfNote.ratio());
+    assert_eq!(QuarterNote::new().ratio(), Note::QuarterNote.ratio());
+    assert_eq!(EighthNote::new().ratio(), Note::EighthNote.ratio());
+    assert_eq!(SixteenthNote::new().ratio(), Note::SixteenthNote.ratio());
+  }
 }

@@ -153,7 +153,7 @@ pub fn run_playlist(
     .audiograph
     .lock()
     .unwrap()
-    .interval_of_subdivision(daw_core::timing::WholeNote::new());
+    .interval_of_subdivision(daw_core::timing::QuarterNote::new());
 
   println!("TEMPO INTERVAL {:?}", tempo_interval);
 
