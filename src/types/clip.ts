@@ -1,0 +1,92 @@
+// how a clip in the playlist is played back, adjusted in the Sample tab
+//
+// pitch and speed are linked, like a tape or record: raising the pitch
+// plays the clip faster and shorter. (independent pitch and speed would
+// need time-stretching, which can come later)
+export interface ClipSettings {
+  // volume change in decibels, 0 is unchanged
+  gainDb: number
+  // stereo position, -1 is hard left, 0 is centre, 1 is hard right
+  pan: number
+  // semitones up or down, which also changes the speed
+  pitch: number
+  // fade in from silence over this many milliseconds at the clip's start
+  attackMs: number
+  // fade out to silence over this many milliseconds at the clip's end
+  decayMs: number
+}
+
+export type ClipSetting = keyof ClipSettings
+
+export const defaultClipSettings: ClipSettings = {
+  gainDb: 0,
+  pan: 0,
+  pitch: 0,
+  attackMs: 0,
+  decayMs: 0,
+}
+
+// the range of each setting. attack and decay are also limited to the
+// clip's length, which depends on the clip (see clampClipSettings)
+export const clipSettingRanges: Record<ClipSetting, { min: number, max: number }> = {
+  gainDb: { min: -60, max: 12 },
+  pan: { min: -1, max: 1 },
+  pitch: { min: -24, max: 24 },
+  attackMs: { min: 0, max: 10_000 },
+  decayMs: { min: 0, max: 10_000 },
+}
+
+const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n))
+
+// how much faster than the original the clip plays: 12 semitones up is
+// twice as fast, 12 down is half as fast
+export const playbackRate = (settings: ClipSettings): number => 2 ** (settings.pitch / 12)
+
+// the clip's length in seconds once it's sped up or slowed down
+export const playedDuration = (settings: ClipSettings, sampleDuration: number): number =>
+  sampleDuration / playbackRate(settings)
+
+// the volume multiplier for a gain in decibels
+export const gainFactor = (gainDb: number): number => 10 ** (gainDb / 20)
+
+// keep settings in range. with the clip's played length (seconds), attack
+// and decay are kept within it too
+export const clampClipSettings = (
+  settings: ClipSettings,
+  playedSeconds?: number,
+): ClipSettings => {
+  const clamped = { ...settings }
+
+  ;(Object.keys(clipSettingRanges) as ClipSetting[]).forEach(key => {
+    const { min, max } = clipSettingRanges[key]
+    const value = Number.isFinite(clamped[key]) ? clamped[key] : defaultClipSettings[key]
+    clamped[key] = clamp(value, min, max)
+  })
+
+  if(playedSeconds !== undefined) {
+    const lengthMs = playedSeconds * 1000
+    clamped.attackMs = Math.min(clamped.attackMs, lengthMs)
+    clamped.decayMs = Math.min(clamped.decayMs, lengthMs)
+  }
+
+  return clamped
+}
+
+// the attack/decay envelope's level (0 to 1) at `t` seconds into a clip
+// that plays for `playedSeconds`. where the fades overlap, the quieter wins
+export const envelopeAt = (
+  settings: ClipSettings,
+  t: number,
+  playedSeconds: number,
+): number => {
+  const attack = settings.attackMs / 1000
+  const decay = settings.decayMs / 1000
+  const fadeIn = attack > 0 ? t / attack : 1
+  const fadeOut = decay > 0 ? (playedSeconds - t) / decay : 1
+
+  return clamp(Math.min(fadeIn, fadeOut), 0, 1)
+}
+
+export const isDefaultClipSettings = (settings: ClipSettings): boolean =>
+  (Object.keys(defaultClipSettings) as ClipSetting[])
+    .every(key => settings[key] === defaultClipSettings[key])

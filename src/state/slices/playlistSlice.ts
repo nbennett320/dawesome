@@ -3,6 +3,12 @@ import { invoke } from '@tauri-apps/api'
 import { RootState } from 'state/store'
 import { PlaylistItem, PlaylistItemPixelOffset } from '../../types/playlist'
 import { View } from '../../types/ui'
+import {
+  ClipSettings,
+  clampClipSettings,
+  defaultClipSettings,
+  playedDuration,
+} from '../../types/clip'
 import { openTab } from './windowSlice'
 
 // mirrors daw::timing::Note in the engine
@@ -32,6 +38,9 @@ export interface PlaylistState {
   playlistItems: Array<PlaylistItem>
   // the clip shown in the Sample tab
   inspectedClipId: number | null
+  // how each clip is played back, by clip id. clips without an entry use
+  // defaultClipSettings
+  clipSettings: Record<number, ClipSettings>
   ui: {
     maxPlaylistBeats: number,
     maxBeatsDisplayed: number,
@@ -53,6 +62,7 @@ const initialState = {
   snapNote: 'QuarterNote',
   playlistItems: [],
   inspectedClipId: null,
+  clipSettings: {},
   ui: {
     maxPlaylistBeats: 16,
     maxBeatsDisplayed: 16,
@@ -115,9 +125,30 @@ export const playlistSlice = createSlice({
       if(state.inspectedClipId === action.payload.id) {
         state.inspectedClipId = null
       }
+
+      delete state.clipSettings[action.payload.id]
     },
     setInspectedClip: (state, action: { type: string, payload: number | null }) => {
       state.inspectedClipId = action.payload
+    },
+    // change some of a clip's settings
+    // - sampleSeconds: the sample's length before any speed change, to keep
+    //   fades within the clip once the new pitch is applied
+    updateClipSettings: (
+      state,
+      action: {
+        type: string
+        payload: { id: number, settings: Partial<ClipSettings>, sampleSeconds?: number }
+      },
+    ) => {
+      const { id, settings, sampleSeconds } = action.payload
+      const merged = { ...(state.clipSettings[id] ?? defaultClipSettings), ...settings }
+      const played = sampleSeconds === undefined ? undefined : playedDuration(merged, sampleSeconds)
+
+      state.clipSettings[id] = clampClipSettings(merged, played)
+    },
+    resetClipSettings: (state, action: { type: string, payload: number }) => {
+      delete state.clipSettings[action.payload]
     },
     setPlaylistUI: (state, action) => {
       state.ui = action.payload
@@ -306,6 +337,15 @@ export const selectInspectedClip = (state: RootState): PlaylistItem | undefined 
   return state.playlist.playlistItems.find(item => item.id === id)
 }
 // end inspected clip methods
+
+// start clip settings methods
+// (kept in the frontend for now, the engine will apply them next)
+export const { updateClipSettings, resetClipSettings } = playlistSlice.actions
+
+export const selectClipSettings = (id: number | undefined) =>
+  (state: RootState): ClipSettings =>
+    (id === undefined ? undefined : state.playlist.clipSettings[id]) ?? defaultClipSettings
+// end clip settings methods
 
 // start playlist ui methods
 export const {
