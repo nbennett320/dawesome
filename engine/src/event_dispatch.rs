@@ -218,67 +218,46 @@ pub fn get_audio_drivers() -> Result<Vec<String>, String> {
   Ok(daw::drivers::get_sound_host_names())
 }
 
-// read the playlist viewport bounds, set by init_playlist_workspace
-// returns (min_x, min_y, max_x, max_y)
-fn playlist_bounds(
+// the number of beats the playlist shows, and the time they span
+// at the current tempo
+fn displayed_beats_and_duration(
   state: &daw::InnerState,
-) -> Result<(f32, f32, f32, f32), String> {
-  let ui = state.playlist.ui.lock().unwrap();
-  let vp = &ui.viewport;
-
-  match (vp.min_bound_x, vp.min_bound_y, vp.max_bound_x, vp.max_bound_y) {
-    (Some(min_x), Some(min_y), Some(max_x), Some(max_y)) =>
-      Ok((min_x, min_y, max_x, max_y)),
-    _ => Err("playlist workspace has not been initialized".to_string()),
-  }
-}
-
-// the playlist's width in pixels, and the time that width spans
-// (max_beats_displayed beats at the current tempo)
-fn playlist_width_and_duration(
-  state: &daw::InnerState,
-) -> Result<(f32, std::time::Duration), String> {
-  let (min_bound_x, _, max_bound_x, _) = playlist_bounds(state)?;
+) -> (f32, std::time::Duration) {
   let tempo = state.playlist.audiograph.lock().unwrap().tempo();
-  let max_beats_displayed = state.playlist.ui.lock().unwrap().max_beats_displayed;
-  let max_playlist_dur = daw::timing::n_beat_duration_from_tempo(
-    tempo,
-    max_beats_displayed as u32,
-  );
+  let beats = state.playlist.ui.lock().unwrap().max_beats_displayed;
+  let dur = daw::timing::n_beat_duration_from_tempo(tempo, beats as u32);
 
-  Ok((max_bound_x - min_bound_x, max_playlist_dur))
+  (beats as f32, dur)
 }
 
-// convert a drop position (pixels from the playlist's left edge)
+// convert a drop position, in beats from the start of the playlist,
 // into a start offset
-fn drop_x_to_offset(
+// positions are in beats rather than pixels, so they don't depend on the
+// canvas size, zoom, or pan, which the frontend accounts for
+fn beat_to_offset(
   state: &daw::InnerState,
-  drop_x: Option<f32>,
-) -> Result<std::time::Duration, String> {
-  let (width, max_playlist_dur) = playlist_width_and_duration(state)?;
+  beat: Option<f32>,
+) -> std::time::Duration {
+  let (beats, dur) = displayed_beats_and_duration(state);
 
-  Ok(app::workspaces::playlist::calc_sample_offset(
-    drop_x.unwrap_or(0.),
-    width,
-    max_playlist_dur,
-  ))
+  app::workspaces::playlist::calc_sample_offset(beat.unwrap_or(0.), beats, dur)
 }
 
-// the inverse of drop_x_to_offset: where a node's start offset
-// sits, in pixels from the playlist's left edge
-fn offset_to_x(
+// the inverse of beat_to_offset: how many beats into the playlist
+// a start offset is
+fn offset_to_beat(
   state: &daw::InnerState,
   offset: std::time::Duration,
-) -> Result<f32, String> {
-  let (width, max_playlist_dur) = playlist_width_and_duration(state)?;
+) -> f32 {
+  let interval = state.playlist.audiograph.lock().unwrap().beat_interval();
 
-  if max_playlist_dur.is_zero() { return Ok(0.); }
+  if interval.is_zero() { return 0.; }
 
-  Ok((offset.as_secs_f64() / max_playlist_dur.as_secs_f64()) as f32 * width)
+  (offset.as_secs_f64() / interval.as_secs_f64()) as f32
 }
 
-// x position (pixels from the playlist's left edge) of a node, after snapping
-fn node_x(state: &daw::InnerState, id: u64) -> Result<f32, String> {
+// where a node starts, in beats from the start of the playlist, after snapping
+fn node_beat(state: &daw::InnerState, id: u64) -> Result<f32, String> {
   let offset = state
     .playlist
     .audiograph
@@ -288,7 +267,7 @@ fn node_x(state: &daw::InnerState, id: u64) -> Result<f32, String> {
     .ok_or_else(|| format!("no node with id {}", id))?
     .start_offset;
 
-  offset_to_x(state, offset)
+  Ok(offset_to_beat(state, offset))
 }
 
 // a node that was just added, and where the frontend should draw it
@@ -296,8 +275,8 @@ fn node_x(state: &daw::InnerState, id: u64) -> Result<f32, String> {
 #[serde(rename_all = "camelCase")]
 pub struct PlacedNode {
   id: u64,
-  // pixels from the playlist's left edge, after snapping
-  x: f32,
+  // beats from the start of the playlist, after snapping
+  start_beat: f32,
 }
 
 fn add_audiograph_node(
@@ -348,19 +327,16 @@ pub fn t_add_audiograph_node(
   state: daw::TState<'_>,
   sample_path: String,
   track_number: u32,
-  drop_x: Option<f32>,
-  drop_y: Option<f32>,
+  drop_beat: Option<f32>,
 ) -> Result<PlacedNode, String> {
-  // vertical position is already resolved into track_number by the frontend
-  let _ = drop_y;
-  let start_offset = drop_x_to_offset(state.inner(), drop_x)?;
+  let start_offset = beat_to_offset(state.inner(), drop_beat);
 
   let snap_enabled = state.playlist.ui.lock().unwrap().snap_enabled;
 
   let id = add_audiograph_node(state.inner(), sample_path, track_number, start_offset, snap_enabled)?;
-  let x = node_x(state.inner(), id)?;
+  let start_beat = node_beat(state.inner(), id)?;
 
-  Ok(PlacedNode { id, x })
+  Ok(PlacedNode { id, start_beat })
 }
 
 #[tauri::command]
@@ -368,18 +344,15 @@ pub fn move_audiograph_node(
   state: daw::TState<'_>,
   id: u64,
   track_number: u32,
-  drop_x: Option<f32>,
-  drop_y: Option<f32>,
+  drop_beat: Option<f32>,
 ) -> Result<f32, String> {
-  // vertical position is already resolved into track_number by the frontend
-  let _ = drop_y;
-  let start_offset = drop_x_to_offset(state.inner(), drop_x)?;
+  let start_offset = beat_to_offset(state.inner(), drop_beat);
 
   println!("moved sample with id: {}, with offset of: {}ms", id, start_offset.as_millis());
 
-  // returns where the frontend should draw the node, after snapping
+  // returns where the frontend should draw the node (in beats), after snapping
   move_audiograph_node_to(state.inner(), id, track_number, start_offset)?;
-  node_x(state.inner(), id)
+  node_beat(state.inner(), id)
 }
 
 fn move_audiograph_node_to(
@@ -623,44 +596,24 @@ mod tests {
   use std::time::Duration;
 
   #[test]
-  fn test_playlist_bounds_before_and_after_init() {
+  fn test_beat_to_offset() {
     let state = daw::InnerState::default();
 
-    // before the frontend calls init_playlist_workspace
-    assert!(playlist_bounds(&state).is_err());
-
-    state
-      .playlist
-      .ui
-      .lock()
-      .unwrap()
-      .viewport
-      .set_bounding_box(0., 10., 800., 400.);
-
-    assert_eq!(playlist_bounds(&state).unwrap(), (0., 10., 800., 400.));
-  }
-
-  #[test]
-  fn test_drop_x_to_offset() {
-    let state = daw::InnerState::default();
-
-    // before init_playlist_workspace there are no bounds
-    assert!(drop_x_to_offset(&state, Some(100.)).is_err());
-
-    // playlist from screen x=300 to x=1100 (800px wide)
-    state.playlist.ui.lock().unwrap()
-      .viewport.set_bounding_box(300., 0., 1_100., 400.);
-
-    // default: 120bpm, 16 beats displayed -> width spans 8s
-    let ms = |x: Option<f32>| drop_x_to_offset(&state, x).unwrap().as_millis();
+    // default: 120bpm, 16 beats displayed
+    let ms = |b: Option<f32>| beat_to_offset(&state, b).as_millis();
     assert_eq!(ms(Some(0.)), 0);
-    assert_eq!(ms(Some(400.)), 4_000); // middle of the playlist -> beat 9
-    assert_eq!(ms(Some(50.)), 500);    // one beat in
+    assert_eq!(ms(Some(1.)), 500);
+    assert_eq!(ms(Some(8.)), 4_000);
+    assert_eq!(ms(Some(1.5)), 750);
     assert_eq!(ms(None), 0);
 
-    // at 60bpm the same width spans 16s
+    // drops outside the playlist are clamped to its start/end
+    assert_eq!(ms(Some(-2.)), 0);
+    assert_eq!(ms(Some(40.)), 8_000);
+
+    // a beat is longer at a slower tempo
     state.set_tempo(60.);
-    assert_eq!(ms(Some(400.)), 8_000);
+    assert_eq!(ms(Some(8.)), 8_000);
   }
 
   #[test]
@@ -714,28 +667,22 @@ mod tests {
   }
 
   #[test]
-  fn test_snapped_nodes_report_their_drawn_x() {
+  fn test_snapped_nodes_report_their_beat() {
     let state = daw::InnerState::default();
     let sample = daw::METRONOME_TICK_PATH.to_string();
 
-    // 800px wide playlist spanning 16 beats (8s at 120bpm) -> 50px per beat
-    state.playlist.ui.lock().unwrap()
-      .viewport.set_bounding_box(300., 0., 1_100., 400.);
+    // dropped at beat 1.4 snaps to beat 1 (default snap is one beat)
+    let id = add_audiograph_node(&state, sample, 0, beat_to_offset(&state, Some(1.4)), true).unwrap();
+    assert_eq!(node_beat(&state, id).unwrap(), 1.);
 
-    // dropped at 70px (700ms) snaps to beat 2 (500ms), drawn at 50px
-    let start = drop_x_to_offset(&state, Some(70.)).unwrap();
-    let id = add_audiograph_node(&state, sample, 0, start, true).unwrap();
-    assert_eq!(node_x(&state, id).unwrap(), 50.);
+    // moved to beat 3.6 snaps to beat 4
+    move_audiograph_node_to(&state, id, 1, beat_to_offset(&state, Some(3.6))).unwrap();
+    assert_eq!(node_beat(&state, id).unwrap(), 4.);
 
-    // moved to 180px (1800ms) snaps to 2000ms, drawn at 200px
-    let start = drop_x_to_offset(&state, Some(180.)).unwrap();
-    move_audiograph_node_to(&state, id, 1, start).unwrap();
-    assert_eq!(node_x(&state, id).unwrap(), 200.);
+    // offset_to_beat undoes beat_to_offset when nothing snaps
+    let offset = beat_to_offset(&state, Some(2.46));
+    assert!((offset_to_beat(&state, offset) - 2.46).abs() < 0.001);
 
-    // offset_to_x undoes drop_x_to_offset when nothing snaps
-    let offset = drop_x_to_offset(&state, Some(123.)).unwrap();
-    assert!((offset_to_x(&state, offset).unwrap() - 123.).abs() < 0.01);
-
-    assert!(node_x(&state, 9_999).is_err());
+    assert!(node_beat(&state, 9_999).is_err());
   }
 }

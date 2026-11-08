@@ -1,25 +1,25 @@
 use std::time::{Duration};
 
-// convert a horizontal drop position on the playlist into a start offset
-// - drop_x: pixels from the playlist's left edge
-// - playlist_width: width of the playlist in pixels
-// - max_playlist_dur: time spanned by the full playlist width
-// drops outside the playlist are clamped to its start/end
+// convert a position along the playlist into a start offset
+// - position: distance from the playlist's start (e.g. pixels or beats)
+// - playlist_length: length of the whole playlist, in the same unit
+// - max_playlist_dur: time spanned by the whole playlist
+// positions outside the playlist are clamped to its start/end
 pub fn calc_sample_offset(
-  drop_x: f32,
-  playlist_width: f32,
+  position: f32,
+  playlist_length: f32,
   max_playlist_dur: Duration,
 ) -> Duration {
-  if !(playlist_width > 0.) || !drop_x.is_finite() {
+  if !(playlist_length > 0.) || !position.is_finite() {
     return Duration::ZERO;
   }
 
-  let ratio = (drop_x / playlist_width).clamp(0., 1.);
+  let ratio = (position / playlist_length).clamp(0., 1.);
   let dur = max_playlist_dur.mul_f64(ratio as f64);
 
   println!(
-    "drop_x: {}, playlist width: {}, ratio: {}, max dur: {}ms, offset: {}ms",
-    drop_x, playlist_width, ratio, max_playlist_dur.as_millis(), dur.as_millis());
+    "position: {}, playlist length: {}, ratio: {}, max dur: {}ms, offset: {}ms",
+    position, playlist_length, ratio, max_playlist_dur.as_millis(), dur.as_millis());
 
   dur
 }

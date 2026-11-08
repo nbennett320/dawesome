@@ -21,6 +21,8 @@ export interface CanvasProps extends SketchProps {
   height: number
   width: number
   playing: boolean,
+  tempo: number
+  beatsDisplayed: number
   maxPlaylistBeats: number
   trackCount: number
   playlistObjects: PlaylistItem[]
@@ -78,6 +80,8 @@ export class Renderer extends RendererBase {
   maxPlaylistBeats: number = staticDefaults.maxPlaylistBeats
   trackCount: number = staticDefaults.trackCount
   tempo: number = staticDefaults.tempo
+  // the full canvas width (at scale 1) spans this many beats
+  beatsDisplayed = 16
   debugMode: boolean = staticDefaults.debugMode
 
   currentScale = 1
@@ -168,11 +172,29 @@ export class Renderer extends RendererBase {
     }
   }
 
-  timePerPixel = () => {
-    const { tempo, width, maxPlaylistBeats } = this
+  // clips, the grid, and the cursor are drawn in "playlist" x coordinates:
+  // pixels at scale 1 with no pan, where the canvas width spans
+  // `beatsDisplayed` beats. zoom and pan are applied on top when drawing
+  // (translate(transformX) then scale(currentScale)), so positions stored in
+  // beats stay correct when the canvas is resized, zoomed, or panned
 
-    return tempo / 60 * maxPlaylistBeats / width
-  }
+  // convert an x position on the canvas (e.g. the mouse) to playlist x
+  screenToPlaylistX = (screenX: number): number =>
+    (screenX - this.transformX) / this.currentScale
+
+  beatToX = (beat: number): number =>
+    beat / this.beatsDisplayed * this.width
+
+  xToBeat = (x: number): number =>
+    this.width > 0 ? x / this.width * this.beatsDisplayed : 0
+
+  // convert an x position on the canvas to beats from the playlist start
+  screenXToBeat = (screenX: number): number =>
+    this.xToBeat(this.screenToPlaylistX(screenX))
+
+  // width, in playlist x, of something lasting `seconds`
+  secondsToWidth = (seconds: number): number =>
+    this.beatToX(seconds * this.tempo / 60)
 
   #handleRightClick = (ev: MouseEvent, p: P5CanvasInstance<CanvasProps>) => {
     console.log("handled right click", ev)
@@ -191,20 +213,15 @@ export class Renderer extends RendererBase {
 
   // p5 sketch function
   sketch: Sketch<CanvasProps> = (p: P5CanvasInstance<CanvasProps>) => {
+    // size, zoom, and pan are read from `this` (not copied into locals), so
+    // the components that convert between screen and playlist coordinates
+    // see the same values the sketch draws with
     let {
       canvas,
-      height,
-      width,
-      maxPlaylistBeats,
-      trackCount,
-      currentScale,
-      transformX,
-      transformY,
       mousePressedX,
       mousePressedY,
-      // playlistTracks,
-      // playlistObjects,
     } = this
+    const { width, height, trackCount } = this
 
     if(!width || !height) {
       console.error(`Invalid canvas dimensions.\nwidth: ${width}, height: ${height}`)
@@ -244,30 +261,29 @@ export class Renderer extends RendererBase {
         }
 
         // limit scaling
-        if(currentScale * scaleFactor < 1) return
+        if(this.currentScale * scaleFactor < 1) return
 
         if(
           ev?.deltaY > 0 &&
-          currentScale * scaleFactor - 1 < staticDefaults.zoomSensitivity
+          this.currentScale * scaleFactor - 1 < staticDefaults.zoomSensitivity
         ) {
           // handle fp rounding error
           scaleFactor = 1
-          currentScale = 1
           this.currentScale = 1
         }
 
-        currentScale *= scaleFactor
         this.currentScale *= scaleFactor
 
-        transformX = p.mouseX - (p.mouseX * scaleFactor) + (transformX * scaleFactor)
-        transformY = p.mouseY - (p.mouseY * scaleFactor) + (transformY * scaleFactor)
+        // zoom around the mouse
+        this.transformX = p.mouseX - (p.mouseX * scaleFactor) + (this.transformX * scaleFactor)
+        this.transformY = p.mouseY - (p.mouseY * scaleFactor) + (this.transformY * scaleFactor)
 
         // scall all playlist items
         this.playlistObjects.forEach(obj => {
           obj.currentScale = this.currentScale
         })
 
-        console.log("currentScale: ", currentScale)
+        console.log("currentScale: ", this.currentScale)
       })
 
       // handle click release
@@ -284,8 +300,8 @@ export class Renderer extends RendererBase {
           const dist = p.dist(mousePressedX ?? 0, mousePressedY ?? 0, p.mouseX, p.mouseY)
           if(dist > staticDefaults.mouseDragDetectionThreshold) {
             this.isMouseDragged = true
-            transformX -= (p.mouseX - ev.offsetX)
-            transformY -= (p.mouseY - ev.offsetY)
+            this.transformX -= (p.mouseX - ev.offsetX)
+            this.transformY -= (p.mouseY - ev.offsetY)
           }
         }
       })
@@ -310,7 +326,7 @@ export class Renderer extends RendererBase {
           canvas,
           this,
           {
-            currentScale,
+            currentScale: this.currentScale,
             trackCount,
             timelineWidth: width,
             timelineHeight: height,
@@ -334,10 +350,13 @@ export class Renderer extends RendererBase {
         return
       }
 
-      height = props.height
-      width = props.width
-      maxPlaylistBeats = props.maxPlaylistBeats
-      trackCount = props.trackCount
+      this.height = props.height
+      this.width = props.width
+      this.maxPlaylistBeats = props.maxPlaylistBeats
+      this.trackCount = props.trackCount
+      this.tempo = props.tempo
+      this.beatsDisplayed = props.beatsDisplayed
+      const { width, height, trackCount, currentScale } = this
 
       this.onNodeRightClick = props.onNodeRightClick
       this.onNodeMove = props.onNodeMove
@@ -416,6 +435,8 @@ export class Renderer extends RendererBase {
     p.draw = () => {
       if(!canvas) return
 
+      const { width, height, trackCount, currentScale, beatsDisplayed } = this
+
       const timeline = new Timeline(
         p,
         canvas,
@@ -442,11 +463,11 @@ export class Renderer extends RendererBase {
       p.stroke(180, 180, 180)
       p.fill(255, 255, 255)
 
-      transformX = p.constrain(transformX, width * (1 - currentScale), 0)
-      transformY = p.constrain(transformY, height * (1 - currentScale), 0)
+      this.transformX = p.constrain(this.transformX, width * (1 - currentScale), 0)
+      this.transformY = p.constrain(this.transformY, height * (1 - currentScale), 0)
 
       p.push()
-      p.translate(transformX, 1)
+      p.translate(this.transformX, 1)
       p.scale(currentScale, 1)
       
       timeline.render()
@@ -456,7 +477,7 @@ export class Renderer extends RendererBase {
       const gridStroke = .2 * (1 - currentScale) > 0 ? .2 * (1 - currentScale) : .4
       p.strokeWeight(gridStroke)
       p.stroke(100, 100, 100)
-      for(let i = 0; i < width; i += width/16) {
+      for(let i = 0; i < width; i += width/beatsDisplayed) {
         // p.line(i, 0, i, height)
         p.line(i, 0, i, trackCount * staticDefaults.trackHeight + staticDefaults.timelineHeight + 1)
       }

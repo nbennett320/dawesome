@@ -35,7 +35,7 @@ class Timeline extends PlaylistComponent {
     this.p.fill('#222')
     this.p.textFont('Helvetica')
 
-    const limit = 16
+    const limit = (this.renderer as Renderer).beatsDisplayed
 
     for(let i = 0; i < limit; i++) {
       this.p.push()

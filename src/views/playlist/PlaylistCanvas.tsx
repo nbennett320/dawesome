@@ -8,6 +8,7 @@ import {
   removeFromPlaylist,
   selectPlaylistItems,
   selectPlaylistPlaying,
+  selectPlaylistTempo,
   selectPlaylistUI
 } from '../../state/slices/playlistSlice'
 import { selectSidebar, selectWindowPane } from '../../state/slices/windowSlice'
@@ -22,12 +23,14 @@ const PlaylistCanvas = () => {
   const [height, setHeight] = React.useState<number>()
   const [width, setWidth] = React.useState<number>()
   const [limit, setLimit] = React.useState<number>(16)
+  const [beatsDisplayed, setBeatsDisplayed] = React.useState<number>(16)
   const [duration, setDuration] = React.useState<number>(120)
   const [trackCount, setTrackCount] = React.useState<number>(5)
   const [playlistWindow, setPlaylistWindow] = React.useState<PlaylistWindow>()
 
   const dispatch = useAppDispatch()
   const playing = useAppSelector(selectPlaylistPlaying)
+  const tempo = useAppSelector(selectPlaylistTempo)
   const sidebar = useAppSelector(selectSidebar)
   const windowPane = useAppDispatch(selectWindowPane)
   const playlistTrackBoxRef = React.useRef<HTMLDivElement>(null)
@@ -61,6 +64,7 @@ const PlaylistCanvas = () => {
             dispatch(addToPlaylist(
               item.name as string, 
               trackNumber,
+              playlistRenderer.screenXToBeat(x - left),
               {
                 x,
                 y,
@@ -141,6 +145,7 @@ const PlaylistCanvas = () => {
         calculatedTrackCount
       ] = await invoke<[number, number, number, number]>('get_playlist_data', {})
       setLimit(maxPlaylistBeats)
+      setBeatsDisplayed(maxBeatsDisplayed)
       setTrackCount(calculatedTrackCount)
       setDuration(maxPlaylistDuration)
     }
@@ -183,6 +188,7 @@ const PlaylistCanvas = () => {
         item.id,
         item.path as string, 
         trackNumber,
+        playlistRenderer.screenXToBeat(x - left),
         {
           x,
           y,
@@ -216,6 +222,8 @@ const PlaylistCanvas = () => {
           height={height}
           width={width}
           playing={playing}
+          tempo={tempo}
+          beatsDisplayed={beatsDisplayed}
           maxPlaylistBeats={limit}
           duration={duration}
           trackCount={trackCount}

@@ -65,6 +65,7 @@ export const playlistSlice = createSlice({
       state.playlistItems.push({
         id: action.payload.id,
         path: action.payload.path,
+        startBeat: action.payload.startBeat,
         trackNumber: action.payload.trackNumber,
         pixelOffset: action.payload.pixelOffset,
       } as PlaylistItem)
@@ -77,6 +78,7 @@ export const playlistSlice = createSlice({
           state.playlistItems[i] = {
             id: action.payload.id,
             path: action.payload.path,
+            startBeat: action.payload.startBeat,
             trackNumber: action.payload.trackNumber,
             pixelOffset: action.payload.pixelOffset,
           } as PlaylistItem
@@ -185,28 +187,31 @@ export const {
   removePlaylistItem
 } = playlistSlice.actions
 
+// dropBeat: where the clip was dropped, in beats from the playlist start
+// (see Renderer.screenXToBeat, which accounts for zoom and pan)
 export const addToPlaylist = (
   path: string, 
   trackNumber: number,
+  dropBeat: number,
   pixelOffset: Omit<PlaylistItemPixelOffset, 'xOffset' | 'yOffset'>,
 ) => async (dispatch: Dispatch) => {
   const dropX = pixelOffset.x - pixelOffset.left
   const dropY = pixelOffset.y - pixelOffset.top
-  // x is where the engine actually placed the clip (after snapping)
-  const { id, x } = await invoke<{ id: number, x: number }>('t_add_audiograph_node', {
+  // startBeat is where the engine actually placed the clip (after snapping)
+  const { id, startBeat } = await invoke<{ id: number, startBeat: number }>('t_add_audiograph_node', {
     samplePath: path,
     trackNumber,
-    dropX,
-    dropY,
+    dropBeat,
   })
 
   dispatch(addPlaylistItem({
     id,
     path,
+    startBeat,
     trackNumber,
     pixelOffset: {
       ...pixelOffset,
-      xOffset: x,
+      xOffset: dropX,
       yOffset: dropY,
     },
   } as PlaylistItem))
@@ -216,26 +221,27 @@ export const moveNodeInPlaylist = (
   id: number,
   path: string,
   trackNumber: number,
+  dropBeat: number,
   pixelOffset: Omit<PlaylistItemPixelOffset, 'xOffset' | 'yOffset'>,
 ) => async (dispatch: Dispatch) => {
   // relative to the playlist's top-left, same as addToPlaylist
   const dropX = pixelOffset.x - pixelOffset.left
   const dropY = pixelOffset.y - pixelOffset.top
-  // x is where the engine actually placed the clip (after snapping)
-  const x = await invoke<number>('move_audiograph_node', {
+  // where the engine actually placed the clip (after snapping), in beats
+  const startBeat = await invoke<number>('move_audiograph_node', {
     id,
     trackNumber,
-    dropX,
-    dropY,
+    dropBeat,
   })
 
   dispatch(movePlaylistItem({
     id,
     path,
+    startBeat,
     trackNumber,
     pixelOffset: {
       ...pixelOffset,
-      xOffset: x,
+      xOffset: dropX,
       yOffset: dropY,
     },
   } as PlaylistItem))

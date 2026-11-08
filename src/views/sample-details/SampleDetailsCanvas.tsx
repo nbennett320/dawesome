@@ -55,9 +55,11 @@ const SampleDetailsCanvas = () => {
             const trackNumber = playlistRenderer.calculateTrackNumber(dropData)
             console.log("dropped on ref:", ref.current, canvas)
 
+            // this pane has no timeline to drop onto, so add at the start
             dispatch(addToPlaylist(
               item.name as string, 
               trackNumber,
+              0,
               {
                 x,
                 y,

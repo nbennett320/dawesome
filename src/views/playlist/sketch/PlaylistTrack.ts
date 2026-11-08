@@ -60,12 +60,12 @@ class PlaylistTrack extends PlaylistComponent<State> {
       tabHeight,
     } = this
 
-    const dragX = p.pmouseX
-    const dragY = p.pmouseY
+    // the canvas is zoomed and panned while this draws,
+    // so convert the mouse into playlist x
+    const dragX = (this.renderer as Renderer).screenToPlaylistX(p.mouseX)
+    const dragY = p.mouseY
     const {
       top,
-      left,
-      right,
       height,
       width,
     } = item.waveform.boundingBox()
@@ -78,16 +78,15 @@ class PlaylistTrack extends PlaylistComponent<State> {
     this.p.line(dragX, dragY + item.labelHeight, dragX + width, dragY + item.labelHeight)
 
     // draw item waveform
-    const timePerPixel = (this.renderer as Renderer).timePerPixel()
-    const { currentScale, trackHeight, labelHeight } = item.waveform
-    const { xOffset, yOffset, y } = item.waveform.pixelOffset
+    const { trackHeight, labelHeight } = item.waveform
+    const { yOffset, y } = item.waveform.pixelOffset
 
     this.p.strokeWeight(.3)
     this.p.stroke(0, 0, 0, 255*.3)
-    for(let i = 0; i < item.waveform.soundData.length; i+=2) {
-      const x0 = (item.waveform.soundData[i] * currentScale * timePerPixel) + xOffset + dragX - left
+    for(let i = 0; i < item.waveform.soundData.length - 2; i+=2) {
+      const x0 = item.waveform.pointX(i, dragX)
       const y0 = minHeight + labelHeight*2 + tabHeight + (trackHeight/2) + (item.waveform.soundData[i+1] * (height - labelHeight)) - (y - yOffset) + dragY - top
-      const x1 = (item.waveform.soundData[i+2] * currentScale * timePerPixel) + xOffset + dragX - left
+      const x1 = item.waveform.pointX(i+2, dragX)
       const y1 = minHeight + labelHeight*2 + tabHeight + (trackHeight/2) + (item.waveform.soundData[i+3] * (height - labelHeight)) - (y - yOffset) + dragY - top
       this.p.line(x0, y0, x1, y1)
     }
@@ -105,6 +104,7 @@ class PlaylistTrack extends PlaylistComponent<State> {
       width * this.currentScale - 1,
       item.labelHeight,
     )
+    this.p.pop()
   }
 
   render = () => {

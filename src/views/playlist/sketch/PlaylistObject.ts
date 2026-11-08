@@ -59,6 +59,7 @@ class PlaylistObject extends PlaylistComponent<State> {
         timelineHeight: this.timelineHeight,
         timelineWidth: this.timelineWidth,
         soundData: this.soundData,
+        startBeat: this.playlistItem.startBeat,
         trackNumber: this.playlistItem.trackNumber,
         pixelOffset: this.playlistItem.pixelOffset,
         minHeight: this.minHeight,
@@ -173,9 +174,10 @@ class PlaylistObject extends PlaylistComponent<State> {
     if((this.renderer as Renderer)?.debugMode) {
       // mouse drop height debug
       const { pixelOffset } = this.playlistItem
+      const { left, width } = waveform.boundingBox()
       this.p.strokeWeight(2)
       this.p.stroke(255,187,153)
-      this.p.line(pixelOffset.xOffset, pixelOffset.yOffset, pixelOffset.xOffset + waveform.boundingBox().width, pixelOffset.yOffset)
+      this.p.line(left, pixelOffset.yOffset, left + width, pixelOffset.yOffset)
 
     }
   }
