@@ -420,6 +420,7 @@ pub struct AudioGraph<'a> {
   sample_rate: u32,
   tempo: f32,
   max_beats: u64,
+  next_id: u64,
   _phantom: PhantomData<&'a str>,
 }
 
@@ -441,6 +442,7 @@ impl AudioGraph<'static> {
       sample_rate,
       tempo,
       max_beats,
+      next_id: 0,
       _phantom: PhantomData,
     }
   }
@@ -699,6 +701,8 @@ impl AudioGraph<'static> {
   // add nodes to the audio graph and sort the graph by
   // offset start time
   pub fn add_node(&mut self, node: AudioNode) {
+    // keep the counter ahead of any externally assigned id
+    self.next_id = self.next_id.max(node.id + 1);
     self.nodes.push(node);
     self.nodes.sort_by(|a, b| a.start_offset.cmp(&b.start_offset));
   }
@@ -712,7 +716,7 @@ impl AudioGraph<'static> {
     start_offset: Duration,
     track_number: u32,
   ) -> u64 {
-    let id = self.nodes.len().clone().try_into().unwrap();
+    let id = self.next_id;
     let node = AudioNode::new(
       id,
       sample_path,
@@ -737,8 +741,7 @@ impl AudioGraph<'static> {
     track_number: u32,
     subdivision: T
   ) -> u64 {
-    let id = self.nodes.len().clone().try_into().unwrap();
-
+    let id = self.next_id;
     let snapped_offset = self
       .find_nearest_offset_subdivision(start_offset, subdivision);
     
@@ -1196,6 +1199,35 @@ mod tests {
     assert_eq!(audiograph.duration_max().as_millis(), 8_000);
 
     assert_eq!(audiograph.beat_interval(), daw::timing::beat_interval_from_tempo(audiograph.tempo()));
+  }
+
+  #[test]
+  fn test_audiograph_node_ids_not_reused() {
+    let mut audiograph = AudioGraph::new(44_100, 120f32, 8);
+    let path = || daw::METRONOME_TICK_PATH.to_string();
+
+    let kick = audiograph.construct_and_add_node(path(), Duration::from_millis(0), 0);
+    let snare = audiograph.construct_and_add_node(path(), Duration::from_millis(500), 1);
+    let hat = audiograph.construct_and_add_node(path(), Duration::from_millis(250), 2);
+    assert_eq!((kick, snare, hat), (0, 1, 2));
+
+    // removing a node must not free its id for reuse
+    audiograph.remove_node(kick);
+    let clap = audiograph.construct_and_add_node(path(), Duration::from_millis(750), 3);
+    assert_eq!(clap, 3);
+
+    // every remaining id resolves to exactly one node
+    for id in [snare, hat, clap] {
+      assert_eq!(audiograph.nodes.iter().filter(|n| n.id == id).count(), 1);
+    }
+    assert_eq!(audiograph.get_node_by_id(hat).unwrap().track_number, 2);
+    assert_eq!(audiograph.get_node_by_id(clap).unwrap().track_number, 3);
+
+    // externally assigned ids push the counter forward
+    let node = AudioNode::new(10, path(), Duration::ZERO, 0, 44_100);
+    audiograph.add_node(node);
+    let next = audiograph.construct_and_add_node(path(), Duration::ZERO, 0);
+    assert_eq!(next, 11);
   }
 
   #[test]
