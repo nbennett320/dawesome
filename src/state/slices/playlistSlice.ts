@@ -5,9 +5,11 @@ import { PlaylistItem, PlaylistItemPixelOffset } from '../../types/playlist'
 import { View } from '../../types/ui'
 import {
   ClipInfo,
+  ClipOverride,
   ClipSettings,
   clampClipSettings,
   defaultClipSettings,
+  isDefaultClipSettings,
   playedDuration,
 } from '../../types/clip'
 import { openTab } from './windowSlice'
@@ -394,6 +396,28 @@ const sendSettings = (id: number, settings: ClipSettings) => {
 export const selectClipSettings = (id: number | undefined) =>
   (state: RootState): ClipSettings =>
     (id === undefined ? undefined : state.playlist.clipSettings[id]) ?? defaultClipSettings
+
+// how the playlist should show each clip whose settings were loaded or
+// changed, by clip id. builds a new object every call, so don't pass it to
+// useAppSelector
+export const selectClipOverrides = (state: RootState): Record<number, ClipOverride> => {
+  const { clipSettings, clipSampleDurations } = state.playlist
+  const overrides: Record<number, ClipOverride> = {}
+
+  Object.entries(clipSettings).forEach(([key, settings]) => {
+    const id = Number(key)
+    const sampleSeconds = clipSampleDurations[id]
+
+    overrides[id] = {
+      playedDuration: sampleSeconds === undefined
+        ? undefined
+        : playedDuration(settings, sampleSeconds),
+      modified: !isDefaultClipSettings(settings),
+    }
+  })
+
+  return overrides
+}
 
 // the clip's sample length in seconds, before any speed change, once loaded
 export const selectClipSampleDuration = (id: number | undefined) =>

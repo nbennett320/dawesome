@@ -16,6 +16,9 @@ interface Props extends PlaylistComponentProps {
 
 type State = ComponentState<Record<string, never>>
 
+// room at the end of the label for the modified dot, in screen pixels
+const MODIFIED_DOT_SPACE = 12
+
 class PlaylistObject extends PlaylistComponent<State> {
   playlistItem: PlaylistItem
   soundData: number[] = []
@@ -26,6 +29,8 @@ class PlaylistObject extends PlaylistComponent<State> {
   minHeight: number
   maxHeight: number
   waveform: Waveform
+  // whether the clip's settings differ from the default, shown as a dot
+  modified = false
 
   constructor(
     p: P5CanvasInstance<CanvasProps>,
@@ -64,6 +69,12 @@ class PlaylistObject extends PlaylistComponent<State> {
 
   boundingBox = (): P5BoundingBox => this.waveform.boundingBox()
 
+  // how long the clip plays for, in seconds. changes with its pitch
+  setDuration = (seconds: number) => {
+    this.duration = seconds
+    this.waveform.duration = seconds
+  }
+
   // call function on right click
   // eslint-disable-next-line class-methods-use-this
   onDrop = (
@@ -98,13 +109,26 @@ class PlaylistObject extends PlaylistComponent<State> {
     this.p.push()
     this.p.scale(1 / this.currentScale, 1)
     this.p.textWrap(this.p.CHAR)
+    // leave room for the modified dot
+    const dotSpace = this.modified ? MODIFIED_DOT_SPACE : 0
     this.p.text(
       this.playlistItem.path,
       (left + 1) * this.currentScale,
       top + 6,
-      width * this.currentScale - 1,
+      width * this.currentScale - 1 - dotSpace,
       this.labelHeight,
     )
+
+    // a dot at the end of the label: this clip's settings were changed
+    // in the Sample tab. drawn unscaled, so it stays round when zoomed
+    if(this.modified) {
+      this.p.fill(217, 119, 6)
+      this.p.circle(
+        right * this.currentScale - MODIFIED_DOT_SPACE / 2,
+        top + this.labelHeight / 2,
+        6,
+      )
+    }
 
     if((this.renderer as Renderer)?.debugMode) {
       // text width debug

@@ -11,6 +11,7 @@ import Cursor from './Cursor'
 import PlaylistTrack from './PlaylistTrack'
 import PlaylistObject from './PlaylistObject'
 import RendererBase from '../../../render/RendererBase'
+import { ClipOverride } from '../../../types/clip'
 import {
   PlaylistItem,
   PlaylistItemPixelOffset,
@@ -303,6 +304,26 @@ export class Renderer extends RendererBase {
   }
 
   clearSampleDrag = () => { this.sampleDrag = null }
+
+  // clips whose settings changed in the Sample tab, by id. kept here so
+  // clips rebuilt on later prop updates get them too
+  clipOverrides: Record<number, ClipOverride> = {}
+
+  // show each clip's played length (which changes with its pitch) and
+  // whether it was modified, without rebuilding the clips
+  setClipOverrides = (overrides: Record<number, ClipOverride>) => {
+    this.clipOverrides = overrides
+    this.playlistObjects.forEach(this.#applyClipOverride)
+  }
+
+  #applyClipOverride = (obj: PlaylistObject) => {
+    const override = this.clipOverrides[obj.playlistItem.id]
+
+    obj.modified = !!override?.modified
+    // newer than the length fetched when the clip was built, which can lag
+    // behind while settings are being sent to the engine
+    if(override?.playedDuration !== undefined) obj.setDuration(override.playedDuration)
+  }
 
   #loadSamplePreview = async (path: string) => {
     try {
@@ -695,6 +716,7 @@ export class Renderer extends RendererBase {
             playlistItem: item,
           }
         )
+        this.#applyClipOverride(p5PlaylistObject)
 
         newPlaylistObjects.push(p5PlaylistObject)
       })

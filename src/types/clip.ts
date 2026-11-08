@@ -28,6 +28,15 @@ export interface ClipInfo {
   playedDuration: number
 }
 
+// what the playlist shows differently for a clip whose settings changed
+export interface ClipOverride {
+  // seconds the clip plays for, once its pitch changes its speed
+  // (unknown until the clip's sample length has loaded)
+  playedDuration?: number
+  // whether any setting differs from the default
+  modified: boolean
+}
+
 export const defaultClipSettings: ClipSettings = {
   gainDb: 0,
   pan: 0,

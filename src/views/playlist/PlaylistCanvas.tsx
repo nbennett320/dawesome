@@ -1,4 +1,5 @@
 import React from 'react'
+import { useStore } from 'react-redux'
 import { ReactP5Wrapper } from 'react-p5-wrapper'
 import { invoke } from '@tauri-apps/api'
 import { 
@@ -6,12 +7,14 @@ import {
   inspectClip,
   moveNodeInPlaylist,
   removeFromPlaylist,
+  selectClipOverrides,
   selectPlaylistItems,
   selectPlaylistPlaying,
   selectPlaylistTempo,
   selectPlaylistUI
 } from '../../state/slices/playlistSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
+import type { RootState } from '../../state/store'
 import { PlaylistWindow, PlaylistItem } from '../../types/playlist'
 import { Renderer } from './sketch'
 import { onSampleDrag } from '../../state/sampleDrag'
@@ -70,6 +73,27 @@ const PlaylistCanvas = () => {
   }), [])
 
   console.log("items", items)
+
+  // show clips' played lengths and modified dots as their settings change.
+  // read from the store directly rather than as props: a prop update
+  // rebuilds every clip, which would flicker while dragging a control
+  const store = useStore<RootState>()
+  React.useEffect(() => {
+    let last: RootState['playlist'] | null = null
+
+    const apply = () => {
+      const { playlist } = store.getState()
+      const changed = !last
+        || playlist.clipSettings !== last.clipSettings
+        || playlist.clipSampleDurations !== last.clipSampleDurations
+      last = playlist
+
+      if(changed) playlistRenderer.setClipOverrides(selectClipOverrides(store.getState()))
+    }
+
+    apply()
+    return store.subscribe(apply)
+  }, [store])
 
   // fit the canvas to the playlist's box whenever it changes size: the
   // window resizing, the sidebar toggling, a split pane's divider moving,
