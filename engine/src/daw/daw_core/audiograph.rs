@@ -779,12 +779,15 @@ impl AudioGraph<'static> {
     id: u64,
     start_offset: Duration,
     track_number: u32
-  ) {
-    let node = self.get_mut_node_by_id(id).unwrap();
+  ) -> Result<(), String> {
+    let node = self.get_mut_node_by_id(id)
+      .ok_or_else(|| format!("no node with id {}", id))?;
     node.start_offset = start_offset;
     node.track_number = track_number;
 
     self.nodes.sort_by(|a, b| a.start_offset.cmp(&b.start_offset));
+
+    Ok(())
   }
 
   // move node in graph by id, and snap to nearest subdivision
@@ -794,22 +797,22 @@ impl AudioGraph<'static> {
     start_offset: Duration,
     track_number: u32,
     subdivision: T
-  ) {
+  ) -> Result<(), String> {
     let snapped_offset = self
       .find_nearest_offset_subdivision(start_offset, subdivision);
     
     println!("moved to snapped offset: {}ms", snapped_offset.as_millis());
 
-    self.move_node(id, snapped_offset, track_number);
+    self.move_node(id, snapped_offset, track_number)
   }
 
   // remove node from graph with provided id
-  // panics if id does not exist
-  pub fn remove_node(&mut self, id: u64) -> AudioNode {
-    let idx = self.nodes.iter().position(|a| a.id == id);
-    let node = self.nodes.remove(idx.unwrap());
+  // returns an error if id does not exist
+  pub fn remove_node(&mut self, id: u64) -> Result<AudioNode, String> {
+    let idx = self.nodes.iter().position(|a| a.id == id)
+      .ok_or_else(|| format!("no node with id {}", id))?;
 
-    node
+    Ok(self.nodes.remove(idx))
   }
 
   // stop playback of all nodes and clear start times
@@ -1254,7 +1257,7 @@ mod tests {
     assert_eq!((kick, snare, hat), (0, 1, 2));
 
     // removing a node must not free its id for reuse
-    audiograph.remove_node(kick);
+    audiograph.remove_node(kick).unwrap();
     let clap = audiograph.construct_and_add_node(path(), Duration::from_millis(750), 3).unwrap();
     assert_eq!(clap, 3);
 
@@ -1340,7 +1343,7 @@ mod tests {
     audiograph.move_node(
       id, 
       Duration::from_millis(0),
-      2);
+      2).unwrap();
     let target = &audiograph.nodes[0];
 
     assert_eq!(target.id, id);
@@ -1351,11 +1354,18 @@ mod tests {
       id, 
       Duration::from_millis(12),
       1,
-    daw::timing::HalfNote::new());
+    daw::timing::HalfNote::new()).unwrap();
     let target = &audiograph.nodes[0];
 
     assert_eq!(target.id, id);
     assert_eq!(target.track_number, 1);
     assert_eq!(target.start_offset.as_millis(), 0);
+
+    // unknown ids return an error instead of panicking
+    assert!(audiograph.move_node(9_999, Duration::ZERO, 0).is_err());
+    assert!(audiograph.move_node_with_snap(
+      9_999, Duration::ZERO, 0, daw::timing::HalfNote::new()).is_err());
+    assert!(audiograph.remove_node(9_999).is_err());
+    assert_eq!(audiograph.len(), 3);
   }
 }

@@ -1,7 +1,7 @@
 use std::sync::atomic::{Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{SystemTime};
+use std::time::{Instant, SystemTime};
 use tauri;
 
 use crate::daw::{InnerState};
@@ -28,26 +28,6 @@ pub fn get_playlist_playing(
   Ok(state.playlist.playing())
 }
 
-#[cfg(target_os = "windows")]
-#[tauri::command]
-pub fn get_playlist_start_time(
-  state: tauri::State<'_, Arc<daw::InnerState>>
-) -> Result<u128, String> {
-  let elapsed = state
-    .playlist
-    .started_time
-    .lock()
-    .unwrap()
-    .unwrap()
-    .elapsed();
-  let now = SystemTime::now()
-    .duration_since(SystemTime::Windows)
-    .unwrap();
-  let start_time = now - elapsed;
-  Ok(start_time.as_millis())
-}
-
-#[cfg(not(target_os = "windows"))]
 #[tauri::command]
 pub fn get_playlist_start_time(
   state: daw::TState<'_>
@@ -57,11 +37,12 @@ pub fn get_playlist_start_time(
     .started_time
     .lock()
     .unwrap()
-    .unwrap()
+    .ok_or("playlist has not been started")?
     .elapsed();
+  // UNIX_EPOCH is the epoch on every platform, including windows
   let now = SystemTime::now()
     .duration_since(SystemTime::UNIX_EPOCH)
-    .unwrap();
+    .map_err(|e| e.to_string())?;
   let start_time = now - elapsed;
   Ok(start_time.as_millis())
 }
@@ -107,7 +88,13 @@ pub fn get_metronome_enabled(
 pub fn get_playlist_runtime_formatted(
   state: daw::TState<'_>
 ) -> Result<String, String> {
-  let start_time = state.playlist.started_time.lock().unwrap().unwrap();
+  // before the first play there is no start time; show a zero runtime
+  let start_time = state
+    .playlist
+    .started_time
+    .lock()
+    .unwrap()
+    .unwrap_or_else(Instant::now);
   let res = util::format_playlist_runtime(start_time);
   Ok(res)
 }
@@ -185,6 +172,21 @@ pub fn get_audio_drivers() -> Result<Vec<String>, String> {
   Ok(daw::drivers::get_sound_host_names())
 }
 
+// read the playlist viewport bounds, set by init_playlist_workspace
+// returns (min_x, min_y, max_x, max_y)
+fn playlist_bounds(
+  state: &daw::InnerState,
+) -> Result<(f32, f32, f32, f32), String> {
+  let ui = state.playlist.ui.lock().unwrap();
+  let vp = &ui.viewport;
+
+  match (vp.min_bound_x, vp.min_bound_y, vp.max_bound_x, vp.max_bound_y) {
+    (Some(min_x), Some(min_y), Some(max_x), Some(max_y)) =>
+      Ok((min_x, min_y, max_x, max_y)),
+    _ => Err("playlist workspace has not been initialized".to_string()),
+  }
+}
+
 fn add_audiograph_node(
   state: &daw::InnerState,
   sample_path: String,
@@ -236,10 +238,8 @@ pub fn t_add_audiograph_node(
   drop_x: Option<f32>,
   drop_y: Option<f32>,
 ) -> Result<u64, String> {
-  let min_bound_x = state.playlist.ui.lock().unwrap().viewport.min_bound_x.unwrap();
-  let min_bound_y = state.playlist.ui.lock().unwrap().viewport.min_bound_y.unwrap();
-  let max_bound_x = state.playlist.ui.lock().unwrap().viewport.max_bound_x.unwrap();
-  let max_bound_y = state.playlist.ui.lock().unwrap().viewport.max_bound_y.unwrap();
+  let (min_bound_x, min_bound_y, max_bound_x, max_bound_y) =
+    playlist_bounds(state.inner())?;
   let tempo = state.playlist.audiograph.lock().unwrap().tempo();
   let max_beats_displayed = state.playlist.ui.lock().unwrap().max_beats_displayed;
   println!("max_beats_displayed: {}", max_beats_displayed);
@@ -273,11 +273,9 @@ pub fn move_audiograph_node(
   track_number: u32,
   drop_x: Option<f32>,
   drop_y: Option<f32>,
-) {
-  let min_bound_x = state.playlist.ui.lock().unwrap().viewport.min_bound_x.unwrap();
-  let min_bound_y = state.playlist.ui.lock().unwrap().viewport.min_bound_y.unwrap();
-  let max_bound_x = state.playlist.ui.lock().unwrap().viewport.max_bound_x.unwrap();
-  let max_bound_y = state.playlist.ui.lock().unwrap().viewport.max_bound_y.unwrap();
+) -> Result<(), String> {
+  let (min_bound_x, min_bound_y, max_bound_x, max_bound_y) =
+    playlist_bounds(state.inner())?;
   let tempo = state.playlist.audiograph.lock().unwrap().tempo();
   let max_beats_displayed = state.playlist.ui.lock().unwrap().max_beats_displayed;
   println!("max_beats_displayed: {}", max_beats_displayed);
@@ -319,7 +317,7 @@ pub fn move_audiograph_node(
         id, 
         start_offset, 
         track_number, 
-        daw::timing::SixteenthNote::new());
+        daw::timing::SixteenthNote::new())
   } else {
     // don't snap
     state
@@ -327,7 +325,7 @@ pub fn move_audiograph_node(
       .audiograph
       .lock()
       .unwrap()
-      .move_node(id, start_offset, track_number);
+      .move_node(id, start_offset, track_number)
   }
 }
 
@@ -335,13 +333,15 @@ pub fn move_audiograph_node(
 pub fn remove_audiograph_node(
   state: daw::TState<'_>,
   id: u64,
-) {
+) -> Result<(), String> {
   state
     .playlist
     .audiograph
     .lock()
     .unwrap()
-    .remove_node(id);
+    .remove_node(id)?;
+
+  Ok(())
 }
 
 #[tauri::command]
@@ -354,7 +354,8 @@ pub fn get_node_data(
     .audiograph
     .lock()
     .unwrap();
-  let node = audiograph.get_mut_node_by_id(id).unwrap();
+  let node = audiograph.get_mut_node_by_id(id)
+    .ok_or_else(|| format!("no node with id {}", id))?;
   println!("offset dur: {:?}", node.start_offset.as_millis());
   let waveform = node.get_waveform().clone();
   let dur = node.duration().as_secs_f32();
@@ -487,7 +488,8 @@ pub fn get_playlist_max_length (
     .lock()
     .unwrap()
     .max_beats();
-  Ok((dur.as_millis().try_into().unwrap(), max_beats))
+  let dur_ms: u64 = dur.as_millis().try_into().map_err(|_| "playlist too long")?;
+  Ok((dur_ms, max_beats))
 }
 
 #[tauri::command]
@@ -523,4 +525,27 @@ pub fn toggle_record_input(
     .playlist
     .recording();
   daw::input::record_input(*recording);
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_playlist_bounds_before_and_after_init() {
+    let state = daw::InnerState::default();
+
+    // before the frontend calls init_playlist_workspace
+    assert!(playlist_bounds(&state).is_err());
+
+    state
+      .playlist
+      .ui
+      .lock()
+      .unwrap()
+      .viewport
+      .set_bounding_box(0., 10., 800., 400.);
+
+    assert_eq!(playlist_bounds(&state).unwrap(), (0., 10., 800., 400.));
+  }
 }
