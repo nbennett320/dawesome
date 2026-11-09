@@ -347,10 +347,9 @@ pub fn apply(
   for row in &mut saved.rows {
     row.path = resolved_path(&row.path, project_dir).to_string_lossy().into_owned();
   }
-  let sample_rate = audiograph.sample_rate();
   let sequencer = {
     let mut sequencer = state.playlist.sequencer.lock().unwrap();
-    for (path, reason) in sequencer.restore(saved, sample_rate) {
+    for (path, reason) in sequencer.restore(saved) {
       missing.push(MissingSample { path, reason });
     }
     sequencer.state()
@@ -654,7 +653,7 @@ mod tests {
       let mut audiograph = state.playlist.audiograph.lock().unwrap();
       let (row, pattern) = {
         let mut seq = audiograph.sequencer.lock().unwrap();
-        let row = seq.add_row(kick.to_str().unwrap(), 44_100).unwrap();
+        let row = seq.add_row(kick.to_str().unwrap()).unwrap();
         let pattern = seq.add_pattern(2, 4).unwrap();
         seq.set_step(pattern, row, 0, true).unwrap();
         seq.set_step(pattern, row, 12, true).unwrap();

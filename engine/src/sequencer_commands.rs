@@ -42,9 +42,7 @@ pub fn add_sequencer_row(state: daw::TState<'_>, path: String) -> Result<daw::Se
 }
 
 fn add_row(state: &daw::InnerState, path: &str) -> Result<daw::SequencerState, String> {
-  // decoding a sample takes a moment, so it's done before taking the lock
-  let sample_rate = state.playlist.audiograph.lock().unwrap().sample_rate();
-  edit(state, |seq| seq.add_row(path, sample_rate).map(|_| ()))
+  edit(state, |seq| seq.add_row(path).map(|_| ()))
 }
 
 // take a row out, with its steps in every pattern

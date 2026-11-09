@@ -182,20 +182,20 @@ impl Sequencer {
   }
 
   // add a row playing the sample at `path`, at the bottom. returns its id
-  pub fn add_row(&mut self, path: &str, sample_rate: u32) -> Result<u64, String> {
+  pub fn add_row(&mut self, path: &str) -> Result<u64, String> {
     let id = self.next_row_id;
-    self.insert_row(SavedRow { id, path: path.to_string(), volume: ROW_VOLUME, muted: false }, sample_rate)?;
+    self.insert_row(SavedRow { id, path: path.to_string(), volume: ROW_VOLUME, muted: false })?;
     Ok(id)
   }
 
   // add a row with a known id (from a project)
-  fn insert_row(&mut self, saved: SavedRow, sample_rate: u32) -> Result<(), String> {
+  fn insert_row(&mut self, saved: SavedRow) -> Result<(), String> {
     if self.row(saved.id).is_some() {
       return Err(format!("there's already a sequencer row with id {}", saved.id));
     }
     // decoded first, so a file that isn't audio is refused here rather than
     // when it's played
-    let (duration, _) = daw::preview_sample(&saved.path, sample_rate)?;
+    let (duration, _) = daw::preview_sample(&saved.path)?;
     let buffer = daw::SampleBuffer::load(&saved.path)
       .map_err(|e| format!("could not read sample '{}': {}", saved.path, e))?;
 
@@ -415,7 +415,7 @@ impl Sequencer {
   // be loaded are left out (and their steps with them), and returned as
   // (path, reason). patterns that don't make sense (no steps, or an id used
   // twice) are left out
-  pub fn restore(&mut self, saved: SavedSequencer, sample_rate: u32) -> Vec<(String, String)> {
+  pub fn restore(&mut self, saved: SavedSequencer) -> Vec<(String, String)> {
     self.clear();
     let mut missing = Vec::new();
 
@@ -423,7 +423,7 @@ impl Sequencer {
       // past missing rows' ids too, so a new row never takes one
       self.next_row_id = self.next_row_id.max(row.id + 1);
       let path = row.path.clone();
-      if let Err(e) = self.insert_row(row, sample_rate) {
+      if let Err(e) = self.insert_row(row) {
         missing.push((path, e));
       }
     }
@@ -457,15 +457,14 @@ mod tests {
   const BEAT: Duration = Duration::from_millis(500);
   const KICK: &str = "assets/assets_66-bd-01.wav";
   const SNARE: &str = "assets/assets_66-sd-01.wav";
-  const RATE: u32 = 44_100;
 
   fn ms(n: u64) -> Duration { Duration::from_millis(n) }
 
   // a sequencer with a kick and a snare row, and a one bar pattern
   fn kit() -> (Sequencer, u64, u64, u64) {
     let mut seq = Sequencer::default();
-    let kick = seq.add_row(KICK, RATE).unwrap();
-    let snare = seq.add_row(SNARE, RATE).unwrap();
+    let kick = seq.add_row(KICK).unwrap();
+    let snare = seq.add_row(SNARE).unwrap();
     let pattern = seq.add_pattern(1, 4).unwrap();
     (seq, kick, snare, pattern)
   }
@@ -579,7 +578,7 @@ mod tests {
     let (mut seq, kick, _, pattern) = kit();
     seq.remove_row(kick).unwrap();
     seq.remove_pattern(pattern).unwrap();
-    assert_ne!(seq.add_row(KICK, RATE).unwrap(), kick);
+    assert_ne!(seq.add_row(KICK).unwrap(), kick);
     assert_ne!(seq.add_pattern(1, 4).unwrap(), pattern);
   }
 
@@ -595,7 +594,7 @@ mod tests {
   #[test]
   fn test_a_missing_sample_is_an_error() {
     let mut seq = Sequencer::default();
-    assert!(seq.add_row("assets/nope.wav", RATE).is_err());
+    assert!(seq.add_row("assets/nope.wav").is_err());
     assert!(seq.rows().is_empty());
   }
 
@@ -612,7 +611,7 @@ mod tests {
     saved.rows[1].path = "assets/nope.wav".into();
 
     let mut loaded = Sequencer::default();
-    let missing = loaded.restore(saved, RATE);
+    let missing = loaded.restore(saved);
     assert_eq!(missing.len(), 1);
     assert_eq!(missing[0].0, "assets/nope.wav");
     assert_eq!(loaded.rows().len(), 1);
@@ -621,7 +620,7 @@ mod tests {
     assert_eq!(loaded.pattern(pattern).unwrap().name.as_deref(), Some("beat"));
     // new ids carry on after the loaded ones
     assert!(loaded.add_pattern(1, 4).unwrap() > pattern);
-    assert!(loaded.add_row(KICK, RATE).unwrap() > snare);
+    assert!(loaded.add_row(KICK).unwrap() > snare);
   }
 
   #[test]

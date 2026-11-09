@@ -635,8 +635,7 @@ pub fn get_sample_preview(
   state: daw::TState<'_>,
   sample_path: String,
 ) -> Result<(Vec<f32>, f32), String> {
-  let sample_rate = state.playlist.audiograph.lock().unwrap().sample_rate();
-  let (dur, waveform) = daw::preview_sample(&sample_path, sample_rate)?;
+  let (dur, waveform) = daw::preview_sample(&sample_path)?;
 
   Ok((waveform, dur.as_secs_f32()))
 }
@@ -856,12 +855,13 @@ mod tests {
     // a run that's heard 20ms from now
     *state.playlist.started_time.lock().unwrap() = Some(Instant::now() + Duration::from_millis(20));
     let ahead = get_start_time_ms(&state).unwrap() - wall(SystemTime::now());
-    assert!(ahead > 15. && ahead <= 20., "{}ms ahead", ahead);
+    // (the wall clock and Instant are separate clocks, so allow a little)
+    assert!(ahead > 15. && ahead < 21., "{}ms ahead", ahead);
 
     // and one heard 1.5s ago
     *state.playlist.started_time.lock().unwrap() = Some(Instant::now() - Duration::from_millis(1_500));
     let ago = wall(SystemTime::now()) - get_start_time_ms(&state).unwrap();
-    assert!(ago >= 1_500. && ago < 1_505., "{}ms ago", ago);
+    assert!(ago > 1_499. && ago < 1_505., "{}ms ago", ago);
   }
 
   #[test]
