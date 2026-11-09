@@ -7,6 +7,7 @@ import type { RootState } from 'state/store'
 import { MissingSample, PROJECT_EXTENSION } from '../../types/project'
 import { newProject, openProject, saveProject } from './playlistSlice'
 import { clearPendingMixerSends } from './mixerSlice'
+import { setSequencer } from './sequencerSlice'
 
 // the File menu's project commands (ids of the engine's menu items, see
 // engine/src/app/window.rs)
@@ -16,6 +17,8 @@ export type ProjectCommand = 'new' | 'open' | 'save' | 'save-as'
 export type ProjectNotice =
   | { kind: 'missing', samples: MissingSample[] }
   | { kind: 'error', message: string }
+  // something worth knowing, like where a take was saved
+  | { kind: 'info', message: string }
 
 export interface ProjectState {
   // the project file being worked on, or null before it's first saved
@@ -69,8 +72,18 @@ const chosenPath = (chosen: string | string[] | null | undefined): string | null
 // in the folder "", which crashes the app on macOS (Tauri 1.0-rc.6, rfd 0.8)
 const isAbsolute = (path: string) => path.startsWith('/') || /^[a-z]:[\\/]/i.test(path)
 
+const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path
+
+// the folder a project is in. a project in a folder of its own (named after
+// it) counts as being in the folder around that, so saving next to it
+// doesn't put one project inside another
+const projectHome = async (path: string): Promise<string> => {
+  const folder = await dirname(path)
+  return fileName(folder) === projectName(path) ? dirname(folder) : folder
+}
+
 const saveDialogStart = async (current: string | null, name = 'Untitled'): Promise<string | undefined> => {
-  if(current && isAbsolute(current)) return current
+  if(current && isAbsolute(current)) return join(await projectHome(current), fileName(current))
 
   try {
     const start = await join(await documentDir(), `${name}.${PROJECT_EXTENSION}`)
@@ -140,17 +153,29 @@ const openFrom = async (dispatch: Dispatch, path: string): Promise<boolean> => {
   }
 }
 
-// save the project to a file, and carry on in that file
-const saveProjectTo = async (dispatch: Dispatch, getState: () => RootState, path: string) => {
+// save the project, and carry on in the file it was saved to
+// - somewhereNew: a first save or Save As, which gets a folder of its own
+//   (the engine says where that put it). otherwise saved right at `path`
+const saveProjectTo = async (
+  dispatch: Dispatch,
+  getState: () => RootState,
+  path: string,
+  somewhereNew: boolean,
+) => {
+  let saved
   try {
-    await saveProject(path)(dispatch, getState)
-    dispatch(setProjectPath(path))
-    dispatch(setProjectNotice(null))
+    saved = await saveProject(path, somewhereNew)(dispatch, getState)
   } catch(e) {
     dispatch(setProjectNotice({ kind: 'error', message: errorMessage("Couldn't save the project", e) }))
     return
   }
-  await noteRecent(path)
+
+  dispatch(setProjectPath(saved.path))
+  if(saved.sequencer) dispatch(setSequencer(saved.sequencer))
+  dispatch(setProjectNotice(saved.problems.length > 0
+    ? { kind: 'error', message: `Saved, but some takes are still outside the project's folder: ${saved.problems.join('; ')}` }
+    : null))
+  await noteRecent(saved.path)
 }
 
 // a typed project name, kept to what's fine in a file name: no extension,
@@ -191,13 +216,14 @@ export const nameProject = (typed: string) => (
       filters: dialogFilters,
       defaultPath: await saveDialogStart(null, name),
     }))
-    if(chosen) await saveProjectTo(dispatch, getState, withExtension(chosen))
+    if(chosen) await saveProjectTo(dispatch, getState, withExtension(chosen), true)
     return
   }
 
-  const file = `${name}.${PROJECT_EXTENSION}`
-  const folder = await dirname(current)
-  const replacing = await fileExists(folder, file)
+  // in a folder of its own, next to the project's folder
+  const chosen = await join(await projectHome(current), `${name}.${PROJECT_EXTENSION}`)
+  const target = await invoke<string>('project_file_for', { path: chosen })
+  const replacing = await fileExists(await dirname(target), fileName(target))
   const was = projectName(current)
 
   const ok = await ask(
@@ -206,7 +232,7 @@ export const nameProject = (typed: string) => (
       : `The project will be saved as "${name}", next to "${was}", which stays as it was.`,
     `Save as "${name}"?`,
   )
-  if(ok) await saveProjectTo(dispatch, getState, await join(folder, file))
+  if(ok) await saveProjectTo(dispatch, getState, chosen, true)
 })
 
 // run a File menu command, asking where to open or save when needed
@@ -214,7 +240,6 @@ export const runProjectCommand = (command: ProjectCommand) => (
   dispatch: Dispatch,
   getState: () => RootState,
 ): Promise<void> => exclusive(async () => {
-  const saveTo = (path: string) => saveProjectTo(dispatch, getState, path)
 
   const saveAs = async () => {
     const chosen = chosenPath(await save({
@@ -223,7 +248,7 @@ export const runProjectCommand = (command: ProjectCommand) => (
       defaultPath: await saveDialogStart(getState().project.path),
     }))
 
-    if(chosen) await saveTo(withExtension(chosen))
+    if(chosen) await saveProjectTo(dispatch, getState, withExtension(chosen), true)
   }
 
   switch(command) {
@@ -253,7 +278,7 @@ export const runProjectCommand = (command: ProjectCommand) => (
     }
     case 'save': {
       const current = getState().project.path
-      if(current) await saveTo(current)
+      if(current) await saveProjectTo(dispatch, getState, current, false)
       else await saveAs()
       break
     }

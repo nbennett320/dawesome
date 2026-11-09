@@ -59,7 +59,6 @@ pub enum PlayMode {
 
 pub struct Playlist {
   playing: AtomicBool,
-  recording: AtomicBool,
   pub started_time: Arc<Mutex<Option<Instant>>>,
   // where on the timeline the current run started, or where the next one
   // will start (the playhead while stopped or paused)
@@ -100,7 +99,6 @@ impl Playlist {
 
     Playlist {
       playing: AtomicBool::from(false),
-      recording: AtomicBool::from(false),
       started_time: Arc::new(Mutex::from(None)),
       start_offset: Mutex::new(Duration::ZERO),
       run_id: AtomicU64::from(0),
@@ -145,14 +143,6 @@ impl Playlist {
   // whether the playlist itself is playing (not a pattern on its own)
   pub fn playing_playlist(&self) -> bool {
     self.playing() && self.mode() == PlayMode::Playlist
-  }
-
-  pub fn recording(&self) -> bool {
-    self.recording.load(atomic::Ordering::SeqCst)
-  }
-
-  pub fn set_recording(&self, val: bool) {
-    self.recording.store(val, atomic::Ordering::SeqCst)
   }
 
   pub fn len_in_beats(&self) -> u64 {

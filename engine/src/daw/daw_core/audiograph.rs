@@ -282,6 +282,11 @@ impl AudioNode {
     &self.sample_path
   }
 
+  // the sample file has moved (its sound is already loaded)
+  pub fn set_sample_path(&mut self, path: String) {
+    self.sample_path = path;
+  }
+
   // change how the clip is played back, returns the settings kept in range
   pub fn set_settings(&mut self, settings: daw::ClipSettings) -> daw::ClipSettings {
     self.settings = settings.clamped(self.duration);

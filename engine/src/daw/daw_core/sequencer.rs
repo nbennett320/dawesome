@@ -145,6 +145,19 @@ impl Sequencer {
     &self.patterns
   }
 
+  // sample files that have moved, from where to where (their sounds are
+  // already loaded). returns whether any row's did
+  pub fn move_row_samples(&mut self, moved: &[(String, String)]) -> bool {
+    let mut any = false;
+    for row in self.rows.iter_mut() {
+      if let Some((_, to)) = moved.iter().find(|(from, _)| *from == row.path) {
+        row.path = to.clone();
+        any = true;
+      }
+    }
+    any
+  }
+
   pub fn row(&self, id: u64) -> Option<&SequencerRow> {
     self.rows.iter().find(|r| r.id == id)
   }

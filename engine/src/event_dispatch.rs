@@ -830,18 +830,6 @@ pub fn init_playlist_workspace(
       max_bound_y);
 }
 
-#[tauri::command]
-pub fn toggle_record_input(
-  state: daw::TState<'_>,
-) {
-  println!("toggling input recording");
-
-  let recording = &state
-    .playlist
-    .recording();
-  daw::input::record_input(*recording);
-}
-
 #[cfg(test)]
 mod tests {
   use super::*;

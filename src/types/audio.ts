@@ -26,7 +26,50 @@ export interface AudioStatus {
   bufferChoices: number[]
   // null when the output can't be opened
   output: OutputStatus | null
+  // null unless something's listening to the input
+  input: InputStatus | null
   notice: string | null
+}
+
+// the input, while it's open (for the meter, or recording)
+export interface InputStatus {
+  device: string
+  channels: number
+  // from a frame coming into the device to the engine getting it
+  latencyMs: number
+}
+
+// a take that's been recorded
+export interface TakeInfo {
+  path: string
+  seconds: number
+  channels: number
+  // samples lost because the disk couldn't keep up
+  dropped: number
+}
+
+export interface RecordingStatus {
+  recording: boolean
+  // the take just finished, when recording stopped
+  take: TakeInfo | null
+}
+
+// what to say about a take that's just been recorded
+export const takeSummary = (take: TakeInfo): string => {
+  const file = take.path.split(/[\\/]/).pop() ?? take.path
+  const kind = take.channels === 1 ? 'mono' : 'stereo'
+  const recorded = `Recorded ${file} (${take.seconds.toFixed(1)}s, ${kind})`
+  return take.dropped > 0
+    ? `${recorded}, but some audio was lost because the disk couldn't keep up`
+    : recorded
+}
+
+// where a level (0 to 1, where 1 is the loudest a sample can be) sits on a
+// meter showing the top 60 dB
+export const meterPosition = (level: number): number => {
+  if(!(level > 0)) return 0
+  const db = 20 * Math.log10(level)
+  return Math.min(1, Math.max(0, (db + 60) / 60))
 }
 
 // how long a buffer of `frames` lasts

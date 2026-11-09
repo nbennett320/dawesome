@@ -7,7 +7,7 @@ import playlistReducer, { playlistSlice } from './playlistSlice'
 import projectReducer, {
   cleanProjectName, nameProject, openRecentProject, projectName, runProjectCommand, setProjectPath,
 } from './projectSlice'
-import { LoadedProject } from '../../types/project'
+import { LoadedProject, SavedProject } from '../../types/project'
 
 jest.mock('@tauri-apps/api', () => ({ invoke: jest.fn() }))
 jest.mock('@tauri-apps/api/dialog', () => ({ ask: jest.fn(), open: jest.fn(), save: jest.fn() }))
@@ -37,14 +37,29 @@ const emptyProject: LoadedProject = {
   patternClips: [],
 }
 
+// where the engine saves a project saved somewhere new: in a folder of its
+// own, unless it's already in one (see engine/src/project_files.rs)
+const projectFileFor = (path: string) => {
+  const folder = path.slice(0, path.lastIndexOf('/'))
+  const name = path.slice(path.lastIndexOf('/') + 1).replace(/\.dawesome$/, '')
+  return folder.endsWith(`/${name}`) ? path : `${folder}/${name}/${name}.dawesome`
+}
+
+const saved = (path: string): SavedProject => ({ path, movedClips: [], sequencer: null, problems: [] })
+
 // the engine's answers to the commands these tests use
 const engine = (overrides: Record<string, unknown> = {}) => {
-  mockInvoke.mockImplementation(async (cmd: string) => {
+  mockInvoke.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
     if(cmd in overrides) {
       const answer = overrides[cmd]
       if(answer instanceof Error) throw answer
       return answer
     }
+    if(cmd === 'save_project') {
+      const path = args?.path as string
+      return saved(args?.somewhereNew ? projectFileFor(path) : path)
+    }
+    if(cmd === 'project_file_for') return projectFileFor(args?.path as string)
     if(cmd === 'get_playlist_data') return [16, 16, 0, 4]
     if(cmd === 'get_snap_setting') return { enabled: true, note: 'QuarterNote', beats: 1 }
     if(cmd === 'new_project' || cmd === 'load_project') return emptyProject
@@ -89,7 +104,9 @@ describe('runProjectCommand', () => {
       defaultPath: '/Users/me/Documents/Untitled.dawesome',
     }))
 
+    // the project is now in a folder of its own: Save As starts beside it
     await run(store, 'save-as')
+    expect(store.getState().project.path).toBe('/songs/song/song.dawesome')
     expect(mockSave).toHaveBeenLastCalledWith(expect.objectContaining({
       defaultPath: '/songs/song.dawesome',
     }))
@@ -105,14 +122,53 @@ describe('runProjectCommand', () => {
     const store = makeStore()
     mockSave.mockResolvedValue('/songs/song')
 
+    // the first save makes the project a folder of its own
     await run(store, 'save')
-    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/song.dawesome' })
-    expect(store.getState().project.path).toBe('/songs/song.dawesome')
+    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/song.dawesome', somewhereNew: true })
+    expect(store.getState().project.path).toBe('/songs/song/song.dawesome')
 
     mockInvoke.mockClear()
     await run(store, 'save')
     expect(mockSave).toHaveBeenCalledTimes(1)
-    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/song.dawesome' })
+    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/song/song.dawesome', somewhereNew: false })
+  })
+
+  it('saves a project from before folders right where it is', async () => {
+    const store = makeStore()
+    store.dispatch(setProjectPath('/songs/old.dawesome'))
+
+    await run(store, 'save')
+    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/old.dawesome', somewhereNew: false })
+    expect(store.getState().project.path).toBe('/songs/old.dawesome')
+  })
+
+  it('follows takes brought into the project folder', async () => {
+    const store = makeStore()
+    store.dispatch(playlistSlice.actions.addPlaylistItem({ id: 4, path: '/unsaved/untitled_11092026_0.wav', startBeat: 0, trackNumber: 0 }))
+    store.dispatch(playlistSlice.actions.addPlaylistItem({ id: 5, path: '/samples/kick.wav', startBeat: 1, trackNumber: 1 }))
+    engine({ save_project: {
+      ...saved('/songs/song/song.dawesome'),
+      movedClips: [{ id: 4, path: '/songs/song/recordings/song_11092026_0.wav' }],
+    } })
+    mockSave.mockResolvedValue('/songs/song.dawesome')
+
+    await run(store, 'save')
+
+    const paths = store.getState().playlist.playlistItems.map(item => item.path)
+    expect(paths).toEqual(['/songs/song/recordings/song_11092026_0.wav', '/samples/kick.wav'])
+    expect(store.getState().project.notice).toBeNull()
+  })
+
+  it('says when takes couldn’t be brought in', async () => {
+    const store = makeStore()
+    engine({ save_project: { ...saved('/songs/song/song.dawesome'), problems: ['disk full'] } })
+    mockSave.mockResolvedValue('/songs/song.dawesome')
+
+    await run(store, 'save')
+
+    // it's saved all the same
+    expect(store.getState().project.path).toBe('/songs/song/song.dawesome')
+    expect(store.getState().project.notice).toMatchObject({ kind: 'error', message: expect.stringContaining('disk full') })
   })
 
   it('does nothing when a dialog is cancelled', async () => {
@@ -176,7 +232,7 @@ describe('runProjectCommand', () => {
     expect(mockInvoke).toHaveBeenCalledWith('add_recent_project', { path: '/songs/old.dawesome' })
 
     await run(store, 'save-as')
-    expect(mockInvoke).toHaveBeenCalledWith('add_recent_project', { path: '/songs/new.dawesome' })
+    expect(mockInvoke).toHaveBeenCalledWith('add_recent_project', { path: '/songs/new/new.dawesome' })
   })
 
   it('doesn’t add a project that failed to save', async () => {
@@ -252,8 +308,8 @@ describe('nameProject', () => {
     expect(mockSave).toHaveBeenCalledWith(expect.objectContaining({
       defaultPath: '/Users/me/Documents/demo.dawesome',
     }))
-    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/demo.dawesome' })
-    expect(store.getState().project.path).toBe('/songs/demo.dawesome')
+    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/demo.dawesome', somewhereNew: true })
+    expect(store.getState().project.path).toBe('/songs/demo/demo.dawesome')
   })
 
   it('saves a saved project as the new name next to it, once asked', async () => {
@@ -264,8 +320,18 @@ describe('nameProject', () => {
     await name(store, 'new')
     expect(mockAsk).toHaveBeenCalledWith(expect.stringContaining('"old", which stays'), 'Save as "new"?')
     expect(mockSave).not.toHaveBeenCalled()
-    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/new.dawesome' })
-    expect(store.getState().project.path).toBe('/songs/new.dawesome')
+    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/new.dawesome', somewhereNew: true })
+    expect(store.getState().project.path).toBe('/songs/new/new.dawesome')
+  })
+
+  it('saves a project in a folder of its own as the new name beside that folder', async () => {
+    const store = makeStore()
+    store.dispatch(setProjectPath('/songs/old/old.dawesome'))
+    mockAsk.mockResolvedValue(true)
+
+    await name(store, 'new')
+    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/new.dawesome', somewhereNew: true })
+    expect(store.getState().project.path).toBe('/songs/new/new.dawesome')
   })
 
   it('leaves a saved project alone when the answer is no', async () => {
@@ -281,7 +347,9 @@ describe('nameProject', () => {
   it('warns before replacing a project already in the folder', async () => {
     const store = makeStore()
     store.dispatch(setProjectPath('/songs/old.dawesome'))
-    mockReadDir.mockResolvedValue([{ path: '/songs/New.dawesome', name: 'New.dawesome' }])
+    // its folder already has a project of that name
+    mockReadDir.mockImplementation(async (folder: string) =>
+      (folder === '/songs/new' ? [{ path: '/songs/new/New.dawesome', name: 'New.dawesome' }] : []))
     mockAsk.mockResolvedValue(false)
 
     await name(store, 'new')

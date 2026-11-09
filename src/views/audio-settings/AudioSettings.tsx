@@ -2,11 +2,13 @@ import React from 'react'
 import { invoke } from '@tauri-apps/api'
 import { useAppDispatch } from '../../hooks/redux'
 import { syncRun } from '../../state/slices/sequencerSlice'
+import { setRecording } from '../../state/slices/recordingSlice'
 import {
   AudioSettings as Settings,
   AudioStatus,
   bufferMs,
   bufferNote,
+  meterPosition,
   msLabel,
   rateLabel,
 } from '../../types/audio'
@@ -40,6 +42,59 @@ const Choice = ({ label, value, options, disabled, onChange }: {
   )
 }
 
+// how often the input meter is read, and how fast it falls
+const METER_EVERY_MS = 50
+const METER_FALL = 0.8
+
+// the input's level, a bar a channel, while the tab is showing. the input is
+// only open while this is (and while recording)
+const InputMeter = ({ onOpened, onError }: { onOpened: () => void, onError: (e: string) => void }) => {
+  const [levels, setLevels] = React.useState<number[]>([])
+
+  React.useEffect(() => {
+    let listening = false
+    let stopped = false
+    invoke<void>('listen_to_input', { on: true })
+      .then(() => {
+        listening = true
+        if(stopped) invoke('listen_to_input', { on: false }).catch(() => {})
+        else onOpened()
+      })
+      .catch(e => onError(`The input couldn't be opened: ${e}`))
+
+    const timer = setInterval(() => {
+      invoke<number[]>('get_input_levels')
+        .then(peaks => setLevels(was => peaks.map((peak, i) => Math.max(peak, (was[i] ?? 0) * METER_FALL))))
+        .catch(() => {})
+    }, METER_EVERY_MS)
+
+    return () => {
+      stopped = true
+      clearInterval(timer)
+      if(listening) invoke('listen_to_input', { on: false }).catch(() => {})
+    }
+  }, [onOpened, onError])
+
+  if(levels.length === 0) return null
+
+  return (
+    <div className='flex flex-col gap-1 w-72 max-w-full' role='group' aria-label='Input level'>
+      {levels.map((level, i) => (
+        // eslint-disable-next-line react/no-array-index-key
+        <div key={i} className='flex flex-row items-center gap-2'>
+          <span className='ft-label w-4 text-right'>{i + 1}</span>
+          <div className='h-2 flex-1 rounded-sm bg-slate-200 overflow-hidden'>
+            <div
+              className={`h-full ${level >= 1 ? 'bg-red-500' : 'bg-lime-500'}`}
+              style={{ width: `${meterPosition(level) * 100}%` }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 const devices = (names: string[], chosen: string | null) => [
   { value: '', label: 'System default' },
   // a saved device that isn't plugged in stays listed, so it shows as chosen
@@ -61,17 +116,22 @@ const AudioSettings = () => {
   }, [])
 
   React.useEffect(load, [load])
+  const inputError = React.useCallback((e: string) => setError(e), [])
 
   const apply = (change: Partial<Settings>) => {
     if(!status) return
     setApplying(true)
     setError(null)
     invoke<AudioStatus>('set_audio_settings', { settings: { ...status.settings, ...change } })
-      .then(setStatus)
+      .then(applied => {
+        setStatus(applied)
+        // a change of devices or buffer stops any take being recorded
+        dispatch(setRecording(false))
+      })
       .catch(e => setError(String(e)))
       .finally(() => {
         setApplying(false)
-        // a change of output pauses playback
+        // and pauses playback
         syncRun(dispatch).catch(() => {})
       })
   }
@@ -134,6 +194,10 @@ const AudioSettings = () => {
             disabled={disabled}
             onChange={name => apply({ inputDevice: name || null })}
           />
+          <InputMeter onOpened={load} onError={inputError} />
+          {status.input && (
+            <span className='text-xs text-slate-500'>Input latency {msLabel(status.input.latencyMs)}</span>
+          )}
         </section>
 
         <section className='flex flex-col gap-1'>

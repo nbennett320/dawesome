@@ -4,6 +4,7 @@ mod util;
 // mod lang;
 mod event_dispatch;
 mod project;
+mod project_files;
 mod recent;
 mod mixer_commands;
 mod audio_commands;
@@ -55,7 +56,7 @@ fn debug(){
 
 fn init_tauri() {
   use event_dispatch::*;
-  use project::{save_project, load_project, new_project};
+  use project::{save_project, load_project, new_project, project_file_for};
   use recent::{add_recent_project, remove_recent_project};
   use mixer_commands::*;
   use audio_commands::*;
@@ -121,6 +122,7 @@ fn init_tauri() {
       save_project,
       load_project,
       new_project,
+      project_file_for,
       add_recent_project,
       remove_recent_project,
       get_mixer,
@@ -134,7 +136,9 @@ fn init_tauri() {
       get_mixer_levels,
       get_playlist_max_length,
       init_playlist_workspace,
-      toggle_record_input,
+      t_toggle_recording,
+      listen_to_input,
+      get_input_levels,
       get_sequencer,
       add_sequencer_row,
       remove_sequencer_row,

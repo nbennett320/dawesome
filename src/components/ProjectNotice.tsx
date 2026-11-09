@@ -14,16 +14,20 @@ const ProjectNotice = () => {
   if(!notice) return null
 
   const missing = notice.kind === 'missing'
+  const info = notice.kind === 'info'
   const listed = missing ? notice.samples.slice(0, LIST_AT_MOST) : []
   const more = missing ? notice.samples.length - listed.length : 0
 
   return (
     <div
-      role={missing ? 'status' : 'alert'}
+      role={missing || info ? 'status' : 'alert'}
       className={`flex flex-row items-start gap-3 px-4 py-2 text-xs border-b ${
-        missing
-          ? 'bg-amber-50 border-amber-200 text-amber-900'
-          : 'bg-red-50 border-red-200 text-red-900'
+        // eslint-disable-next-line no-nested-ternary
+        info
+          ? 'bg-slate-50 border-slate-200 text-slate-700'
+          : missing
+            ? 'bg-amber-50 border-amber-200 text-amber-900'
+            : 'bg-red-50 border-red-200 text-red-900'
       }`}
     >
       <div className='flex-1 min-w-0'>

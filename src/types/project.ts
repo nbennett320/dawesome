@@ -50,6 +50,23 @@ export interface MissingSample {
 }
 
 // what the engine's load_project and new_project return
+// a clip whose take was brought into the project's folder, and where it is now
+export interface MovedClip {
+  id: number
+  path: string
+}
+
+// a project that's been saved (see save_project in engine/src/project.rs)
+export interface SavedProject {
+  // the file it was saved to: saved somewhere new, it's in a folder of its own
+  path: string
+  movedClips: MovedClip[]
+  // the Sequencer, when a row's take was brought in too
+  sequencer: SequencerState | null
+  // takes that couldn't be brought in, which are still used from where they are
+  problems: string[]
+}
+
 export interface LoadedProject extends ProjectSettings {
   clips: LoadedClip[]
   missing: MissingSample[]
