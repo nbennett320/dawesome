@@ -13,7 +13,7 @@ import {
   setCassetteVisible,
   setTapePathVisible,
 } from '../../state/slices/windowSlice'
-import { projectName, selectProjectPath } from '../../state/slices/projectSlice'
+import { nameProject, projectName, selectProjectPath } from '../../state/slices/projectSlice'
 import {
   AnalogButton,
   Cassette,
@@ -212,7 +212,13 @@ const TransportDeck = () => {
         {/* hidden until measured, so it doesn't start at the wrong size */}
         {cassetteVisible && (
           <div className='shrink-0 max-w-full' style={{ width: cassetteWidth, visibility: cassetteWidth ? undefined : 'hidden' }}>
-            <Cassette progress={progress} speed={speed} label={label} tapePath={tapePathVisible} />
+            <Cassette
+              progress={progress}
+              speed={speed}
+              label={label}
+              tapePath={tapePathVisible}
+              onRename={name => dispatch(nameProject(name))}
+            />
           </div>
         )}
 

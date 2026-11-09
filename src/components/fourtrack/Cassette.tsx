@@ -121,6 +121,9 @@ export interface CassetteProps {
   className?: string
   // draw the tape pulled out across the deck's heads, under the cassette
   tapePath?: boolean
+  // lets the label be edited: double-click the cassette (or press Enter on
+  // it), type, and Enter or clicking away gives the new name. Escape cancels
+  onRename?: (name: string) => void
 }
 
 // for each cassette's window clip path
@@ -162,6 +165,7 @@ export const Cassette = ({
   side = 'A',
   className,
   tapePath = false,
+  onRename,
 }: CassetteProps) => {
   const radii = packRadii(progress)
   const leftHub = React.useRef<SVGGElement>(null)
@@ -218,13 +222,34 @@ export const Cassette = ({
 
   const percent = Math.round(clamp(progress, 0, 1) * 100)
 
+  // the label being typed, while editing it
+  const [draft, setDraft] = React.useState<string | null>(null)
+  const startEditing = () => { if(onRename && draft === null) setDraft(label) }
+  const finishEditing = () => {
+    if(draft === null) return
+    setDraft(null)
+    if(draft.trim() && draft.trim() !== label) onRename?.(draft.trim())
+  }
+
+  const description = `Tape, ${percent}% through`
+
   return (
     <svg
       viewBox={`0 0 ${WIDTH} ${tapePath ? HEIGHT_WITH_TAPE_PATH : HEIGHT}`}
-      className={cx('ft-cassette', className)}
-      role='img'
-      aria-label={`Tape, ${percent}% through`}
+      className={cx('ft-cassette', onRename && 'ft-cassette--renamable', className)}
+      {...(onRename
+        ? {
+          role: 'button',
+          tabIndex: 0,
+          'aria-label': `${description}. Press Enter to name the project`,
+          onDoubleClick: startEditing,
+          onKeyDown: (e: React.KeyboardEvent) => {
+            if(e.key === 'Enter' && e.target === e.currentTarget) startEditing()
+          },
+        }
+        : { role: 'img', 'aria-label': description })}
     >
+      {onRename && <title>Double-click to name the project</title>}
       <defs>
         <clipPath id={clipId}>
           <rect x={56} y={50} width={208} height={84} rx={12} />
@@ -238,7 +263,28 @@ export const Cassette = ({
 
       {/* the label, with the window cut out of it */}
       <rect className='ft-cassette__label' x={24} y={16} width={272} height={136} rx={6} />
-      <text className='ft-cassette__title' x={38} y={36}>{label}</text>
+      {draft === null
+        ? <text className='ft-cassette__title' x={38} y={36}>{label}</text>
+        : (
+          <foreignObject x={34} y={22} width={224} height={19}>
+            <input
+              className='ft-cassette__title-input'
+              aria-label='Project name'
+              value={draft}
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              onFocus={e => e.currentTarget.select()}
+              onChange={e => setDraft(e.currentTarget.value)}
+              onBlur={finishEditing}
+              onKeyDown={e => {
+                e.stopPropagation()
+                if(e.key === 'Enter') e.currentTarget.blur()
+                if(e.key === 'Escape') setDraft(null)
+              }}
+              onDoubleClick={e => e.stopPropagation()}
+            />
+          </foreignObject>
+        )}
       <line className='ft-cassette__rule' x1={38} y1={42} x2={258} y2={42} />
       <rect className='ft-cassette__side' x={266} y={25} width={18} height={18} rx={3} />
       <text className='ft-cassette__side-text' x={275} y={38} textAnchor='middle'>{side}</text>
