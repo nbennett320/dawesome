@@ -52,7 +52,7 @@ export const staticDefaults = {
   timelineHeight: 24,
   trackHeight: 100,
   playing: false,
-  debugMode: false,
+  debugMode: true,
 
   // defaults on Renderer construction, these will be reassigned
   // when the canvas renders

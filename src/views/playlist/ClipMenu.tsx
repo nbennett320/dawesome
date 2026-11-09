@@ -6,6 +6,9 @@ export interface ClipMenuItem {
   shortcut?: string
   onSelect: () => void
   danger?: boolean
+  // shown greyed out, with `title` saying why
+  disabled?: boolean
+  title?: string
 }
 
 interface Props {
@@ -68,8 +71,12 @@ const ClipMenu = ({ x, y, items, onClose }: Props) => {
           key={item.label}
           type='button'
           role='menuitem'
-          className={`w-full flex flex-row items-center justify-between gap-4 px-3 py-1.5 text-left hover:bg-sky-50 ${
-            item.danger ? 'text-red-600 hover:bg-red-50' : ''
+          disabled={item.disabled}
+          title={item.title}
+          className={`w-full flex flex-row items-center justify-between gap-4 px-3 py-1.5 text-left ${
+            item.disabled
+              ? 'text-slate-300 cursor-default'
+              : `hover:bg-sky-50 ${item.danger ? 'text-red-600 hover:bg-red-50' : ''}`
           }`}
           onClick={() => {
             onClose()

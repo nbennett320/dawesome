@@ -15,6 +15,7 @@ import { View } from '../../../types/ui'
 import { useTransport } from '../../../views/transport/useTransport'
 import { Led } from '../../fourtrack'
 import BrowserSearch from '../browser/BrowserSearch'
+import BrowserRow, { RowHint } from '../browser/BrowserRow'
 
 // pixels the mouse can move between press and release and still count as a
 // click (the same as a drag's threshold in state/sampleDrag.ts)
@@ -55,29 +56,18 @@ const PatternRow = ({ pattern, hint, used, selected, playing, onSelect }: RowPro
   }
 
   return (
-    <button
-      type='button'
+    <BrowserRow
       role='option'
-      aria-selected={selected}
+      selected={selected}
+      used={used}
       title={`${label}. Click to show it in the Sequencer, drag into the playlist to place it`}
-      className={`w-full h-6 flex flex-row items-center gap-1.5 pl-2 pr-3 text-left text-xs outline-none
-        border-l-2 focus-visible:bg-sky-50 cursor-grab active:cursor-grabbing ${
-          selected
-            ? 'border-sky-500 bg-sky-50 text-slate-800'
-            : `border-transparent hover:bg-slate-100 hover:text-slate-800 ${used ? 'text-slate-600' : 'text-slate-400'}`
-        }`}
       onMouseDown={onMouseDown}
       onClick={onClick}
     >
-      {/* a dot for patterns in the playlist, as the recordings browser marks takes */}
-      <span
-        className={`w-1.5 h-1.5 shrink-0 rounded-full ${used ? 'bg-sky-500' : 'bg-transparent'}`}
-        aria-label={used ? 'In use' : 'Not used'}
-      />
       <Led color='lime' state={playing ? 'on' : 'off'} className='shrink-0 scale-75' />
       <span className='truncate'>{label}</span>
-      <span className='ml-auto pl-2 shrink-0 text-[10px] text-slate-400'>{hint}</span>
-    </button>
+      <RowHint className='ml-auto pl-2'>{hint}</RowHint>
+    </BrowserRow>
   )
 }
 

@@ -1,3 +1,5 @@
+import { SequencerState } from './sequencer'
+
 // the project's recorded takes, as the sidebar's recordings browser shows
 // them. mirrors RecordingFile in engine/src/project_files.rs
 
@@ -5,11 +7,22 @@ export interface RecordingFile {
   path: string
   // the file name, without .wav
   name: string
+  // the folder it's in, relative to the recordings folder ('' at the top,
+  // / between folders)
+  folder: string
   // how long it plays, or null when the engine couldn't read it (e.g. it's
   // still being recorded)
   durationSecs: number | null
   // when it was last written, in ms since the unix epoch
   modifiedMs: number | null
+}
+
+// what's in the recordings folder (see t_list_recordings)
+export interface RecordingsListing {
+  // newest first
+  takes: RecordingFile[]
+  // every folder, relative to the recordings folder, empty ones too
+  folders: string[]
 }
 
 // where a take is used
@@ -82,4 +95,14 @@ export const searchTakes = (takes: RecordingFile[], query: string): RecordingFil
   const search = query.trim().toLowerCase()
   if(!search) return takes
   return takes.filter(take => take.name.toLowerCase().includes(search))
+}
+
+// a take or folder after it's moved or renamed (see MovedRecording in
+// engine/src/audio_commands.rs), and the clips and rows that now play from
+// its new place
+export interface MovedRecording {
+  // a take's full path, or a folder's path relative to the recordings folder
+  path: string
+  movedClips: Array<{ id: number, path: string }>
+  sequencer: SequencerState | null
 }

@@ -1,6 +1,7 @@
 import React from 'react'
 import { beginSampleDrag } from '../../../state/sampleDrag'
 import { BrowserItemTypes, BrowserSampleItem } from '../../../types/sampleBrowser'
+import BrowserRow, { RowHint } from '../browser/BrowserRow'
 
 interface Props {
   item: BrowserSampleItem
@@ -61,18 +62,12 @@ const SampleItem = ({ item, depth, open, selected, hint, onToggle, onPreview }: 
   }
 
   return (
-    <button
-      type='button'
+    <BrowserRow
       role='treeitem'
       aria-expanded={isFolder ? open : undefined}
-      aria-selected={selected}
+      selected={selected}
+      grab={!isFolder}
       title={item.path}
-      className={`group w-full h-6 flex flex-row items-center gap-1.5 pr-3 text-left text-xs outline-none
-        border-l-2 focus-visible:bg-sky-50 ${
-          selected
-            ? 'border-sky-500 bg-sky-50 text-slate-800'
-            : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-800'
-        } ${isFolder ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}`}
       style={{ paddingLeft: depth * 12 + 8 }}
       onMouseDown={onMouseDown}
       onKeyDown={onKeyDown}
@@ -80,8 +75,8 @@ const SampleItem = ({ item, depth, open, selected, hint, onToggle, onPreview }: 
       {isFolder ? <Chevron open={open} /> : <span className='w-3 shrink-0' />}
       {isFolder ? <FolderIcon /> : <WaveIcon />}
       <span className={`truncate ${isFolder ? 'font-medium' : ''}`}>{item.label}</span>
-      {hint && <span className='ml-auto pl-2 shrink-0 text-[10px] text-slate-400 truncate max-w-[40%]'>{hint}</span>}
-    </button>
+      {hint && <RowHint className='ml-auto pl-2 max-w-[40%]'>{hint}</RowHint>}
+    </BrowserRow>
   )
 }
 

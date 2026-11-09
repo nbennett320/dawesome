@@ -29,6 +29,7 @@ hound = "3.5.0"
 symphonia = "0.5.1"
 mlua = { version = "*", features = [ "lua54" ] }
 rtrb = "0.3"
+trash = "~5.2.3"  # 5.3 needs rustc 1.87
 
 [target.'cfg(target_os = "linux")'.dependencies]
 pulse = { version = "2.26.*", package= "libpulse-binding" }

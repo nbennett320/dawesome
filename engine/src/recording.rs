@@ -122,6 +122,12 @@ impl Recorder {
   }
 }
 
+// recording, or still putting a stopped recording's takes on their tracks:
+// its files shouldn't be renamed or deleted until that's over
+pub fn is_busy(state: &daw::InnerState) -> bool {
+  state.recorder.lock().unwrap().busy()
+}
+
 pub fn is_recording(state: &daw::InnerState) -> bool {
   state.recorder.lock().unwrap().recording()
 }

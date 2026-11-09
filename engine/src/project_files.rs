@@ -152,19 +152,35 @@ pub fn parse_take_name(file_name: &str) -> Option<(String, String, u32)> {
   Some((project.to_string(), date.to_string(), number))
 }
 
-// the next free take name in a folder, for a project on a date
+// the file names already used anywhere in a recordings folder (its folders
+// too), in lower case, so a take moved between folders can't land on a name
+// that's taken
+pub fn names_in_tree(dir: &Path) -> std::collections::HashSet<String> {
+  let mut names = std::collections::HashSet::new();
+  walk(dir, &mut |path, is_dir| {
+    if !is_dir {
+      if let Some(name) = path.file_name() {
+        names.insert(name.to_string_lossy().to_lowercase());
+      }
+    }
+  });
+  names
+}
+
+// the next free take name in a folder, for a project on a date. a name
+// used in any of its folders counts as taken
 pub fn next_take_path(dir: &Path, project: &str, date: &str) -> PathBuf {
-  (0..)
-    .map(|n| dir.join(take_name(project, date, n)))
-    .find(|path| !path.exists())
-    .expect("a free take number")
+  next_take_paths(dir, project, date, 1).remove(0)
 }
 
 // the next `count` free take names in a folder, numbered one after another
 // (for takes recorded together)
 pub fn next_take_paths(dir: &Path, project: &str, date: &str, count: usize) -> Vec<PathBuf> {
+  let taken = names_in_tree(dir);
   (0..)
-    .map(|n| dir.join(take_name(project, date, n)))
+    .map(|n| take_name(project, date, n))
+    .filter(|name| !taken.contains(&name.to_lowercase()))
+    .map(|name| dir.join(name))
     .filter(|path| !path.exists())
     .take(count)
     .collect()
@@ -272,11 +288,24 @@ pub struct RecordingFile {
   pub path: String,
   // the file name, without .wav
   pub name: String,
+  // the folder it's in, relative to the recordings folder ("" at the top)
+  pub folder: String,
   // how long it plays, or None when it can't be read (e.g. still recording,
   // before its header is written)
   pub duration_secs: Option<f64>,
   // when it was last written, in ms since the unix epoch
   pub modified_ms: Option<u64>,
+}
+
+// what's in a recordings folder
+#[derive(serde::Serialize, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingsListing {
+  // newest first
+  pub takes: Vec<RecordingFile>,
+  // every folder in it, relative to it, so empty ones show too. sorted by
+  // name, numbers as numbers
+  pub folders: Vec<String>,
 }
 
 // how long a wav file plays, from its header
@@ -291,35 +320,72 @@ fn is_wav(path: &Path) -> bool {
   path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("wav"))
 }
 
-// the takes in a recordings folder, newest first. a folder that isn't there
-// (nothing recorded yet) has none
-pub fn list_recordings(dir: &Path) -> Vec<RecordingFile> {
-  let entries = match fs::read_dir(dir) {
-    Ok(entries) => entries,
-    Err(_) => return Vec::new(),
-  };
+// folders inside folders can go this deep before the rest is left out
+const MAX_DEPTH: usize = 32;
 
-  let mut takes: Vec<RecordingFile> = entries
-    .filter_map(|entry| entry.ok())
-    .map(|entry| entry.path())
-    .filter(|path| path.is_file() && is_wav(path))
-    .map(|path| {
-      let modified_ms = fs::metadata(&path).and_then(|m| m.modified()).ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_millis() as u64);
-      RecordingFile {
-        name: path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
-        duration_secs: wav_seconds(&path),
-        modified_ms,
-        path: path.to_string_lossy().into_owned(),
+// call `visit` with everything inside `dir`, folders before what's in them.
+// hidden files are skipped, and links aren't followed (so a link to a folder
+// above can't loop forever)
+fn walk(dir: &Path, visit: &mut dyn FnMut(&Path, bool)) {
+  fn go(dir: &Path, depth: usize, visit: &mut dyn FnMut(&Path, bool)) {
+    if depth > MAX_DEPTH { return; }
+    let entries = match fs::read_dir(dir) {
+      Ok(entries) => entries,
+      Err(_) => return,
+    };
+    for entry in entries.filter_map(|e| e.ok()) {
+      if entry.file_name().to_string_lossy().starts_with('.') { continue; }
+      let kind = match entry.file_type() {
+        Ok(kind) => kind,
+        Err(_) => continue,
+      };
+      let path = entry.path();
+      if kind.is_dir() {
+        visit(&path, true);
+        go(&path, depth + 1, visit);
+      } else if kind.is_file() {
+        visit(&path, false);
       }
-    })
-    .collect();
+    }
+  }
+  go(dir, 0, visit);
+}
+
+// a path inside the recordings folder, relative to it, with / between folders
+pub fn relative(dir: &Path, path: &Path) -> String {
+  path.strip_prefix(dir).ok()
+    .map(|rel| rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/"))
+    .unwrap_or_default()
+}
+
+// the takes and folders in a recordings folder. a folder that isn't there
+// (nothing recorded yet) has none
+pub fn list_recordings(dir: &Path) -> RecordingsListing {
+  let mut listing = RecordingsListing::default();
+  walk(dir, &mut |path, is_dir| {
+    if is_dir {
+      listing.folders.push(relative(dir, path));
+      return;
+    }
+    if !is_wav(path) { return; }
+
+    let modified_ms = fs::metadata(path).and_then(|m| m.modified()).ok()
+      .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+      .map(|d| d.as_millis() as u64);
+    listing.takes.push(RecordingFile {
+      name: path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
+      folder: path.parent().map(|parent| relative(dir, parent)).unwrap_or_default(),
+      duration_secs: wav_seconds(path),
+      modified_ms,
+      path: path.to_string_lossy().into_owned(),
+    });
+  });
 
   // newest first. takes written together (or on a file system that rounds
   // times) fall back to their names, highest number first
-  takes.sort_by(|a, b| b.modified_ms.cmp(&a.modified_ms).then_with(|| natural_cmp(&b.name, &a.name)));
-  takes
+  listing.takes.sort_by(|a, b| b.modified_ms.cmp(&a.modified_ms).then_with(|| natural_cmp(&b.name, &a.name)));
+  listing.folders.sort_by(|a, b| natural_cmp(&a.to_lowercase(), &b.to_lowercase()));
+  listing
 }
 
 // compares names with the numbers in them as numbers, so take_10 comes after
@@ -344,6 +410,133 @@ fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     out
   }
   parts(a).cmp(&parts(b))
+}
+
+// a name typed for a take or a folder, trimmed, refusing names that would
+// put it somewhere else, or hide it
+fn check_name<'a>(typed: &'a str, what: &str) -> Result<&'a str, String> {
+  let name = typed.trim();
+  if name.is_empty() {
+    return Err(format!("a {} needs a name", what));
+  }
+  if name.starts_with('.') {
+    return Err(format!("a {}'s name can't start with a dot", what));
+  }
+  if let Some(c) = name.chars().find(|c| matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control()) {
+    return Err(format!("a {}'s name can't have '{}' in it", what, c));
+  }
+  if name.chars().count() > 120 {
+    return Err("that name is too long".into());
+  }
+  Ok(name)
+}
+
+// the file name a take is renamed to, from what was typed: the .wav is
+// added (or kept, if it was typed)
+pub fn take_file_name(typed: &str) -> Result<String, String> {
+  let mut name = typed.trim();
+  if name.len() >= 4 && name.is_char_boundary(name.len() - 4) && name[name.len() - 4..].eq_ignore_ascii_case(".wav") {
+    name = name[..name.len() - 4].trim_end();
+  }
+  Ok(format!("{}.wav", check_name(name, "recording")?))
+}
+
+// a folder's name, from what was typed
+pub fn folder_name(typed: &str) -> Result<String, String> {
+  check_name(typed, "folder").map(str::to_string)
+}
+
+// a folder in a recordings folder, from its path relative to it ("" is the
+// recordings folder itself). it has to be there already, and the path can't
+// lead out of it
+pub fn folder_in(dir: &Path, rel: &str) -> Result<PathBuf, String> {
+  let mut path = dir.to_path_buf();
+  for part in rel.split('/').filter(|part| !part.is_empty()) {
+    if part == "." || part == ".." || part.contains('\\') || Path::new(part).is_absolute() {
+      return Err(format!("'{}' isn't a folder in the recordings", rel));
+    }
+    path.push(part);
+  }
+  if !path.is_dir() || !(path == dir || is_inside(&path, dir)) {
+    return Err(format!("there's no folder '{}' in the recordings", rel));
+  }
+  Ok(path)
+}
+
+// whether `to` names the same file as `from` (a change of case, on a file
+// system that ignores it)
+fn same_file(from: &Path, to: &Path) -> bool {
+  match (fs::canonicalize(from), fs::canonicalize(to)) {
+    (Ok(a), Ok(b)) => a == b,
+    _ => false,
+  }
+}
+
+// rename `from` to `to`, unless something else is called that already
+fn rename_to(from: &Path, to: &Path, what: &str) -> Result<(), String> {
+  if to == from { return Ok(()); }
+  if to.exists() && !same_file(from, to) {
+    return Err(format!("there's already a {} called '{}' there", what, to.file_name().unwrap_or_default().to_string_lossy()));
+  }
+  fs::rename(from, to).map_err(|e| format!("could not move the {}: {}", what, e))
+}
+
+// a new, empty folder inside `parent` (relative to the recordings folder,
+// which is made if it isn't there yet). returns where it is, relative
+pub fn create_folder(dir: &Path, parent: &str, typed: &str) -> Result<String, String> {
+  let name = folder_name(typed)?;
+  if parent.is_empty() {
+    fs::create_dir_all(dir).map_err(|e| format!("could not make the recordings folder: {}", e))?;
+  }
+  let target = folder_in(dir, parent)?.join(&name);
+  if target.exists() {
+    return Err(format!("there's already something called '{}' there", name));
+  }
+  fs::create_dir(&target).map_err(|e| format!("could not make the folder: {}", e))?;
+  Ok(relative(dir, &target))
+}
+
+// rename a folder, returning where it was and where it is now
+pub fn rename_folder(dir: &Path, rel: &str, typed: &str) -> Result<(PathBuf, PathBuf), String> {
+  if rel.is_empty() { return Err("the recordings folder itself can't be renamed".into()); }
+  let from = folder_in(dir, rel)?;
+  let to = from.parent().unwrap_or(dir).join(folder_name(typed)?);
+  rename_to(&from, &to, "folder")?;
+  Ok((from, to))
+}
+
+// move a take, or a folder (with everything in it), into another folder,
+// returning where it is now. a folder can't go inside itself
+pub fn move_into(dir: &Path, path: &Path, to_folder: &str) -> Result<PathBuf, String> {
+  if !path.exists() || !is_inside(path, dir) || same_dir(path, dir) {
+    return Err("that isn't in the project's recordings".into());
+  }
+  let dest = folder_in(dir, to_folder)?;
+  if path.is_dir() && is_inside(&dest, path) {
+    return Err("a folder can't go inside itself".into());
+  }
+
+  let to = dest.join(path.file_name().unwrap_or_default());
+  let what = if path.is_dir() { "folder" } else { "recording" };
+  if same_file(path, &to) { return Ok(path.to_path_buf()); }
+  if to.exists() {
+    return Err(format!("there's already a {} called '{}' there", what, to.file_name().unwrap_or_default().to_string_lossy()));
+  }
+  fs::rename(path, &to).map_err(|e| format!("could not move the {}: {}", what, e))?;
+  Ok(to)
+}
+
+// rename a take in a recordings folder (it stays in the folder it's in),
+// returning where it is now. the new name can't be taken (a change of case
+// alone is fine, on file systems that ignore case)
+pub fn rename_take(path: &Path, dir: &Path, typed: &str) -> Result<PathBuf, String> {
+  if !path.is_file() || !is_inside(path, dir) {
+    return Err("that isn't one of the project's recordings".into());
+  }
+
+  let target = path.parent().unwrap_or(dir).join(take_file_name(typed)?);
+  rename_to(path, &target, "recording")?;
+  Ok(target)
 }
 
 #[cfg(test)]
@@ -535,23 +728,135 @@ mod tests {
     touch(&recordings.join("notes.txt"));
     touch(&recordings.join("BROKEN.WAV"));
     fs::create_dir_all(recordings.join("old.wav")).unwrap();
+    // folders, one empty, and a take inside one
+    write_wav(&recordings.join("Vocals").join("Verse 2").join("lead.wav"), 48_000, 48_000);
+    fs::create_dir_all(recordings.join("Empty")).unwrap();
+    touch(&recordings.join(".hidden").join("secret.wav"));
 
-    let takes = list_recordings(&recordings);
+    let listing = list_recordings(&recordings);
+    let takes = &listing.takes;
     let names: Vec<&str> = takes.iter().map(|t| t.name.as_str()).collect();
-    assert_eq!(names.len(), 3);
+    assert_eq!(names.len(), 4);
     assert!(names.contains(&"BROKEN"));
+    assert_eq!(listing.folders, vec!["Empty", "old.wav", "Vocals", "Vocals/Verse 2"]);
 
     let take = |name: &str| takes.iter().find(|t| t.name == name).unwrap();
     assert_eq!(take("song_11092026_9").duration_secs, Some(0.5));
     assert_eq!(take("song_11092026_10").duration_secs, Some(2.0));
     assert_eq!(take("BROKEN").duration_secs, None);
     assert!(take("BROKEN").modified_ms.is_some());
+    assert_eq!(take("song_11092026_9").folder, "");
+    assert_eq!(take("lead").folder, "Vocals/Verse 2");
 
     // newest first
     assert!(takes.windows(2).all(|w| w[0].modified_ms >= w[1].modified_ms));
 
     // nothing recorded yet
-    assert!(list_recordings(&dir.join("missing")).is_empty());
+    assert_eq!(list_recordings(&dir.join("missing")), RecordingsListing::default());
+    let _ = fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_take_numbers_count_every_folder() {
+    let dir = test_dir("numbers");
+    let recordings = dir.join("recordings");
+    touch(&recordings.join("song_11092026_0.wav"));
+    touch(&recordings.join("Keepers").join("Song_11092026_1.wav"));
+
+    let next = next_take_paths(&recordings, "song", "11092026", 2);
+    assert_eq!(next, vec![recordings.join("song_11092026_2.wav"), recordings.join("song_11092026_3.wav")]);
+    assert_eq!(next_take_path(&recordings, "song", "11092026"), recordings.join("song_11092026_2.wav"));
+    let _ = fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_folder_in() {
+    let dir = test_dir("folder-in");
+    let recordings = dir.join("recordings");
+    fs::create_dir_all(recordings.join("a").join("b")).unwrap();
+    touch(&recordings.join("take.wav"));
+
+    assert_eq!(folder_in(&recordings, "").unwrap(), recordings);
+    assert_eq!(folder_in(&recordings, "a/b").unwrap(), recordings.join("a").join("b"));
+    assert!(folder_in(&recordings, "missing").is_err());
+    assert!(folder_in(&recordings, "take.wav").is_err());
+    assert!(folder_in(&recordings, "..").is_err());
+    assert!(folder_in(&recordings, "a/../..").is_err());
+    // a leading slash is still inside the recordings folder
+    assert!(folder_in(&recordings, "/a").unwrap().starts_with(&recordings));
+    let _ = fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_folders() {
+    let dir = test_dir("folders");
+    let recordings = dir.join("recordings");
+
+    // the recordings folder is made for the first folder
+    assert_eq!(create_folder(&recordings, "", " Vocals ").unwrap(), "Vocals");
+    assert_eq!(create_folder(&recordings, "Vocals", "Verse").unwrap(), "Vocals/Verse");
+    assert!(create_folder(&recordings, "Vocals", "Verse").is_err());
+    assert!(create_folder(&recordings, "missing", "x").is_err());
+    assert!(create_folder(&recordings, "", "..").is_err());
+    assert!(create_folder(&recordings, "", "a/b").is_err());
+
+    // renaming keeps it where it is
+    let (from, to) = rename_folder(&recordings, "Vocals/Verse", "Chorus").unwrap();
+    assert_eq!(from, recordings.join("Vocals").join("Verse"));
+    assert_eq!(to, recordings.join("Vocals").join("Chorus"));
+    assert!(to.is_dir() && !from.exists());
+    assert!(rename_folder(&recordings, "", "x").is_err());
+    create_folder(&recordings, "", "Drums").unwrap();
+    assert!(rename_folder(&recordings, "Drums", "Vocals").is_err());
+    // only a change of case
+    assert!(rename_folder(&recordings, "Drums", "drums").is_ok());
+    let _ = fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_move_into() {
+    let dir = test_dir("move-into");
+    let recordings = dir.join("recordings");
+    let take = PathBuf::from(touch(&recordings.join("take.wav")));
+    fs::create_dir_all(recordings.join("A").join("B")).unwrap();
+    touch(&recordings.join("A").join("other.wav"));
+
+    // a take into a folder, and back out
+    let moved = move_into(&recordings, &take, "A/B").unwrap();
+    assert_eq!(moved, recordings.join("A").join("B").join("take.wav"));
+    assert!(moved.is_file() && !take.exists());
+    let back = move_into(&recordings, &moved, "").unwrap();
+    assert_eq!(back, take);
+    // already there
+    assert_eq!(move_into(&recordings, &take, "").unwrap(), take);
+
+    // a folder, with what's in it
+    let folder = move_into(&recordings, &recordings.join("A").join("B"), "").unwrap();
+    assert_eq!(folder, recordings.join("B"));
+    assert!(recordings.join("B").is_dir());
+
+    // not inside itself, or its own folders
+    assert!(move_into(&recordings, &recordings.join("A"), "A").is_err());
+    fs::create_dir_all(recordings.join("A").join("C")).unwrap();
+    assert!(move_into(&recordings, &recordings.join("A"), "A/C").is_err());
+
+    // a name that's taken
+    touch(&recordings.join("other.wav"));
+    assert!(move_into(&recordings, &recordings.join("A").join("other.wav"), "").is_err());
+
+    // nothing outside, and not the recordings folder itself
+    let outside = PathBuf::from(touch(&dir.join("outside.wav")));
+    assert!(move_into(&recordings, &outside, "A").is_err());
+    assert!(move_into(&recordings, &recordings, "A").is_err());
+    let _ = fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_rename_take_stays_in_its_folder() {
+    let dir = test_dir("rename-in-folder");
+    let recordings = dir.join("recordings");
+    let take = PathBuf::from(touch(&recordings.join("Vocals").join("take.wav")));
+    assert_eq!(rename_take(&take, &recordings, "lead").unwrap(), recordings.join("Vocals").join("lead.wav"));
     let _ = fs::remove_dir_all(&dir);
   }
 
@@ -574,6 +879,47 @@ mod tests {
 
     location.reset(Some(PathBuf::from("/music/song/song.dawesome")));
     assert_eq!(location.existing_recordings_dir(), Some(PathBuf::from("/music/song/recordings")));
+  }
+
+
+  #[test]
+  fn test_take_file_name() {
+    assert_eq!(take_file_name("  vocal idea "), Ok("vocal idea.wav".to_string()));
+    assert_eq!(take_file_name("riff.WAV"), Ok("riff.wav".to_string()));
+    assert_eq!(take_file_name("v1.2"), Ok("v1.2.wav".to_string()));
+    assert!(take_file_name("   ").is_err());
+    assert!(take_file_name(".wav").is_err());
+    assert!(take_file_name(".hidden").is_err());
+    assert!(take_file_name("../escape").is_err());
+    assert!(take_file_name("a/b").is_err());
+    assert!(take_file_name("a\\b").is_err());
+    assert!(take_file_name(&"x".repeat(121)).is_err());
+  }
+
+  #[test]
+  fn test_rename_take() {
+    let dir = test_dir("rename");
+    let recordings = dir.join("recordings");
+    let take = PathBuf::from(touch(&recordings.join("song_11092026_0.wav")));
+    let other = PathBuf::from(touch(&recordings.join("other.wav")));
+    let outside = PathBuf::from(touch(&dir.join("elsewhere.wav")));
+
+    let renamed = rename_take(&take, &recordings, "Vocal idea").unwrap();
+    assert_eq!(renamed, recordings.join("Vocal idea.wav"));
+    assert!(renamed.is_file() && !take.exists());
+
+    // the same name again does nothing
+    assert_eq!(rename_take(&renamed, &recordings, "Vocal idea.wav").unwrap(), renamed);
+    // only a change of case
+    let cased = rename_take(&renamed, &recordings, "vocal idea").unwrap();
+    assert!(cased.is_file());
+
+    // taken, outside the folder, or missing
+    assert!(rename_take(&cased, &recordings, "other").is_err());
+    assert!(other.is_file());
+    assert!(rename_take(&outside, &recordings, "moved").is_err());
+    assert!(rename_take(&recordings.join("gone.wav"), &recordings, "x").is_err());
+    let _ = fs::remove_dir_all(&dir);
   }
 
 }

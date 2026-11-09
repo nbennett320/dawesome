@@ -53,7 +53,7 @@ describe('describeUse', () => {
 })
 
 describe('searchTakes', () => {
-  const take = (name: string): RecordingFile => ({ path: `/r/${name}.wav`, name, durationSecs: 1, modifiedMs: 0 })
+  const take = (name: string): RecordingFile => ({ path: `/r/${name}.wav`, name, folder: '', durationSecs: 1, modifiedMs: 0 })
   it('finds takes by name without minding case', () => {
     const takes = [take('song_11092026_0'), take('Vocal idea')]
     expect(searchTakes(takes, 'VOCAL').map(t => t.name)).toEqual(['Vocal idea'])
