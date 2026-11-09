@@ -47,3 +47,13 @@ export type WindowPane = {
   id: string
   root: WindowNode
 }
+
+// the pages of the sidebar, each with a key on the rail down its left
+export enum SidebarPage {
+  // the samples folder, to hear samples and drag them into the playlist
+  Samples = 'samples',
+  // the Sequencer's patterns, to drag into the playlist
+  Patterns = 'patterns',
+  // the project's recorded takes
+  Recordings = 'recordings',
+}

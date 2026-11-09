@@ -10,6 +10,7 @@ import { useAppSelector, useAppDispatch } from '../../../hooks/redux'
 import { BrowserItemTypes, BrowserSampleItem } from '../../../types/sampleBrowser'
 import { AnalogButton, ResetIcon } from '../../fourtrack'
 import SampleItem from './SampleItem'
+import BrowserSearch from '../browser/BrowserSearch'
 
 const logError = (what: string) => (e: unknown) =>
   // eslint-disable-next-line no-console
@@ -123,17 +124,7 @@ const SampleBrowser = () => {
         </AnalogButton>
       </div> */}
 
-      <div className='px-3 pb-2 pt-4'>
-        <input
-          type='search'
-          placeholder='Search'
-          aria-label='Search samples'
-          className='ft-readout w-full text-left text-xs px-2 py-1 font-sans placeholder:text-slate-400'
-          value={query}
-          onChange={e => setQuery(e.currentTarget.value)}
-          onKeyDown={e => { if(e.key === 'Escape') setQuery('') }}
-        />
-      </div>
+      <BrowserSearch value={query} onChange={setQuery} label='Search samples' />
 
       <div className='flex-1 min-h-0 overflow-y-auto overflow-x-hidden pb-2' role='tree' aria-label='Samples'>
         {rows}
