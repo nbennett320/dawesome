@@ -2,193 +2,179 @@ use crate::{
   daw,
   util,
 };
-use std::{thread};
 use std::sync::{
   Arc, 
   Mutex,
 };
 use std::marker::{PhantomData};
-use std::time::{
-  Duration,
-  Instant,
-};
+use std::time::{Duration};
 use std::vec::{Vec};
 use std::fs::{File};
 use std::io::{BufReader};
-use num_traits::Float;
 use rodio::{
   Decoder, 
-  OutputStream, 
   OutputStreamHandle,
-  Sink,
-  Sample,
 };
-use rodio::source::{
-  SamplesConverter, 
-  Buffered, 
-  Source,
-  TakeDuration,
-  SkipDuration,
-  Zero,
-};
+use rodio::source::{Source};
 use rodio::dynamic_mixer::{
   DynamicMixer,
   DynamicMixerController,
 };
-use rodio::buffer::{SamplesBuffer};
-use futures;
 
-#[cfg(target_os = "linux")]
-use psimple;
-#[cfg(target_os = "linux")]
-use pulse;
-use serde::__private::de;
-
-#[cfg(target_os = "linux")]
-#[derive(Clone)]
-pub struct AudioNode {
-  pub id: u64,
-  sample_path: String,
-  start_time: Option<u64>,
-  start_offset: u64,
-  track_number: u32,
-  raw_source: sync::Arc<sync::Mutex<Vec<i16>>>,
-  sink: sync::Arc<sync::Mutex<Sink>>,
-  handle: sync::Arc<sync::Mutex<Option<thread::JoinHandle<()>>>>,
-  running: bool,
-}
-
-// audio node implementation for Linux
-#[cfg(target_os = "linux")]
-impl AudioNode {  
-  pub fn new(
-    id: u64,
-    sample_path: String,
-    start_offset: u64,
-    track_number: u32,
-  ) -> Self {
-    let file_buf = BufReader::new(File::open(&sample_path).unwrap());
-    let source = Decoder::new(file_buf).unwrap();
-
-    let spec = pulse::sample::Spec {
-      format: pulse::sample::Format::S16NE,
-      channels: 2,
-      rate: 44_100,
-    };
-
-
-    let sink = psimple::Simple::new(
-      None,
-      "dawesome",
-      pulse::stream::Direction::Playback,
-      None,
-      "dawesome output",
-      &spec,
-      None,
-      None,
-    ).unwrap();
-
-    let raw_source: rodio::source::SamplesConverter<_, i16> = source.convert_samples();
-    let raw_source: std::vec::Vec<i16> = raw_source.collect();
-
-    AudioNode {
-      id,
-      sample_path,
-      start_time: None,
-      start_offset,
-      track_number,
-      raw_source,
-      sink: sync::Arc::new(sync::Mutex::from(sink)),
-      handle: sync::Arc::new(sync::Mutex::from(None)),
-      running: false,
-    }
-  }
-
-  // play the audio node
-  pub fn play(self) {
-    let handle = thread::spawn(move || {
-      let sink = self.sink.lock().unwrap();
-      let raw_source = self.raw_source.lock().unwrap();
-
-      unsafe {
-        let raw_slice = raw_source.align_to::<u8>().1;
-        sink.write(raw_slice).unwrap();
-        sink.drain().unwrap();
-      }
-    });
-
-    *self.handle.lock().unwrap() = Some(handle);
-  }
-
-  pub fn stop(self) {
-
-  }
-
-  // calculate and set a node's (real) start time in the playlist
-  pub fn set_start_time(&mut self, start_time: u64) {
-    self.start_time = Some(start_time + self.start_offset);
-  }
-
-  // reset node start time 
-  pub fn clear_start_time(&mut self) {
-    self.start_time = None;
-  }
-
-  // attach a thread handle to a node
-  pub fn set_handle(self, handle: thread::JoinHandle<()>) {
-    *self.handle.lock().unwrap() = Some(handle);
-  }
-
-  // get a path of a node's normalized audio waveform
-  pub fn get_waveform(&self) -> (String, String) {
-    let file = BufReader::new(File::open(&self.sample_path).unwrap());
-    let source = Decoder::new(file).unwrap();
-    let mut samples = std::vec::Vec::<i16>::new();
-
-    println!("raw len: {:?}", source.size_hint());
-    for sample in source {
-      samples.push(sample);
-    }
-
-    // get frames and interpolate points
-    let xs: Vec<i32> = (0..samples.len()).into_iter().map(|x| x as i32).collect();
-    let ys: Vec<i32> = samples.iter().map(|y| *y as i32).collect();
-    // let interp = util::math::local_extremes(xs, ys);
-    let interp = Some((xs as Vec<i32>, ys as Vec<i32>));
-    let (x_interps, y_interps) = interp.unwrap();
-    println!("interp lens: {:?}, {:?}", x_interps.len(), y_interps.len());
-
-    // calculate bounding box
-    let (min_x, min_y) = (0, -y_interps.iter().max().unwrap());
-    let (max_x, max_y) = (x_interps.len(), 2 * (*y_interps.iter().max().unwrap() as i32));
-    let svg = element::SVG::new()
-      .set("viewBox", (min_x, min_y, max_x, max_y));
-
-    // initialize data path
-    let mut data = element::path::Data::new().move_to((0, 0));
-    
-    // fill path
-    for idx in 1..y_interps.len() {
-      let p1 = (idx, y_interps[idx]);
-      data = data.line_to(p1)
-    }
-
-    // close the path
-    data = data.close();
-
-    // fetch calculated path value
-    let path = element::Path::new()
-      .set("stroke", "black")
-      .set("stroke-width", "0.05%")
-      .set("fill", "black")
-      .set("d", data);
-
-    let pathd = path.get_inner().get_attributes().get("d").unwrap();
-    let viewbox = svg.get_inner().get_attributes().get("viewBox").unwrap();
-
-    (pathd.to_string(), viewbox.to_string())
-  }
-}
+// TODO(linux): the Linux node below played through PulseAudio directly, and
+// had fallen behind (it no longer compiled). it's kept as a reminder to
+// get Linux builds working again, likely by dropping the cfg gates below,
+// since cpal plays through ALSA on Linux
+// #[cfg(target_os = "linux")]
+// use psimple;
+// #[cfg(target_os = "linux")]
+// use pulse;
+//
+// #[cfg(target_os = "linux")]
+// #[derive(Clone)]
+// pub struct AudioNode {
+//   pub id: u64,
+//   sample_path: String,
+//   start_time: Option<u64>,
+//   start_offset: u64,
+//   track_number: u32,
+//   raw_source: sync::Arc<sync::Mutex<Vec<i16>>>,
+//   sink: sync::Arc<sync::Mutex<Sink>>,
+//   handle: sync::Arc<sync::Mutex<Option<thread::JoinHandle<()>>>>,
+//   running: bool,
+// }
+//
+// // audio node implementation for Linux
+// #[cfg(target_os = "linux")]
+// impl AudioNode {  
+//   pub fn new(
+//     id: u64,
+//     sample_path: String,
+//     start_offset: u64,
+//     track_number: u32,
+//   ) -> Self {
+//     let file_buf = BufReader::new(File::open(&sample_path).unwrap());
+//     let source = Decoder::new(file_buf).unwrap();
+//
+//     let spec = pulse::sample::Spec {
+//       format: pulse::sample::Format::S16NE,
+//       channels: 2,
+//       rate: 44_100,
+//     };
+//
+//
+//     let sink = psimple::Simple::new(
+//       None,
+//       "dawesome",
+//       pulse::stream::Direction::Playback,
+//       None,
+//       "dawesome output",
+//       &spec,
+//       None,
+//       None,
+//     ).unwrap();
+//
+//     let raw_source: rodio::source::SamplesConverter<_, i16> = source.convert_samples();
+//     let raw_source: std::vec::Vec<i16> = raw_source.collect();
+//
+//     AudioNode {
+//       id,
+//       sample_path,
+//       start_time: None,
+//       start_offset,
+//       track_number,
+//       raw_source,
+//       sink: sync::Arc::new(sync::Mutex::from(sink)),
+//       handle: sync::Arc::new(sync::Mutex::from(None)),
+//       running: false,
+//     }
+//   }
+//
+//   // play the audio node
+//   pub fn play(self) {
+//     let handle = thread::spawn(move || {
+//       let sink = self.sink.lock().unwrap();
+//       let raw_source = self.raw_source.lock().unwrap();
+//
+//       unsafe {
+//         let raw_slice = raw_source.align_to::<u8>().1;
+//         sink.write(raw_slice).unwrap();
+//         sink.drain().unwrap();
+//       }
+//     });
+//
+//     *self.handle.lock().unwrap() = Some(handle);
+//   }
+//
+//   pub fn stop(self) {
+//
+//   }
+//
+//   // calculate and set a node's (real) start time in the playlist
+//   pub fn set_start_time(&mut self, start_time: u64) {
+//     self.start_time = Some(start_time + self.start_offset);
+//   }
+//
+//   // reset node start time 
+//   pub fn clear_start_time(&mut self) {
+//     self.start_time = None;
+//   }
+//
+//   // attach a thread handle to a node
+//   pub fn set_handle(self, handle: thread::JoinHandle<()>) {
+//     *self.handle.lock().unwrap() = Some(handle);
+//   }
+//
+//   // get a path of a node's normalized audio waveform
+//   pub fn get_waveform(&self) -> (String, String) {
+//     let file = BufReader::new(File::open(&self.sample_path).unwrap());
+//     let source = Decoder::new(file).unwrap();
+//     let mut samples = std::vec::Vec::<i16>::new();
+//
+//     println!("raw len: {:?}", source.size_hint());
+//     for sample in source {
+//       samples.push(sample);
+//     }
+//
+//     // get frames and interpolate points
+//     let xs: Vec<i32> = (0..samples.len()).into_iter().map(|x| x as i32).collect();
+//     let ys: Vec<i32> = samples.iter().map(|y| *y as i32).collect();
+//     // let interp = util::math::local_extremes(xs, ys);
+//     let interp = Some((xs as Vec<i32>, ys as Vec<i32>));
+//     let (x_interps, y_interps) = interp.unwrap();
+//     println!("interp lens: {:?}, {:?}", x_interps.len(), y_interps.len());
+//
+//     // calculate bounding box
+//     let (min_x, min_y) = (0, -y_interps.iter().max().unwrap());
+//     let (max_x, max_y) = (x_interps.len(), 2 * (*y_interps.iter().max().unwrap() as i32));
+//     let svg = element::SVG::new()
+//       .set("viewBox", (min_x, min_y, max_x, max_y));
+//
+//     // initialize data path
+//     let mut data = element::path::Data::new().move_to((0, 0));
+//
+//     // fill path
+//     for idx in 1..y_interps.len() {
+//       let p1 = (idx, y_interps[idx]);
+//       data = data.line_to(p1)
+//     }
+//
+//     // close the path
+//     data = data.close();
+//
+//     // fetch calculated path value
+//     let path = element::Path::new()
+//       .set("stroke", "black")
+//       .set("stroke-width", "0.05%")
+//       .set("fill", "black")
+//       .set("d", data);
+//
+//     let pathd = path.get_inner().get_attributes().get("d").unwrap();
+//     let viewbox = svg.get_inner().get_attributes().get("viewBox").unwrap();
+//
+//     (pathd.to_string(), viewbox.to_string())
+//   }
+// }
 
 #[derive(Clone)]
 #[cfg(not(target_os = "linux"))]
@@ -197,16 +183,8 @@ pub struct AudioNode {
   pub start_offset: Duration,
   pub track_number: u32,
   sample_path: String,
-  start_time: Option<Instant>,
-  samples: Arc<Mutex<Buffered<Decoder<BufReader<File>>>>>,
   channels: u16,
-  sink: Arc<Mutex<Sink>>,
-  handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
   buffer: daw::sound_buffer::SampleBuffer,
-  // buffer: Buffered<
-  //   TakeDuration<TakeDuration<SkipDuration<Buffered<BufReader<File>>>>>
-  // >,
-  running: Arc<Mutex<bool>>,
   // the sample's length, before the clip's settings change its speed
   duration: Duration,
   sample_rate: u32,
@@ -271,14 +249,8 @@ impl AudioNode {
       File::open(&sample_path).map_err(|e| err("could not open sample", &e))?);
     let source = Decoder::new(file_buf)
       .map_err(|e| err("could not decode sample", &e))?;
-    let sample_buf = source.buffered();
-    let (_stream, stream_handle) = OutputStream::try_default()
-      .map_err(|e| err("no audio output device for sample", &e))?;
-    let sink = Sink::try_new(&stream_handle)
-      .map_err(|e| err("could not create audio sink for sample", &e))?;
-
-    let channels = sample_buf.channels();
-    let samples: Vec<i16> = sample_buf.clone().collect();
+    let channels = source.channels();
+    let samples: Vec<i16> = source.collect();
     let (duration, waveform) =
       duration_and_waveform(&sample_path, samples, channels, sample_rate)?;
     println!("length of sample in ms: {:?}", duration.as_millis());
@@ -288,58 +260,15 @@ impl AudioNode {
     Ok(AudioNode {
       id,
       sample_path,
-      start_time: None,
       start_offset,
       track_number,
-      samples: Arc::new(Mutex::from(sample_buf)),
       channels,
-      sink: Arc::new(Mutex::from(sink)),
-      handle: Arc::new(Mutex::from(None)),
       buffer: sound_buf,
-      // buffer: Buffered<
-      //   TakeDuration<TakeDuration<SkipDuration<Buffered<BufReader<File>>>>
-      // >,
-      running: Arc::new(Mutex::from(false)),
       duration,
       sample_rate,
       waveform,
       settings: daw::ClipSettings::default(),
     })
-  }
-
-  pub fn buffer_sink(&mut self) {
-    let sink = self.sink.lock().unwrap();
-    let samples = self.buffer.decoder().convert_samples::<f32>();
-    sink.pause();
-    sink.append(samples);
-    println!("buffered samples for: {}", self.sample_path);
-  }
-
-  // play the audio node
-  pub async fn play(self) {
-    println!("playing sample ({})", self.sample_path);
-    thread::spawn(move || {
-      if *self.running.lock().unwrap() {
-        println!("node is running ({})", self.sample_path);
-        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-        let samples = self.buffer.decoder().convert_samples::<f32>();
-        // stream_handle.play_raw(self.buffer.decoder().convert_samples()).unwrap();
-        let sink = Sink::try_new(&stream_handle).unwrap();
-    sink.pause();
-    sink.append(samples);
-
-        if !sink.empty() {
-          sink.play();
-          sink.sleep_until_end();
-        }
-
-        *self.running.lock().unwrap() = false;
-      }
-    });
-  }
-
-  pub fn stop(self) {
-
   }
 
   // how long the clip plays for, once its settings change its speed
@@ -372,72 +301,8 @@ impl AudioNode {
     self.settings.apply(self.buffer.decoder().convert_samples::<f32>(), self.duration)
   }
   
-  // pub fn get_samples(self) -> Arc<Mutex<SamplesConverter<Decoder<BufReader<File>>, f32>>> {
-  //   self.samples
-  // }
-
-  // calculate and set a node's (real) start time in the playlist
-  pub fn set_start_time(&mut self, start_time: Instant) {
-    self.start_time = Some(start_time + self.start_offset);
-  }
-
-  // reset node start time 
-  pub fn clear_start_time(&mut self) {
-    self.start_time = None;
-  }
-
-  // attach a thread handle to a node
-  pub fn set_handle(self, handle: thread::JoinHandle<()>) {
-    *self.handle.lock().unwrap() = Some(handle);
-  }
-
-  pub fn toggle_running(&mut self) {
-    let val = !*self.running.lock().unwrap();
-    *self.running.lock().unwrap() = val;
-  }
-
   pub fn get_waveform(&mut self) -> &mut Vec<f32> {
     &mut self.waveform
-  }
-}
-
-// impl Iterator for AudioNode {
-//   type Item = dyn Sample;
-
-//   fn next(&mut self) -> Option<Self::Item> {
-//     self.samples.lock().unwrap().next()
-//   }
-// }
-
-// impl Source for AudioNode {
-//   fn channels(&self) -> u16 {
-//     self.channels
-//   }
-
-//   fn current_frame_len(&self) -> Option<usize> {
-//     if self.duration.is_zero() {
-//       return Some(0)
-//     }
-
-//     let res = self.duration.as_secs_f64() * self.sample_rate as f64;
-
-//     Some(res.round().into())
-//   }
-
-//   fn sample_rate(&self) -> u32 {
-//     self.sample_rate
-//   }
-
-//   fn total_duration(&self) -> Option<Duration> {
-//     Some(self.duration)
-//   }
-// }
-
-// implemement node destructor
-impl Drop for AudioNode {
-  fn drop(&mut self) {
-    let sink = &*self.sink.lock().unwrap();
-    let _ = sink;
   }
 }
 
@@ -527,7 +392,6 @@ pub struct AudioGraph<'a> {
   // id names one clip of either kind
   pub pattern_nodes: Vec<PatternNode>,
   pub running: bool,
-  pub started_time: Option<Instant>,
   pub current_offset: Option<Duration>,
   sample_rate: u32,
   tempo: f32,
@@ -552,7 +416,6 @@ impl AudioGraph<'static> {
       nodes: Vec::<AudioNode>::new(),
       pattern_nodes: Vec::new(),
       running: false,
-      started_time: None,
       current_offset: Some(Duration::ZERO),
       sample_rate,
       tempo,
@@ -564,38 +427,11 @@ impl AudioGraph<'static> {
     }
   }
 
-  // initialize the audiograph with a 
-  // start time (from the playlist)
-  pub fn init(&mut self, start_time: Instant) {
+  // start a run of the graph (when it has clips to play)
+  pub fn init(&mut self) {
     if !self.has_clips() { return; }
 
-    for node in self.nodes.as_mut_slice() {
-      node.set_start_time(start_time);
-    }
-
-    self.started_time = Some(start_time);
     self.running = true;
-  }
-
-  pub fn run(&self) {
-    let (_controller, mixer) = self.buffer_graph().unwrap();
-
-    println!("running full graph:");
-    let running = self.running;
-    thread::spawn(move || {
-      if running {
-        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-        let sink = Sink::try_new(&stream_handle).unwrap();
-        sink.pause();
-        sink.append(mixer);
-        sink.play();
-        sink.sleep_until_end();
-        
-        // sink.detach();
-        // stream_handle.play_raw(mixer).unwrap();
-        // thread::sleep(dur);
-      }
-    });
   }
 
   // schedule the next `dur` of the graph on this run's master bus
@@ -628,40 +464,6 @@ impl AudioGraph<'static> {
 
     let (_controller, mixer) = self.slice_mixer(dur, resume);
     bus.add(mixer);
-  }
-
-  pub fn buffer_graph(&self) -> Option<(Arc<DynamicMixerController<f32>>, DynamicMixer<f32>)> {
-    let (controller, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, self.sample_rate);
-
-    // find total play duration
-    if self.nodes.len() == 0 {
-      return Some((controller, mixer));
-    }
-
-    // let dur = self.duration();
-    if self.nodes.len() == 0 { return Some((controller, mixer)); }
-    let last: &AudioNode = self.nodes.last().unwrap();
-
-    let dur = last.start_offset + last.duration();
-
-    // buffer silence
-    let silence = rodio::source::Zero::<f32>::new(2, self.sample_rate).take_duration(dur);
-    controller.add(silence);
-    
-    // buffer nodes
-    let self_arc = Arc::new(Mutex::new(self));
-    let slice = self_arc.lock().unwrap().nodes[0..self.nodes.len()].to_vec();
-
-    for node in slice {
-      let start_offset = Arc::new(Mutex::new(node.start_offset));
-      let delay: Duration = *start_offset.lock().unwrap();
-      println!("delay: {}ms",delay.as_millis());
-
-      let source = self.mixer.track_strip(node.track_number, node.source()).delay(*start_offset.lock().unwrap());
-      controller.add(source);
-    }
-
-    Some((controller, mixer))
   }
 
   // nodes that start within [window_start, window_start + dur)
@@ -770,39 +572,6 @@ impl AudioGraph<'static> {
     }
 
     bus.add(mixer);
-  }
-
-  pub fn buffer_for(&self, dur: Duration) -> Option<DynamicMixer<f32>> {
-    let frames_per_slice = (dur.as_secs_f64() * self.sample_rate as f64).round() as i32;
-
-    if self.nodes.len() == 0 {
-      println!("No nodes in graph! Filling with {} frames of silence.", frames_per_slice);
-
-      let silence = rodio::source::Zero::<f32>::new(2, self.sample_rate).take_duration(dur);
-      let (controller, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, self.sample_rate);
-      controller.add(silence);
-      return Some(mixer);
-    }
-
-    let window_start = self.current_offset.unwrap_or(Duration::ZERO);
-    let mut window_nodes = self.nodes_in_window(window_start, dur).peekable();
-
-    if window_nodes.peek().is_none() {
-      println!("No nodes in this time slice!");
-      return None;
-    }
-
-    let (controller, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, self.sample_rate);
-
-    // schedule every node that starts within this time slice
-    for node in window_nodes {
-      let delay_offset = node.start_offset - window_start;
-      println!("added node: {} (delay offset: {}ms)", node.sample_path, delay_offset.as_millis());
-      let source = self.mixer.track_strip(node.track_number, node.source()).delay(delay_offset);
-      controller.add(source);
-    }
-
-    Some(mixer)
   }
 
   pub fn set_tempo(&mut self, tempo: f32) {
@@ -1099,16 +868,8 @@ impl AudioGraph<'static> {
     Ok(())
   }
 
-  // stop playback of all nodes and clear start times
+  // end the graph's run
   pub fn pause(&mut self) {
-    for node in self.nodes.as_mut_slice() {
-      if *node.running.lock().unwrap() {
-        *node.running.lock().unwrap() = false;
-      }
-
-      node.clear_start_time();
-    }
-
     self.current_offset = Some(Duration::ZERO);
     self.running = false;
   }
@@ -1162,23 +923,6 @@ impl AudioGraph<'static> {
     res
   }
   
-  // adjust all node start times to match tempo
-  pub fn fit_nodes_to_tempo(
-    &mut self, 
-    new_tempo: f32, 
-    old_tempo: f32
-  ) {
-    let ratio = old_tempo / new_tempo;
-
-    println!("ratio: {}",ratio);
-
-    for node in self.nodes.as_mut_slice() {
-      let new_offset = (node.start_offset.as_millis() as f32 * ratio).round() as u64;
-      let dur = Duration::from_millis(new_offset);
-      node.set_start_time(self.started_time.unwrap() + dur);
-    }
-  }
-
   pub fn get_mut_node_by_id(&mut self, id: u64) -> Option<&mut AudioNode> {
     self.nodes.iter_mut().find(|e| { e.id == id })
   }
@@ -1383,6 +1127,9 @@ pub fn group_move(
 mod tests {
   use super::*;
   use crate::daw::{self};
+  use std::thread;
+  use std::time::Instant;
+  use rodio::OutputStream;
 
   fn ms(n: u64) -> Duration { Duration::from_millis(n) }
 
@@ -1452,12 +1199,6 @@ mod tests {
     assert_eq!(graph.get_node_by_id(a).unwrap().start_offset, ms(1_620));
   }
 
-  macro_rules! aw {
-    ($e:expr) => {
-      futures::executor::block_on($e)
-    };
-  }
-
   #[test]
   fn test_node_initialization() {
     let id = 1;
@@ -1474,27 +1215,6 @@ mod tests {
     assert_eq!(node.sample_path, daw::METRONOME_TICK_PATH);
     assert_eq!(node.sample_rate, 44_100);
     assert_eq!(node.track_number, track_number);
-  }
-
-  #[test]
-  fn test_node_play() {
-    let id = 1;
-    let sample_path = daw::METRONOME_TICK_PATH.to_string();
-    let start_offset = Duration::from_millis(0);
-    let track_number = 0;
-    let sample_rate = 44_100;
-
-    let node = AudioNode::new(id, sample_path, start_offset, track_number, sample_rate).unwrap();
-
-    let now = Instant::now();
-
-    aw!(node.play());
-
-    thread::sleep(Duration::from_millis(100));
-
-    let later = Instant::now();
-
-    assert_ne!(now.elapsed().as_millis(), later.elapsed().as_millis());
   }
 
   #[test]
@@ -1568,7 +1288,7 @@ mod tests {
     let audiograph = AudioGraph::new(sample_rate, tempo, max_beats);
     let runtime = Duration::from_secs(1);
 
-    let mixer = audiograph.buffer_for(runtime).unwrap();
+    let (_controller, mixer) = audiograph.buffer_slice(runtime).unwrap();
 
     let mut zero_samples = Vec::<f32>::new();
     let mut nonzero_samples = Vec::<f32>::new();
@@ -1587,44 +1307,6 @@ mod tests {
       zero_samples.len() >= expected && zero_samples.len() < expected + 10,
       "expected about {} samples of silence, got {}", expected, zero_samples.len());
     assert_eq!(nonzero_samples.len(), 0);
-  }
-
-  fn test_audiograph_buffer_graph() {
-    let id = 1;
-    let sample_path = daw::METRONOME_TICK_PATH.to_string();
-    let start_offset = Duration::from_millis(650);
-    let track_number = 0;
-    let sample_rate = 44_100;
-
-    let node = AudioNode::new(id, sample_path, start_offset, track_number, sample_rate).unwrap();
-
-    let tempo = 120f32;
-    let max_beats: u64 = 8;
-
-    let mut audiograph = AudioGraph::new(sample_rate, tempo, max_beats);
-    let buf = node.buffer.clone();
-
-    audiograph.add_node(node);
-    
-    let runtime = Duration::from_secs(1);
-
-    let (_controller, mixer) = audiograph.buffer_graph().unwrap();
-
-    let mut nonzero_samples = Vec::<f32>::new();
-    mixer.for_each(|x| {
-      if x != 0f32 {
-        nonzero_samples.push(x);
-      }
-    });
-
-    let mut node_samples = Vec::<f32>::new();
-    buf.convert_samples().for_each(|x| {
-      if x != 0f32 {
-        node_samples.push(x);
-      }
-    });
-
-    assert_eq!(node_samples.len() * 4, nonzero_samples.len());
   }
 
   #[test]
@@ -1892,26 +1574,6 @@ mod tests {
     assert_eq!(ratio(&[0, 200, 400]), 3.);
     // node at 900ms is in the next beat
     assert_eq!(ratio(&[0, 200, 400, 900]), 3.);
-  }
-
-  #[test]
-  fn test_audiograph_buffer_for_plays_every_node_in_window() {
-    let samples = |offsets_ms: &[u64]| -> f64 {
-      let audiograph = graph_with_ticks(offsets_ms);
-      audiograph
-        .buffer_for(audiograph.beat_interval())
-        .unwrap()
-        .map(|x| x.abs() as f64)
-        .sum()
-    };
-
-    let ratio = (samples(&[0, 100, 200]) / samples(&[0]) * 100.).round() / 100.;
-    assert_eq!(ratio, 3.);
-
-    // no nodes in this window
-    let mut audiograph = graph_with_ticks(&[0]);
-    audiograph.set_current_offset(Some(Duration::from_secs(1)));
-    assert!(audiograph.buffer_for(audiograph.beat_interval()).is_none());
   }
 
   #[test]

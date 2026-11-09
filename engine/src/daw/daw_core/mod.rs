@@ -6,8 +6,6 @@ pub(crate) mod input;
 pub(crate) mod mixer;
 pub(crate) mod sequencer;
 pub(crate) mod sound_buffer;
-pub(crate) mod threadpool;
-pub(crate) mod timer;
 pub(crate) mod timing;
 pub(crate) mod waveform;
 
@@ -19,7 +17,5 @@ pub use input::*;
 pub use mixer::*;
 pub use sequencer::*;
 pub use sound_buffer::*;
-pub use threadpool::*;
-pub use timer::*;
 pub use timing::*;
 pub use waveform::*;

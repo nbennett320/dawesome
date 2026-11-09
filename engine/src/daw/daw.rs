@@ -4,14 +4,12 @@ use crate::daw::{
     SampleBuffer,
   }, 
   state, 
-  MusicalTiming,
 };
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::{
   mpsc,
   Arc, 
-  Mutex,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -19,7 +17,6 @@ use std::time::{
   Duration,
   Instant,
 };
-use rodio::{Source};
 use rodio::{
   Decoder, 
   OutputStream, 
@@ -27,10 +24,6 @@ use rodio::{
 };
 use tauri;
 
-#[cfg(target_os = "linux")]
-use psimple;
-#[cfg(target_os = "linux")]
-use pulse;
 
 pub const METRONOME_TICK_PATH: &str = "assets/assets_66-hh-01-or.wav";
 pub const METRONOME_TICK_ACCENTED_PATH: &str = "assets/assets_66-hh-01-or-2.wav";
@@ -47,48 +40,56 @@ lazy_static! {
   };
 }
 
-/**
-Play a single sound sample for its entire length
-- Compiled only on Linux systems,
-for use with Alsa, Jack, and PulseAudio drivers
-*/
-#[cfg(target_os = "linux")]
-pub async fn play_sample(path: &str) {
-  let path = String::from(path);
-  thread::spawn(move || {
-    // let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-    let file = BufReader::new(File::open(path).unwrap());
-    let source = Decoder::new(file).unwrap();
-
-    let spec = pulse::sample::Spec {
-      format: pulse::sample::Format::S16NE,
-      channels: 2,
-      rate: 44_100,
-    };
-
-    let sink = psimple::Simple::new(
-      None,
-      "dawesome",
-      pulse::stream::Direction::Playback,
-      None,
-      "dawesome output",
-      &spec,
-      None,
-      None,
-    )
-    .unwrap();
-
-    let raw_source: rodio::source::SamplesConverter<_, i16> =
-      source.convert_samples();
-    let raw_vec: std::vec::Vec<i16> = raw_source.collect();
-
-    unsafe {
-      let raw_slice = raw_vec.align_to::<u8>().1;
-      sink.write(raw_slice).unwrap();
-      sink.drain().unwrap();
-    }
-  });
-}
+// TODO(linux): the Linux preview below played through PulseAudio directly.
+// it's kept as a reminder to get Linux builds working again (see the note
+// on AudioNode in audiograph.rs)
+// #[cfg(target_os = "linux")]
+// use psimple;
+// #[cfg(target_os = "linux")]
+// use pulse;
+//
+// /**
+// Play a single sound sample for its entire length
+// - Compiled only on Linux systems,
+// for use with Alsa, Jack, and PulseAudio drivers
+// */
+// #[cfg(target_os = "linux")]
+// pub async fn play_sample(path: &str) {
+//   let path = String::from(path);
+//   thread::spawn(move || {
+//     // let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+//     let file = BufReader::new(File::open(path).unwrap());
+//     let source = Decoder::new(file).unwrap();
+//
+//     let spec = pulse::sample::Spec {
+//       format: pulse::sample::Format::S16NE,
+//       channels: 2,
+//       rate: 44_100,
+//     };
+//
+//     let sink = psimple::Simple::new(
+//       None,
+//       "dawesome",
+//       pulse::stream::Direction::Playback,
+//       None,
+//       "dawesome output",
+//       &spec,
+//       None,
+//       None,
+//     )
+//     .unwrap();
+//
+//     let raw_source: rodio::source::SamplesConverter<_, i16> =
+//       source.convert_samples();
+//     let raw_vec: std::vec::Vec<i16> = raw_source.collect();
+//
+//     unsafe {
+//       let raw_slice = raw_vec.align_to::<u8>().1;
+//       sink.write(raw_slice).unwrap();
+//       sink.drain().unwrap();
+//     }
+//   });
+// }
 
 /**
 Play a single sound sample for its entire length
@@ -109,38 +110,6 @@ pub async fn play_sample(path: &str) {
     sink.play();
     sink.sleep_until_end();
   });
-}
-
-#[cfg(not(target_os = "linux"))]
-pub async fn play_buffer<S>(
-  buf: S,
-) 
-  where
-    S: Source<Item = f32> + Send + 'static,
-{
-  thread::spawn(move || {
-    // read and decode audio file, and append to a sound sink
-    let dur = buf.total_duration().unwrap();
-    let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-    
-    println!("System time (M): {:?}", std::time::Instant::now());
-    stream_handle.play_raw(buf).unwrap();
-    thread::sleep(dur);
-  });
-}
-
-pub fn play_metronome(state_ref: &Arc<state::InnerState>) {
-  let state = state_ref.clone();
-
-  if state.playlist.current_beat.load(Ordering::SeqCst) > 0 {
-    // default metronome tick
-    let buf = METRONOME_TICK_SOURCE.convert_samples();
-    futures::executor::block_on(play_buffer(buf));
-  } else {
-    // play accented metronome tick
-    let buf = METRONOME_TICK_ACCENTED_SOURCE.convert_samples();
-    futures::executor::block_on(play_buffer(buf));
-  }
 }
 
 // length of one beat at the playlist's tempo
@@ -251,7 +220,7 @@ pub fn run_playlist(
     *state.playlist.started_time.lock().unwrap() = Some(started);
     {
       let mut audiograph_ref = state.playlist.audiograph.lock().unwrap();
-      audiograph_ref.init(started);
+      audiograph_ref.init();
       audiograph_ref.set_current_offset(Some(start));
     }
     // the counters follow the playlist, which a pattern doesn't move
