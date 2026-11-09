@@ -81,3 +81,18 @@ export const stepAt = (elapsedMs: number, pattern: Pattern, beatIntervalMs: numb
 // each row's lit steps in a pattern, in row order: what a pattern clip draws
 export const litRows = (pattern: Pattern, rows: SequencerRow[]): number[][] =>
   rows.map(row => (pattern.steps[row.id] ?? []).filter(s => s < pattern.length))
+
+// what's shown faintly after a pattern's name: its length, and how many
+// times it's in the playlist
+export const patternHint = (pattern: Pattern, beatsPerBar: number, clips: number): string => {
+  const bars = patternBars(pattern, beatsPerBar)
+  const length = bars === null ? `${pattern.length} steps` : `${bars} bar${bars === 1 ? '' : 's'}`
+  return clips ? `${length} · ${clips}×` : length
+}
+
+// the patterns whose label has the search in it, keeping the Sequencer's order
+export const searchPatterns = (patterns: Pattern[], query: string): Pattern[] => {
+  const search = query.trim().toLowerCase()
+  if(!search) return patterns
+  return patterns.filter(p => patternLabel(p).toLowerCase().includes(search))
+}

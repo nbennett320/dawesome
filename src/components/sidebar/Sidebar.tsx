@@ -9,6 +9,7 @@ import { SidebarPage } from '../../types/ui'
 import SidebarBase from './SidebarBase'
 import SidebarList from './SidebarList'
 import SampleBrowser from '../toolbars/sample-browser/SampleBrowser'
+import PatternBrowser from '../toolbars/pattern-browser/PatternBrowser'
 import styles from './styles.module.scss'
 
 // a page that isn't built yet
@@ -18,7 +19,7 @@ const Placeholder = ({ name }: { name: string }) => (
 
 const pages: Record<SidebarPage, () => React.ReactElement> = {
   [SidebarPage.Samples]: () => <SampleBrowser />,
-  [SidebarPage.Patterns]: () => <Placeholder name='Patterns' />,
+  [SidebarPage.Patterns]: () => <PatternBrowser />,
   [SidebarPage.Recordings]: () => <Placeholder name='Recordings' />,
 }
 
