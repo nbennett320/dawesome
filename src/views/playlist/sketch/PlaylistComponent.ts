@@ -29,12 +29,13 @@ abstract class PlaylistComponent<S = Record<string, unknown>> extends P5Componen
 
   get playlist() { return this.renderer }
 
-  // hit-test against the mouse in playlist x, since components are drawn
-  // inside the zoom/pan transform but p.mouseX is in canvas pixels
+  // hit-test against the mouse in playlist x and y, since components are
+  // drawn inside the zoom/pan/scroll transform but p.mouseX/Y are in canvas
+  // pixels
   mouseOver = (): boolean => {
     const { top, left, bottom, right } = this.boundingBox()
     const mouseX = (this.renderer as Renderer).screenToPlaylistX(this.p.mouseX)
-    const { mouseY } = this.p
+    const mouseY = (this.renderer as Renderer).screenToPlaylistY(this.p.mouseY)
 
     return (
       left <= mouseX && mouseX <= right &&

@@ -10,14 +10,12 @@ export interface WaveformData {
   // [x, y] pairs from the engine (see calc_waveform_from_samples): x is the
   // point's index, y is scaled so the lowest sample is 0 and the highest is 1
   points: number[]
-  // the sample's length in seconds, before any speed change
   duration: number
 }
 
 interface Props {
   data: WaveformData
   settings: ClipSettings
-  // beats per minute, for the beat gridlines
   tempo: number
   // the attack or decay handle was dragged
   onEnvelopeChange: (change: Partial<Pick<ClipSettings, 'attackMs' | 'decayMs'>>) => void
