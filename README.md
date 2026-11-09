@@ -5,11 +5,15 @@ An awesome, libre, and cross-platform DAW
 built with Rust, Tauri, React, and Typescript.
 
 <img 
-  src="./docs/sc5.png" 
+  src="./docs/sc10.png" 
   alt="an early screenshot of Dawesome in its current state" 
 />
 <img 
-  src="./docs/sc4.png" 
+  src="./docs/sc7.png" 
+  alt="the playlist ui interface can no be zoomed in" 
+/>
+<img 
+  src="./docs/sc9.png" 
   alt="the playlist ui interface can no be zoomed in" 
 />
 

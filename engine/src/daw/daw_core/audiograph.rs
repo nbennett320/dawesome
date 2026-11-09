@@ -835,6 +835,43 @@ impl AudioGraph<'static> {
     self.move_node(id, snapped_offset, track_number)
   }
 
+  // move several nodes together, keeping their spacing: the anchor (the
+  // clip that was grabbed) goes to `anchor_offset` on `anchor_track`, snapped
+  // when `subdivision` is given, and every other node moves by as much. the
+  // group stops at the playlist's start and at `max_offset`, and between
+  // the first track and the new-track area, as a whole. returns where each
+  // node ended up, as (id, start offset, track)
+  pub fn move_nodes<T: daw::timing::MusicalTiming>(
+    &mut self,
+    ids: &[u64],
+    anchor_id: u64,
+    anchor_offset: Duration,
+    anchor_track: u32,
+    max_offset: Duration,
+    subdivision: Option<T>,
+  ) -> Result<Vec<(u64, Duration, u32)>, String> {
+    let placed = ids.iter()
+      .map(|&id| self.get_node_by_id(id)
+        .map(|n| (id, n.start_offset, n.track_number))
+        .ok_or_else(|| format!("no node with id {}", id)))
+      .collect::<Result<Vec<_>, String>>()?;
+
+    let target = match subdivision {
+      Some(s) => self.find_nearest_offset_subdivision(anchor_offset, s),
+      None => anchor_offset,
+    };
+
+    let moved = group_move(&placed, anchor_id, target, anchor_track, max_offset, self.track_count())?;
+    for &(id, start_offset, track_number) in &moved {
+      let node = self.get_mut_node_by_id(id).expect("checked above");
+      node.start_offset = start_offset;
+      node.track_number = track_number;
+    }
+    self.nodes.sort_by(|a, b| a.start_offset.cmp(&b.start_offset));
+
+    Ok(moved)
+  }
+
   // remove node from graph with provided id
   // returns an error if id does not exist
   // remove every node, e.g. before loading a project. ids keep counting up,
@@ -1036,10 +1073,117 @@ impl AudioGraph<'static> {
   }
 }
 
+// where a group of clips lands when one of them, the anchor, is dropped at
+// `target` on `target_track`. every clip moves by the anchor's change in
+// time and track, so the group keeps its shape. the change is cut short so
+// no clip starts before 0 or after `max_offset`, or goes above track 0 or
+// below `max_track` (the new-track area). takes and returns
+// (id, start offset, track)
+pub fn group_move(
+  placed: &[(u64, Duration, u32)],
+  anchor_id: u64,
+  target: Duration,
+  target_track: u32,
+  max_offset: Duration,
+  max_track: u32,
+) -> Result<Vec<(u64, Duration, u32)>, String> {
+  let &(_, anchor_start, anchor_track) = placed.iter()
+    .find(|(id, _, _)| *id == anchor_id)
+    .ok_or_else(|| format!("the grabbed clip {} isn't in the group", anchor_id))?;
+
+  // in microseconds, signed, so the change can go either way
+  let micros = |d: Duration| d.as_micros() as i128;
+  let earliest = placed.iter().map(|p| micros(p.1)).min().unwrap();
+  let latest = placed.iter().map(|p| micros(p.1)).max().unwrap();
+  let shift = (micros(target) - micros(anchor_start))
+    .clamp(-earliest, (micros(max_offset) - latest).max(-earliest));
+
+  let top = placed.iter().map(|p| p.2 as i64).min().unwrap();
+  let bottom = placed.iter().map(|p| p.2 as i64).max().unwrap();
+  let tracks = (target_track as i64 - anchor_track as i64)
+    .clamp(-top, (max_track as i64 - bottom).max(-top));
+
+  Ok(placed.iter()
+    .map(|&(id, start, track)| (
+      id,
+      Duration::from_micros((micros(start) + shift) as u64),
+      (track as i64 + tracks) as u32,
+    ))
+    .collect())
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
   use crate::daw::{self};
+
+  fn ms(n: u64) -> Duration { Duration::from_millis(n) }
+
+  #[test]
+  fn test_group_move_keeps_spacing() {
+    let placed = [(1, ms(1_000), 0), (2, ms(1_250), 1), (3, ms(3_000), 1)];
+
+    // clip 2 grabbed and moved 500ms later, one track down
+    let moved = group_move(&placed, 2, ms(1_750), 2, ms(8_000), 4).unwrap();
+    assert_eq!(moved, vec![(1, ms(1_500), 1), (2, ms(1_750), 2), (3, ms(3_500), 2)]);
+
+    // and earlier, one track up
+    let moved = group_move(&placed, 1, ms(400), 0, ms(8_000), 4).unwrap();
+    assert_eq!(moved, vec![(1, ms(400), 0), (2, ms(650), 1), (3, ms(2_400), 1)]);
+  }
+
+  #[test]
+  fn test_group_move_stops_at_the_playlist_edges() {
+    let placed = [(1, ms(1_000), 0), (2, ms(3_000), 1)];
+
+    // dragged past the start: the first clip stops at 0
+    let moved = group_move(&placed, 2, ms(500), 1, ms(8_000), 4).unwrap();
+    assert_eq!(moved, vec![(1, ms(0), 0), (2, ms(2_000), 1)]);
+
+    // dragged past the end: the last clip stops at the end
+    let moved = group_move(&placed, 1, ms(7_500), 0, ms(8_000), 4).unwrap();
+    assert_eq!(moved, vec![(1, ms(6_000), 0), (2, ms(8_000), 1)]);
+  }
+
+  #[test]
+  fn test_group_move_stops_at_the_first_track_and_the_new_track_area() {
+    let placed = [(1, ms(0), 1), (2, ms(500), 3)];
+
+    // up past track 0: the top clip stops on track 0
+    let moved = group_move(&placed, 2, ms(500), 0, ms(8_000), 4).unwrap();
+    assert_eq!(moved, vec![(1, ms(0), 0), (2, ms(500), 2)]);
+
+    // down past the new-track area (track 4): the bottom clip stops there
+    let moved = group_move(&placed, 1, ms(0), 6, ms(8_000), 4).unwrap();
+    assert_eq!(moved, vec![(1, ms(0), 2), (2, ms(500), 4)]);
+  }
+
+  #[test]
+  fn test_group_move_needs_the_anchor() {
+    assert!(group_move(&[(1, ms(0), 0)], 9, ms(0), 0, ms(8_000), 4).is_err());
+  }
+
+  #[test]
+  fn test_move_nodes_snaps_only_the_anchor() {
+    // 120bpm: a beat is 500ms
+    let mut graph = graph_with_ticks(&[1_000, 1_130]);
+    let ids: Vec<u64> = graph.nodes.iter().map(|n| n.id).collect();
+    let (a, b) = (ids[0], ids[1]);
+
+    // a dropped at 1_620ms snaps to 1_500ms; b keeps its 130ms gap, off the grid
+    let moved = graph.move_nodes(&ids, a, ms(1_620), 0, ms(8_000), Some(daw::timing::Note::QuarterNote)).unwrap();
+    assert_eq!(moved, vec![(a, ms(1_500), 0), (b, ms(1_630), 1)]);
+    assert_eq!(graph.get_node_by_id(b).unwrap().start_offset, ms(1_630));
+
+    // without snap the anchor lands exactly where it was dropped
+    graph.move_nodes(&ids, a, ms(1_620), 1, ms(8_000), None::<daw::timing::Note>).unwrap();
+    assert_eq!(graph.get_node_by_id(a).unwrap().start_offset, ms(1_620));
+    assert_eq!(graph.get_node_by_id(b).unwrap().track_number, 2);
+
+    // an unknown id moves nothing
+    assert!(graph.move_nodes(&[a, 9_999], a, ms(0), 0, ms(8_000), None::<daw::timing::Note>).is_err());
+    assert_eq!(graph.get_node_by_id(a).unwrap().start_offset, ms(1_620));
+  }
 
   macro_rules! aw {
     ($e:expr) => {

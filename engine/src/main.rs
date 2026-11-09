@@ -89,6 +89,7 @@ fn init_tauri() {
       get_audio_drivers,
       t_add_audiograph_node,
       move_audiograph_node,
+      move_audiograph_nodes,
       remove_audiograph_node,
       get_node_data,
       get_playlist_sample_offset,
