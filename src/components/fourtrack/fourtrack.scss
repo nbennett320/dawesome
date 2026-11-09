@@ -560,6 +560,66 @@ $ridge: rgba($shadow, .07);
   }
 }
 
+// ---------- Rolling counter ----------
+
+// wheels like the tape counter's, whose digits roll
+.ft-roll {
+  --ft-roll-h: 20px;
+
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 4px;
+  background: var(--ft-display);
+  box-shadow: inset 0 1px 1px rgba($shadow, .06);
+  font-family: var(--ft-font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ft-display-text);
+
+  &__wheel {
+    position: relative;
+    width: 14px;
+    height: var(--ft-roll-h);
+    overflow: hidden;
+    border-radius: 2px;
+    background: #fff;
+    box-shadow: 0 0 0 1px var(--ft-line);
+
+    // the wheel curving away at the top and bottom
+    &::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(
+        rgba($shadow, .07),
+        transparent 30%,
+        transparent 70%,
+        rgba($shadow, .07)
+      );
+    }
+  }
+
+  &__strip {
+    display: flex;
+    flex-direction: column;
+    will-change: transform;
+  }
+
+  &__digit {
+    height: var(--ft-roll-h);
+    line-height: var(--ft-roll-h);
+    text-align: center;
+  }
+
+  &__sep {
+    width: 6px;
+    text-align: center;
+  }
+}
+
 // ---------- Cassette ----------
 
 // the tape, seen through the cassette's window
@@ -656,5 +716,58 @@ $tape: #94a3b8; // slate-400
   &__pin {
     fill: #fff;
     stroke: var(--ft-line-strong);
+  }
+
+  // the deck under the cassette, with the tape pulled out over its heads
+
+  &__plate {
+    fill: #e7ecf2; // the trays' recess
+  }
+
+  &__head {
+    fill: var(--ft-line);
+    stroke: var(--ft-line-strong);
+
+    &--erase {
+      fill: var(--ft-panel);
+    }
+  }
+
+  &__head-gap {
+    stroke: var(--ft-ink-faint);
+  }
+
+  &__roller {
+    fill: #fff;
+    stroke: var(--ft-line-strong);
+  }
+
+  // rubber, pressing the tape against the capstan
+  &__pinch {
+    fill: var(--ft-ink-faint);
+  }
+
+  &__capstan {
+    fill: var(--ft-ink-soft);
+  }
+
+  &__tape-path {
+    fill: none;
+    stroke: $tape;
+    stroke-width: 2.5;
+  }
+
+  &__tape-marks {
+    fill: none;
+    stroke: rgba(#fff, .55);
+    stroke-width: 1.5;
+  }
+
+  // the tape over the play head. drawn the same as the rest for now: it's
+  // where grabbing the tape to stretch the sound will go
+  &__tape-span {
+    fill: none;
+    stroke: transparent;
+    stroke-width: 10;
   }
 }

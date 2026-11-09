@@ -7,12 +7,17 @@ import {
   selectPlaylistPlaying,
   stopPlaylist,
 } from '../../state/slices/playlistSlice'
-import { selectCassetteVisible, setCassetteVisible } from '../../state/slices/windowSlice'
+import {
+  selectCassetteVisible,
+  selectTapePathVisible,
+  setCassetteVisible,
+  setTapePathVisible,
+} from '../../state/slices/windowSlice'
 import { projectName, selectProjectPath } from '../../state/slices/projectSlice'
 import {
   AnalogButton,
   Cassette,
-  CASSETTE_ASPECT,
+  cassetteAspect,
   FastForwardIcon,
   Led,
   LedState,
@@ -20,6 +25,7 @@ import {
   PlayIcon,
   RecordIcon,
   RewindIcon,
+  RollingCounter,
   StopIcon,
   TapeCounter,
 } from '../../components/fourtrack'
@@ -64,6 +70,14 @@ const TapeIcon = () => (
   </svg>
 )
 
+// the tape running over a play head
+const HeadIcon = () => (
+  <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='1.75' aria-hidden>
+    <path d='M3 9h18' />
+    <rect x='8' y='9' width='8' height='7' rx='1.5' />
+  </svg>
+)
+
 // a cassette and the keys of a tape deck: record, rewind, fast forward, play,
 // stop and pause. the wind keys move a bar when tapped, and wind the tape
 // while held
@@ -71,6 +85,7 @@ const TransportDeck = () => {
   const dispatch = useAppDispatch()
   const playing = useAppSelector(selectPlaylistPlaying)
   const cassetteVisible = useAppSelector(selectCassetteVisible)
+  const tapePathVisible = useAppSelector(selectTapePathVisible)
   const label = projectName(useAppSelector(selectProjectPath)) ?? 'untitled'
   const { transport, refresh, assume } = useTransport()
   const [wind, setWind] = React.useState<Wind | null>(null)
@@ -183,7 +198,7 @@ const TransportDeck = () => {
     ? fitCassetteWidth(
       room.width - PADDING * 2,
       room.height - PADDING * 2 - controlsSize.height - GAP,
-      CASSETTE_ASPECT,
+      cassetteAspect(tapePathVisible),
     )
     : undefined
 
@@ -197,7 +212,7 @@ const TransportDeck = () => {
         {/* hidden until measured, so it doesn't start at the wrong size */}
         {cassetteVisible && (
           <div className='shrink-0 max-w-full' style={{ width: cassetteWidth, visibility: cassetteWidth ? undefined : 'hidden' }}>
-            <Cassette progress={progress} speed={speed} label={label} />
+            <Cassette progress={progress} speed={speed} label={label} tapePath={tapePathVisible} />
           </div>
         )}
 
@@ -206,9 +221,10 @@ const TransportDeck = () => {
             <span className='ft-label text-[9px]'>Bar</span>
             <span className='ft-label text-[9px]'>Beat</span>
             <span className='ft-label text-[9px]'>Time</span>
-            <TapeCounter value={bar} digits={3} label='Bar' />
+            <RollingCounter value={String(bar % 1000).padStart(3, '0')} label='Bar' />
+            {/* the beat changes too often to roll without distracting */}
             <TapeCounter value={beat} digits={1} label='Beat' />
-            <span className='text-sm tabular-nums min-w-[4rem] text-right'>{formatTime(position)}</span>
+            <RollingCounter value={formatTime(position)} label='Time' />
           </div>
 
           <div className='ft-tray rounded-lg flex flex-row items-end gap-2 px-3 pt-2 pb-1.5'>
@@ -285,13 +301,26 @@ const TransportDeck = () => {
             </DeckKey>
           </div>
 
-          <LatchKey
-            label={cassetteVisible ? 'Hide the cassette' : 'Show the cassette'}
-            on={cassetteVisible}
-            onToggle={() => dispatch(setCassetteVisible(!cassetteVisible))}
-          >
-            <TapeIcon />
-          </LatchKey>
+          {/* what the tab shows */}
+          <div className='flex flex-row items-end gap-2'>
+            <LatchKey
+              label={cassetteVisible ? 'Hide the cassette' : 'Show the cassette'}
+              on={cassetteVisible}
+              onToggle={() => dispatch(setCassetteVisible(!cassetteVisible))}
+            >
+              <TapeIcon />
+            </LatchKey>
+            {/* only means anything with the cassette showing */}
+            {cassetteVisible && (
+              <LatchKey
+                label={tapePathVisible ? 'Hide the tape over the heads' : 'Show the tape over the heads'}
+                on={tapePathVisible}
+                onToggle={() => dispatch(setTapePathVisible(!tapePathVisible))}
+              >
+                <HeadIcon />
+              </LatchKey>
+            )}
+          </div>
         </div>
       </div>
     </div>

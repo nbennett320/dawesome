@@ -12,6 +12,8 @@ export interface WindowState {
   focusedPaneId: string
   // whether the Transport tab shows the cassette, or just its keys
   cassetteVisible: boolean
+  // whether the cassette shows its tape pulled out across the heads
+  tapePathVisible: boolean
 }
 
 // todo: get initial state from backend,
@@ -35,6 +37,7 @@ const initialState = {
   },
   focusedPaneId: 'root',
   cassetteVisible: true,
+  tapePathVisible: false,
 } as WindowState
 
 // ids for panes created by splitting
@@ -62,6 +65,9 @@ export const windowSlice = createSlice({
     },
     setCassetteVisible: (state, action: PayloadAction<boolean>) => {
       state.cassetteVisible = action.payload
+    },
+    setTapePathVisible: (state, action: PayloadAction<boolean>) => {
+      state.tapePathVisible = action.payload
     },
     focusPane: (state, action: PayloadAction<string>) => {
       state.focusedPaneId = action.payload
@@ -169,6 +175,7 @@ export const selectDevicePreferences = (state: RootState) =>
 export const {
   focusPane,
   setCassetteVisible,
+  setTapePathVisible,
   selectTab,
   closeTab,
   moveTab,
@@ -181,6 +188,8 @@ export const selectWindowPane = (state: RootState) => state.window.windowPane.ro
 export const selectFocusedPaneId = (state: RootState) => state.window.focusedPaneId
 
 export const selectCassetteVisible = (state: RootState) => state.window.cassetteVisible
+
+export const selectTapePathVisible = (state: RootState) => state.window.tapePathVisible
 // end window layout methods
 
 // export root reducer for this slice

@@ -1,7 +1,8 @@
 import { createSlice, Dispatch } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api'
 import { ask, open, save } from '@tauri-apps/api/dialog'
-import { documentDir, join } from '@tauri-apps/api/path'
+import { readDir } from '@tauri-apps/api/fs'
+import { dirname, documentDir, join } from '@tauri-apps/api/path'
 import type { RootState } from 'state/store'
 import { MissingSample, PROJECT_EXTENSION } from '../../types/project'
 import { newProject, openProject, saveProject } from './playlistSlice'
@@ -68,11 +69,11 @@ const chosenPath = (chosen: string | string[] | null | undefined): string | null
 // in the folder "", which crashes the app on macOS (Tauri 1.0-rc.6, rfd 0.8)
 const isAbsolute = (path: string) => path.startsWith('/') || /^[a-z]:[\\/]/i.test(path)
 
-const saveDialogStart = async (current: string | null): Promise<string | undefined> => {
+const saveDialogStart = async (current: string | null, name = 'Untitled'): Promise<string | undefined> => {
   if(current && isAbsolute(current)) return current
 
   try {
-    const start = await join(await documentDir(), `Untitled.${PROJECT_EXTENSION}`)
+    const start = await join(await documentDir(), `${name}.${PROJECT_EXTENSION}`)
     return isAbsolute(start) ? start : undefined
   } catch {
     return undefined
@@ -139,22 +140,81 @@ const openFrom = async (dispatch: Dispatch, path: string): Promise<boolean> => {
   }
 }
 
+// save the project to a file, and carry on in that file
+const saveProjectTo = async (dispatch: Dispatch, getState: () => RootState, path: string) => {
+  try {
+    await saveProject(path)(dispatch, getState)
+    dispatch(setProjectPath(path))
+    dispatch(setProjectNotice(null))
+  } catch(e) {
+    dispatch(setProjectNotice({ kind: 'error', message: errorMessage("Couldn't save the project", e) }))
+    return
+  }
+  await noteRecent(path)
+}
+
+// a typed project name, kept to what's fine in a file name: no extension,
+// no path separators or characters some systems refuse
+export const cleanProjectName = (typed: string): string =>
+  typed
+    .trim()
+    .replace(new RegExp(`\\.${PROJECT_EXTENSION}$`, 'i'), '')
+    .replace(/[\\/:*?"<>|]/g, '')
+    .trim()
+
+// whether a folder already has a file of this name (case doesn't matter, as
+// on macOS and Windows). a folder that can't be read counts as not
+const fileExists = async (folder: string, file: string): Promise<boolean> => {
+  try {
+    const entries = await readDir(folder)
+    return entries.some(entry => entry.name?.toLowerCase() === file.toLowerCase())
+  } catch {
+    return false
+  }
+}
+
+// give the project a name, from the cassette's label
+// - an unsaved project: the save dialog, with the name filled in
+// - a saved one: after asking, a copy saved as the new name next to it,
+//   which is then the project's file. the old file is left as it was
+export const nameProject = (typed: string) => (
+  dispatch: Dispatch,
+  getState: () => RootState,
+): Promise<void> => exclusive(async () => {
+  const name = cleanProjectName(typed)
+  const current = getState().project.path
+  if(!name || name === projectName(current)) return
+
+  if(!current) {
+    const chosen = chosenPath(await save({
+      title: 'Save project',
+      filters: dialogFilters,
+      defaultPath: await saveDialogStart(null, name),
+    }))
+    if(chosen) await saveProjectTo(dispatch, getState, withExtension(chosen))
+    return
+  }
+
+  const file = `${name}.${PROJECT_EXTENSION}`
+  const folder = await dirname(current)
+  const replacing = await fileExists(folder, file)
+  const was = projectName(current)
+
+  const ok = await ask(
+    replacing
+      ? `A project called "${name}" is already in this folder, and will be replaced. "${was}" stays as it was.`
+      : `The project will be saved as "${name}", next to "${was}", which stays as it was.`,
+    `Save as "${name}"?`,
+  )
+  if(ok) await saveProjectTo(dispatch, getState, await join(folder, file))
+})
+
 // run a File menu command, asking where to open or save when needed
 export const runProjectCommand = (command: ProjectCommand) => (
   dispatch: Dispatch,
   getState: () => RootState,
 ): Promise<void> => exclusive(async () => {
-  const saveTo = async (path: string) => {
-    try {
-      await saveProject(path)(dispatch, getState)
-      dispatch(setProjectPath(path))
-      dispatch(setProjectNotice(null))
-    } catch(e) {
-      dispatch(setProjectNotice({ kind: 'error', message: errorMessage("Couldn't save the project", e) }))
-      return
-    }
-    await noteRecent(path)
-  }
+  const saveTo = (path: string) => saveProjectTo(dispatch, getState, path)
 
   const saveAs = async () => {
     const chosen = chosenPath(await save({

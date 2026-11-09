@@ -1,11 +1,16 @@
 // (rendering it isn't tested: with esModuleInterop off, React's default
 // import is undefined under jest)
 import {
+  cassetteAspect,
   FULL_RADIUS,
   HUB_RADIUS,
   MAX_SPIN,
+  MAX_TAPE_MARK_SPEED,
   packRadii,
   reelSpin,
+  TAPE_MARK_PERIOD,
+  TAPE_MARK_SPEED,
+  tapeMarkSpeed,
 } from './Cassette'
 
 const area = ({ left, right }: { left: number, right: number }) => left ** 2 + right ** 2
@@ -56,3 +61,24 @@ describe('reelSpin', () => {
   })
 })
 
+
+describe('tapeMarkSpeed', () => {
+  it('moves with the tape', () => {
+    expect(tapeMarkSpeed(0)).toBe(0)
+    expect(tapeMarkSpeed(1)).toBe(TAPE_MARK_SPEED)
+    expect(tapeMarkSpeed(-1)).toBe(-TAPE_MARK_SPEED)
+  })
+
+  it('never moves fast enough to look like it is going backwards', () => {
+    expect(tapeMarkSpeed(10)).toBe(MAX_TAPE_MARK_SPEED)
+    expect(tapeMarkSpeed(-10)).toBe(-MAX_TAPE_MARK_SPEED)
+    // under half a mark's spacing a frame, at 60 frames a second
+    expect(MAX_TAPE_MARK_SPEED / 60).toBeLessThan(TAPE_MARK_PERIOD / 2)
+  })
+})
+
+describe('cassetteAspect', () => {
+  it('is taller with the tape path', () => {
+    expect(cassetteAspect(true)).toBeLessThan(cassetteAspect(false))
+  })
+})

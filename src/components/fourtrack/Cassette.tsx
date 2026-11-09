@@ -4,9 +4,12 @@ import { clamp, cx } from './util'
 // the cassette is drawn in a 320 x 200 box (a real one is 100 x 63mm)
 const WIDTH = 320
 const HEIGHT = 200
+// with the tape path drawn below it
+const HEIGHT_WITH_TAPE_PATH = 272
 
 // width over height, for fitting the cassette into a box
-export const CASSETTE_ASPECT = WIDTH / HEIGHT
+export const cassetteAspect = (tapePath = false) =>
+  WIDTH / (tapePath ? HEIGHT_WITH_TAPE_PATH : HEIGHT)
 
 // reel centres, seen through the window
 const REEL_Y = 92
@@ -54,6 +57,57 @@ export const reelSpin = (radius: number, speed: number): number => {
 // how quickly the reels get up to speed (and slow down), in seconds
 const SPIN_UP = 0.18
 
+// how fast the marks on the tape path move at play speed, in drawing units a
+// second, and the fastest they're drawn moving. the marks repeat every
+// TAPE_MARK_PERIOD units, so moving more than half that a frame (at 60
+// frames a second) would look like going backwards
+export const TAPE_MARK_SPEED = 60
+export const TAPE_MARK_PERIOD = 12
+export const MAX_TAPE_MARK_SPEED = 330
+
+// how fast the tape path's marks move, in drawing units a second (positive
+// is forward: from the left reel to the right)
+export const tapeMarkSpeed = (speed: number): number =>
+  Math.sign(speed) * Math.min(Math.abs(speed) * TAPE_MARK_SPEED, MAX_TAPE_MARK_SPEED)
+
+// the tape pulled out of the cassette's opening: down from the pins, round a
+// guide roller, across the heads and between the capstan and pinch roller,
+// round the other guide roller and back up
+const TAPE_Y = 238
+// (past the outside of the pins, so it wraps them)
+const TAPE_PATH = `M81 176 V230 A8 8 0 0 0 89 ${TAPE_Y} H231 A8 8 0 0 0 239 230 V176`
+// the stretch of tape over the play head (for grabbing it, later)
+const HEAD_X = 160
+const TAPE_SPAN = `M${HEAD_X - 22} ${TAPE_Y} H${HEAD_X + 22}`
+
+// the deck's mechanism under the cassette: the tape path, its rollers, the
+// heads, and the capstan. `marks` is the dashed tape that moves
+const TapePath = ({ marks }: { marks: React.Ref<SVGPathElement> }) => (
+  <g className='ft-cassette__deck'>
+    <rect className='ft-cassette__plate' x={40} y={204} width={240} height={62} rx={8} />
+
+    {/* the heads, under the tape: erase, then play/record */}
+    <rect className='ft-cassette__head ft-cassette__head--erase' x={112} y={TAPE_Y} width={14} height={14} rx={2} />
+    <rect className='ft-cassette__head' x={HEAD_X - 16} y={TAPE_Y} width={32} height={20} rx={4} />
+    <line className='ft-cassette__head-gap' x1={HEAD_X} y1={TAPE_Y + 1} x2={HEAD_X} y2={TAPE_Y + 6} />
+
+    <circle className='ft-cassette__roller' cx={89} cy={230} r={6.5} />
+    <circle className='ft-cassette__roller' cx={231} cy={230} r={6.5} />
+    <circle className='ft-cassette__pinch' cx={202} cy={TAPE_Y + 7.5} r={6.5} />
+
+    <path className='ft-cassette__tape-path' d={TAPE_PATH} />
+    <path
+      ref={marks}
+      className='ft-cassette__tape-marks'
+      d={TAPE_PATH}
+      strokeDasharray={`2 ${TAPE_MARK_PERIOD - 2}`}
+    />
+    <path className='ft-cassette__tape-span' d={TAPE_SPAN} />
+
+    <circle className='ft-cassette__capstan' cx={202} cy={TAPE_Y - 3.5} r={2.5} />
+  </g>
+)
+
 export interface CassetteProps {
   // how far through the tape is, 0..1
   progress: number
@@ -65,6 +119,8 @@ export interface CassetteProps {
   // the side, in the label's corner
   side?: string
   className?: string
+  // draw the tape pulled out across the deck's heads, under the cassette
+  tapePath?: boolean
 }
 
 // for each cassette's window clip path
@@ -105,13 +161,15 @@ export const Cassette = ({
   label = 'dawesome',
   side = 'A',
   className,
+  tapePath = false,
 }: CassetteProps) => {
   const radii = packRadii(progress)
   const leftHub = React.useRef<SVGGElement>(null)
   const rightHub = React.useRef<SVGGElement>(null)
 
   // read by the animation frame, which outlives any one render
-  const live = React.useRef({ radii, target: speed, speed: 0, left: 0, right: 0 })
+  const marks = React.useRef<SVGPathElement>(null)
+  const live = React.useRef({ radii, target: speed, speed: 0, left: 0, right: 0, tape: 0 })
   live.current.radii = radii
   live.current.target = speed
 
@@ -140,6 +198,10 @@ export const Cassette = ({
       leftHub.current?.setAttribute('transform', `rotate(${reels.left})`)
       rightHub.current?.setAttribute('transform', `rotate(${reels.right})`)
 
+      // the marks move along the path the other way to the dash offset
+      reels.tape = (reels.tape - tapeMarkSpeed(reels.speed) * dt) % TAPE_MARK_PERIOD
+      marks.current?.setAttribute('stroke-dashoffset', String(reels.tape))
+
       // carries on until the reels have come to rest
       anim.current = reels.speed || reels.target ? requestAnimationFrame(step) : null
     }
@@ -158,7 +220,7 @@ export const Cassette = ({
 
   return (
     <svg
-      viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+      viewBox={`0 0 ${WIDTH} ${tapePath ? HEIGHT_WITH_TAPE_PATH : HEIGHT}`}
       className={cx('ft-cassette', className)}
       role='img'
       aria-label={`Tape, ${percent}% through`}
@@ -191,9 +253,12 @@ export const Cassette = ({
 
       {/* the opening at the bottom, where the tape passes the heads */}
       <path className='ft-cassette__opening' d='M64 196 L80 164 H240 L256 196' />
-      <line className='ft-cassette__tape' x1={78} y1={176} x2={242} y2={176} />
+      {/* the tape across the opening, unless it's pulled out over the heads */}
+      {!tapePath && <line className='ft-cassette__tape' x1={78} y1={176} x2={242} y2={176} />}
       <circle className='ft-cassette__pin' cx={84} cy={176} r={3} />
       <circle className='ft-cassette__pin' cx={236} cy={176} r={3} />
+
+      {tapePath && <TapePath marks={marks} />}
     </svg>
   )
 }
