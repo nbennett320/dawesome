@@ -1,6 +1,7 @@
 // skeuomorphic controls modelled on a cassette four-track, in dawesome's
 // colours. the stylesheet (fourtrack.scss) is imported once, from index.tsx
 export * from './AnalogButton'
+export * from './Cassette'
 export * from './Knob'
 export * from './Led'
 export * from './LevelMeter'

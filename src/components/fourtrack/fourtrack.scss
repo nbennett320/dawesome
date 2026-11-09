@@ -559,3 +559,102 @@ $ridge: rgba($shadow, .07);
     color: var(--ft-display-text);
   }
 }
+
+// ---------- Cassette ----------
+
+// the tape, seen through the cassette's window
+$tape: #94a3b8; // slate-400
+
+.ft-cassette {
+  display: block;
+  width: 100%;
+  height: auto;
+
+  &__shell {
+    fill: var(--ft-cap-top);
+    stroke: var(--ft-line-strong);
+    stroke-width: 1.5;
+  }
+
+  &__screw {
+    fill: var(--ft-panel);
+    stroke: var(--ft-line-strong);
+  }
+
+  &__label {
+    fill: #f8fafc; // slate-50
+    stroke: var(--ft-line);
+  }
+
+  &__title {
+    font: 600 10px var(--ft-font-label);
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    fill: var(--ft-ink-soft);
+  }
+
+  // the line written on
+  &__rule {
+    stroke: var(--ft-line-strong);
+  }
+
+  &__side {
+    fill: none;
+    stroke: var(--ft-line-strong);
+  }
+
+  &__side-text {
+    font: 700 11px var(--ft-font-label);
+    fill: var(--ft-ink-soft);
+  }
+
+  // coloured bands across the bottom of the label
+  &__stripe {
+    &--1 { fill: var(--ft-accent); }
+    &--2 { fill: #7dd3fc; } // sky-300
+  }
+
+  &__window {
+    fill: var(--ft-display);
+    stroke: var(--ft-line-strong);
+  }
+
+  &__pack {
+    fill: $tape;
+  }
+
+  &__pack-edge {
+    fill: none;
+    stroke: rgba($shadow, .12);
+  }
+
+  &__hub {
+    fill: #fff;
+    stroke: var(--ft-line-strong);
+  }
+
+  // the hole the deck's spindle goes in. darker than the hub, so its white
+  // teeth show the reel turning
+  &__bore {
+    fill: var(--ft-line-strong);
+  }
+
+  &__tooth {
+    fill: #fff;
+  }
+
+  &__opening {
+    fill: var(--ft-panel);
+    stroke: var(--ft-line-strong);
+  }
+
+  &__tape {
+    stroke: $tape;
+    stroke-width: 2;
+  }
+
+  &__pin {
+    fill: #fff;
+    stroke: var(--ft-line-strong);
+  }
+}
