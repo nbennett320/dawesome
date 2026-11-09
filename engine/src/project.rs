@@ -239,7 +239,7 @@ pub fn apply(
   project: &Project,
   project_dir: Option<&Path>,
 ) -> LoadedProject {
-  daw::pause_playlist(state);
+  daw::stop_playlist(state);
 
   let settings = project.settings;
   state.metronome_enabled.store(settings.metronome_enabled, Ordering::SeqCst);

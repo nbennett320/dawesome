@@ -558,12 +558,15 @@ impl AudioGraph<'static> {
   //   mixer doesn't change it
   // - bus: the master bus (see daw::run_playlist), which every clip plays
   //   through
+  // - resume: the run's first slice, so clips that started before it and are
+  //   still sounding are played from where the playhead is in them
   pub fn run_for(
     &self,
     stream: &OutputStreamHandle,
     bus: &DynamicMixerController<f32>,
     dur: Duration,
     metronome_enabled: bool,
+    resume: bool,
   ) {
     if self.nodes.len() == 0 {
       println!("Tried to run audio graph. No nodes in graph!");
@@ -578,7 +581,7 @@ impl AudioGraph<'static> {
       }
     }
 
-    let (_controller, mixer) = self.buffer_slice(dur).unwrap();
+    let (_controller, mixer) = self.slice_mixer(dur, resume);
     bus.add(mixer);
   }
 
@@ -628,9 +631,21 @@ impl AudioGraph<'static> {
       node.start_offset >= window_start && node.start_offset < window_end)
   }
 
+  // nodes that started before `at` and are still playing then
+  fn nodes_sounding_at(&self, at: Duration) -> impl Iterator<Item = &AudioNode> {
+    self.nodes.iter().filter(move |node|
+      node.start_offset < at && node.start_offset + node.duration() > at)
+  }
+
   // the clips that start in the next `dur`, each through its track's strip
   // (the metronome isn't included, see run_for)
   pub fn buffer_slice(&self, dur: Duration) -> Option<(Arc<DynamicMixerController<f32>>, DynamicMixer<f32>)> {
+    Some(self.slice_mixer(dur, false))
+  }
+
+  // buffer_slice, also playing the rest of every clip already sounding at
+  // the slice's start when `resume` is set
+  fn slice_mixer(&self, dur: Duration, resume: bool) -> (Arc<DynamicMixerController<f32>>, DynamicMixer<f32>) {
     let (controller, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, self.sample_rate);
     let silence = rodio::source::Zero::<f32>::new(2, self.sample_rate).take_duration(dur);
 
@@ -638,6 +653,15 @@ impl AudioGraph<'static> {
     
     let window_start = self.current_offset.unwrap_or(Duration::ZERO);
     println!("current offset: {}", window_start.as_millis());
+
+    if resume {
+      for node in self.nodes_sounding_at(window_start) {
+        let played = window_start - node.start_offset;
+        println!("resumed node: {} ({}ms in)", node.sample_path, played.as_millis());
+        let source = self.mixer.track_strip(node.track_number, node.source().skip_duration(played));
+        controller.add(source);
+      }
+    }
 
     // schedule every node that starts within this time slice
     for node in self.nodes_in_window(window_start, dur) {
@@ -647,7 +671,7 @@ impl AudioGraph<'static> {
       controller.add(source);
     }
 
-    Some((controller, mixer))
+    (controller, mixer)
   }
 
   pub fn buffer_for(&self, dur: Duration) -> Option<DynamicMixer<f32>> {
@@ -1101,7 +1125,7 @@ mod tests {
     let now = Instant::now();
 
     let (bus, _bus_out) = rodio::dynamic_mixer::mixer::<f32>(2, sample_rate);
-    audiograph.run_for(&stream_handle, &bus, runtime, true);
+    audiograph.run_for(&stream_handle, &bus, runtime, true, false);
     thread::sleep(runtime);
 
     let now_elapsed = now.elapsed();
@@ -1373,6 +1397,47 @@ mod tests {
     // a node exactly at the window end belongs to the next window only
     assert_eq!(starts(500), vec![500, 900]);
     assert_eq!(starts(1_000), Vec::<u128>::new());
+  }
+
+  #[test]
+  fn test_nodes_sounding_at() {
+    let audiograph = graph_with_ticks(&[0, 200, 500]);
+    let tick = audiograph.nodes[0].duration();
+    let sounding = |at: Duration| -> Vec<u128> {
+      audiograph
+        .nodes_sounding_at(at)
+        .map(|n| n.start_offset.as_millis())
+        .collect()
+    };
+
+    // a node starting right at the playhead isn't resumed, it's scheduled
+    // the usual way
+    assert!(!sounding(Duration::from_millis(200)).contains(&200));
+    // partway through the first tick
+    assert_eq!(sounding(Duration::from_millis(1)), vec![0]);
+    // after every tick has ended
+    assert_eq!(sounding(Duration::from_millis(500) + tick), Vec::<u128>::new());
+  }
+
+  #[test]
+  fn test_resumed_slice_plays_the_rest_of_a_sounding_clip() {
+    let energy = |at_ms: u64, resume: bool| -> f64 {
+      let mut audiograph = graph_with_ticks(&[0]);
+      audiograph.set_current_offset(Some(Duration::from_millis(at_ms)));
+      let (_controller, mixer) = audiograph.slice_mixer(audiograph.beat_interval(), resume);
+      mixer.map(|x| x.abs() as f64).sum()
+    };
+
+    let tick = graph_with_ticks(&[0]).nodes[0].duration().as_millis() as u64;
+    assert!(tick > 2, "the tick sample is too short to resume inside");
+    let mid = tick / 2;
+
+    // not resuming: the clip started before the slice, so it's silent
+    assert_eq!(energy(mid, false), 0.);
+    // resuming plays its second half, which is less than the whole tick
+    let rest = energy(mid, true);
+    assert!(rest > 0.);
+    assert!(rest < energy(0, false));
   }
 
   #[test]

@@ -37,8 +37,13 @@ class Cursor extends PlaylistComponent {
 
     if(!transport) return null
 
-    const { startTimeMs, beatIntervalMs, loopBeats, beatsDisplayed, loopEnabled } = transport
-    const elapsedMs = Math.max(0, Date.now() - startTimeMs)
+    const {
+      startTimeMs, startOffsetMs, beatIntervalMs, loopBeats, beatsDisplayed, loopEnabled,
+    } = transport
+    if(startTimeMs === null) return null
+
+    // the run started at `startOffsetMs` (where it was paused, or seeked to)
+    const elapsedMs = startOffsetMs + Math.max(0, Date.now() - startTimeMs)
 
     // the engine jumps back to the start after `loopBeats` beats
     const loopMs = beatIntervalMs * loopBeats

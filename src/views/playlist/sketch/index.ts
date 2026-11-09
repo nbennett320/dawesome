@@ -96,7 +96,14 @@ interface GestureEvent extends UIEvent {
 
 // mirrors PlaylistTransport in engine/src/event_dispatch.rs
 export interface PlaylistTransport {
-  startTimeMs: number
+  playing: boolean
+  // engine start time of the current run, ms since the unix epoch (null
+  // before the first run)
+  startTimeMs: number | null
+  // where on the timeline the current run started
+  startOffsetMs: number
+  // where the playhead was when this was fetched
+  positionMs: number
   beatIntervalMs: number
   loopBeats: number
   beatsDisplayed: number
