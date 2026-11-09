@@ -17,7 +17,9 @@ export type PlaylistItemPixelOffset = {
 export type PlaylistItem = {
   id: number,
   path: string,
-  // offset: number,
+  // where the clip starts, in beats from the start of the playlist
+  // (after snapping), so it doesn't depend on the canvas size or zoom
+  startBeat: number,
   trackNumber: number,
   pixelOffset: PlaylistItemPixelOffset,
 }

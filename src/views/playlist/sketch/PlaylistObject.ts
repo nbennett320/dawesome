@@ -14,9 +14,10 @@ interface Props extends PlaylistComponentProps {
   trackHeight: number
 }
 
-type State = ComponentState<{
-  isDragging: boolean
-}>
+type State = ComponentState<Record<string, never>>
+
+// room at the end of the label for the modified dot, in screen pixels
+const MODIFIED_DOT_SPACE = 12
 
 class PlaylistObject extends PlaylistComponent<State> {
   playlistItem: PlaylistItem
@@ -28,7 +29,8 @@ class PlaylistObject extends PlaylistComponent<State> {
   minHeight: number
   maxHeight: number
   waveform: Waveform
-  // isDragging = false
+  // whether the clip's settings differ from the default, shown as a dot
+  modified = false
 
   constructor(
     p: P5CanvasInstance<CanvasProps>,
@@ -37,10 +39,6 @@ class PlaylistObject extends PlaylistComponent<State> {
     props: Props,
   ) {
     super(p, canvas, playlist, props)
-
-    this.setState({
-      isDragging: false,
-    })
 
     this.playlistItem = props.playlistItem
     this.soundData = props.soundData
@@ -59,6 +57,7 @@ class PlaylistObject extends PlaylistComponent<State> {
         timelineHeight: this.timelineHeight,
         timelineWidth: this.timelineWidth,
         soundData: this.soundData,
+        startBeat: this.playlistItem.startBeat,
         trackNumber: this.playlistItem.trackNumber,
         pixelOffset: this.playlistItem.pixelOffset,
         minHeight: this.minHeight,
@@ -70,40 +69,10 @@ class PlaylistObject extends PlaylistComponent<State> {
 
   boundingBox = (): P5BoundingBox => this.waveform.boundingBox()
 
-  get isDragging(): boolean { return this.state.isDragging }
-
-  set isDragging(val: boolean) { this.state.isDragging = val }
-
-  // call a function on dragging an item
-  onDrag = (
-    dragFn: () => void,
-    dropFn: () => void,
-  ) => {
-    this.onMouseOver(() => {
-      if((this.renderer as Renderer).isMouseDragged) {
-        this.canvas.mouseReleased(() => {
-
-          if(this.state.isDragging) {
-            this.isDragging = false
-            console.log("it dropped")
-            dropFn()
-            this.setState({
-              ...this.state,
-              isDragging: false,
-            })
-
-          }
-        })
-
-        // this.isDragging = true
-        this.setState({
-          ...this.state,
-          isDragging: true,
-        })
-      }
-    })
-
-    dragFn()
+  // how long the clip plays for, in seconds. changes with its pitch
+  setDuration = (seconds: number) => {
+    this.duration = seconds
+    this.waveform.duration = seconds
   }
 
   // call function on right click
@@ -140,13 +109,26 @@ class PlaylistObject extends PlaylistComponent<State> {
     this.p.push()
     this.p.scale(1 / this.currentScale, 1)
     this.p.textWrap(this.p.CHAR)
+    // leave room for the modified dot
+    const dotSpace = this.modified ? MODIFIED_DOT_SPACE : 0
     this.p.text(
       this.playlistItem.path,
       (left + 1) * this.currentScale,
       top + 6,
-      width * this.currentScale - 1,
+      width * this.currentScale - 1 - dotSpace,
       this.labelHeight,
     )
+
+    // a dot at the end of the label: this clip's settings were changed
+    // in the Sample tab. drawn unscaled, so it stays round when zoomed
+    if(this.modified) {
+      this.p.fill(217, 119, 6)
+      this.p.circle(
+        right * this.currentScale - MODIFIED_DOT_SPACE / 2,
+        top + this.labelHeight / 2,
+        6,
+      )
+    }
 
     if((this.renderer as Renderer)?.debugMode) {
       // text width debug
@@ -173,9 +155,10 @@ class PlaylistObject extends PlaylistComponent<State> {
     if((this.renderer as Renderer)?.debugMode) {
       // mouse drop height debug
       const { pixelOffset } = this.playlistItem
+      const { left, width } = waveform.boundingBox()
       this.p.strokeWeight(2)
       this.p.stroke(255,187,153)
-      this.p.line(pixelOffset.xOffset, pixelOffset.yOffset, pixelOffset.xOffset + waveform.boundingBox().width, pixelOffset.yOffset)
+      this.p.line(left, pixelOffset.yOffset, left + width, pixelOffset.yOffset)
 
     }
   }

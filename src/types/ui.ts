@@ -1,30 +1,34 @@
-import React from 'react'
-
-export enum TabTypes {
-  Tab = 'tab',
-}
-
 export enum View {
   Playlist,
-  Test
+  // inspect a clip from the playlist and adjust how it plays
+  SamplePreview,
 }
 
+// the label a view's tab gets when it's opened
+export const viewLabels: Record<View, string> = {
+  [View.Playlist]: 'Playlist',
+  [View.SamplePreview]: 'Sample',
+}
+
+// how a split pane lays out its children, named like react-split-pane:
+// 'vertical' is side by side (a vertical divider), 'horizontal' is stacked
 export type SplitDirection = 'vertical' | 'horizontal'
 
 export type PaneTab = {
   label: string
-  index: number
-  active: boolean
   component: View
 }
 
+// a pane in the window layout (see state/paneTree.ts)
+// - a leaf has `tabs` and `activeView`, the selected tab
+// - a split has `direction`, `left` and `right` (left is the top when stacked)
 export type WindowNode = {
   id: string
+  tabs: Array<PaneTab>
+  activeView?: View
+  direction?: SplitDirection
   left?: WindowNode
   right?: WindowNode
-  child?: View
-  tabs: Array<PaneTab>
-  direction: SplitDirection
 }
 
 export type WindowPane = {

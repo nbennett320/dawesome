@@ -10,7 +10,7 @@ export interface PlaylistComponentProps {
   currentScale: number
 }
 
-abstract class PlaylistComponent<S> extends P5Component<CanvasProps, S> {
+abstract class PlaylistComponent<S = Record<string, unknown>> extends P5Component<CanvasProps, S> {
   timelineWidth: number
   timelineHeight: number
   currentScale: number
@@ -28,6 +28,19 @@ abstract class PlaylistComponent<S> extends P5Component<CanvasProps, S> {
   }
 
   get playlist() { return this.renderer }
+
+  // hit-test against the mouse in playlist x, since components are drawn
+  // inside the zoom/pan transform but p.mouseX is in canvas pixels
+  mouseOver = (): boolean => {
+    const { top, left, bottom, right } = this.boundingBox()
+    const mouseX = (this.renderer as Renderer).screenToPlaylistX(this.p.mouseX)
+    const { mouseY } = this.p
+
+    return (
+      left <= mouseX && mouseX <= right &&
+      top <= mouseY && mouseY <= bottom
+    )
+  }
 
   abstract render(): void
 }

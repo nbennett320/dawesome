@@ -1,0 +1,503 @@
+// saving and loading projects: the playlist's clips, their settings, and the
+// playlist's settings, in a JSON file (.dawesome)
+//
+// sample paths inside the project's folder are saved relative to it, so a
+// project folder can be moved or shared. other samples are saved as
+// absolute paths
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
+use std::time::Duration;
+use serde::{Deserialize, Serialize};
+
+use crate::daw;
+use crate::event_dispatch::{clip_info, ClipInfo};
+
+// the newest project format this version of the app reads and writes.
+// bump it when a change means older apps would misread a project
+pub const PROJECT_VERSION: u32 = 1;
+
+// the playlist's settings, as saved in a project
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ProjectSettings {
+  pub tempo: f32,
+  pub time_signature: daw::timing::TimeSignature,
+  pub metronome_enabled: bool,
+  pub loop_enabled: bool,
+  pub snap_enabled: bool,
+  pub snap_note: daw::timing::Note,
+}
+
+impl Default for ProjectSettings {
+  fn default() -> Self {
+    ProjectSettings {
+      tempo: daw::defaults::TEMPO,
+      time_signature: daw::timing::TimeSignature { numerator: 4, denominator: 4 },
+      metronome_enabled: true,
+      loop_enabled: true,
+      snap_enabled: daw::defaults::SNAP_ENABLED,
+      snap_note: daw::defaults::SNAP_SUBDIVISION,
+    }
+  }
+}
+
+// a clip, as saved in a project
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectClip {
+  // relative to the project's folder, or absolute
+  pub path: String,
+  pub track_number: u32,
+  // beats from the start of the playlist
+  pub start_beat: f64,
+  #[serde(default)]
+  pub settings: daw::ClipSettings,
+}
+
+// a project file. missing fields take their defaults, so hand edited or
+// older files still load
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Project {
+  pub version: u32,
+  #[serde(flatten)]
+  pub settings: ProjectSettings,
+  pub clips: Vec<ProjectClip>,
+}
+
+impl Default for Project {
+  fn default() -> Self {
+    Project {
+      version: PROJECT_VERSION,
+      settings: ProjectSettings::default(),
+      clips: Vec::new(),
+    }
+  }
+}
+
+impl Project {
+  // read a project from its JSON, refusing ones this app can't play
+  pub fn from_json(json: &str) -> Result<Self, String> {
+    let project: Project = serde_json::from_str(json)
+      .map_err(|e| format!("not a valid project file: {}", e))?;
+    project.validate()?;
+
+    Ok(project)
+  }
+
+  fn validate(&self) -> Result<(), String> {
+    if self.version > PROJECT_VERSION {
+      return Err(format!(
+        "this project was saved by a newer version of dawesome (format {}, this version reads up to {})",
+        self.version, PROJECT_VERSION));
+    }
+
+    let tempo = self.settings.tempo;
+    if !tempo.is_finite() || tempo <= 0. || tempo > 1000. {
+      return Err(format!("the project's tempo ({}) is out of range", tempo));
+    }
+
+    let sig = self.settings.time_signature;
+    if sig.numerator == 0 || sig.denominator == 0 {
+      return Err(format!(
+        "the project's time signature ({}/{}) is invalid", sig.numerator, sig.denominator));
+    }
+
+    Ok(())
+  }
+}
+
+// a clip after loading, with its new id and the frontend's names
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LoadedClip {
+  pub id: u64,
+  // where the sample was found
+  pub path: String,
+  pub track_number: u32,
+  pub start_beat: f32,
+  // the clip's settings and lengths, as get_clip returns them
+  #[serde(flatten)]
+  pub info: ClipInfo,
+}
+
+// a clip that couldn't be loaded, so it was left out
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MissingSample {
+  pub path: String,
+  pub reason: String,
+}
+
+// what the frontend needs to show a project once it's loaded
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct LoadedProject {
+  #[serde(flatten)]
+  pub settings: ProjectSettings,
+  pub clips: Vec<LoadedClip>,
+  pub missing: Vec<MissingSample>,
+}
+
+// the folder a project file is in, which its relative sample paths start from
+fn project_dir(project_path: &Path) -> Result<PathBuf, String> {
+  let dir = match project_path.parent() {
+    Some(dir) if !dir.as_os_str().is_empty() => dir,
+    _ => Path::new("."),
+  };
+
+  fs::canonicalize(dir)
+    .map_err(|e| format!("could not find the folder '{}': {}", dir.display(), e))
+}
+
+// a sample's path as saved: relative (with forward slashes) when it's inside
+// the project's folder, otherwise absolute
+fn stored_path(sample_path: &str, project_dir: Option<&Path>) -> String {
+  // samples can be added by relative paths, which wouldn't mean the same
+  // thing once the project is loaded from elsewhere
+  let absolute = fs::canonicalize(sample_path)
+    .unwrap_or_else(|_| PathBuf::from(sample_path));
+
+  match project_dir.and_then(|dir| absolute.strip_prefix(dir).ok()) {
+    Some(relative) => relative
+      .components()
+      .map(|c| c.as_os_str().to_string_lossy())
+      .collect::<Vec<_>>()
+      .join("/"),
+    None => absolute.to_string_lossy().into_owned(),
+  }
+}
+
+// where a saved sample path points, for a project in `project_dir`
+fn resolved_path(stored: &str, project_dir: Option<&Path>) -> PathBuf {
+  let path = Path::new(stored);
+
+  match project_dir {
+    Some(dir) if path.is_relative() => dir.join(path),
+    _ => path.to_path_buf(),
+  }
+}
+
+// round away floating point noise, so saved beats read like 4 rather than
+// 3.9999999999
+fn tidy_beat(beat: f64) -> f64 {
+  (beat * 1e6).round() / 1e6
+}
+
+// the current playlist as a project, with sample paths relative to
+// `project_dir` where they can be
+pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
+  let (tempo, clips) = {
+    let audiograph = state.playlist.audiograph.lock().unwrap();
+    let interval = audiograph.beat_interval().as_secs_f64();
+
+    let clips = audiograph.nodes.iter().map(|node| ProjectClip {
+      path: stored_path(node.sample_path(), project_dir),
+      track_number: node.track_number,
+      start_beat: if interval > 0. {
+        tidy_beat(node.start_offset.as_secs_f64() / interval)
+      } else {
+        0.
+      },
+      settings: node.settings(),
+    }).collect();
+
+    (audiograph.tempo(), clips)
+  };
+
+  let ui = *state.playlist.ui.lock().unwrap();
+
+  Project {
+    version: PROJECT_VERSION,
+    settings: ProjectSettings {
+      tempo,
+      time_signature: *state.playlist.time_signature.lock().unwrap(),
+      metronome_enabled: state.metronome_enabled.load(Ordering::SeqCst),
+      loop_enabled: state.playlist.loop_enabled.load(Ordering::SeqCst),
+      snap_enabled: ui.snap_enabled,
+      snap_note: ui.snap_subdivision,
+    },
+    clips,
+  }
+}
+
+// replace the playlist with a project. playback stops, and every clip gets a
+// new id. clips whose samples can't be found or read are left out and listed
+// in `missing`, rather than failing the whole load
+pub fn apply(
+  state: &daw::InnerState,
+  project: &Project,
+  project_dir: Option<&Path>,
+) -> LoadedProject {
+  daw::pause_playlist(state);
+
+  let settings = project.settings;
+  state.metronome_enabled.store(settings.metronome_enabled, Ordering::SeqCst);
+  state.playlist.loop_enabled.store(settings.loop_enabled, Ordering::SeqCst);
+  *state.playlist.time_signature.lock().unwrap() = settings.time_signature;
+  {
+    let mut ui = state.playlist.ui.lock().unwrap();
+    ui.snap_enabled = settings.snap_enabled;
+    ui.snap_subdivision = settings.snap_note;
+  }
+
+  let mut audiograph = state.playlist.audiograph.lock().unwrap();
+  audiograph.clear();
+  audiograph.set_tempo(settings.tempo);
+  let interval = audiograph.beat_interval();
+
+  let mut clips = Vec::new();
+  let mut missing = Vec::new();
+
+  for clip in &project.clips {
+    let path = resolved_path(&clip.path, project_dir);
+    let path_str = path.to_string_lossy().into_owned();
+
+    if !path.is_file() {
+      missing.push(MissingSample { path: path_str, reason: "file not found".into() });
+      continue;
+    }
+
+    let start_beat = if clip.start_beat.is_finite() { clip.start_beat.max(0.) } else { 0. };
+    let offset: Duration = interval.mul_f64(start_beat);
+
+    match audiograph.construct_and_add_node(path_str.clone(), offset, clip.track_number) {
+      Ok(id) => {
+        let node = audiograph
+          .get_mut_node_by_id(id)
+          .expect("a node that was just added");
+        node.set_settings(clip.settings);
+
+        clips.push(LoadedClip {
+          id,
+          path: path_str,
+          track_number: clip.track_number,
+          start_beat: start_beat as f32,
+          info: clip_info(node),
+        });
+      }
+      Err(reason) => missing.push(MissingSample { path: path_str, reason }),
+    }
+  }
+
+  LoadedProject { settings, clips, missing }
+}
+
+// write the current playlist to a project file. the file is written next to
+// it first and then moved into place, so a failed save never leaves a
+// half-written project
+pub fn save_to(state: &daw::InnerState, project_path: &Path) -> Result<(), String> {
+  let dir = project_dir(project_path)?;
+  let project = capture(state, Some(&dir));
+  let json = serde_json::to_string_pretty(&project)
+    .map_err(|e| format!("could not write the project: {}", e))?;
+
+  let mut tmp = project_path.as_os_str().to_owned();
+  tmp.push(".tmp");
+  let tmp = PathBuf::from(tmp);
+
+  fs::write(&tmp, json)
+    .and_then(|_| fs::rename(&tmp, project_path))
+    .map_err(|e| {
+      let _ = fs::remove_file(&tmp);
+      format!("could not save '{}': {}", project_path.display(), e)
+    })
+}
+
+// replace the playlist with a project file. nothing changes if the file
+// can't be read or isn't a project
+pub fn load_from(state: &daw::InnerState, project_path: &Path) -> Result<LoadedProject, String> {
+  let json = fs::read_to_string(project_path)
+    .map_err(|e| format!("could not open '{}': {}", project_path.display(), e))?;
+  let project = Project::from_json(&json)?;
+  let dir = project_dir(project_path)?;
+
+  Ok(apply(state, &project, Some(&dir)))
+}
+
+#[tauri::command]
+pub fn save_project(state: daw::TState<'_>, path: String) -> Result<(), String> {
+  save_to(&state, Path::new(&path))
+}
+
+#[tauri::command]
+pub fn load_project(state: daw::TState<'_>, path: String) -> Result<LoadedProject, String> {
+  load_from(&state, Path::new(&path))
+}
+
+// start an empty project with the default settings
+#[tauri::command]
+pub fn new_project(state: daw::TState<'_>) -> LoadedProject {
+  apply(&state, &Project::default(), None)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  // an empty folder for one test's files
+  fn test_dir(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir()
+      .join(format!("dawesome-project-{}-{}", name, std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    fs::canonicalize(dir).unwrap()
+  }
+
+  fn add_clip(state: &daw::InnerState, path: &str, track: u32, beat: f64) -> u64 {
+    let mut audiograph = state.playlist.audiograph.lock().unwrap();
+    let offset = audiograph.beat_interval().mul_f64(beat);
+    audiograph.construct_and_add_node(path.to_string(), offset, track).unwrap()
+  }
+
+  #[test]
+  fn test_save_and_load_round_trip() {
+    let dir = test_dir("round-trip");
+    let project_path = dir.join("song.dawesome");
+    let sample = fs::canonicalize(daw::METRONOME_TICK_PATH).unwrap();
+    let sample = sample.to_str().unwrap();
+
+    let state = daw::InnerState::default();
+    state.set_tempo(90.);
+    *state.playlist.time_signature.lock().unwrap() =
+      daw::timing::TimeSignature { numerator: 3, denominator: 4 };
+    state.playlist.ui.lock().unwrap().snap_subdivision = daw::timing::Note::EighthNote;
+    state.metronome_enabled.store(false, Ordering::SeqCst);
+
+    add_clip(&state, sample, 0, 0.);
+    let id = add_clip(&state, sample, 2, 4.5);
+    state.playlist.audiograph.lock().unwrap()
+      .get_mut_node_by_id(id).unwrap()
+      .set_settings(daw::ClipSettings { gain_db: -6., pitch: 12., attack_ms: 5., ..Default::default() });
+
+    save_to(&state, &project_path).unwrap();
+    assert!(!dir.join("song.dawesome.tmp").exists());
+
+    // a fresh app with a clip of its own, which loading replaces
+    let loaded_state = daw::InnerState::default();
+    let old_id = add_clip(&loaded_state, sample, 1, 1.);
+    let loaded = load_from(&loaded_state, &project_path).unwrap();
+
+    assert!(loaded.missing.is_empty());
+    assert_eq!(loaded.settings.tempo, 90.);
+    assert_eq!(loaded.settings.time_signature.numerator, 3);
+    assert_eq!(loaded.settings.snap_note, daw::timing::Note::EighthNote);
+    assert!(!loaded.settings.metronome_enabled);
+    assert_eq!(loaded.clips.len(), 2);
+    assert!(loaded.clips.iter().all(|c| c.id != old_id));
+
+    let clip = loaded.clips.iter().find(|c| c.track_number == 2).unwrap();
+    assert!((clip.start_beat - 4.5).abs() < 1e-4);
+    assert_eq!(clip.info.settings.pitch, 12.);
+    assert_eq!(clip.info.settings.gain_db, -6.);
+
+    // saving the loaded project again gives the same project
+    assert_eq!(capture(&loaded_state, Some(&dir)), capture(&state, Some(&dir)));
+    assert_eq!(loaded_state.playlist.audiograph.lock().unwrap().nodes.len(), 2);
+
+    fs::remove_dir_all(dir).unwrap();
+  }
+
+  #[test]
+  fn test_sample_paths_relative_to_the_project() {
+    let dir = test_dir("relative");
+    fs::create_dir_all(dir.join("samples")).unwrap();
+    let sample = dir.join("samples").join("tick.wav");
+    fs::copy(daw::METRONOME_TICK_PATH, &sample).unwrap();
+
+    let state = daw::InnerState::default();
+    add_clip(&state, sample.to_str().unwrap(), 0, 0.);
+    // added by a relative path, which is saved as absolute
+    add_clip(&state, daw::METRONOME_TICK_PATH, 1, 0.);
+    save_to(&state, &dir.join("song.dawesome")).unwrap();
+
+    let project = Project::from_json(
+      &fs::read_to_string(dir.join("song.dawesome")).unwrap()).unwrap();
+    let paths: Vec<&str> = project.clips.iter().map(|c| c.path.as_str()).collect();
+    assert!(paths.contains(&"samples/tick.wav"));
+    assert!(paths.iter().any(|p| Path::new(p).is_absolute()));
+
+    // the project folder still loads after it's moved
+    let moved = test_dir("relative-moved");
+    fs::remove_dir_all(&moved).unwrap();
+    fs::rename(&dir, &moved).unwrap();
+
+    let loaded = load_from(&daw::InnerState::default(), &moved.join("song.dawesome")).unwrap();
+    assert!(loaded.missing.is_empty());
+    assert!(loaded.clips.iter().any(|c| Path::new(&c.path) == moved.join("samples/tick.wav")));
+
+    fs::remove_dir_all(moved).unwrap();
+  }
+
+  #[test]
+  fn test_missing_samples_are_left_out() {
+    let dir = test_dir("missing");
+    let project_path = dir.join("song.dawesome");
+    let sample = fs::canonicalize(daw::METRONOME_TICK_PATH).unwrap();
+    fs::write(&project_path, format!(r#"{{
+      "version": 1,
+      "tempo": 100,
+      "clips": [
+        {{ "path": "gone.wav", "trackNumber": 0, "startBeat": 0 }},
+        {{ "path": {:?}, "trackNumber": 1, "startBeat": 2 }}
+      ]
+    }}"#, sample.to_str().unwrap())).unwrap();
+
+    let loaded = load_from(&daw::InnerState::default(), &project_path).unwrap();
+
+    // the rest of the project still loads, with defaults for what's left out
+    assert_eq!(loaded.settings.tempo, 100.);
+    assert!(loaded.settings.loop_enabled);
+    assert_eq!(loaded.clips.len(), 1);
+    assert_eq!(loaded.clips[0].info.settings, daw::ClipSettings::default());
+    assert_eq!(loaded.missing.len(), 1);
+    assert_eq!(Path::new(&loaded.missing[0].path), dir.join("gone.wav"));
+
+    fs::remove_dir_all(dir).unwrap();
+  }
+
+  #[test]
+  fn test_bad_projects_change_nothing() {
+    let dir = test_dir("bad");
+    let state = daw::InnerState::default();
+    add_clip(&state, daw::METRONOME_TICK_PATH, 0, 0.);
+
+    let bad = [
+      "not json",
+      r#"{"version": 99}"#,
+      r#"{"tempo": 0}"#,
+      r#"{"timeSignature": {"numerator": 4, "denominator": 0}}"#,
+      r#"{"clips": [{"trackNumber": 0}]}"#,
+    ];
+    for (i, json) in bad.iter().enumerate() {
+      let path = dir.join(format!("bad-{}.dawesome", i));
+      fs::write(&path, json).unwrap();
+      assert!(load_from(&state, &path).is_err(), "{} should not load", json);
+    }
+    assert!(load_from(&state, &dir.join("nowhere.dawesome")).is_err());
+
+    assert_eq!(state.playlist.audiograph.lock().unwrap().nodes.len(), 1);
+    assert_eq!(state.tempo(), 120.);
+
+    fs::remove_dir_all(dir).unwrap();
+  }
+
+  #[test]
+  fn test_new_project_clears_the_playlist() {
+    let state = daw::InnerState::default();
+    let old_id = add_clip(&state, daw::METRONOME_TICK_PATH, 0, 0.);
+    state.set_tempo(80.);
+
+    let loaded = apply(&state, &Project::default(), None);
+
+    assert!(loaded.clips.is_empty());
+    assert_eq!(loaded.settings, ProjectSettings::default());
+    assert_eq!(state.tempo(), 120.);
+    assert!(state.playlist.audiograph.lock().unwrap().nodes.is_empty());
+
+    // ids aren't reused, so a stale id from the old project names nothing
+    let new_id = add_clip(&state, daw::METRONOME_TICK_PATH, 0, 0.);
+    assert!(new_id > old_id);
+  }
+}

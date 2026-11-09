@@ -2,6 +2,33 @@ import { createSlice, Dispatch } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api'
 import { RootState } from 'state/store'
 import { PlaylistItem, PlaylistItemPixelOffset } from '../../types/playlist'
+import { View } from '../../types/ui'
+import {
+  ClipInfo,
+  ClipOverride,
+  ClipSettings,
+  clampClipSettings,
+  defaultClipSettings,
+  isDefaultClipSettings,
+  playedDuration,
+} from '../../types/clip'
+import { LoadedProject, MissingSample } from '../../types/project'
+import { openTab } from './windowSlice'
+
+// mirrors daw::timing::Note in the engine
+export type SnapNote =
+  | 'WholeNote'
+  | 'HalfNote'
+  | 'QuarterNote'
+  | 'EighthNote'
+  | 'SixteenthNote'
+
+// mirrors SnapSetting in engine/src/event_dispatch.rs
+interface SnapSetting {
+  enabled: boolean
+  note: SnapNote
+  beats: number
+}
 
 export interface PlaylistState {
   playing: boolean
@@ -11,7 +38,15 @@ export interface PlaylistState {
   metronomeEnabled: boolean,
   loopEnabled: boolean,
   snapEnabled: boolean,
+  snapNote: SnapNote,
   playlistItems: Array<PlaylistItem>
+  // the clip shown in the Sample tab
+  inspectedClipId: number | null
+  // how each clip is played back, by clip id, as last loaded from or sent to
+  // the engine. clips without an entry use defaultClipSettings
+  clipSettings: Record<number, ClipSettings>
+  // each clip's sample length in seconds, before any speed change, by clip id
+  clipSampleDurations: Record<number, number>
   ui: {
     maxPlaylistBeats: number,
     maxBeatsDisplayed: number,
@@ -30,7 +65,11 @@ const initialState = {
   metronomeEnabled: true,
   loopEnabled: true,
   snapEnabled: true,
+  snapNote: 'QuarterNote',
   playlistItems: [],
+  inspectedClipId: null,
+  clipSettings: {},
+  clipSampleDurations: {},
   ui: {
     maxPlaylistBeats: 16,
     maxBeatsDisplayed: 16,
@@ -65,6 +104,7 @@ export const playlistSlice = createSlice({
       state.playlistItems.push({
         id: action.payload.id,
         path: action.payload.path,
+        startBeat: action.payload.startBeat,
         trackNumber: action.payload.trackNumber,
         pixelOffset: action.payload.pixelOffset,
       } as PlaylistItem)
@@ -77,6 +117,7 @@ export const playlistSlice = createSlice({
           state.playlistItems[i] = {
             id: action.payload.id,
             path: action.payload.path,
+            startBeat: action.payload.startBeat,
             trackNumber: action.payload.trackNumber,
             pixelOffset: action.payload.pixelOffset,
           } as PlaylistItem
@@ -87,12 +128,76 @@ export const playlistSlice = createSlice({
     },
     removePlaylistItem: (state, action) => {
       state.playlistItems = state.playlistItems.filter(e => e.id !== action.payload.id)
+
+      if(state.inspectedClipId === action.payload.id) {
+        state.inspectedClipId = null
+      }
+
+      delete state.clipSettings[action.payload.id]
+      delete state.clipSampleDurations[action.payload.id]
+    },
+    setInspectedClip: (state, action: { type: string, payload: number | null }) => {
+      state.inspectedClipId = action.payload
+    },
+    // a clip's settings and length, as the engine has them
+    setClipInfo: (state, action: { type: string, payload: { id: number } & ClipInfo }) => {
+      const { id, settings, sampleDuration } = action.payload
+      state.clipSettings[id] = settings
+      state.clipSampleDurations[id] = sampleDuration
+    },
+    // change some of a clip's settings, kept in range like the engine does
+    reduceClipSettings: (
+      state,
+      action: { type: string, payload: { id: number, settings: Partial<ClipSettings> } },
+    ) => {
+      const { id, settings } = action.payload
+      const merged = { ...(state.clipSettings[id] ?? defaultClipSettings), ...settings }
+      const sampleSeconds = state.clipSampleDurations[id]
+      const played = sampleSeconds === undefined ? undefined : playedDuration(merged, sampleSeconds)
+
+      state.clipSettings[id] = clampClipSettings(merged, played)
     },
     setPlaylistUI: (state, action) => {
       state.ui = action.payload
     },
     setSnapEnabled: (state, action) => {
       state.snapEnabled = action.payload
+    },
+    setSnapNote: (state, action) => {
+      state.snapNote = action.payload
+    },
+    // replace the playlist with a project the engine just loaded (or a new,
+    // empty one). the engine has already stopped playback
+    reduceLoadedProject: (state, action: { type: string, payload: LoadedProject }) => {
+      const project = action.payload
+
+      state.playing = false
+      state.runtime = null
+      state.currentBeat = null
+      state.tempo = project.tempo
+      state.metronomeEnabled = project.metronomeEnabled
+      state.loopEnabled = project.loopEnabled
+      state.snapEnabled = project.snapEnabled
+      state.snapNote = project.snapNote
+      state.inspectedClipId = null
+
+      state.playlistItems = project.clips.map(clip => ({
+        id: clip.id,
+        path: clip.path,
+        startBeat: clip.startBeat,
+        trackNumber: clip.trackNumber,
+        // only used to debug where a clip was dropped
+        pixelOffset: {
+          x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0, xOffset: 0, yOffset: 0,
+        },
+      }))
+
+      state.clipSettings = {}
+      state.clipSampleDurations = {}
+      project.clips.forEach(clip => {
+        state.clipSettings[clip.id] = clip.settings
+        state.clipSampleDurations[clip.id] = clip.sampleDuration
+      })
     },
   },
 })
@@ -185,28 +290,32 @@ export const {
   removePlaylistItem
 } = playlistSlice.actions
 
+// dropBeat: where the clip was dropped, in beats from the playlist start
+// (see Renderer.screenXToBeat, which accounts for zoom and pan)
 export const addToPlaylist = (
   path: string, 
   trackNumber: number,
+  dropBeat: number,
   pixelOffset: Omit<PlaylistItemPixelOffset, 'xOffset' | 'yOffset'>,
 ) => async (dispatch: Dispatch) => {
   const dropX = pixelOffset.x - pixelOffset.left
   const dropY = pixelOffset.y - pixelOffset.top
-  const id = await invoke<number>('t_add_audiograph_node', {
+  // startBeat is where the engine actually placed the clip (after snapping)
+  const { id, startBeat } = await invoke<{ id: number, startBeat: number }>('t_add_audiograph_node', {
     samplePath: path,
     trackNumber,
-    dropX,
-    dropY,
+    dropBeat,
   })
 
   dispatch(addPlaylistItem({
     id,
     path,
+    startBeat,
     trackNumber,
     pixelOffset: {
       ...pixelOffset,
-      xOffset: pixelOffset.x - pixelOffset.left,
-      yOffset: pixelOffset.y - pixelOffset.top,
+      xOffset: dropX,
+      yOffset: dropY,
     },
   } as PlaylistItem))
 }
@@ -215,25 +324,28 @@ export const moveNodeInPlaylist = (
   id: number,
   path: string,
   trackNumber: number,
+  dropBeat: number,
   pixelOffset: Omit<PlaylistItemPixelOffset, 'xOffset' | 'yOffset'>,
 ) => async (dispatch: Dispatch) => {
-  const dropX = pixelOffset.x
-  const dropY = pixelOffset.y
-  await invoke('move_audiograph_node', {
+  // relative to the playlist's top-left, same as addToPlaylist
+  const dropX = pixelOffset.x - pixelOffset.left
+  const dropY = pixelOffset.y - pixelOffset.top
+  // where the engine actually placed the clip (after snapping), in beats
+  const startBeat = await invoke<number>('move_audiograph_node', {
     id,
     trackNumber,
-    dropX,
-    dropY,
+    dropBeat,
   })
 
   dispatch(movePlaylistItem({
     id,
     path,
+    startBeat,
     trackNumber,
     pixelOffset: {
       ...pixelOffset,
-      xOffset: pixelOffset.x - pixelOffset.left,
-      yOffset: pixelOffset.y - pixelOffset.top,
+      xOffset: dropX,
+      yOffset: dropY,
     },
   } as PlaylistItem))
 }
@@ -250,6 +362,121 @@ export const removeFromPlaylist = (id: number) => async (dispatch: Dispatch) => 
 
 export const selectPlaylistItems = (state: RootState) => state.playlist.playlistItems
 // end playlist item methods
+
+// start inspected clip methods
+export const { setInspectedClip } = playlistSlice.actions
+
+// show a clip in the Sample tab, opening the tab if it was closed
+export const inspectClip = (id: number) => async (dispatch: Dispatch) => {
+  dispatch(setInspectedClip(id))
+  dispatch(openTab(View.SamplePreview))
+
+  try {
+    const info = await invoke<ClipInfo>('get_clip', { id })
+    dispatch(playlistSlice.actions.setClipInfo({ id, ...info }))
+  } catch(e) {
+    // eslint-disable-next-line no-console
+    console.error(`could not load clip ${id}:`, e)
+  }
+}
+
+export const selectInspectedClip = (state: RootState): PlaylistItem | undefined => {
+  const id = state.playlist.inspectedClipId
+  return state.playlist.playlistItems.find(item => item.id === id)
+}
+// end inspected clip methods
+
+// start clip settings methods
+// the frontend shows changes straight away and sends them to the engine,
+// which applies them the next time the clip starts playing
+
+// how often a clip's settings are sent while a control is being dragged
+const SEND_SETTINGS_EVERY_MS = 50
+
+// per clip: settings waiting to be sent, while a send was recent
+const queuedSettings = new Map<number, ClipSettings | null>()
+
+const sendSettingsNow = (id: number, settings: ClipSettings) =>
+  invoke<ClipInfo>('set_clip_settings', { id, settings })
+    // eslint-disable-next-line no-console
+    .catch(e => console.error(`could not update clip ${id}:`, e))
+
+// send a clip's settings, at most every SEND_SETTINGS_EVERY_MS. the latest
+// settings are always sent last
+const sendSettings = (id: number, settings: ClipSettings) => {
+  if(queuedSettings.has(id)) {
+    queuedSettings.set(id, settings)
+    return
+  }
+
+  sendSettingsNow(id, settings)
+  queuedSettings.set(id, null)
+
+  const flush = () => {
+    const queued = queuedSettings.get(id)
+
+    if(queued) {
+      sendSettingsNow(id, queued)
+      queuedSettings.set(id, null)
+      setTimeout(flush, SEND_SETTINGS_EVERY_MS)
+    } else {
+      queuedSettings.delete(id)
+    }
+  }
+
+  setTimeout(flush, SEND_SETTINGS_EVERY_MS)
+}
+
+export const selectClipSettings = (id: number | undefined) =>
+  (state: RootState): ClipSettings =>
+    (id === undefined ? undefined : state.playlist.clipSettings[id]) ?? defaultClipSettings
+
+// how the playlist should show each clip whose settings were loaded or
+// changed, by clip id. builds a new object every call, so don't pass it to
+// useAppSelector
+export const selectClipOverrides = (state: RootState): Record<number, ClipOverride> => {
+  const { clipSettings, clipSampleDurations } = state.playlist
+  const overrides: Record<number, ClipOverride> = {}
+
+  Object.entries(clipSettings).forEach(([key, settings]) => {
+    const id = Number(key)
+    const sampleSeconds = clipSampleDurations[id]
+
+    overrides[id] = {
+      playedDuration: sampleSeconds === undefined
+        ? undefined
+        : playedDuration(settings, sampleSeconds),
+      modified: !isDefaultClipSettings(settings),
+    }
+  })
+
+  return overrides
+}
+
+// the clip's sample length in seconds, before any speed change, once loaded
+export const selectClipSampleDuration = (id: number | undefined) =>
+  (state: RootState): number | undefined =>
+    (id === undefined ? undefined : state.playlist.clipSampleDurations[id])
+
+// change some of a clip's settings
+export const updateClipSettings = (id: number, settings: Partial<ClipSettings>) => (
+  dispatch: Dispatch,
+  getState: () => RootState,
+) => {
+  dispatch(playlistSlice.actions.reduceClipSettings({ id, settings }))
+  sendSettings(id, selectClipSettings(id)(getState()))
+}
+
+export const resetClipSettings = (id: number) => (dispatch: Dispatch, getState: () => RootState) =>
+  updateClipSettings(id, defaultClipSettings)(dispatch, getState)
+
+// play a clip on its own, with its current settings
+export const auditionClip = (id: number) => async (_: Dispatch, getState: () => RootState) => {
+  // make sure the engine has the latest settings first
+  await sendSettingsNow(id, selectClipSettings(id)(getState()))
+  await invoke('t_preview_node', { id })
+}
+// end clip settings methods
 
 // start playlist ui methods
 export const {
@@ -270,6 +497,11 @@ export const initPlaylist = () => async (dispatch: Dispatch) => {
     maxPlaylistDuration,
     trackCount,
   }))
+
+  // the engine owns the snap defaults
+  const snap = await invoke<SnapSetting>('get_snap_setting', {})
+  dispatch(playlistSlice.actions.setSnapEnabled(snap.enabled))
+  dispatch(playlistSlice.actions.setSnapNote(snap.note))
 }
 
 export const selectPlaylistUI = (state: RootState) => state.playlist.ui
@@ -286,7 +518,66 @@ export const toggleSnap = () => async (dispatch: Dispatch) => {
 
 export const selectSnapEnabled = (state: RootState) =>
   state.playlist.snapEnabled
-// end loop methods
+
+// set the note value clips snap to
+export const setSnapSubdivision = (note: SnapNote) => async (dispatch: Dispatch) => {
+  const snap = await invoke<SnapSetting>('set_snap_subdivision', { note })
+  dispatch(playlistSlice.actions.setSnapNote(snap.note))
+}
+
+export const selectSnapNote = (state: RootState) =>
+  state.playlist.snapNote
+// end snap methods
+
+// start project methods
+// the engine reads and writes project files; the frontend then shows
+// whatever it loaded
+
+export const { reduceLoadedProject } = playlistSlice.actions
+
+// show a project the engine just loaded. returns the samples it couldn't find
+const showLoadedProject = async (
+  dispatch: Dispatch,
+  project: LoadedProject,
+): Promise<MissingSample[]> => {
+  // settings still waiting to be sent belong to clips that are gone
+  queuedSettings.clear()
+  dispatch(reduceLoadedProject(project))
+  // the playlist's length depends on its clips
+  await initPlaylist()(dispatch)
+
+  return project.missing
+}
+
+// save the playlist to a project file
+export const saveProject = (path: string) => async (
+  _: Dispatch,
+  getState: () => RootState,
+): Promise<void> => {
+  // clips changed in the last moment may not have been sent yet. send their
+  // latest settings, so the file has them
+  await Promise.all(Array.from(queuedSettings.keys()).map(id => {
+    queuedSettings.set(id, null)
+    return sendSettingsNow(id, selectClipSettings(id)(getState()))
+  }))
+
+  await invoke<void>('save_project', { path })
+}
+
+// replace the playlist with a project file. returns the samples it couldn't
+// find, which were left out. if the file can't be opened, this throws and
+// the playlist is unchanged
+export const openProject = (path: string) => async (dispatch: Dispatch): Promise<MissingSample[]> => {
+  const project = await invoke<LoadedProject>('load_project', { path })
+  return showLoadedProject(dispatch, project)
+}
+
+// replace the playlist with an empty project
+export const newProject = () => async (dispatch: Dispatch): Promise<void> => {
+  const project = await invoke<LoadedProject>('new_project', {})
+  await showLoadedProject(dispatch, project)
+}
+// end project methods
 
 // export root reducer for this slice
 export default playlistSlice.reducer

@@ -9,6 +9,7 @@ use crate::daw::{
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::{
+  mpsc,
   Arc, 
   Mutex,
 };
@@ -142,103 +143,60 @@ pub fn play_metronome(state_ref: &Arc<state::InnerState>) {
   }
 }
 
-pub fn run_playlist(state_ref: &Arc<state::InnerState>) {
+pub fn run_playlist(
+  state_ref: &Arc<state::InnerState>,
+  ready: mpsc::Sender<Result<(), String>>,
+) {
   let state = state_ref.clone();
-  let pool = daw_core::threadpool::ThreadPool::new(8);
   let tempo_interval = state
     .playlist
     .audiograph
     .lock()
     .unwrap()
-    .interval_of_subdivision(daw_core::timing::WholeNote::new());
+    .interval_of_subdivision(daw_core::timing::QuarterNote::new());
 
   println!("TEMPO INTERVAL {:?}", tempo_interval);
-  // let graph = &state.playlist.audiograph.lock().unwrap();
-  // // graph.run();
-  // graph.run_for(tempo_interval);
 
-  // thread::spawn(move || {
-  //   let tempo_interval = state
-  //     .playlist
-  //     .audiograph
-  //     .lock()
-  //     .unwrap()
-  //     .interval_of_subdivision(daw_core::timing::WholeNote::new());
-  //   let graph = &state.playlist.audiograph.lock().unwrap();
-  //   loop {
-  //     graph.run_for(tempo_interval);
-  //     if state.metronome_enabled.load(Ordering::SeqCst) && state.playlist.playing() {
-  //       play_metronome(&state);
-  //     }
+  thread::spawn(move || {
+    // output stream for the whole run
+    let (_stream, stream_handle) = match OutputStream::try_default() {
+      Ok(s) => s,
+      Err(e) => {
+        let _ = ready.send(Err(format!("could not open audio output: {}", e)));
+        return;
+      }
+    };
 
-  //     graph.run_for(tempo_interval);
+    // every tick is scheduled relative to the start time, so time spent
+    // building each slice doesn't accumulate into drift
+    // the frontend cursor uses the same start time, so the two stay aligned
+    // the start time is set before flagging the playlist as playing, so
+    // anything that sees `playing == true` also sees this run's start time
+    let started = Instant::now();
+    *state.playlist.started_time.lock().unwrap() = Some(started);
+    state.playlist.audiograph.lock().unwrap().init(started);
+    state.playlist.set_playing(true);
+    let _ = ready.send(Ok(()));
 
-  //     let current_time_signature =
-  //       state.playlist.time_signature.lock().unwrap();
-  //     let current_beat =
-  //       state.playlist.current_beat.load(Ordering::SeqCst);
-  //     let next_beat = (current_beat + 1) % current_time_signature.numerator;
+    let mut ticks: u32 = 0;
 
-  //     if state.playlist.playing() {
-  //       // loop the playlist by setting the current offset to zero,
-  //       // if looping is enabled, otherwise, add and store the next 
-  //       // current beat
-  //       if state.playlist.loop_enabled.load(Ordering::SeqCst)
-  //         && ((state.playlist.total_beats.load(Ordering::SeqCst) + 1) as u64 
-  //         >= state.playlist.max_beats.load(Ordering::SeqCst)) {
-  //         // state.playlist.audiograph.set_current_offset(Some(Duration::ZERO));
-
-  //         state
-  //           .playlist
-  //           .current_beat
-  //           .store(next_beat, Ordering::SeqCst);
-  //         state
-  //           .playlist
-  //           .total_beats
-  //           .store(0, Ordering::SeqCst);
-  //       } else {
-  //         state
-  //           .playlist.current_beat
-  //           .store(next_beat, Ordering::SeqCst);
-  //         state
-  //           .playlist.total_beats
-  //           .fetch_add(1, Ordering::SeqCst);
-  //       }
-  //     } else {
-  //       break
-  //     }
-  //   }
-  // });
-
-
-
-  pool.exec(move || {
-    thread::spawn(move || loop {
-      println!("tick: {}ms", &state.playlist.audiograph.lock().unwrap().current_offset.unwrap().as_millis());
-
-      // play metronome if enabled
-      // if state.metronome_enabled.load(Ordering::SeqCst) 
-      //   && state.playlist.playing() {
-      //   play_metronome(&state);
-      // }
-
+    loop {
       // run ahead n milliseconds and schedule the next
       // samples in the audio graph to be played
+      {
+        let audiograph_ref = state.playlist.audiograph.lock().unwrap();
+        println!("tick: {}ms", audiograph_ref.current_offset.unwrap_or_default().as_millis());
+
+        audiograph_ref.run_for(&stream_handle, tempo_interval, state.metronome_enabled.load(Ordering::SeqCst));
+      } // release the audiograph while sleeping so commands aren't blocked
+
+      // sleep until the start of the next beat
+      ticks += 1;
+      let next_tick = started + tempo_interval * ticks;
+      thread::sleep(next_tick.saturating_duration_since(Instant::now()));
+
       let mut audiograph_ref = state.playlist.audiograph.lock().unwrap();
-
-      audiograph_ref.run_for(tempo_interval, state.metronome_enabled.load(Ordering::SeqCst));
-      // let m = audiograph_ref.buffer_for(tempo_interval);
-      // match m {
-      //   Some(x) => { 
-      //     futures::executor::block_on(play_buffer(x.take_duration(tempo_interval).buffered()));
-      //   }
-      //   None => {}
-      // }
-
-      // sleep this thread for the length of a single beat
-      thread::sleep(tempo_interval);
-      
-      let curr = audiograph_ref.current_offset.unwrap();
+      let curr = audiograph_ref.current_offset.unwrap_or_default();
 
       if state.playlist.playing() {
         audiograph_ref.set_current_offset(Some(curr + tempo_interval));
@@ -292,13 +250,13 @@ pub fn run_playlist(state_ref: &Arc<state::InnerState>) {
       if !state.playlist.playing() {
         break;
       }
-    });
+    }
   });
 
   println!("continuing");
 }
 
-pub fn pause_playlist(state: &Arc<state::InnerState>) {
+pub fn pause_playlist(state: &state::InnerState) {
   println!("pausing playlist");
   
   // reset playlist to 0 beats
@@ -322,30 +280,18 @@ pub fn pause_playlist(state: &Arc<state::InnerState>) {
 }
 
 pub fn start_playlist(state: &Arc<state::InnerState>) {
-  // start playlist
   println!("playing playlist");
-  state
-    .playlist
-    .set_playing(true);
 
-  // set playlist start time
-  let now = Instant::now();
-  *state
-    .playlist
-    .started_time
-    .lock()
-    .unwrap() = Some(now);
+  // wait until the output stream is open and the start time is set, so a
+  // `get_playlist_playing` right after this sees the new run
+  let (ready_tx, ready_rx) = mpsc::channel();
+  run_playlist(state, ready_tx);
 
-  // start audio graph
-  state
-    .playlist
-    .audiograph
-    .lock()
-    .unwrap()
-    .init(now);
-
-  let state_ref = &Arc::from(state);
-  run_playlist(state_ref);
+  match ready_rx.recv() {
+    Ok(Ok(())) => {}
+    Ok(Err(e)) => println!("could not start playlist: {}", e),
+    Err(_) => println!("could not start playlist: playback thread exited"),
+  }
 }
 
 pub fn set_playlist_tempo(

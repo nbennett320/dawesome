@@ -1,19 +1,23 @@
 import React from 'react'
+import { useStore } from 'react-redux'
 import { ReactP5Wrapper } from 'react-p5-wrapper'
-import { invoke } from '@tauri-apps/api'
-import { useDrop } from 'react-dnd'
 import { 
   addToPlaylist,
+  inspectClip,
   moveNodeInPlaylist,
   removeFromPlaylist,
+  selectClipOverrides,
   selectPlaylistItems,
   selectPlaylistPlaying,
+  selectPlaylistTempo,
   selectPlaylistUI
 } from '../../state/slices/playlistSlice'
-import { selectSidebar, selectWindowPane } from '../../state/slices/windowSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
-import { PlaylistWindow, PlaylistTypes, PlaylistItemPixelOffset, PlaylistItem } from '../../types/playlist'
+import type { RootState } from '../../state/store'
+import { PlaylistWindow, PlaylistItem } from '../../types/playlist'
 import { Renderer } from './sketch'
+import { onSampleDrag } from '../../state/sampleDrag'
+import SampleDragGhost from './SampleDragGhost'
 
 const playlistRenderer = new Renderer()
 
@@ -21,135 +25,103 @@ const PlaylistCanvas = () => {
   const ref = React.useRef<HTMLDivElement>(null)
   const [height, setHeight] = React.useState<number>()
   const [width, setWidth] = React.useState<number>()
-  const [limit, setLimit] = React.useState<number>(16)
-  const [duration, setDuration] = React.useState<number>(120)
-  const [trackCount, setTrackCount] = React.useState<number>(5)
   const [playlistWindow, setPlaylistWindow] = React.useState<PlaylistWindow>()
 
   const dispatch = useAppDispatch()
   const playing = useAppSelector(selectPlaylistPlaying)
-  const sidebar = useAppSelector(selectSidebar)
-  const windowPane = useAppDispatch(selectWindowPane)
+  const tempo = useAppSelector(selectPlaylistTempo)
   const playlistTrackBoxRef = React.useRef<HTMLDivElement>(null)
-  const [{ canDrop, isOver }, dropRef] = useDrop(() => ({
-    accept: [
-      PlaylistTypes.SidebarSampleItem, 
-      PlaylistTypes.PlaylistTrackItem,
-    ],
-    drop: async (item: Record<string, any>, monitor) => {
-      const dropCoords = monitor.getClientOffset()
-      const itemType = monitor.getItemType()
-      console.log("dropped: ", item)
-      switch(itemType) {
-        case PlaylistTypes.SidebarSampleItem: 
-          // handle samples dropped from the sidebar
-          if(dropCoords && ref.current) { 
-            const { x, y } = dropCoords
-            const { left, top, right, bottom } = ref.current.getBoundingClientRect()
-            const canvas = ref.current.firstChild?.firstChild?.firstChild
-            const dropData = {
-              x,
-              y,
-              left,
-              top,
-              right,
-              bottom,
-            } as PlaylistItemPixelOffset
-            const trackNumber = playlistRenderer.calculateTrackNumber(dropData)
-            console.log("dropped on ref:", ref.current, canvas)
-
-            dispatch(addToPlaylist(
-              item.name as string, 
-              trackNumber,
-              {
-                x,
-                y,
-                left,
-                top,
-                right,
-                bottom,
-              },
-            ))
-          } else {
-            // eslint-disable-next-line no-console
-            console.error(
-              "Error dropping: no playlist track ref, or null drop coordinates:", 
-              item, 
-              dropCoords, 
-              playlistTrackBoxRef.current
-            )
-          }
-          break
-        default:
-          // unrecognised drop
-          // eslint-disable-next-line no-console
-          console.error(
-            "Error dropping: unknown type for the item being dropped:", 
-            item, 
-            monitor.getItemType()
-          )
-      }
-    },
-    collect: (monitor) => ({
-      isOver: monitor.isOver(),
-      canDrop: monitor.canDrop(),
-    }),
-  }))
-
   const items = useAppSelector(selectPlaylistItems)
+  // the playlist's length and tracks, from the engine. refreshed when the
+  // playlist first shows and whenever a project is loaded (see initPlaylist)
+  const {
+    maxPlaylistBeats: limit,
+    maxBeatsDisplayed: beatsDisplayed,
+    maxPlaylistDuration: duration,
+    trackCount,
+  } = useAppSelector(selectPlaylistUI)
+
+  // samples dragged in from the sidebar: show the clip under the mouse while
+  // it's over the playlist, and add it where the preview showed on release
+  React.useEffect(() => onSampleDrag(({ type, path, clientX, clientY }) => {
+    const el = ref.current
+    if(!el) return
+
+    // the element actually under the mouse, so other panes covering the
+    // playlist's box don't count as being over it
+    const over = el.contains(document.elementFromPoint(clientX, clientY))
+    const { left, top, right, bottom } = el.getBoundingClientRect()
+    const x = clientX - left
+    const y = clientY - top
+
+    if(type === 'move' && over) {
+      playlistRenderer.setSampleDrag(path, x, y, top)
+      return
+    }
+
+    playlistRenderer.clearSampleDrag()
+
+    if(type === 'drop' && over) {
+      const { beat, trackNumber } = playlistRenderer.dropTarget(x, y)
+
+      dispatch(addToPlaylist(path, trackNumber, beat, {
+        x: clientX,
+        y: clientY,
+        left,
+        top,
+        right,
+        bottom,
+      }))
+    }
+  }), [])
 
   console.log("items", items)
 
-  const updateWidthAndHeight = () => {
-    setWidth(ref.current?.clientWidth)
-    setHeight(ref.current?.clientHeight)
-  }
-
+  // show clips' played lengths and modified dots as their settings change.
+  // read from the store directly rather than as props: a prop update
+  // rebuilds every clip, which would flicker while dragging a control
+  const store = useStore<RootState>()
   React.useEffect(() => {
-    // set width when ref or sidebar update
-    if(ref.current) {
-      const { height: h, width: w } = ref.current.getBoundingClientRect()
+    let last: RootState['playlist'] | null = null
+
+    const apply = () => {
+      const { playlist } = store.getState()
+      const changed = !last
+        || playlist.clipSettings !== last.clipSettings
+        || playlist.clipSampleDurations !== last.clipSampleDurations
+      last = playlist
+
+      if(changed) playlistRenderer.setClipOverrides(selectClipOverrides(store.getState()))
+    }
+
+    apply()
+    return store.subscribe(apply)
+  }, [store])
+
+  // fit the canvas to the playlist's box whenever it changes size: the
+  // window resizing, the sidebar toggling, a split pane's divider moving,
+  // or the playlist's tab being shown again after another tab was selected
+  React.useEffect(() => {
+    const el = ref.current
+    if(!el) return undefined
+
+    const fit = () => {
+      const { height: h, width: w } = el.getBoundingClientRect()
+
+      // hidden behind another tab, keep the last size
+      if(!w || !h) return
+
       setHeight(h)
       setWidth(w)
       playlistRenderer.setHeight(h)
       playlistRenderer.setWidth(w)
-      if(!h) {
-        console.log("setting it bigger")
-        playlistRenderer.setHeight(1000)
-      }
-      console.log("the height:", h)
-    }
-  }, [ref.current, sidebar, windowPane])
-
-  React.useEffect(() => {
-    // resize when sizebar changes
-    if(ref.current) {
-      const { height: h, width: w } = ref.current.getBoundingClientRect()
-      setHeight(h)
-      setWidth(w)
-      playlistRenderer.setHeight(h)
-      playlistRenderer.setWidth(w)
-    }
-  }, [sidebar])
-
-  React.useEffect(() => {
-    const getPlaylistData = async () => {
-      const [
-        maxPlaylistBeats,
-        maxBeatsDisplayed,
-        maxPlaylistDuration,
-        calculatedTrackCount
-      ] = await invoke<[number, number, number, number]>('get_playlist_data', {})
-      setLimit(maxPlaylistBeats)
-      setTrackCount(calculatedTrackCount)
-      setDuration(maxPlaylistDuration)
     }
 
-    window.addEventListener('resize', updateWidthAndHeight)
+    fit()
+    const observer = new ResizeObserver(fit)
+    observer.observe(el)
 
-    getPlaylistData()
-
-    return () => window.removeEventListener('resize', updateWidthAndHeight)
+    return () => observer.disconnect()
   }, [])
 
   const handleItemDrop = (pw: PlaylistWindow) => {
@@ -160,47 +132,26 @@ const PlaylistCanvas = () => {
     dispatch(removeFromPlaylist(id)) 
   }
 
+  const handleNodeDoubleClick = (id: number) => {
+    dispatch(inspectClip(id))
+  }
+
+  // a clip already in the playlist was dragged and dropped. the renderer
+  // works out the beat (accounting for zoom, pan, and where the clip was
+  // grabbed) and the track from the mouse position
   const handleNodeMove = (
     item: PlaylistItem,
-    dropCoords: { x: number, y: number },
+    dropBeat: number,
+    trackNumber: number,
   ) => {
-    console.log("node move")
-    // handle drag and drop from nodes already existent in the playlist
-    if(dropCoords && ref.current) { 
-      const { x, y } = dropCoords
-      const { left, top, right, bottom } = ref.current.getBoundingClientRect()
-      const dropData = {
-        x,
-        y,
-        left,
-        top,
-        right,
-        bottom,
-      } as PlaylistItemPixelOffset
-      const trackNumber = playlistRenderer.calculateTrackNumber(dropData)
-
-      dispatch(moveNodeInPlaylist(
-        item.id,
-        item.path as string, 
-        trackNumber,
-        {
-          x,
-          y,
-          left,
-          top,
-          right,
-          bottom,
-        },
-      ))
-    } else {
-      // eslint-disable-next-line no-console
-      console.error(
-        "Error moving node: no playlist track ref, or null drop coordinates:", 
-        item, 
-        dropCoords, 
-        ref.current
-      )
-    }
+    dispatch(moveNodeInPlaylist(
+      item.id,
+      item.path,
+      trackNumber,
+      dropBeat,
+      // keep the vertical offset the clip was first drawn with
+      item.pixelOffset,
+    ))
   }
 
   return (
@@ -209,13 +160,15 @@ const PlaylistCanvas = () => {
       className='w-full h-full'
       style={{ minHeight: '100vh' }}
     >
-      {ref.current && <div ref={dropRef}>
+      {ref.current && <div>
         <ReactP5Wrapper
           sketch={playlistRenderer.sketch}
           style={{ height: '100%' }}
           height={height}
           width={width}
           playing={playing}
+          tempo={tempo}
+          beatsDisplayed={beatsDisplayed}
           maxPlaylistBeats={limit}
           duration={duration}
           trackCount={trackCount}
@@ -223,8 +176,10 @@ const PlaylistCanvas = () => {
           onItemDrop={handleItemDrop}
           onNodeRightClick={handleNodeRightClick}
           onNodeMove={handleNodeMove}
+          onNodeDoubleClick={handleNodeDoubleClick}
         />
       </div>}
+      <SampleDragGhost playlistRef={ref} />
     </div>
   )
 }

@@ -1,10 +1,9 @@
 import React from 'react'
 import { invoke } from '@tauri-apps/api'
-import { useDrag } from 'react-dnd'
 import { TreeInformation, TreeItemRenderContext } from 'react-complex-tree'
 import { getDirectorySamples } from '../../../state/slices/envSlice'
 import { useAppDispatch } from '../../../hooks/redux'
-import { PlaylistTypes } from '../../../types/playlist'
+import { beginSampleDrag } from '../../../state/sampleDrag'
 import { BrowserItemTypes, BrowserSampleItem } from '../../../types/sampleBrowser'
 import styles from './styles.module.scss'
 
@@ -19,23 +18,6 @@ interface Props {
 
 const SampleItem = (props: Props) => {
   const dispatch = useAppDispatch()
-  const [{ isDragging }, drag] = useDrag(() => ({
-    type: PlaylistTypes.SidebarSampleItem,
-    item: { name: props.item.path },
-    end: (item, monitor) => {
-      const dropResult = monitor.getDropResult<Props>()
-      if (item && dropResult) {
-        console.log("dropped, from sample item", dropResult)
-      }
-    },
-    collect: (monitor) => ({
-      isDragging: monitor.isDragging(),
-      handlerId: monitor.getHandlerId(),
-    }),
-  }))
-
-  if(isDragging) console.log("dragging sample item")
-
   const previewSample = () => {
     console.log("playing")
     invoke('t_preview_sample', {
@@ -43,11 +25,13 @@ const SampleItem = (props: Props) => {
     })
   }
 
-  const handleClick = () => {
+  const handleClick = (ev: React.MouseEvent) => {
     if(props.item.itemType === BrowserItemTypes.Sample) {
       invoke('t_preview_sample', {
         path: props.item.path
       })
+      // dragging the sample into the playlist adds it there
+      beginSampleDrag(props.item.path, ev)
     } else if(props.item.itemType === BrowserItemTypes.Directory) {
       console.log("enumerating directory")
       dispatch(getDirectorySamples(props.item.path))
@@ -57,7 +41,6 @@ const SampleItem = (props: Props) => {
 
   return (
     <button
-      ref={drag}
       className={`${styles.SampleItem} text-xs text-ellipsis whitespace-nowrap overflow-hidden w-full`}
       onMouseDown={handleClick}
     >

@@ -3,6 +3,8 @@ mod daw;
 mod util;
 // mod lang;
 mod event_dispatch;
+mod project;
+mod recent;
 mod bind_functions;
 
 use std::env;
@@ -50,15 +52,22 @@ fn debug(){
 
 fn init_tauri() {
   use event_dispatch::*;
+  use project::{save_project, load_project, new_project};
+  use recent::{add_recent_project, remove_recent_project};
+
+  // read before the menu is built, which lists them
+  let recent_projects = recent::RecentProjects::load();
 
   tauri::Builder::default()
     .setup(app::window::setup)
-    .menu(app::window::build_menu())
+    .menu(app::window::build_menu(&recent_projects))
     .manage(Arc::new(daw::InnerState::default()))
+    .manage(recent_projects)
     .invoke_handler(tauri::generate_handler![
       get_playlist_playing,
       t_toggle_playlist,
       get_playlist_start_time,
+      get_playlist_transport,
       get_playlist_tempo,
       set_playlist_tempo,
       t_toggle_metronome_enabled,
@@ -81,6 +90,17 @@ fn init_tauri() {
       get_loop_enabled,
       toggle_snap_enabled,
       get_snap_enabled,
+      get_snap_setting,
+      set_snap_subdivision,
+      get_sample_preview,
+      get_clip,
+      set_clip_settings,
+      t_preview_node,
+      save_project,
+      load_project,
+      new_project,
+      add_recent_project,
+      remove_recent_project,
       get_playlist_max_length,
       init_playlist_workspace,
       toggle_record_input

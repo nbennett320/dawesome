@@ -30,21 +30,30 @@ class Cursor extends PlaylistComponent {
     }
   }
 
+  // x position of the playhead, in the same units clips are drawn in
   #currentRatio = (): number | null => {
-    const now = Date.now()
-    const { playlistStart } = this.renderer as Renderer
+    const { transport, width } = this.renderer as Renderer
 
-    if(!playlistStart) return null
+    if(!transport) return null
 
-    const delta = now - playlistStart
-    const ratio = delta * 16 / ((this.renderer as Renderer).width / 16)
-    return ratio * this.currentScale
+    const { startTimeMs, beatIntervalMs, loopBeats, beatsDisplayed, loopEnabled } = transport
+    const elapsedMs = Math.max(0, Date.now() - startTimeMs)
+
+    // the engine jumps back to the start after `loopBeats` beats
+    const loopMs = beatIntervalMs * loopBeats
+    const positionMs = loopEnabled && loopMs > 0 ? elapsedMs % loopMs : elapsedMs
+
+    // the full playlist width spans `beatsDisplayed` beats
+    const displayedMs = beatIntervalMs * beatsDisplayed
+    const x = positionMs / displayedMs * width
+
+    return x * this.currentScale
   }
 
   drawTriangle = () => {
     const ratio = this.#currentRatio()
 
-    if(!ratio) return
+    if(ratio === null) return
 
     this.p.triangle(0 + ratio, 0, 8+ ratio, 0, 0 + ratio, 8)
     this.p.stroke(1)
@@ -53,7 +62,7 @@ class Cursor extends PlaylistComponent {
   drawCursorLine = () => {
     const ratio = this.#currentRatio()
 
-    if(!ratio) return
+    if(ratio === null) return
 
     this.p.line(0 + ratio, 0, 0 + ratio, this.renderer.height)
   }

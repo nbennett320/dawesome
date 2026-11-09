@@ -32,12 +32,18 @@ impl WaveformData {
 }
 
 // calculate a path of a node's normalized audio waveform
+// returns None if the samples are empty or too short to draw
 pub fn calc_waveform_from_samples(
   samples: Vec<i16>, 
   channels: u16,
-) -> Vec<f32> {
+) -> Option<Vec<f32>> {
+  if samples.is_empty() || channels == 0 {
+    return None;
+  }
+
   let dur_ms = samples.len() as f32 / 44_100. * 1_000. / channels as f32;
-  let lod = dur_ms.round() as u32 * 2;
+  // at least one point, so very short samples don't divide by zero
+  let lod = (dur_ms.round() as u32 * 2).max(1);
   println!("dur_ms: {}, lod: {}", dur_ms, lod);
 
   // get frames and interpolate points
@@ -49,8 +55,8 @@ pub fn calc_waveform_from_samples(
     .iter()
     .map(|y| *y as i32)
     .collect();
-  let y_gauss = util::math::gaussian_1d(&ys, 1., false).unwrap();
-  let y_smoothed = util::math::sample_to_n_elements(&y_gauss, lod as u32).unwrap();
+  let y_gauss = util::math::gaussian_1d(&ys, 1., false)?;
+  let y_smoothed = util::math::sample_to_n_elements(&y_gauss, lod as u32)?;
   let len = y_smoothed.len();
   let y_norms = util::math::f_normalize::<f32>(y_smoothed);
 
@@ -62,14 +68,14 @@ pub fn calc_waveform_from_samples(
     .map(|x| x.to_f32().unwrap())
     .collect();
 
-  util::math::interleave(xsf[0..(lod as usize)].to_vec(), y_norms).unwrap()
+  util::math::interleave(xsf.get(0..(lod as usize))?.to_vec(), y_norms)
 }
 
 // get a path of a node's normalized audio waveform, given
 // the path to a sound sample
-pub fn calc_waveform_from_file_path(sample_path: &str) -> Vec<f32> {
-  let file = BufReader::new(File::open(sample_path).unwrap());
-  let source = Decoder::new(file).unwrap();
+pub fn calc_waveform_from_file_path(sample_path: &str) -> Option<Vec<f32>> {
+  let file = BufReader::new(File::open(sample_path).ok()?);
+  let source = Decoder::new(file).ok()?;
   let channels = source.channels();
   let mut samples = Vec::<i16>::new();
 

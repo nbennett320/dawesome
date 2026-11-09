@@ -25,6 +25,15 @@
   }
 }
 
+.SnapInput {
+  display: flex;
+  flex-direction: column;
+
+  &Field {
+    width: 5.5rem;
+  }
+}
+
 .MetronomeButton {
   // transform: scale(0.666);
 }

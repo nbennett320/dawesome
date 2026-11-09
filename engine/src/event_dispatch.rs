@@ -1,7 +1,7 @@
 use std::sync::atomic::{Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{SystemTime};
+use std::time::{Instant, SystemTime};
 use tauri;
 
 use crate::daw::{InnerState};
@@ -28,42 +28,69 @@ pub fn get_playlist_playing(
   Ok(state.playlist.playing())
 }
 
-#[cfg(target_os = "windows")]
-#[tauri::command]
-pub fn get_playlist_start_time(
-  state: tauri::State<'_, Arc<daw::InnerState>>
-) -> Result<u128, String> {
-  let elapsed = state
-    .playlist
-    .started_time
-    .lock()
-    .unwrap()
-    .unwrap()
-    .elapsed();
-  let now = SystemTime::now()
-    .duration_since(SystemTime::Windows)
-    .unwrap();
-  let start_time = now - elapsed;
-  Ok(start_time.as_millis())
-}
-
-#[cfg(not(target_os = "windows"))]
 #[tauri::command]
 pub fn get_playlist_start_time(
   state: daw::TState<'_>
 ) -> Result<u128, String> {
+  Ok(get_start_time_ms(state.inner())? as u128)
+}
+
+// convert the engine's monotonic start time into wall clock ms
+// (since the unix epoch), which the frontend can compare to Date.now()
+fn get_start_time_ms(state: &daw::InnerState) -> Result<f64, String> {
   let elapsed = state
     .playlist
     .started_time
     .lock()
     .unwrap()
-    .unwrap()
+    .ok_or("playlist has not been started")?
     .elapsed();
+  // UNIX_EPOCH is the epoch on every platform, including windows
   let now = SystemTime::now()
     .duration_since(SystemTime::UNIX_EPOCH)
-    .unwrap();
-  let start_time = now - elapsed;
-  Ok(start_time.as_millis())
+    .map_err(|e| e.to_string())?;
+  Ok((now - elapsed).as_secs_f64() * 1000.)
+}
+
+// everything the frontend needs to draw the playback cursor in sync with
+// the engine's beat loop, without polling every frame
+#[derive(serde::Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistTransport {
+  // engine start time of the current run, ms since the unix epoch
+  start_time_ms: f64,
+  // length of one beat tick in the engine loop
+  beat_interval_ms: f64,
+  // beats played before the engine loops back to the start
+  loop_beats: u64,
+  // beats spanned by the full playlist width
+  beats_displayed: u64,
+  loop_enabled: bool,
+}
+
+fn playlist_transport(state: &daw::InnerState) -> Result<PlaylistTransport, String> {
+  let start_time_ms = get_start_time_ms(state)?;
+  let beat_interval = state
+    .playlist
+    .audiograph
+    .lock()
+    .unwrap()
+    .interval_of_subdivision(daw::timing::QuarterNote::new());
+
+  Ok(PlaylistTransport {
+    start_time_ms,
+    beat_interval_ms: beat_interval.as_secs_f64() * 1000.,
+    loop_beats: state.playlist.max_beats.load(Ordering::SeqCst),
+    beats_displayed: state.playlist.ui.lock().unwrap().max_beats_displayed,
+    loop_enabled: state.playlist.loop_enabled.load(Ordering::SeqCst),
+  })
+}
+
+#[tauri::command]
+pub fn get_playlist_transport(
+  state: daw::TState<'_>
+) -> Result<PlaylistTransport, String> {
+  playlist_transport(state.inner())
 }
 
 #[tauri::command]
@@ -107,7 +134,13 @@ pub fn get_metronome_enabled(
 pub fn get_playlist_runtime_formatted(
   state: daw::TState<'_>
 ) -> Result<String, String> {
-  let start_time = state.playlist.started_time.lock().unwrap().unwrap();
+  // before the first play there is no start time; show a zero runtime
+  let start_time = state
+    .playlist
+    .started_time
+    .lock()
+    .unwrap()
+    .unwrap_or_else(Instant::now);
   let res = util::format_playlist_runtime(start_time);
   Ok(res)
 }
@@ -185,13 +218,74 @@ pub fn get_audio_drivers() -> Result<Vec<String>, String> {
   Ok(daw::drivers::get_sound_host_names())
 }
 
+// the number of beats the playlist shows, and the time they span
+// at the current tempo
+fn displayed_beats_and_duration(
+  state: &daw::InnerState,
+) -> (f32, std::time::Duration) {
+  let tempo = state.playlist.audiograph.lock().unwrap().tempo();
+  let beats = state.playlist.ui.lock().unwrap().max_beats_displayed;
+  let dur = daw::timing::n_beat_duration_from_tempo(tempo, beats as u32);
+
+  (beats as f32, dur)
+}
+
+// convert a drop position, in beats from the start of the playlist,
+// into a start offset
+// positions are in beats rather than pixels, so they don't depend on the
+// canvas size, zoom, or pan, which the frontend accounts for
+fn beat_to_offset(
+  state: &daw::InnerState,
+  beat: Option<f32>,
+) -> std::time::Duration {
+  let (beats, dur) = displayed_beats_and_duration(state);
+
+  app::workspaces::playlist::calc_sample_offset(beat.unwrap_or(0.), beats, dur)
+}
+
+// the inverse of beat_to_offset: how many beats into the playlist
+// a start offset is
+fn offset_to_beat(
+  state: &daw::InnerState,
+  offset: std::time::Duration,
+) -> f32 {
+  let interval = state.playlist.audiograph.lock().unwrap().beat_interval();
+
+  if interval.is_zero() { return 0.; }
+
+  (offset.as_secs_f64() / interval.as_secs_f64()) as f32
+}
+
+// where a node starts, in beats from the start of the playlist, after snapping
+fn node_beat(state: &daw::InnerState, id: u64) -> Result<f32, String> {
+  let offset = state
+    .playlist
+    .audiograph
+    .lock()
+    .unwrap()
+    .get_node_by_id(id)
+    .ok_or_else(|| format!("no node with id {}", id))?
+    .start_offset;
+
+  Ok(offset_to_beat(state, offset))
+}
+
+// a node that was just added, and where the frontend should draw it
+#[derive(serde::Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PlacedNode {
+  id: u64,
+  // beats from the start of the playlist, after snapping
+  start_beat: f32,
+}
+
 fn add_audiograph_node(
   state: &daw::InnerState,
   sample_path: String,
   track_number: u32,
   start_offset: std::time::Duration,
   snap_enabled: bool,
-) -> u64 {
+) -> Result<u64, String> {
   // println!("added sample: {}, with offset of: {}ms", sample_path, start_offset.as_millis());
 
   let id: u64;
@@ -214,7 +308,7 @@ fn add_audiograph_node(
         sample_path, 
         start_offset, 
         track_number,
-        daw::timing::SixteenthNote::new());
+        subdivision)?;
   } else {
     // don't snap
     id = state
@@ -222,10 +316,10 @@ fn add_audiograph_node(
       .audiograph
       .lock()
       .unwrap()
-      .construct_and_add_node(sample_path, start_offset, track_number);
+      .construct_and_add_node(sample_path, start_offset, track_number)?;
   }
 
-  id
+  Ok(id)
 }
 
 #[tauri::command]
@@ -233,39 +327,16 @@ pub fn t_add_audiograph_node(
   state: daw::TState<'_>,
   sample_path: String,
   track_number: u32,
-  drop_x: Option<f32>,
-  drop_y: Option<f32>,
-) -> Result<u64, String> {
-  let min_bound_x = state.playlist.ui.lock().unwrap().viewport.min_bound_x.unwrap();
-  let min_bound_y = state.playlist.ui.lock().unwrap().viewport.min_bound_y.unwrap();
-  let max_bound_x = state.playlist.ui.lock().unwrap().viewport.max_bound_x.unwrap();
-  let max_bound_y = state.playlist.ui.lock().unwrap().viewport.max_bound_y.unwrap();
-  let tempo = state.playlist.audiograph.lock().unwrap().tempo();
-  let max_beats_displayed = state.playlist.ui.lock().unwrap().max_beats_displayed;
-  println!("max_beats_displayed: {}", max_beats_displayed);
-  let max_playlist_dur = daw::timing::n_subdivision_duration_from_tempo(
-    tempo, 
-    max_beats_displayed as u32,
-    daw::timing::QuarterNote::new()
-  );
-
-  println!("max playlist dur: {}ms", max_playlist_dur.as_millis());
-
-  let start_offset = app::workspaces::playlist::calc_sample_offset(
-    drop_x.unwrap_or(min_bound_x),
-    drop_y.unwrap_or(min_bound_y),
-    min_bound_x,
-    min_bound_y,
-    max_bound_x,
-    max_bound_y,
-    max_playlist_dur
-  );
+  drop_beat: Option<f32>,
+) -> Result<PlacedNode, String> {
+  let start_offset = beat_to_offset(state.inner(), drop_beat);
 
   let snap_enabled = state.playlist.ui.lock().unwrap().snap_enabled;
 
-  let id = add_audiograph_node(state.inner(), sample_path, track_number, start_offset, snap_enabled);
+  let id = add_audiograph_node(state.inner(), sample_path, track_number, start_offset, snap_enabled)?;
+  let start_beat = node_beat(state.inner(), id)?;
 
-  Ok(id)
+  Ok(PlacedNode { id, start_beat })
 }
 
 #[tauri::command]
@@ -273,35 +344,23 @@ pub fn move_audiograph_node(
   state: daw::TState<'_>,
   id: u64,
   track_number: u32,
-  drop_x: Option<f32>,
-  drop_y: Option<f32>,
-) {
-  let min_bound_x = state.playlist.ui.lock().unwrap().viewport.min_bound_x.unwrap();
-  let min_bound_y = state.playlist.ui.lock().unwrap().viewport.min_bound_y.unwrap();
-  let max_bound_x = state.playlist.ui.lock().unwrap().viewport.max_bound_x.unwrap();
-  let max_bound_y = state.playlist.ui.lock().unwrap().viewport.max_bound_y.unwrap();
-  let tempo = state.playlist.audiograph.lock().unwrap().tempo();
-  let max_beats_displayed = state.playlist.ui.lock().unwrap().max_beats_displayed;
-  println!("max_beats_displayed: {}", max_beats_displayed);
-  let max_playlist_dur = daw::timing::n_subdivision_duration_from_tempo(
-    tempo, 
-    max_beats_displayed as u32,
-    daw::timing::QuarterNote::new()
-  );
-
-  let start_offset = app::workspaces::playlist::calc_sample_offset(
-    drop_x.unwrap_or(min_bound_x),
-    drop_y.unwrap_or(min_bound_y),
-    min_bound_x,
-    min_bound_y,
-    max_bound_x,
-    max_bound_y,
-    max_playlist_dur
-  );
-
+  drop_beat: Option<f32>,
+) -> Result<f32, String> {
+  let start_offset = beat_to_offset(state.inner(), drop_beat);
 
   println!("moved sample with id: {}, with offset of: {}ms", id, start_offset.as_millis());
 
+  // returns where the frontend should draw the node (in beats), after snapping
+  move_audiograph_node_to(state.inner(), id, track_number, start_offset)?;
+  node_beat(state.inner(), id)
+}
+
+fn move_audiograph_node_to(
+  state: &daw::InnerState,
+  id: u64,
+  track_number: u32,
+  start_offset: std::time::Duration,
+) -> Result<(), String> {
   if state.playlist.ui.lock().unwrap().snap_enabled {
     println!("snapping the sample");
     // snap to nearest snap subdivision
@@ -321,7 +380,7 @@ pub fn move_audiograph_node(
         id, 
         start_offset, 
         track_number, 
-        daw::timing::SixteenthNote::new());
+        subdivision)
   } else {
     // don't snap
     state
@@ -329,7 +388,7 @@ pub fn move_audiograph_node(
       .audiograph
       .lock()
       .unwrap()
-      .move_node(id, start_offset, track_number);
+      .move_node(id, start_offset, track_number)
   }
 }
 
@@ -337,13 +396,15 @@ pub fn move_audiograph_node(
 pub fn remove_audiograph_node(
   state: daw::TState<'_>,
   id: u64,
-) {
+) -> Result<(), String> {
   state
     .playlist
     .audiograph
     .lock()
     .unwrap()
-    .remove_node(id);
+    .remove_node(id)?;
+
+  Ok(())
 }
 
 #[tauri::command]
@@ -356,7 +417,8 @@ pub fn get_node_data(
     .audiograph
     .lock()
     .unwrap();
-  let node = audiograph.get_mut_node_by_id(id).unwrap();
+  let node = audiograph.get_mut_node_by_id(id)
+    .ok_or_else(|| format!("no node with id {}", id))?;
   println!("offset dur: {:?}", node.start_offset.as_millis());
   let waveform = node.get_waveform().clone();
   let dur = node.duration().as_secs_f32();
@@ -364,6 +426,110 @@ pub fn get_node_data(
 
   // return waveform data
   Ok((waveform, dur))
+}
+
+// a clip's playback settings and lengths (seconds), for the Sample tab
+#[derive(serde::Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipInfo {
+  pub(crate) settings: daw::ClipSettings,
+  // the sample's length, before the settings change its speed
+  pub(crate) sample_duration: f32,
+  // how long the clip plays for
+  pub(crate) played_duration: f32,
+}
+
+pub(crate) fn clip_info(node: &daw::AudioNode) -> ClipInfo {
+  ClipInfo {
+    settings: node.settings(),
+    sample_duration: node.sample_duration().as_secs_f32(),
+    played_duration: node.duration().as_secs_f32(),
+  }
+}
+
+fn get_clip_of(state: &daw::InnerState, id: u64) -> Result<ClipInfo, String> {
+  let audiograph = state.playlist.audiograph.lock().unwrap();
+  let node = audiograph.get_node_by_id(id)
+    .ok_or_else(|| format!("no node with id {}", id))?;
+
+  Ok(clip_info(node))
+}
+
+fn set_clip_settings_of(
+  state: &daw::InnerState,
+  id: u64,
+  settings: daw::ClipSettings,
+) -> Result<ClipInfo, String> {
+  let mut audiograph = state.playlist.audiograph.lock().unwrap();
+  let node = audiograph.get_mut_node_by_id(id)
+    .ok_or_else(|| format!("no node with id {}", id))?;
+  node.set_settings(settings);
+
+  Ok(clip_info(node))
+}
+
+#[tauri::command]
+pub fn get_clip(
+  state: daw::TState<'_>,
+  id: u64,
+) -> Result<ClipInfo, String> {
+  get_clip_of(&state, id)
+}
+
+// change how a clip plays back. settings are kept in range, and the clip's
+// info is returned with the settings that were kept
+//
+// takes effect the next time the clip starts playing
+#[tauri::command]
+pub fn set_clip_settings(
+  state: daw::TState<'_>,
+  id: u64,
+  settings: daw::ClipSettings,
+) -> Result<ClipInfo, String> {
+  set_clip_settings_of(&state, id, settings)
+}
+
+// play a clip on its own, with its settings
+#[tauri::command]
+pub fn t_preview_node(
+  state: daw::TState<'_>,
+  id: u64,
+) -> Result<(), String> {
+  let source = state.playlist.audiograph.lock().unwrap()
+    .get_node_by_id(id)
+    .ok_or_else(|| format!("no node with id {}", id))?
+    .source();
+
+  thread::spawn(move || {
+    let played = rodio::OutputStream::try_default()
+      .map_err(|e| e.to_string())
+      .and_then(|(_stream, handle)| {
+        let sink = rodio::Sink::try_new(&handle).map_err(|e| e.to_string())?;
+        sink.append(source);
+        sink.sleep_until_end();
+        Ok(())
+      });
+
+    if let Err(e) = played {
+      println!("could not preview clip {}: {}", id, e);
+    }
+  });
+
+  Ok(())
+}
+
+// waveform data and duration (seconds) of a sample that isn't in the
+// playlist yet, in the same shape as get_node_data
+// used to draw a clip while it's dragged in from the sidebar
+#[tauri::command]
+pub fn get_sample_preview(
+  state: daw::TState<'_>,
+  sample_path: String,
+) -> Result<(Vec<f32>, f32), String> {
+  let sample_rate = state.playlist.audiograph.lock().unwrap().sample_rate();
+  let (dur, waveform) = daw::preview_sample(&sample_path, sample_rate)?;
+
+  Ok((waveform, dur.as_secs_f32()))
 }
 
 #[tauri::command]
@@ -473,6 +639,46 @@ pub fn get_snap_enabled(
   Ok(state.playlist.ui.lock().unwrap().snap_enabled)
 }
 
+// the snap setting, so the frontend can preview where a dragged clip will land
+#[derive(serde::Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapSetting {
+  enabled: bool,
+  // the note value clips snap to
+  note: daw::timing::Note,
+  // length of one snap step, in beats
+  beats: f32,
+}
+
+fn snap_setting(state: &daw::InnerState) -> SnapSetting {
+  let ui = state.playlist.ui.lock().unwrap();
+  let (num, den) = daw::timing::MusicalTiming::ratio(&ui.snap_subdivision);
+
+  SnapSetting {
+    enabled: ui.snap_enabled,
+    note: ui.snap_subdivision,
+    beats: num as f32 / den as f32,
+  }
+}
+
+#[tauri::command]
+pub fn get_snap_setting(
+  state: daw::TState<'_>
+) -> Result<SnapSetting, String> {
+  Ok(snap_setting(state.inner()))
+}
+
+// set the note value clips snap to, returns the new snap setting
+#[tauri::command]
+pub fn set_snap_subdivision(
+  state: daw::TState<'_>,
+  note: daw::timing::Note,
+) -> Result<SnapSetting, String> {
+  state.playlist.ui.lock().unwrap().snap_subdivision = note;
+
+  Ok(snap_setting(state.inner()))
+}
+
 #[tauri::command]
 pub fn get_playlist_max_length (
   state: daw::TState<'_>
@@ -489,7 +695,8 @@ pub fn get_playlist_max_length (
     .lock()
     .unwrap()
     .max_beats();
-  Ok((dur.as_millis().try_into().unwrap(), max_beats))
+  let dur_ms: u64 = dur.as_millis().try_into().map_err(|_| "playlist too long")?;
+  Ok((dur_ms, max_beats))
 }
 
 #[tauri::command]
@@ -525,4 +732,153 @@ pub fn toggle_record_input(
     .playlist
     .recording();
   daw::input::record_input(*recording);
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::time::Duration;
+
+  #[test]
+  fn test_beat_to_offset() {
+    let state = daw::InnerState::default();
+
+    // default: 120bpm, 16 beats displayed
+    let ms = |b: Option<f32>| beat_to_offset(&state, b).as_millis();
+    assert_eq!(ms(Some(0.)), 0);
+    assert_eq!(ms(Some(1.)), 500);
+    assert_eq!(ms(Some(8.)), 4_000);
+    assert_eq!(ms(Some(1.5)), 750);
+    assert_eq!(ms(None), 0);
+
+    // drops outside the playlist are clamped to its start/end
+    assert_eq!(ms(Some(-2.)), 0);
+    assert_eq!(ms(Some(40.)), 8_000);
+
+    // a beat is longer at a slower tempo
+    state.set_tempo(60.);
+    assert_eq!(ms(Some(8.)), 8_000);
+  }
+
+  #[test]
+  fn test_playlist_transport() {
+    let state = daw::InnerState::default();
+
+    // nothing to sync to before the playlist has been started
+    assert!(playlist_transport(&state).is_err());
+
+    let started = Instant::now() - std::time::Duration::from_millis(1_500);
+    *state.playlist.started_time.lock().unwrap() = Some(started);
+
+    let t = playlist_transport(&state).unwrap();
+    assert_eq!(t.beat_interval_ms, 500.); // 120bpm
+    assert_eq!(t.loop_beats, 16);
+    assert_eq!(t.beats_displayed, 16);
+    assert!(t.loop_enabled);
+
+    // start time is reported in wall clock ms, 1.5s in the past
+    let now_ms = SystemTime::now()
+      .duration_since(SystemTime::UNIX_EPOCH)
+      .unwrap()
+      .as_secs_f64() * 1000.;
+    assert!((now_ms - t.start_time_ms - 1_500.).abs() < 50.);
+
+    state.set_tempo(60.);
+    assert_eq!(playlist_transport(&state).unwrap().beat_interval_ms, 1_000.);
+  }
+
+  #[test]
+  fn test_add_and_move_snap_to_the_snap_setting() {
+    let state = daw::InnerState::default();
+    let sample = daw::METRONOME_TICK_PATH.to_string();
+    let ms = |id: u64| state.playlist.audiograph.lock().unwrap()
+      .get_node_by_id(id).unwrap().start_offset.as_millis();
+
+    // default snap is one beat (500ms at 120bpm)
+    let id = add_audiograph_node(&state, sample.clone(), 0, Duration::from_millis(700), true).unwrap();
+    assert_eq!(ms(id), 500);
+    let id2 = add_audiograph_node(&state, sample.clone(), 0, Duration::from_millis(800), true).unwrap();
+    assert_eq!(ms(id2), 1_000);
+
+    // snap disabled keeps the exact position
+    let id3 = add_audiograph_node(&state, sample.clone(), 0, Duration::from_millis(700), false).unwrap();
+    assert_eq!(ms(id3), 700);
+
+    // a different snap setting is respected (sixteenth notes = 125ms)
+    state.playlist.ui.lock().unwrap().snap_subdivision = daw::timing::Note::SixteenthNote;
+    let id4 = add_audiograph_node(&state, sample, 0, Duration::from_millis(700), true).unwrap();
+    assert_eq!(ms(id4), 750);
+  }
+
+  #[test]
+  fn test_clip_settings() {
+    let state = daw::InnerState::default();
+    let sample = daw::METRONOME_TICK_PATH.to_string();
+    let id = add_audiograph_node(&state, sample, 0, Duration::ZERO, false).unwrap();
+
+    let info = get_clip_of(&state, id).unwrap();
+    assert_eq!(info.settings, daw::ClipSettings::default());
+    assert_eq!(info.sample_duration, info.played_duration);
+
+    // an octave up halves the played length, and out of range values are kept in range
+    let info = set_clip_settings_of(&state, id, daw::ClipSettings {
+      pitch: 12.,
+      gain_db: 99.,
+      ..Default::default()
+    }).unwrap();
+    assert_eq!(info.settings.pitch, 12.);
+    assert_eq!(info.settings.gain_db, 12.);
+    assert!((info.played_duration - info.sample_duration / 2.).abs() < 1e-4);
+    assert_eq!(get_clip_of(&state, id).unwrap(), info);
+
+    // the frontend's names deserialize
+    let settings: daw::ClipSettings = serde_json::from_str(
+      r#"{"gainDb":-6,"pan":0.5,"pitch":0,"attackMs":10,"decayMs":20}"#).unwrap();
+    assert_eq!(settings.pan, 0.5);
+
+    assert!(get_clip_of(&state, 9999).is_err());
+  }
+
+  #[test]
+  fn test_snap_setting() {
+    let state = daw::InnerState::default();
+
+    use daw::timing::Note;
+
+    // default: snap on, one beat
+    assert_eq!(
+      snap_setting(&state),
+      SnapSetting { enabled: true, note: Note::QuarterNote, beats: 1. });
+
+    state.playlist.ui.lock().unwrap().snap_subdivision = Note::SixteenthNote;
+    state.playlist.ui.lock().unwrap().toggle_snap_enabled();
+    assert_eq!(
+      snap_setting(&state),
+      SnapSetting { enabled: false, note: Note::SixteenthNote, beats: 0.25 });
+
+    // the frontend sends and receives notes by name
+    let note: Note = serde_json::from_str("\"EighthNote\"").unwrap();
+    assert_eq!(note, Note::EighthNote);
+    assert_eq!(serde_json::to_string(&Note::WholeNote).unwrap(), "\"WholeNote\"");
+  }
+
+  #[test]
+  fn test_snapped_nodes_report_their_beat() {
+    let state = daw::InnerState::default();
+    let sample = daw::METRONOME_TICK_PATH.to_string();
+
+    // dropped at beat 1.4 snaps to beat 1 (default snap is one beat)
+    let id = add_audiograph_node(&state, sample, 0, beat_to_offset(&state, Some(1.4)), true).unwrap();
+    assert_eq!(node_beat(&state, id).unwrap(), 1.);
+
+    // moved to beat 3.6 snaps to beat 4
+    move_audiograph_node_to(&state, id, 1, beat_to_offset(&state, Some(3.6))).unwrap();
+    assert_eq!(node_beat(&state, id).unwrap(), 4.);
+
+    // offset_to_beat undoes beat_to_offset when nothing snaps
+    let offset = beat_to_offset(&state, Some(2.46));
+    assert!((offset_to_beat(&state, offset) - 2.46).abs() < 0.001);
+
+    assert!(node_beat(&state, 9_999).is_err());
+  }
 }
