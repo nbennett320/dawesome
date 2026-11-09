@@ -2,6 +2,7 @@ use rodio::{
   Decoder,
   cpal::{
     self,
+    FromSample,
     Sample,
     traits::{
       DeviceTrait,
@@ -10,7 +11,6 @@ use rodio::{
     }
   },
 };
-use symphonia::core::conv::FromSample;
 use std::{
   any::{
     Any,
@@ -65,7 +65,7 @@ where
   if let Ok(mut guard) = writer.try_lock() {
     if let Some(writer) = guard.as_mut() {
       for &sample in input.iter() {
-        let sample: U = U::from_sample(sample);
+        let sample: U = U::from_sample_(sample);
         writer.write_sample(sample).ok();
       }
     }
@@ -101,14 +101,16 @@ pub fn record_input(recording: bool) {
     cpal::SampleFormat::I16 => device.build_input_stream(
       &config.into(),
       move |data, _: &_| write_input_data::<i16, i16>(data, &writer2),
-      err_fn
+      err_fn,
+      None,
     ).unwrap(),
     cpal::SampleFormat::F32 => device.build_input_stream(
       &config.into(),
       move |data, _: &_| write_input_data::<f32, f32>(data, &writer2),
-      err_fn
+      err_fn,
+      None,
     ).unwrap(),
-    cpal::SampleFormat::U16 => todo!(),
+    _ => todo!(),
   };
 
   stream.play().unwrap();

@@ -1580,7 +1580,12 @@ mod tests {
       }
     });
 
-    assert_eq!(zero_samples.len(), 44_100 / 2);
+    // a second of stereo silence. rodio rounds the time per sample to whole
+    // nanoseconds, so it runs a few samples over
+    let expected = 44_100 * 2;
+    assert!(
+      zero_samples.len() >= expected && zero_samples.len() < expected + 10,
+      "expected about {} samples of silence, got {}", expected, zero_samples.len());
     assert_eq!(nonzero_samples.len(), 0);
   }
 
