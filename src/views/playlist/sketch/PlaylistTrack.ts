@@ -4,6 +4,7 @@ import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import { CanvasProps, Renderer, staticDefaults } from './index'
 import PlaylistObject from './PlaylistObject'
 import { P5BoundingBox, State as ComponentState } from '../../../render/P5Component'
+import { theme } from './theme'
 
 interface Props extends PlaylistComponentProps {
   trackNumber: number
@@ -63,8 +64,6 @@ class PlaylistTrack extends PlaylistComponent<State> {
     } = this
 
     // render audio nodes in the playlist
-    p.stroke(0, 0, 0)
-    p.strokeWeight(.6)
     // a clip being dragged is drawn by the Renderer, pinned to the mouse
     const { clipDrag } = this.renderer as Renderer
     const dragged = clipDrag?.active ? clipDrag.item : null
@@ -105,10 +104,9 @@ class PlaylistTrack extends PlaylistComponent<State> {
     })
 
     // render track lines
-    p.stroke(0, 0, 0)
-    p.strokeWeight(.3)
-    p.line(0, minHeight, timelineWidth, minHeight)
-    p.line(0, maxHeight+.3, timelineWidth, maxHeight+.3)
+    p.stroke(...theme.laneLine)
+    p.strokeWeight(1)
+    p.line(0, maxHeight + .3, timelineWidth, maxHeight + .3)
   }
 }
 

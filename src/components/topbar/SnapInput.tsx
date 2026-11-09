@@ -23,12 +23,12 @@ const SnapInput = () => {
   const dispatch = useAppDispatch()
 
   return (
-    <div className={`${styles.SnapInput}`}>
-      <span className="text-gray-400 text-xs text-left">Snap</span>
+    <div className='flex flex-row items-center gap-1.5'>
+      <span className='ft-label'>Snap</span>
       <select
         value={note}
         // still selectable while snap is off, but dimmed to show it isn't applied
-        className={`${styles.SnapInputField} ${enabled ? 'text-gray-600' : 'text-gray-300'} text-sm rounded`}
+        className={`${styles.SnapInputField} ft-readout text-sm py-0.5 ${enabled ? '' : 'opacity-50'}`}
         aria-label="Playlist snap amount"
         onChange={(e) =>
           dispatch(setSnapSubdivision(e.currentTarget.value as SnapNote))

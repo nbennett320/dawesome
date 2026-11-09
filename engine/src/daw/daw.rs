@@ -143,17 +143,56 @@ pub fn play_metronome(state_ref: &Arc<state::InnerState>) {
   }
 }
 
+// length of one beat at the playlist's tempo
+pub fn beat_interval(state: &state::InnerState) -> Duration {
+  state
+    .playlist
+    .audiograph
+    .lock()
+    .unwrap()
+    .interval_of_subdivision(daw_core::timing::QuarterNote::new())
+}
+
+// where the playhead is now: moving with the current run while playing, or
+// where the next run will start while stopped or paused
+pub fn playhead(state: &state::InnerState) -> Duration {
+  let start = *state.playlist.start_offset.lock().unwrap();
+  if !state.playlist.playing() { return start; }
+
+  let started = match *state.playlist.started_time.lock().unwrap() {
+    Some(started) => started,
+    None => return start,
+  };
+
+  let loop_len = state.playlist.loop_len(beat_interval(state));
+  state::timeline_position(start, started.elapsed(), loop_len)
+}
+
+// where the song ends (the last clip's end), or None with no clips
+pub fn song_end(state: &state::InnerState) -> Option<Duration> {
+  let end = state.playlist.audiograph.lock().unwrap().end();
+  if end.is_zero() { None } else { Some(end) }
+}
+
+// the beat counters (total beats in, and the beat of the bar) at an offset
+fn set_beat_counters(state: &state::InnerState, offset: Duration, interval: Duration) {
+  let total = if interval.is_zero() { 0 } else { (offset.as_nanos() / interval.as_nanos()) as u64 };
+  let numerator = state.playlist.time_signature.lock().unwrap().numerator.max(1);
+
+  state.playlist.total_beats.store(total, Ordering::SeqCst);
+  state.playlist.current_beat.store((total % numerator as u64) as u16, Ordering::SeqCst);
+}
+
 pub fn run_playlist(
   state_ref: &Arc<state::InnerState>,
   ready: mpsc::Sender<Result<(), String>>,
 ) {
   let state = state_ref.clone();
-  let tempo_interval = state
-    .playlist
-    .audiograph
-    .lock()
-    .unwrap()
-    .interval_of_subdivision(daw_core::timing::QuarterNote::new());
+  let tempo_interval = beat_interval(&state);
+
+  // taken before the thread starts, so a stop sent right after this (before
+  // the thread gets going) still ends this run
+  let run = state.playlist.run_id.fetch_add(1, Ordering::SeqCst) + 1;
 
   println!("TEMPO INTERVAL {:?}", tempo_interval);
 
@@ -185,6 +224,9 @@ pub fn run_playlist(
       previous.store(true, Ordering::SeqCst);
     }
 
+    // the run plays from the playhead
+    let start = *state.playlist.start_offset.lock().unwrap();
+
     // every tick is scheduled relative to the start time, so time spent
     // building each slice doesn't accumulate into drift
     // the frontend cursor uses the same start time, so the two stay aligned
@@ -192,82 +234,81 @@ pub fn run_playlist(
     // anything that sees `playing == true` also sees this run's start time
     let started = Instant::now();
     *state.playlist.started_time.lock().unwrap() = Some(started);
-    state.playlist.audiograph.lock().unwrap().init(started);
+    {
+      let mut audiograph_ref = state.playlist.audiograph.lock().unwrap();
+      audiograph_ref.init(started);
+      audiograph_ref.set_current_offset(Some(start));
+    }
+    set_beat_counters(&state, start, tempo_interval);
     state.playlist.set_playing(true);
     let _ = ready.send(Ok(()));
 
-    let mut ticks: u32 = 0;
+    // still the run that should be playing: not stopped, and not replaced by
+    // a newer run (a seek while playing stops this one and starts another)
+    let current = || {
+      state.playlist.run_id.load(Ordering::SeqCst) == run && state.playlist.playing()
+    };
+
+    // a run from between beats plays the part beat up to the next one first,
+    // so every later slice (and metronome tick) stays on the beat
+    let lead = state::until_next_beat(start, tempo_interval);
+    let mut slice = if lead.is_zero() { tempo_interval } else { lead };
+    let mut on_beat = lead.is_zero();
+    let mut resume = true;
+    let mut next_tick = started;
 
     loop {
-      // run ahead n milliseconds and schedule the next
-      // samples in the audio graph to be played
+      // schedule this slice of the audio graph to be played
       {
         let audiograph_ref = state.playlist.audiograph.lock().unwrap();
         println!("tick: {}ms", audiograph_ref.current_offset.unwrap_or_default().as_millis());
 
-        audiograph_ref.run_for(&stream_handle, &bus, tempo_interval, state.metronome_enabled.load(Ordering::SeqCst));
+        let metronome = on_beat && state.metronome_enabled.load(Ordering::SeqCst);
+        audiograph_ref.run_for(&stream_handle, &bus, slice, metronome, resume);
       } // release the audiograph while sleeping so commands aren't blocked
 
-      // sleep until the start of the next beat
-      ticks += 1;
-      let next_tick = started + tempo_interval * ticks;
+      // sleep until the start of the next slice
+      next_tick += slice;
       thread::sleep(next_tick.saturating_duration_since(Instant::now()));
 
-      let mut audiograph_ref = state.playlist.audiograph.lock().unwrap();
-      let curr = audiograph_ref.current_offset.unwrap_or_default();
+      // stopped, paused or replaced while sleeping: leave the shared state to
+      // whoever did that
+      if !current() { break; }
 
-      if state.playlist.playing() {
-        audiograph_ref.set_current_offset(Some(curr + tempo_interval));
-      } else {
-        audiograph_ref.set_current_offset(Some(curr));
-      }
+      // move on, jumping back to the start at the loop's end (looping is read
+      // each slice, so toggling it applies right away)
+      let loop_len = state.playlist.loop_len(tempo_interval);
+      let next = {
+        let mut audiograph_ref = state.playlist.audiograph.lock().unwrap();
+        let next = state::advance(audiograph_ref.current_offset.unwrap_or_default(), slice, loop_len);
+        audiograph_ref.set_current_offset(Some(next));
+        next
+      };
+      set_beat_counters(&state, next, tempo_interval);
 
-      // increment the beat counter
-      let current_time_signature =
-        state.playlist.time_signature.lock().unwrap();
-      let current_beat =
-        state.playlist.current_beat.load(Ordering::SeqCst);
-      let next_beat = (current_beat + 1) % current_time_signature.numerator;
-      
-      if state.playlist.playing() {
-        // loop the playlist by setting the current offset to zero,
-        // if looping is enabled, otherwise, add and store the next 
-        // current beat
-        if state.playlist.loop_enabled.load(Ordering::SeqCst)
-          && ((state.playlist.total_beats.load(Ordering::SeqCst) + 1) as u64 
-          >= state.playlist.max_beats.load(Ordering::SeqCst)) {
-          audiograph_ref.set_current_offset(Some(Duration::ZERO));
-
-          state
-            .playlist
-            .current_beat
-            .store(next_beat, Ordering::SeqCst);
-          state
-            .playlist
-            .total_beats
-            .store(0, Ordering::SeqCst);
-        } else {
-          state
-            .playlist.current_beat
-            .store(next_beat, Ordering::SeqCst);
-          state
-            .playlist.total_beats
-            .fetch_add(1, Ordering::SeqCst);
+      // without looping, the tape runs out at the end of the song: stop
+      // there, once the last clip has played out
+      if loop_len.is_none() {
+        if let Some(end) = song_end(&state) {
+          if next >= end {
+            println!("reached the end of the song");
+            end_run(&state);
+            set_playhead(&state, end);
+            break;
+          }
         }
-      } else {
-        state.playlist.current_beat.store(0, Ordering::SeqCst);
       }
 
       println!(
         "current beat: {}, total beats played: {}, looping: {}",
         state.playlist.current_beat.load(Ordering::SeqCst),
         state.playlist.total_beats.load(Ordering::SeqCst),
-        state.playlist.loop_enabled.load(Ordering::SeqCst)
+        loop_len.is_some(),
       );
 
-      if !state.playlist.playing() {
-        break;
-      }
+      slice = tempo_interval;
+      on_beat = true;
+      resume = false;
     }
 
     // pausing already stopped the bus. this covers anything else that ends
@@ -278,18 +319,10 @@ pub fn run_playlist(
   println!("continuing");
 }
 
-pub fn pause_playlist(state: &state::InnerState) {
-  println!("pausing playlist");
-  
-  // reset playlist to 0 beats
-  state
-    .playlist
-    .current_beat
-    .store(0, Ordering::SeqCst);
-  state
-    .playlist
-    .total_beats
-    .store(0, Ordering::SeqCst);
+// end the current run, if any, leaving the playhead where it is
+fn end_run(state: &state::InnerState) {
+  // tell the run's thread it's done, even before it's flagged as playing
+  state.playlist.run_id.fetch_add(1, Ordering::SeqCst);
 
   // set playlist state to paused
   state
@@ -306,8 +339,46 @@ pub fn pause_playlist(state: &state::InnerState) {
   audiograph_ref.pause();
 }
 
+// move the playhead (with no run going)
+fn set_playhead(state: &state::InnerState, offset: Duration) {
+  let interval = beat_interval(state);
+  *state.playlist.start_offset.lock().unwrap() = offset;
+  set_beat_counters(state, offset, interval);
+}
+
+// stop playing, keeping the playhead where it got to, so playing again
+// carries on from there
+pub fn pause_playlist(state: &state::InnerState) {
+  println!("pausing playlist");
+
+  // read before stopping, while the run's start time still applies
+  let position = playhead(state);
+  end_run(state);
+  set_playhead(state, state::snap_to_beat(position, beat_interval(state)));
+}
+
+// stop playing and wind back to the start
+pub fn stop_playlist(state: &state::InnerState) {
+  println!("stopping playlist");
+
+  end_run(state);
+  set_playhead(state, Duration::ZERO);
+}
+
 pub fn start_playlist(state: &Arc<state::InnerState>) {
   println!("playing playlist");
+
+  // a playhead past the loop's end starts back at the top, so the run (and
+  // the frontend cursor) stays inside the loop. without looping, playing
+  // from the end of the song starts it again
+  let end = match state.playlist.loop_len(beat_interval(state)) {
+    Some(len) => Some(len),
+    None => song_end(state),
+  };
+  if let Some(end) = end {
+    let mut start = state.playlist.start_offset.lock().unwrap();
+    if *start >= end { *start = Duration::ZERO; }
+  }
 
   // wait until the output stream is open and the start time is set, so a
   // `get_playlist_playing` right after this sees the new run
@@ -319,6 +390,27 @@ pub fn start_playlist(state: &Arc<state::InnerState>) {
     Ok(Err(e)) => println!("could not start playlist: {}", e),
     Err(_) => println!("could not start playlist: playback thread exited"),
   }
+}
+
+// move the playhead to a beat, kept within the playlist. while playing,
+// playback carries on from there. returns the beat it moved to
+pub fn seek_playlist(state: &Arc<state::InnerState>, beat: f64) -> f64 {
+  let interval = beat_interval(state);
+  let end = state.playlist.ui.lock().unwrap().max_beats_displayed as f64;
+  let beat = if beat.is_finite() { beat.clamp(0., end) } else { 0. };
+  let offset = state::snap_to_beat(interval.mul_f64(beat), interval);
+
+  let playing = state.playlist.playing();
+  if playing { end_run(state); }
+  set_playhead(state, offset);
+  if playing { start_playlist(state); }
+
+  offset_beats(offset, interval)
+}
+
+// an offset in (fractional) beats
+pub fn offset_beats(offset: Duration, interval: Duration) -> f64 {
+  if interval.is_zero() { 0. } else { offset.as_secs_f64() / interval.as_secs_f64() }
 }
 
 pub fn set_playlist_tempo(

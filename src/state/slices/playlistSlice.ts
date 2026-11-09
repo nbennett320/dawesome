@@ -13,6 +13,7 @@ import {
   playedDuration,
 } from '../../types/clip'
 import { LoadedProject, MissingSample } from '../../types/project'
+import { Wind } from '../../types/transport'
 import { openTab } from './windowSlice'
 
 // mirrors daw::timing::Note in the engine
@@ -32,6 +33,12 @@ interface SnapSetting {
 
 export interface PlaylistState {
   playing: boolean
+  // counts transport commands (play, pause, stop, seek), so views that follow
+  // the playhead know to ask the engine where it is again
+  transportRevision: number
+  // the Transport tab's rewind or fast forward being held, so every counter
+  // follows the tape while it winds
+  wind: Wind | null
   tempo: number
   runtime?: string | null
   currentBeat?: number | null
@@ -59,6 +66,8 @@ export interface PlaylistState {
 // which parses dawesome.config file
 const initialState = {
   playing: false,
+  transportRevision: 0,
+  wind: null,
   tempo: 120,
   runtime: null,
   currentBeat: null,
@@ -82,6 +91,12 @@ export const playlistSlice = createSlice({
   name: 'playlistSlice',
   initialState,
   reducers: {
+    setWind: (state, action: PayloadAction<Wind | null>) => {
+      state.wind = action.payload
+    },
+    bumpTransportRevision: (state) => {
+      state.transportRevision += 1
+    },
     setPlaying: (state, action) => {
       state.playing = action.payload
     },
@@ -208,14 +223,57 @@ export const playlistSlice = createSlice({
 // start play/pause methods
 export const { setPlaying } = playlistSlice.actions
 
+// whether the engine is playing, after a transport command
+const syncPlayingFrom = (dispatch: Dispatch) =>
+  invoke<boolean>('get_playlist_playing', {})
+    .then(playing => {
+      dispatch(setPlaying(playing))
+      dispatch(playlistSlice.actions.bumpTransportRevision())
+    })
+
 export const togglePlay = () => async (dispatch: Dispatch) => {
-  invoke<void>('t_toggle_playlist', {})
-  const playing = await invoke<boolean>('get_playlist_playing', {})
-  dispatch(setPlaying(playing))
+  await invoke<void>('t_toggle_playlist', {})
+  await syncPlayingFrom(dispatch)
 }
+
+const transportError = (what: string) => (e: unknown) =>
+  // eslint-disable-next-line no-console
+  console.error(`could not ${what}:`, e)
+
+// the transport's keys: play from the playhead, pause there, stop and go back
+// to the start
+export const playPlaylist = () => (dispatch: Dispatch) =>
+  invoke<void>('t_play_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('play'))
+
+export const pausePlaylist = () => (dispatch: Dispatch) =>
+  invoke<void>('t_pause_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('pause'))
+
+export const stopPlaylist = () => (dispatch: Dispatch) =>
+  invoke<void>('t_stop_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('stop'))
+
+// move the playhead to a beat (playing carries on from there)
+export const seekPlaylist = (beat: number) => (dispatch: Dispatch) =>
+  invoke<number>('t_seek_playlist', { beat })
+    .then(() => syncPlayingFrom(dispatch))
+    .catch(transportError(`move to beat ${beat}`))
+
+// catch the engine stopping by itself, at the end of the song
+export const syncPlaying = () => (dispatch: Dispatch, getState: () => RootState) =>
+  invoke<boolean>('get_playlist_playing', {})
+    .then(playing => {
+      if(playing !== getState().playlist.playing) dispatch(setPlaying(playing))
+    })
+    .catch(transportError('check whether the playlist is playing'))
 
 export const selectPlaylistPlaying = (state: RootState) =>
   state.playlist.playing
+
+export const selectTransportRevision = (state: RootState) =>
+  state.playlist.transportRevision
+
+export const { setWind } = playlistSlice.actions
+
+export const selectWind = (state: RootState) => state.playlist.wind
 // end play/pause methods
 
 // start tempo methods

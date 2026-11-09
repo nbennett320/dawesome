@@ -1,8 +1,7 @@
-use std::time::{Instant};
+use std::time::{Duration};
 
-pub fn format_playlist_runtime(start_time: Instant) -> String {
-  let now = Instant::now();
-  let dur = now - start_time;
+// a length of time as m:ss:ms
+pub fn format_runtime(dur: Duration) -> String {
 
   let format = || -> String {
     let m = (dur.as_millis() as f32 / 60_000.).floor() as i64;

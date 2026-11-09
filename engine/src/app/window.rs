@@ -94,7 +94,8 @@ pub fn build_menu(recent: &RecentProjects) -> tauri::Menu {
     .add_item(tauri::CustomMenuItem::new("view-playlist".to_string(), "Playlist"))
     .add_item(tauri::CustomMenuItem::new("view-sample".to_string(), "Sample"))
     .add_item(tauri::CustomMenuItem::new("view-mixer".to_string(), "Mixer")
-      .accelerator("CmdOrCtrl+Shift+M")));
+      .accelerator("CmdOrCtrl+Shift+M"))
+    .add_item(tauri::CustomMenuItem::new("view-transport".to_string(), "Transport")));
 
   // define preference menu
   let device_menu = tauri::CustomMenuItem::new("device".to_string(), "Devices");

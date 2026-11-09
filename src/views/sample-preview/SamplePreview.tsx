@@ -22,6 +22,7 @@ import {
 } from '../../types/clip'
 import ClipWaveform, { WaveformData } from './ClipWaveform'
 import SettingControl from './SettingControl'
+import { AnalogButton, PlayIcon } from '../../components/fourtrack'
 
 type Loaded =
   | { state: 'loading' }
@@ -68,6 +69,14 @@ const panHint = (pan: number) => {
 
 const signed = (n: number) => (n > 0 ? `+${round(n)}` : String(round(n)))
 
+// a fact about the clip: a small label over a readout
+const Fact = ({ label, children }: { label: string, children: React.ReactNode }) => (
+  <div className='flex flex-col gap-1 min-w-0'>
+    <span className='ft-label text-[9px]'>{label}</span>
+    <span className='ft-readout text-left px-2 truncate'>{children}</span>
+  </div>
+)
+
 // inspect a clip from the playlist and adjust how it plays
 const SamplePreview = () => {
   const dispatch = useAppDispatch()
@@ -80,7 +89,7 @@ const SamplePreview = () => {
 
   if(!clip) {
     return (
-      <div className='h-full w-full flex items-center justify-center text-sm text-gray-500'>
+      <div className='ft-panel h-full w-full flex items-center justify-center text-sm text-slate-400'>
         Double-click a clip in the playlist to inspect it.
       </div>
     )
@@ -109,43 +118,42 @@ const SamplePreview = () => {
   const fadeMax = played === null ? clipSettingRanges.attackMs.max : Math.round(played * 1000)
 
   return (
-    <div className='h-full w-full p-4 flex flex-col gap-3 text-sm overflow-auto'>
-      <div className='flex flex-row items-start justify-between gap-4'>
-        <div className='min-w-0'>
-          <h2 className='text-base font-medium truncate' title={clip.path}>{name}</h2>
+    <div className='ft-panel h-full w-full p-4 flex flex-col gap-3 text-sm overflow-auto'>
+      <div className='flex flex-row items-end justify-between gap-4'>
+        <div className='min-w-0 flex flex-col gap-2'>
+          <h2 className='text-base font-medium text-slate-700 truncate' title={clip.path}>{name}</h2>
 
-          <div className='mt-1 flex flex-row flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500'>
-            <span className='text-gray-800'>{trackName}</span>
-            <span>Starts at beat <span className='text-gray-800'>{round(clip.startBeat)}</span></span>
+          <div className='flex flex-row flex-wrap gap-3'>
             {played !== null && (
-              <span>
-                Length <span className='text-gray-800'>{round(played)} s</span>
-                {' '}({round(played * tempo / 60)} beats)
-              </span>
+              <Fact label='Length'>{round(played)} s · {round(played * tempo / 60)} beats</Fact>
             )}
           </div>
         </div>
 
-        <div className='flex flex-row gap-2 shrink-0'>
-          <button
-            className='px-2 py-1 text-xs rounded border border-gray-300 hover:bg-slate-100'
+        <div className='ft-tray rounded-lg flex flex-row items-end gap-2 px-2.5 pt-2.5 pb-1.5 shrink-0'>
+          <AnalogButton
+            size='sm'
+            aria-label='Audition'
             title='Play the clip with its settings'
-            onClick={() => { dispatch(auditionClip(clip.id)) }}
+            onPress={() => { dispatch(auditionClip(clip.id)) }}
           >
-            Audition
-          </button>
-          <button
-            className='px-2 py-1 text-xs rounded border border-gray-300 hover:bg-slate-100 disabled:opacity-40'
+            <PlayIcon />
+          </AnalogButton>
+          <AnalogButton
+            variant='text'
+            size='sm'
+            className='h-[34px]'
+            title='Put every setting back to its default'
             disabled={isDefaultClipSettings(settings)}
-            onClick={() => dispatch(resetClipSettings(clip.id))}
+            onPress={() => dispatch(resetClipSettings(clip.id))}
           >
             Reset
-          </button>
+          </AnalogButton>
         </div>
       </div>
 
       <div
-        className='flex-1 rounded border border-gray-300 overflow-hidden'
+        className='ft-strip flex-1 overflow-hidden'
         style={{ minHeight: 140 }}
       >
         {waveformData && (
@@ -157,21 +165,18 @@ const SamplePreview = () => {
           />
         )}
         {!waveformData && waveform?.state !== 'error' && (
-          <div className='h-full flex items-center justify-center text-xs text-gray-500'>
+          <div className='h-full flex items-center justify-center text-xs text-slate-400'>
             Loading waveform…
           </div>
         )}
         {waveform?.state === 'error' && (
-          <div className='h-full flex items-center justify-center text-xs text-red-700'>
+          <div className='h-full flex items-center justify-center text-xs text-red-600'>
             Couldn&apos;t load the waveform: {waveform.message}
           </div>
         )}
       </div>
 
-      <div
-        className='grid gap-x-6 gap-y-3'
-        style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(14rem, 1fr))' }}
-      >
+      <div className='ft-tray rounded-lg self-start flex flex-row flex-wrap gap-0.5 p-0.5'>
         <SettingControl
           label='Gain'
           {...control('gainDb')}
@@ -187,7 +192,7 @@ const SamplePreview = () => {
           hint={panHint(settings.pan)}
         />
         <SettingControl
-          label='Pitch / speed'
+          label='Pitch'
           {...control('pitch')}
           step={0.1}
           unit='st'
@@ -199,6 +204,7 @@ const SamplePreview = () => {
           max={fadeMax}
           step={1}
           unit='ms'
+          taper={3}
           hint='Fade in'
         />
         <SettingControl
@@ -207,6 +213,7 @@ const SamplePreview = () => {
           max={fadeMax}
           step={1}
           unit='ms'
+          taper={3}
           hint='Fade out'
         />
       </div>

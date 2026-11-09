@@ -1,16 +1,18 @@
 import { configureStore } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api'
 import { ask, open, save } from '@tauri-apps/api/dialog'
-import { documentDir, join } from '@tauri-apps/api/path'
+import { readDir } from '@tauri-apps/api/fs'
+import { dirname, documentDir, join } from '@tauri-apps/api/path'
 import playlistReducer, { playlistSlice } from './playlistSlice'
 import projectReducer, {
-  openRecentProject, projectName, runProjectCommand, setProjectPath,
+  cleanProjectName, nameProject, openRecentProject, projectName, runProjectCommand, setProjectPath,
 } from './projectSlice'
 import { LoadedProject } from '../../types/project'
 
 jest.mock('@tauri-apps/api', () => ({ invoke: jest.fn() }))
 jest.mock('@tauri-apps/api/dialog', () => ({ ask: jest.fn(), open: jest.fn(), save: jest.fn() }))
-jest.mock('@tauri-apps/api/path', () => ({ documentDir: jest.fn(), join: jest.fn() }))
+jest.mock('@tauri-apps/api/path', () => ({ dirname: jest.fn(), documentDir: jest.fn(), join: jest.fn() }))
+jest.mock('@tauri-apps/api/fs', () => ({ readDir: jest.fn() }))
 
 const mockInvoke = invoke as jest.Mock
 const mockAsk = ask as jest.Mock
@@ -18,6 +20,8 @@ const mockOpen = open as jest.Mock
 const mockSave = save as jest.Mock
 const mockDocumentDir = documentDir as jest.Mock
 const mockJoin = join as jest.Mock
+const mockDirname = dirname as jest.Mock
+const mockReadDir = readDir as jest.Mock
 
 const emptyProject: LoadedProject = {
   tempo: 120,
@@ -60,6 +64,8 @@ beforeEach(() => {
   engine()
   mockDocumentDir.mockResolvedValue('/Users/me/Documents/')
   mockJoin.mockImplementation(async (dir: string, file: string) => `${dir.replace(/\/$/, '')}/${file}`)
+  mockDirname.mockImplementation(async (path: string) => path.slice(0, path.lastIndexOf('/')))
+  mockReadDir.mockResolvedValue([])
 })
 
 describe('projectName', () => {
@@ -217,5 +223,77 @@ describe('openRecentProject', () => {
     await openRecent(store, '/songs/old.dawesome')
 
     expect(mockInvoke).not.toHaveBeenCalledWith('load_project', expect.anything())
+  })
+})
+
+describe('cleanProjectName', () => {
+  it('trims and drops the extension', () => {
+    expect(cleanProjectName('  my song.dawesome ')).toBe('my song')
+    expect(cleanProjectName('Song.DAWESOME')).toBe('Song')
+  })
+
+  it('drops characters that can\'t be in a file name', () => {
+    expect(cleanProjectName('a/b\\c:d*e?f"g<h>i|j')).toBe('abcdefghij')
+  })
+})
+
+describe('nameProject', () => {
+  const name = (store: ReturnType<typeof makeStore>, typed: string) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    nameProject(typed)(store.dispatch, store.getState as any)
+
+  it('asks where to save an unsaved project, with the name filled in', async () => {
+    const store = makeStore()
+    mockSave.mockResolvedValue('/songs/demo')
+
+    await name(store, 'demo')
+    expect(mockSave).toHaveBeenCalledWith(expect.objectContaining({
+      defaultPath: '/Users/me/Documents/demo.dawesome',
+    }))
+    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/demo.dawesome' })
+    expect(store.getState().project.path).toBe('/songs/demo.dawesome')
+  })
+
+  it('saves a saved project as the new name next to it, once asked', async () => {
+    const store = makeStore()
+    store.dispatch(setProjectPath('/songs/old.dawesome'))
+    mockAsk.mockResolvedValue(true)
+
+    await name(store, 'new')
+    expect(mockAsk).toHaveBeenCalledWith(expect.stringContaining('"old", which stays'), 'Save as "new"?')
+    expect(mockSave).not.toHaveBeenCalled()
+    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/new.dawesome' })
+    expect(store.getState().project.path).toBe('/songs/new.dawesome')
+  })
+
+  it('leaves a saved project alone when the answer is no', async () => {
+    const store = makeStore()
+    store.dispatch(setProjectPath('/songs/old.dawesome'))
+    mockAsk.mockResolvedValue(false)
+
+    await name(store, 'new')
+    expect(mockInvoke).not.toHaveBeenCalledWith('save_project', expect.anything())
+    expect(store.getState().project.path).toBe('/songs/old.dawesome')
+  })
+
+  it('warns before replacing a project already in the folder', async () => {
+    const store = makeStore()
+    store.dispatch(setProjectPath('/songs/old.dawesome'))
+    mockReadDir.mockResolvedValue([{ path: '/songs/New.dawesome', name: 'New.dawesome' }])
+    mockAsk.mockResolvedValue(false)
+
+    await name(store, 'new')
+    expect(mockAsk).toHaveBeenCalledWith(expect.stringContaining('will be replaced'), 'Save as "new"?')
+  })
+
+  it('does nothing for an empty or unchanged name', async () => {
+    const store = makeStore()
+    store.dispatch(setProjectPath('/songs/old.dawesome'))
+
+    await name(store, '   ')
+    await name(store, 'old')
+    await name(store, 'old.dawesome')
+    expect(mockAsk).not.toHaveBeenCalled()
+    expect(mockSave).not.toHaveBeenCalled()
   })
 })

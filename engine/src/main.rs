@@ -68,6 +68,11 @@ fn init_tauri() {
     .invoke_handler(tauri::generate_handler![
       get_playlist_playing,
       t_toggle_playlist,
+      t_play_playlist,
+      t_pause_playlist,
+      t_stop_playlist,
+      t_seek_playlist,
+      get_playlist_position,
       get_playlist_start_time,
       get_playlist_transport,
       get_playlist_tempo,

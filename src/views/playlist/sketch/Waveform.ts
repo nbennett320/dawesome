@@ -3,6 +3,7 @@ import { P5CanvasInstance } from 'react-p5-wrapper'
 import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import { CanvasProps, Renderer, staticDefaults } from './index'
 import { PlaylistItemPixelOffset } from '../../../types/playlist'
+import { theme } from './theme'
 
 interface Props extends PlaylistComponentProps {
   // id: number
@@ -87,8 +88,8 @@ class Waveform extends PlaylistComponent {
     const pointY = (i: number) => bodyTop + this.soundData[i] * bodyHeight
 
     // no `* currentScale` here: the canvas is already scaled when this draws
-    this.p.strokeWeight(.3)
-    this.p.stroke(0, 0, 0)
+    this.p.strokeWeight(.75)
+    this.p.stroke(...theme.clipWave)
     for(let i = 0; i < this.soundData.length - 2; i+=2) {
       this.p.line(this.pointX(i, left), pointY(i+1), this.pointX(i+2, left), pointY(i+3))
     }

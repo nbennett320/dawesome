@@ -17,6 +17,9 @@ import {
   PlaylistItemPixelOffset,
   PlaylistWindow
 } from '../../../types/playlist'
+import { theme } from './theme'
+import { PlaylistTransport } from '../../../types/transport'
+import { positionAt } from '../../transport/tape'
 
 export interface CanvasProps extends SketchProps {
   height: number
@@ -31,6 +34,10 @@ export interface CanvasProps extends SketchProps {
   onNodeRightClick: (id: number) => void
   onNodeMove: () => void
   onNodeDoubleClick: (id: number) => void
+  // see PlaylistState.transportRevision
+  transportRevision: number
+  // move the playhead to a beat (clicking or dragging in the ruler)
+  onSeek: (beat: number) => void
 }
 
 export const staticDefaults = {
@@ -39,7 +46,7 @@ export const staticDefaults = {
   timelineHeight: 24,
   trackHeight: 100,
   playing: false,
-  debugMode: true,
+  debugMode: false,
 
   // defaults on Renderer construction, these will be reassigned
   // when the canvas renders
@@ -93,14 +100,7 @@ interface GestureEvent extends UIEvent {
   scale: number
 }
 
-// mirrors PlaylistTransport in engine/src/event_dispatch.rs
-export interface PlaylistTransport {
-  startTimeMs: number
-  beatIntervalMs: number
-  loopBeats: number
-  beatsDisplayed: number
-  loopEnabled: boolean
-}
+export type { PlaylistTransport }
 
 // mirrors SnapSetting in engine/src/event_dispatch.rs
 export interface SnapSetting {
@@ -166,6 +166,9 @@ const fetchNodeData = async (id: number) => {
   }
 }
 
+// whether a canvas y position is in the ruler, along the top
+const overRuler = (y: number): boolean => y >= 0 && y < staticDefaults.timelineHeight
+
 export class Renderer extends RendererBase {
   canvasEl = document.getElementById('playlist-canvas')
   height: number = staticDefaults.height
@@ -194,8 +197,18 @@ export class Renderer extends RendererBase {
   mousePressedY: number | null = null
 
   playing: boolean = staticDefaults.playing
-  // engine timing for the current run, used to draw the playback cursor
+  // where the engine's playhead is, and its timing while playing, used to
+  // draw the playback cursor
   transport: PlaylistTransport | null = null
+  transportRevision: number | null = null
+  // counts transport fetches, so a slow one can't replace a newer one's
+  #transportFetch = 0
+  // the beat the ruler is being dragged to, or was just released at (shown
+  // until the engine confirms it)
+  seekBeat: number | null = null
+  seekDragging = false
+  #seekTimeout: ReturnType<typeof setTimeout> | null = null
+  onSeek!: (beat: number) => void
 
   playlistTracks: Array<PlaylistTrack> = []
   playlistObjects: Array<PlaylistObject> = []
@@ -274,13 +287,52 @@ export class Renderer extends RendererBase {
   // fetch the engine's start time and beat length, so the cursor follows the
   // engine's beat loop instead of a frontend timer that starts at a different time
   syncTransport = async () => {
+    this.#transportFetch += 1
+    const fetch = this.#transportFetch
+
     try {
       const transport = await invoke<PlaylistTransport>('get_playlist_transport', {})
-      // playback may have stopped while waiting on the engine
-      if(this.playing) this.transport = transport
+      if(fetch !== this.#transportFetch) return
+
+      this.transport = transport
+      // a released seek has reached the engine
+      if(!this.seekDragging) this.seekBeat = null
     } catch(e) {
       console.error('could not sync the playback cursor:', e)
     }
+  }
+
+  // the playhead, in beats: following the engine's run while playing, or
+  // where the ruler's being dragged to
+  playheadBeat = (): number | null => {
+    if(this.seekBeat !== null) return this.seekBeat
+
+    const t = this.transport
+    if(!t || t.beatIntervalMs <= 0) return null
+    return positionAt(t, Date.now()) / t.beatIntervalMs
+  }
+
+  // the beat under the mouse in the ruler, snapped like clips are
+  rulerBeat = (screenX: number): number => this.snapBeat(this.screenXToBeat(screenX))
+
+  #startSeek = (screenX: number) => {
+    this.seekDragging = true
+    this.seekBeat = this.rulerBeat(screenX)
+  }
+
+  // tell the engine where the ruler was released. the playhead stays there
+  // until the engine's transport confirms it (or gives up after a moment)
+  #endSeek = () => {
+    if(!this.seekDragging || this.seekBeat === null) return
+    this.seekDragging = false
+
+    const beat = this.seekBeat
+    this.onSeek?.(beat)
+
+    if(this.#seekTimeout) clearTimeout(this.#seekTimeout)
+    this.#seekTimeout = setTimeout(() => {
+      if(!this.seekDragging) this.seekBeat = null
+    }, 1500)
   }
 
   syncSnapSetting = async () => {
@@ -489,9 +541,9 @@ export class Renderer extends RendererBase {
       p.push()
       ctx.setLineDash([4, 3])
       p.strokeWeight(1)
-      p.stroke(14, 165, 233)
-      p.fill(125, 211, 252, 255*.25)
-      p.rect(this.beatToX(target.snappedBeat), phantomTop, width, height, 3)
+      p.stroke(...theme.accent)
+      p.fill(...theme.accentSoft, 255*.25)
+      p.rect(this.beatToX(target.snappedBeat), phantomTop + 2, width, height - 4, 3)
       ctx.setLineDash([])
       p.pop()
     }
@@ -602,11 +654,11 @@ export class Renderer extends RendererBase {
     p.push()
     if(targeted) {
       p.noStroke()
-      p.fill(125, 211, 252, 64)
+      p.fill(...theme.accentSoft, 64)
       p.rect(0, top, this.width, h)
-      p.stroke(14, 165, 233)
+      p.stroke(...theme.accent)
     } else {
-      p.stroke(170)
+      p.stroke(...theme.idle)
     }
 
     p.strokeWeight(1.5)
@@ -617,7 +669,8 @@ export class Renderer extends RendererBase {
 
     if(targeted) {
       p.noStroke()
-      p.fill(14, 165, 233)
+      p.fill(...theme.accent)
+      p.textFont(theme.font)
       p.textSize(11)
       p.textAlign(p.LEFT, p.CENTER)
       p.text('New track', cx + radius + 6, cy)
@@ -634,7 +687,7 @@ export class Renderer extends RendererBase {
 
     p.push()
     p.noStroke()
-    p.fill(0, 0, 0, active ? 115 : 64)
+    p.fill(...theme.scrollbar, active ? 140 : 80)
     p.rect(this.width - width - margin, bar.thumbTop + 2, width, bar.thumbHeight - 4, width / 2)
     p.pop()
   }
@@ -720,6 +773,12 @@ export class Renderer extends RendererBase {
             return
           }
 
+          // the ruler moves the playhead, rather than panning
+          if(overRuler(p.mouseY)) {
+            this.#startSeek(p.mouseX)
+            return
+          }
+
           mousePressedX = p.mouseX
           mousePressedY = p.mouseY
           this.isMouseDown = true
@@ -743,6 +802,7 @@ export class Renderer extends RendererBase {
       // listeners run before window listeners), so a drag still in progress
       // here was released outside the canvas and is cancelled
       p.mouseReleased = () => {
+        this.#endSeek()
         this.scrollbarGrab = null
         mousePressedX = null
         mousePressedY = null
@@ -895,13 +955,14 @@ export class Renderer extends RendererBase {
       this.onNodeRightClick = props.onNodeRightClick
       this.onNodeMove = props.onNodeMove
       this.onNodeDoubleClick = props.onNodeDoubleClick
+      this.onSeek = props.onSeek
 
-      // only (re)sync the cursor when playback starts or stops, other prop
-      // updates (drops, moves, resizes) shouldn't reset it to the start
-      if(props.playing && !this.playing) {
+      // ask the engine where the playhead is when playback starts or stops,
+      // or after any other transport command. other prop updates (drops,
+      // moves, resizes) don't move it
+      if(props.playing !== this.playing || props.transportRevision !== this.transportRevision) {
+        this.transportRevision = props.transportRevision
         this.syncTransport()
-      } else if(!props.playing) {
-        this.transport = null
       }
 
       if(props.playing !== this.playing) {
@@ -994,9 +1055,7 @@ export class Renderer extends RendererBase {
         }
       )
       
-      p.background(255, 255, 255)
-      p.stroke(180, 180, 180)
-      p.fill(255, 255, 255)
+      p.background(...theme.background)
 
       this.transformX = p.constrain(this.transformX, width * (1 - currentScale), 0)
       // NaN never recovers through constrain, and breaks every clip's
@@ -1013,13 +1072,21 @@ export class Renderer extends RendererBase {
       p.translate(this.transformX, 1 - this.scrollY)
       p.scale(currentScale, 1)
 
-      // render vertical grid lines
-      const gridStroke = .2 * (1 - currentScale) > 0 ? .2 * (1 - currentScale) : .4
-      p.strokeWeight(gridStroke)
-      p.stroke(100, 100, 100)
-      for(let i = 0; i < width; i += width/beatsDisplayed) {
-        // p.line(i, 0, i, height)
-        p.line(i, 0, i, trackCount * staticDefaults.trackHeight + staticDefaults.timelineHeight + 1)
+      // every other track lane is shaded a little
+      p.noStroke()
+      p.fill(...theme.laneAlt)
+      for(let n = 1; n < trackCount; n += 2) {
+        p.rect(0, trackTop(n), width, staticDefaults.trackHeight)
+      }
+
+      // render vertical grid lines: one per beat, darker on each bar. 1px
+      // wide whatever the zoom
+      p.strokeWeight(1 / currentScale)
+      const gridBottom = trackTop(trackCount)
+      for(let beat = 0; beat < beatsDisplayed; beat++) {
+        const x = beat * width / beatsDisplayed
+        p.stroke(...(beat % theme.beatsPerBar === 0 ? theme.barLine : theme.beatLine))
+        p.line(x, 0, x, gridBottom)
       }
 
       // render playlist tracks
@@ -1039,13 +1106,18 @@ export class Renderer extends RendererBase {
       p.translate(this.transformX, 1)
       p.scale(currentScale, 1)
       timeline.render()
-      cursor.render()
       p.pop()
+
+      // follow a ruler drag, even outside the canvas
+      if(this.seekDragging) this.seekBeat = this.rulerBeat(p.mouseX)
+      cursor.render()
 
       this.#drawScrollbar(p)
 
       if(this.scrollbarGrab !== null || this.overScrollbar(p.mouseX, p.mouseY)) {
         p.cursor(p.ARROW)
+      } else if(this.seekDragging || (overRuler(p.mouseY) && !this.clipDrag?.active && !this.sampleDrag)) {
+        p.cursor(p.HAND)
       } else if(this.clipDrag?.active || this.sampleDrag) {
         p.cursor('grabbing')
       } else if(this.clipUnderMouse()) {

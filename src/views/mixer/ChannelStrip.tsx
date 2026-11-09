@@ -1,5 +1,6 @@
 import React from 'react'
 import { formatDb, formatPan, MAX_DB, MAX_NAME_CHARS, MIN_DB } from '../../types/mixer'
+import { Knob, MuteSolo } from '../../components/fourtrack'
 import Fader, { THUMB_HEIGHT } from './Fader'
 import Meter from './Meter'
 import { RegisterMeter } from './useMixerMeters'
@@ -34,7 +35,7 @@ const DbField = ({ label, value, onChange }: {
       inputMode='decimal'
       aria-label={`${label} volume in dB`}
       title='Volume in dB'
-      className='w-full text-center text-xs tabular-nums text-gray-700 rounded border border-gray-300 px-1'
+      className='ft-readout'
       value={draft ?? formatDb(value)}
       onFocus={e => e.currentTarget.select()}
       onChange={e => setDraft(e.currentTarget.value)}
@@ -69,7 +70,7 @@ const NameLabel = ({ label, silenced, onRename }: {
         aria-label='Track name'
         placeholder='Track name'
         maxLength={MAX_NAME_CHARS}
-        className='w-full text-xs text-center rounded border border-sky-400 px-1'
+        className='ft-scribble w-full h-full text-xs text-center px-1 outline-none ring-2 ring-sky-400'
         value={draft}
         onFocus={e => e.currentTarget.select()}
         onChange={e => setDraft(e.currentTarget.value)}
@@ -88,7 +89,7 @@ const NameLabel = ({ label, silenced, onRename }: {
 
   return (
     <div
-      className={`text-xs font-medium truncate text-center ${silenced ? 'text-gray-400 italic' : 'text-gray-800'}`}
+      className={`ft-scribble h-full leading-5 px-1 text-xs font-medium truncate text-center ${silenced ? 'text-slate-400 italic' : ''}`}
       title={title}
       onDoubleClick={() => { if(onRename) setDraft(label) }}
     >
@@ -96,27 +97,6 @@ const NameLabel = ({ label, silenced, onRename }: {
     </div>
   )
 }
-
-const ToggleButton = ({ label, title, on, onClass, onClick }: {
-  label: string
-  title: string
-  on: boolean
-  // colours while it's on
-  onClass: string
-  onClick: () => void
-}) => (
-  <button
-    type='button'
-    title={title}
-    aria-pressed={on}
-    className={`flex-1 text-xs font-semibold rounded border py-0.5 ${
-      on ? onClass : 'border-gray-300 text-gray-500 hover:bg-slate-100'
-    }`}
-    onClick={onClick}
-  >
-    {label}
-  </button>
-)
 
 interface Props {
   label: string
@@ -157,7 +137,7 @@ const ChannelStrip = ({
   wide = false,
 }: Props) => (
   <div
-    className={`flex flex-col gap-2 h-full p-2 rounded border border-gray-200 bg-white ${wide ? 'w-28' : 'w-24'}`}
+    className={`ft-strip flex flex-col items-stretch gap-2 h-full p-2 ${wide ? 'w-28' : 'w-24'}`}
     aria-label={label}
     role='group'
   >
@@ -165,25 +145,29 @@ const ChannelStrip = ({
       <NameLabel label={label} silenced={silenced} onRename={onRename} />
     </div>
 
-    <div className='flex flex-col gap-0.5 h-9'>
+    <div className='flex flex-col items-center h-16'>
       {pan && (
         <>
-          <div className='flex flex-row justify-between text-[10px] text-gray-500 select-none'>
-            <span>Pan</span>
-            <span className='tabular-nums'>{formatPan(pan.value)}</span>
+          <div className='w-full flex flex-row justify-between items-baseline'>
+            <span className='ft-label'>Pan</span>
+            <span className='ft-label tabular-nums tracking-normal'>{formatPan(pan.value)}</span>
           </div>
-          <input
-            type='range'
-            aria-label={`${label} pan`}
-            title='Double-click to centre'
-            className='w-full'
-            min={-1}
-            max={1}
-            step={0.01}
-            value={pan.value}
-            onChange={e => pan.onChange(parseFloat(e.currentTarget.value))}
-            onDoubleClick={() => pan.onChange(0)}
-          />
+          <div className='flex flex-row items-center gap-1.5 mt-1'>
+            <span className='ft-label text-[8px] tracking-normal'>L</span>
+            <Knob
+              label={`${label} pan`}
+              title='Drag up or down, or double-click to centre'
+              size={38}
+              min={-1}
+              max={1}
+              center={0}
+              dragRange={150}
+              value={pan.value}
+              onChange={pan.onChange}
+              formatValue={formatPan}
+            />
+            <span className='ft-label text-[8px] tracking-normal'>R</span>
+          </div>
         </>
       )}
       {!pan && header}
@@ -191,32 +175,26 @@ const ChannelStrip = ({
 
     <div className='flex-1 min-h-0 flex flex-row justify-center'>
       <Fader label={`${label} volume`} value={volumeDb} onChange={onVolume} onReset={() => onVolume(0)}>
-        <Meter meterKey={meterKey} register={register} inset={THUMB_HEIGHT / 2} />
+        <Meter meterKey={meterKey} register={register} inset={THUMB_HEIGHT / 2 - 4} />
       </Fader>
     </div>
 
     <DbField label={label} value={volumeDb} onChange={onVolume} />
 
-    <div className='flex flex-row gap-1 h-6'>
-      {mute && (
-        <ToggleButton
-          label='M'
-          title='Mute'
-          on={mute.on}
-          onClass='bg-amber-400 border-amber-500 text-amber-950'
-          onClick={() => mute.onChange(!mute.on)}
+    <div className='flex flex-row justify-center h-11'>
+      {mute && solo && (
+        <MuteSolo
+          track={label}
+          size='sm'
+          direction='row'
+          muted={mute.on}
+          soloed={solo.on}
+          implied={silenced}
+          onMutedChange={mute.onChange}
+          onSoloedChange={solo.onChange}
         />
       )}
-      {solo && (
-        <ToggleButton
-          label='S'
-          title='Solo: only hear soloed tracks'
-          on={solo.on}
-          onClass='bg-lime-400 border-lime-500 text-lime-950'
-          onClick={() => solo.onChange(!solo.on)}
-        />
-      )}
-      {!mute && !solo && footer}
+      {!(mute && solo) && footer}
     </div>
   </div>
 )

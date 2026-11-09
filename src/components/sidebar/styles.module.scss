@@ -1,11 +1,11 @@
 .SidebarBase {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
 }
 
 .Sidebar {
-  height: 100vh;
+  height: 100%;
   width: 100%;
 }
 
@@ -17,4 +17,5 @@
 .SidebarBody {
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }

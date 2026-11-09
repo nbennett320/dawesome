@@ -16,6 +16,7 @@ import {
 } from '../../state/slices/mixerSlice'
 import { selectPlaylistPlaying, selectPlaylistUI } from '../../state/slices/playlistSlice'
 import ChannelStrip from './ChannelStrip'
+import { AnalogButton, Led } from '../../components/fourtrack'
 import { MASTER_METER_KEY, RegisterMeter, trackMeterKey, useMixerMeters } from './useMixerMeters'
 
 const TrackStrip = ({ trackNumber, register }: { trackNumber: number, register: RegisterMeter }) => {
@@ -53,13 +54,12 @@ const ResetAll = () => {
   }, [asking])
 
   return (
-    <button
-      type='button'
-      className={`flex-1 text-xs rounded border py-0.5 ${
-        asking ? 'bg-red-600 border-red-700 text-white' : 'border-gray-300 text-gray-600 hover:bg-slate-100'
-      }`}
+    <AnalogButton
+      variant='text'
+      size='sm'
+      className={`self-end ${asking ? 'ft-btn--danger' : ''}`}
       title='Put every fader, pan, mute and solo back to its default'
-      onClick={() => {
+      onPress={() => {
         if(asking) {
           setAsking(false)
           dispatch(resetMixer()).catch(e => {
@@ -71,8 +71,8 @@ const ResetAll = () => {
         }
       }}
     >
-      {asking ? 'Reset all?' : 'Reset all'}
-    </button>
+      {asking ? 'Sure?' : 'Reset'}
+    </AnalogButton>
   )
 }
 
@@ -96,16 +96,17 @@ const Mixer = () => {
   const tracks = Array.from({ length: trackCount }, (_, i) => i)
 
   return (
-    <div className='h-full w-full flex flex-row bg-slate-50 text-sm select-none overflow-y-auto'>
+    <div className='ft-panel h-full w-full flex flex-row text-sm select-none overflow-y-auto'>
       <div className='flex-1 min-w-0 overflow-x-auto'>
-        <div className='h-full flex flex-row gap-1 p-2 w-max' style={{ minHeight: 280 }}>
+        <div className='ft-tray rounded-lg m-2 h-[calc(100%-1rem)] flex flex-row gap-0.5 p-0.5 w-max' style={{ minHeight: 320 }}>
           {tracks.map(trackNumber => (
             <TrackStrip key={trackNumber} trackNumber={trackNumber} register={register} />
           ))}
         </div>
       </div>
 
-      <div className='shrink-0 p-2 border-l border-gray-300' style={{ minHeight: 280 }}>
+      <div className='shrink-0 py-2 pr-2' style={{ minHeight: 336 }}>
+        <div className='ft-tray rounded-lg h-full p-0.5'>
         <ChannelStrip
           label='Master'
           wide
@@ -116,19 +117,19 @@ const Mixer = () => {
           header={(
             <button
               type='button'
-              className={`mt-auto text-[10px] font-semibold rounded border py-0.5 ${
-                clipped ? 'bg-red-600 border-red-700 text-white' : 'border-gray-300 text-gray-400'
-              }`}
+              className='mt-auto flex flex-row items-center gap-1.5 rounded px-1 py-0.5 hover:bg-slate-100'
               title={clipped
                 ? 'The mix went over 0 dB, and the limiter rounded off its peaks. Click to clear'
                 : 'Lights up if the mix goes over 0 dB'}
               onClick={clearClip}
             >
-              CLIP
+              <Led color='red' state={clipped ? 'on' : 'off'} />
+              <span className={`ft-label ${clipped ? 'text-red-600' : ''}`}>Clip</span>
             </button>
           )}
           footer={<ResetAll />}
         />
+        </div>
       </div>
     </div>
   )

@@ -27,22 +27,20 @@ const Sidebar = (props: React.PropsWithChildren<Props>) => {
 
   return (
     <SidebarBase open={open}>
-      <div className={`${styles.Sidebar} flex flex-row bg-gray-300`}>
+      <div className={`${styles.Sidebar} flex flex-row`}>
         <div className={styles.SidebarListContainer}>
-          <SidebarList 
+          <SidebarList
             open={open}
             page={page}
             onChangePage={handleChangePage}
-            onClose={() => dispatch(toggleSidebar())} 
+            onClose={() => dispatch(toggleSidebar())}
           />
         </div>
-        {open && page === SidebarPage.FileBrowser &&
-        <div className={`${styles.SidebarBody} shadow-sm`}>
-          <div className='w-full text-sm bg-gray-100'>
-            search..
+        {open && page === SidebarPage.FileBrowser && (
+          <div className={`${styles.SidebarBody} w-60 bg-white border-r border-slate-200`}>
+            <SampleBrowser />
           </div>
-          <SampleBrowser />
-        </div>}
+        )}
       </div>
     </SidebarBase>
   )

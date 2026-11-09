@@ -21,15 +21,19 @@ interface Props {
   onEnvelopeChange: (change: Partial<Pick<ClipSettings, 'attackMs' | 'decayMs'>>) => void
 }
 
+// matches the playlist (views/playlist/sketch/theme.ts)
 const COLORS = {
-  background: '#f8fafc',
-  grid: 'rgba(0, 0, 0, 0.08)',
-  beat: 'rgba(0, 0, 0, 0.35)',
-  centre: 'rgba(0, 0, 0, 0.15)',
-  wave: 'rgb(2, 132, 199)',
-  fill: 'rgba(14, 165, 233, 0.15)',
-  envelope: 'rgb(217, 119, 6)',
-  fade: 'rgba(217, 119, 6, 0.08)',
+  background: '#ffffff',
+  ruler: '#f1f5f9', // slate-100
+  rulerLine: '#cbd5e1', // slate-300
+  grid: '#e2e8f0', // slate-200
+  beat: '#94a3b8', // slate-400
+  centre: '#cbd5e1', // slate-300
+  wave: 'rgb(2, 132, 199)', // sky-600
+  fill: 'rgba(14, 165, 233, 0.12)',
+  // amber, like the dot on a clip whose settings were changed
+  envelope: 'rgb(245, 158, 11)', // amber-500
+  fade: 'rgba(245, 158, 11, 0.07)',
 }
 
 // space for the beat labels along the top
@@ -90,6 +94,14 @@ const draw = (
   ctx.clearRect(0, 0, width, height)
   ctx.fillStyle = COLORS.background
   ctx.fillRect(0, 0, width, height)
+  ctx.fillStyle = COLORS.ruler
+  ctx.fillRect(0, 0, width, RULER_HEIGHT)
+  ctx.strokeStyle = COLORS.rulerLine
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(0, RULER_HEIGHT - 0.5)
+  ctx.lineTo(width, RULER_HEIGHT - 0.5)
+  ctx.stroke()
 
   const top = RULER_HEIGHT
   const mid = top + (height - top) / 2

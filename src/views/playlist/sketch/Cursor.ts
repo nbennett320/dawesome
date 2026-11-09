@@ -1,13 +1,17 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import p5 from 'p5'
 import { P5CanvasInstance } from 'react-p5-wrapper'
 import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import { Renderer, CanvasProps } from './index'
 import { P5BoundingBox } from '../../../render/P5Component'
+import { theme } from './theme'
 
 interface Props extends PlaylistComponentProps {}
 
+// the playhead: a line down through every track, stopping at the area below
+// them (for dragging in a new track), with a pointer in the ruler. drawn in
+// canvas pixels, outside the zoom/pan/scroll transform
 class Cursor extends PlaylistComponent {
+  // eslint-disable-next-line @typescript-eslint/no-useless-constructor
   constructor(
     p: P5CanvasInstance<CanvasProps>,
     canvas: p5.Renderer,
@@ -17,67 +21,42 @@ class Cursor extends PlaylistComponent {
     super(p, canvas, playlist, props)
   }
 
-  boundingBox = (): P5BoundingBox => {
-    return {
-      bottom: 0,
-      top: 0,
-      left: 0,
-      right: 0,
-      height: 0,
-      width: 0,
-      minHeight: 0,
-      maxHeight: 0,
-    }
-  }
-
-  // x position of the playhead, in the same units clips are drawn in
-  #currentRatio = (): number | null => {
-    const { transport, width } = this.renderer as Renderer
-
-    if(!transport) return null
-
-    const { startTimeMs, beatIntervalMs, loopBeats, beatsDisplayed, loopEnabled } = transport
-    const elapsedMs = Math.max(0, Date.now() - startTimeMs)
-
-    // the engine jumps back to the start after `loopBeats` beats
-    const loopMs = beatIntervalMs * loopBeats
-    const positionMs = loopEnabled && loopMs > 0 ? elapsedMs % loopMs : elapsedMs
-
-    // the full playlist width spans `beatsDisplayed` beats
-    const displayedMs = beatIntervalMs * beatsDisplayed
-    const x = positionMs / displayedMs * width
-
-    return x * this.currentScale
-  }
-
-  drawTriangle = () => {
-    const ratio = this.#currentRatio()
-
-    if(ratio === null) return
-
-    this.p.triangle(0 + ratio, 0, 8+ ratio, 0, 0 + ratio, 8)
-    this.p.stroke(1)
-  }
-
-  drawCursorLine = () => {
-    const ratio = this.#currentRatio()
-
-    if(ratio === null) return
-
-    this.p.line(0 + ratio, 0, 0 + ratio, this.renderer.height)
-  }
+  // the playhead isn't clicked on (the ruler is, see Renderer)
+  // eslint-disable-next-line class-methods-use-this
+  boundingBox = (): P5BoundingBox => ({
+    bottom: 0,
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 0,
+    width: 0,
+    minHeight: 0,
+    maxHeight: 0,
+  })
 
   render = () => {
-    const { playing } = this.renderer as Renderer
+    const playlist = this.renderer as Renderer
+    const beat = playlist.playheadBeat()
+    if(beat === null) return
+
+    const x = playlist.transformX + playlist.beatToX(beat) * playlist.currentScale
+    // scrolled out of view
+    if(x < -8 || x > this.p.width + 8) return
+
+    // sky while playing or being moved, grey while stopped
+    const colour = playlist.playing || playlist.seekBeat !== null
+      ? theme.playhead
+      : theme.playheadStopped
 
     this.p.push()
-
-    this.p.scale(1 / this.currentScale, 1)
-    this.p.fill(playing ? 'limegreen' : 'darkorange')
-
-    this.drawTriangle()
-    this.drawCursorLine()
-
+    this.p.stroke(...colour)
+    this.p.strokeWeight(1.5)
+    // the last track's bottom, scrolled (the tracks are drawn 1px down)
+    const bottom = Math.min(this.p.height, playlist.newTrackAreaTop() + 1 - playlist.scrollY)
+    this.p.line(x, 0, x, bottom)
+    this.p.noStroke()
+    this.p.fill(...colour)
+    this.p.triangle(x - 5, 0, x + 5, 0, x, 8)
     this.p.pop()
   }
 }

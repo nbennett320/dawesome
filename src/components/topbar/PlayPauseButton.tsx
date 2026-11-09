@@ -1,29 +1,23 @@
 import React from 'react'
-import {
-  togglePlay,
-  selectPlaylistPlaying,
-} from '../../state/slices/playlistSlice'
-import Button from '../common/Button'
+import { togglePlay, selectPlaylistPlaying } from '../../state/slices/playlistSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
-import PlayIcon from '../icons/PlayIcon'
-import PauseIcon from '../icons/PauseIcon'
+import { AnalogButton, PauseIcon, PlayIcon } from '../fourtrack'
 
-interface Props {
-  className?: string
-}
-
-const PlayPauseButton = (props: Props) => {
+// latches down while playing, like a tape deck's play key
+const PlayPauseButton = () => {
   const playing = useAppSelector(selectPlaylistPlaying)
   const dispatch = useAppDispatch()
-  
+
   return (
-    <Button
-      onClick={() => dispatch(togglePlay())}
-      className={`bg-gray-400 hover:bg-gray-500 py-1 px-3 rounded inline-flex items-center ${props.className}`}
-      aria-label="Play/Pause Button"
+    <AnalogButton
+      size='sm'
+      latched={playing}
+      aria-label={playing ? 'Pause' : 'Play'}
+      title={playing ? 'Pause' : 'Play'}
+      onPress={() => dispatch(togglePlay())}
     >
-      {playing ? <PauseIcon fill="white" /> : <PlayIcon fill="white" />}
-    </Button>
+      {playing ? <PauseIcon /> : <PlayIcon />}
+    </AnalogButton>
   )
 }
 

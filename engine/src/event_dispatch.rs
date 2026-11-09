@@ -1,7 +1,7 @@
 use std::sync::atomic::{Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Instant, SystemTime};
+use std::time::{SystemTime};
 use tauri;
 
 use crate::daw::{InnerState};
@@ -19,6 +19,42 @@ pub fn toggle_playlist(state: &Arc<daw::InnerState>) {
 #[tauri::command]
 pub fn t_toggle_playlist(state: daw::TState<'_>) {
   toggle_playlist(state.inner());
+}
+
+// play from the playhead (nothing if already playing)
+#[tauri::command]
+pub fn t_play_playlist(state: daw::TState<'_>) {
+  if !state.playlist.playing() {
+    daw::start_playlist(state.inner());
+  }
+}
+
+// stop where it is, so play carries on from there
+#[tauri::command]
+pub fn t_pause_playlist(state: daw::TState<'_>) {
+  if state.playlist.playing() {
+    daw::pause_playlist(state.inner());
+  }
+}
+
+// stop and go back to the start
+#[tauri::command]
+pub fn t_stop_playlist(state: daw::TState<'_>) {
+  daw::stop_playlist(state.inner());
+}
+
+// move the playhead to a beat (kept within the playlist), carrying on playing
+// from there if playing. returns the beat it moved to
+#[tauri::command]
+pub fn t_seek_playlist(state: daw::TState<'_>, beat: f64) -> f64 {
+  daw::seek_playlist(state.inner(), beat)
+}
+
+// the playhead, in beats
+#[tauri::command]
+pub fn get_playlist_position(state: daw::TState<'_>) -> f64 {
+  let state = state.inner();
+  daw::offset_beats(daw::playhead(state), daw::beat_interval(state))
 }
 
 #[tauri::command]
@@ -57,8 +93,16 @@ fn get_start_time_ms(state: &daw::InnerState) -> Result<f64, String> {
 #[derive(serde::Serialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaylistTransport {
-  // engine start time of the current run, ms since the unix epoch
-  start_time_ms: f64,
+  playing: bool,
+  // engine start time of the current run, ms since the unix epoch (None
+  // before the first run)
+  start_time_ms: Option<f64>,
+  // where on the timeline the current run started, in ms. while playing,
+  // the playhead is this plus the time since `start_time_ms` (wrapped at the
+  // loop's end)
+  start_offset_ms: f64,
+  // where the playhead is now, in ms
+  position_ms: f64,
   // length of one beat tick in the engine loop
   beat_interval_ms: f64,
   // beats played before the engine loops back to the start
@@ -66,30 +110,34 @@ pub struct PlaylistTransport {
   // beats spanned by the full playlist width
   beats_displayed: u64,
   loop_enabled: bool,
+  // where the last clip finishes, in ms (0 with no clips)
+  song_end_ms: f64,
+  // the time signature's numerator
+  beats_per_bar: u16,
 }
 
-fn playlist_transport(state: &daw::InnerState) -> Result<PlaylistTransport, String> {
-  let start_time_ms = get_start_time_ms(state)?;
-  let beat_interval = state
-    .playlist
-    .audiograph
-    .lock()
-    .unwrap()
-    .interval_of_subdivision(daw::timing::QuarterNote::new());
+fn playlist_transport(state: &daw::InnerState) -> PlaylistTransport {
+  let beat_interval = daw::beat_interval(state);
+  let start_offset = *state.playlist.start_offset.lock().unwrap();
 
-  Ok(PlaylistTransport {
-    start_time_ms,
+  PlaylistTransport {
+    playing: state.playlist.playing(),
+    start_time_ms: get_start_time_ms(state).ok(),
+    start_offset_ms: start_offset.as_secs_f64() * 1000.,
+    position_ms: daw::playhead(state).as_secs_f64() * 1000.,
     beat_interval_ms: beat_interval.as_secs_f64() * 1000.,
     loop_beats: state.playlist.max_beats.load(Ordering::SeqCst),
     beats_displayed: state.playlist.ui.lock().unwrap().max_beats_displayed,
     loop_enabled: state.playlist.loop_enabled.load(Ordering::SeqCst),
-  })
+    song_end_ms: daw::song_end(state).unwrap_or_default().as_secs_f64() * 1000.,
+    beats_per_bar: state.playlist.time_signature.lock().unwrap().numerator,
+  }
 }
 
 #[tauri::command]
 pub fn get_playlist_transport(
   state: daw::TState<'_>
-) -> Result<PlaylistTransport, String> {
+) -> PlaylistTransport {
   playlist_transport(state.inner())
 }
 
@@ -134,15 +182,8 @@ pub fn get_metronome_enabled(
 pub fn get_playlist_runtime_formatted(
   state: daw::TState<'_>
 ) -> Result<String, String> {
-  // before the first play there is no start time; show a zero runtime
-  let start_time = state
-    .playlist
-    .started_time
-    .lock()
-    .unwrap()
-    .unwrap_or_else(Instant::now);
-  let res = util::format_playlist_runtime(start_time);
-  Ok(res)
+  // the playhead's time into the playlist
+  Ok(util::format_runtime(daw::playhead(state.inner())))
 }
 
 #[tauri::command]
@@ -737,7 +778,7 @@ pub fn toggle_record_input(
 #[cfg(test)]
 mod tests {
   use super::*;
-  use std::time::Duration;
+  use std::time::{Duration, Instant};
 
   #[test]
   fn test_beat_to_offset() {
@@ -764,13 +805,19 @@ mod tests {
   fn test_playlist_transport() {
     let state = daw::InnerState::default();
 
-    // nothing to sync to before the playlist has been started
-    assert!(playlist_transport(&state).is_err());
+    // before the playlist has been started there's no start time, but the
+    // playhead is still reported
+    let t = playlist_transport(&state);
+    assert_eq!(t.start_time_ms, None);
+    assert!(!t.playing);
+    assert_eq!(t.position_ms, 0.);
+    assert_eq!(t.song_end_ms, 0.);
+    assert_eq!(t.beats_per_bar, 4);
 
-    let started = Instant::now() - std::time::Duration::from_millis(1_500);
+    let started = Instant::now() - Duration::from_millis(1_500);
     *state.playlist.started_time.lock().unwrap() = Some(started);
 
-    let t = playlist_transport(&state).unwrap();
+    let t = playlist_transport(&state);
     assert_eq!(t.beat_interval_ms, 500.); // 120bpm
     assert_eq!(t.loop_beats, 16);
     assert_eq!(t.beats_displayed, 16);
@@ -781,10 +828,130 @@ mod tests {
       .duration_since(SystemTime::UNIX_EPOCH)
       .unwrap()
       .as_secs_f64() * 1000.;
-    assert!((now_ms - t.start_time_ms - 1_500.).abs() < 50.);
+    assert!((now_ms - t.start_time_ms.unwrap() - 1_500.).abs() < 50.);
 
     state.set_tempo(60.);
-    assert_eq!(playlist_transport(&state).unwrap().beat_interval_ms, 1_000.);
+    assert_eq!(playlist_transport(&state).beat_interval_ms, 1_000.);
+  }
+
+  // pretend a run started `ago_ms` back, from `from_ms` into the playlist
+  // (starting a real run needs an audio device)
+  fn fake_run(state: &daw::InnerState, from_ms: u64, ago_ms: u64) {
+    *state.playlist.start_offset.lock().unwrap() = Duration::from_millis(from_ms);
+    *state.playlist.started_time.lock().unwrap() = Some(Instant::now() - Duration::from_millis(ago_ms));
+    state.playlist.set_playing(true);
+  }
+
+  fn playhead_ms(state: &daw::InnerState) -> f64 {
+    daw::playhead(state).as_secs_f64() * 1000.
+  }
+
+  #[test]
+  fn test_playhead_follows_the_run() {
+    let state = daw::InnerState::default();
+
+    // stopped: wherever it was left
+    *state.playlist.start_offset.lock().unwrap() = Duration::from_millis(750);
+    assert_eq!(playhead_ms(&state), 750.);
+
+    // playing from 2s, 1.25s ago
+    fake_run(&state, 2_000, 1_250);
+    assert!((playhead_ms(&state) - 3_250.).abs() < 50.);
+    assert!((playlist_transport(&state).position_ms - 3_250.).abs() < 50.);
+    assert_eq!(playlist_transport(&state).start_offset_ms, 2_000.);
+
+    // the 16 beat (8s) loop jumps back to the start
+    fake_run(&state, 7_000, 2_000);
+    assert!((playhead_ms(&state) - 1_000.).abs() < 50.);
+
+    // without looping it runs on
+    state.playlist.loop_enabled.store(false, Ordering::SeqCst);
+    assert!((playhead_ms(&state) - 9_000.).abs() < 50.);
+  }
+
+  #[test]
+  fn test_pause_keeps_the_playhead() {
+    let state = Arc::new(daw::InnerState::default());
+    fake_run(&state, 2_000, 1_250);
+
+    daw::pause_playlist(&state);
+    assert!(!state.playlist.playing());
+    assert!((playhead_ms(&state) - 3_250.).abs() < 50.);
+    // 3.25s is 6 beats in: the third beat of the second bar
+    assert_eq!(state.playlist.total_beats.load(Ordering::SeqCst), 6);
+    assert_eq!(state.playlist.current_beat.load(Ordering::SeqCst), 2);
+  }
+
+  #[test]
+  fn test_stop_goes_back_to_the_start() {
+    let state = Arc::new(daw::InnerState::default());
+    fake_run(&state, 2_000, 1_250);
+
+    daw::stop_playlist(&state);
+    assert!(!state.playlist.playing());
+    assert_eq!(playhead_ms(&state), 0.);
+    assert_eq!(state.playlist.total_beats.load(Ordering::SeqCst), 0);
+
+    // stopping while stopped also rewinds
+    *state.playlist.start_offset.lock().unwrap() = Duration::from_millis(1_000);
+    daw::stop_playlist(&state);
+    assert_eq!(playhead_ms(&state), 0.);
+  }
+
+  #[test]
+  fn test_stop_ends_the_run() {
+    let state = Arc::new(daw::InnerState::default());
+    let run = state.playlist.run_id.load(Ordering::SeqCst);
+
+    // a run's thread checks the id before carrying on, so stopping (or
+    // pausing) has to change it
+    daw::stop_playlist(&state);
+    assert_ne!(state.playlist.run_id.load(Ordering::SeqCst), run);
+    let run = state.playlist.run_id.load(Ordering::SeqCst);
+    daw::pause_playlist(&state);
+    assert_ne!(state.playlist.run_id.load(Ordering::SeqCst), run);
+  }
+
+  #[test]
+  fn test_seek_while_stopped() {
+    let state = Arc::new(daw::InnerState::default());
+
+    assert_eq!(daw::seek_playlist(&state, 4.), 4.);
+    assert_eq!(playhead_ms(&state), 2_000.);
+    assert_eq!(state.playlist.total_beats.load(Ordering::SeqCst), 4);
+    assert_eq!(state.playlist.current_beat.load(Ordering::SeqCst), 0);
+    assert!(!state.playlist.playing());
+
+    // between beats
+    assert_eq!(daw::seek_playlist(&state, 2.5), 2.5);
+    assert_eq!(playhead_ms(&state), 1_250.);
+
+    // float noise lands on the beat
+    assert_eq!(daw::seek_playlist(&state, 3.000_000_1), 3.);
+
+    // kept within the playlist (16 beats)
+    assert_eq!(daw::seek_playlist(&state, -3.), 0.);
+    assert_eq!(daw::seek_playlist(&state, 40.), 16.);
+    assert_eq!(daw::seek_playlist(&state, f64::NAN), 0.);
+  }
+
+  #[test]
+  fn test_song_end_in_transport() {
+    let state = daw::InnerState::default();
+    let id = state.playlist.audiograph.lock().unwrap()
+      .construct_and_add_node(daw::METRONOME_TICK_PATH.to_string(), Duration::from_millis(1_000), 0)
+      .unwrap();
+    let tick = state.playlist.audiograph.lock().unwrap().get_node_by_id(id).unwrap().duration();
+
+    let expected = (Duration::from_millis(1_000) + tick).as_secs_f64() * 1000.;
+    assert!((playlist_transport(&state).song_end_ms - expected).abs() < 0.001);
+  }
+
+  #[test]
+  fn test_runtime_shows_the_playhead() {
+    let state = daw::InnerState::default();
+    *state.playlist.start_offset.lock().unwrap() = Duration::from_millis(61_250);
+    assert_eq!(util::format_runtime(daw::playhead(&state)), "01:01:250");
   }
 
   #[test]
