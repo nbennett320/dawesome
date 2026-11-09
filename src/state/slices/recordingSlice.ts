@@ -10,6 +10,8 @@ import { playlistSlice, reduceLoadedProject, syncPlayingFrom } from './playlistS
 // armed and what each records, and whether a take is being recorded
 export interface RecordingState {
   recording: boolean
+  // whether recording counts in a bar first
+  countIn: boolean
   // input choices, by track number
   armed: Record<number, InputChoice>
   // the input's channels, or null when there's no input
@@ -19,6 +21,7 @@ export interface RecordingState {
 
 const initialState: RecordingState = {
   recording: false,
+  countIn: false,
   armed: {},
   inputChannels: null,
   inputError: null,
@@ -31,6 +34,9 @@ export const recordingSlice = createSlice({
     setRecording: (state, action: PayloadAction<boolean>) => {
       state.recording = action.payload
     },
+    setCountIn: (state, action: PayloadAction<boolean>) => {
+      state.countIn = action.payload
+    },
     setRecordSetup: (state, action: PayloadAction<RecordSetup>) => {
       const { armed, inputChannels, inputError } = action.payload
       state.armed = Object.fromEntries(armed.map(track => [track.trackNumber, track.input]))
@@ -39,20 +45,22 @@ export const recordingSlice = createSlice({
     },
   },
   extraReducers: builder => {
-    // a project brings its own armed tracks
+    // a project brings its own armed tracks, and whether to count in
     builder.addCase(reduceLoadedProject, (state, action: PayloadAction<LoadedProject>) => {
+      state.countIn = action.payload.countIn ?? false
       state.armed = Object.fromEntries((action.payload.armed ?? []).map(track => [track.trackNumber, track.input]))
     })
   },
 })
 
-export const { setRecording, setRecordSetup } = recordingSlice.actions
+export const { setRecording, setRecordSetup, setCountIn } = recordingSlice.actions
 
 export const selectRecording = (state: RootState) => state.recording.recording
 export const selectArmed = (trackNumber: number) => (state: RootState): InputChoice | null =>
   state.recording.armed[trackNumber] ?? null
 export const selectAnyArmed = (state: RootState) => Object.keys(state.recording.armed).length > 0
 export const selectInputChannels = (state: RootState) => state.recording.inputChannels
+export const selectCountIn = (state: RootState) => state.recording.countIn
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
@@ -64,6 +72,16 @@ export const fetchRecordSetup = () => async (dispatch: Dispatch) => {
 // arm a track to record these input channels, or (null) disarm it
 export const setTrackArmed = (trackNumber: number, input: InputChoice | null) => async (dispatch: Dispatch) => {
   dispatch(setRecordSetup(await invoke<RecordSetup>('set_track_armed', { trackNumber, input })))
+}
+
+// count in a bar before recording, or not
+export const toggleCountIn = () => async (dispatch: Dispatch) => {
+  try {
+    dispatch(setCountIn(await invoke<boolean>('t_toggle_count_in', {})))
+  } catch(e) {
+    // eslint-disable-next-line no-console
+    console.error('could not change the count-in:', e)
+  }
 }
 
 // put recorded takes on the playlist, and say what went wrong

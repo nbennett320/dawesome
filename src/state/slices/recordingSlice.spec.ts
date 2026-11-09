@@ -2,7 +2,9 @@ import { configureStore } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api'
 import playlistReducer, { reduceLoadedProject } from './playlistSlice'
 import projectReducer from './projectSlice'
-import recordingReducer, { collectRecording, fetchRecordSetup, setTrackArmed, toggleRecording } from './recordingSlice'
+import recordingReducer, {
+  collectRecording, fetchRecordSetup, setTrackArmed, toggleCountIn, toggleRecording,
+} from './recordingSlice'
 import { LoadedClip, LoadedProject, Recorded } from '../../types/project'
 
 jest.mock('@tauri-apps/api', () => ({ invoke: jest.fn() }))
@@ -111,6 +113,19 @@ test('arming tracks', async () => {
   expect(store.getState().recording.armed).toEqual({ 3: input })
 })
 
+test('counting in', async () => {
+  const store = makeStore()
+
+  engine({ t_toggle_count_in: true })
+  await toggleCountIn()(store.dispatch)
+  expect(mockInvoke).toHaveBeenCalledWith('t_toggle_count_in', {})
+  expect(store.getState().recording.countIn).toBe(true)
+
+  engine({ t_toggle_count_in: false })
+  await toggleCountIn()(store.dispatch)
+  expect(store.getState().recording.countIn).toBe(false)
+})
+
 test('a project brings its armed tracks', () => {
   const store = makeStore()
   const project = {
@@ -126,8 +141,14 @@ test('a project brings its armed tracks', () => {
     sequencer: { rows: [], patterns: [] },
     patternClips: [],
     armed: [{ trackNumber: 0, input: { first: 0, stereo: false } }],
+    countIn: true,
   } as LoadedProject
 
   store.dispatch(reduceLoadedProject(project))
   expect(store.getState().recording.armed).toEqual({ 0: { first: 0, stereo: false } })
+  expect(store.getState().recording.countIn).toBe(true)
+
+  // an older project doesn't count in
+  store.dispatch(reduceLoadedProject({ ...project, countIn: undefined }))
+  expect(store.getState().recording.countIn).toBe(false)
 })

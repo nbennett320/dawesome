@@ -191,6 +191,17 @@ pub fn t_toggle_metronome_enabled(
   toggle_metronome_enabled(state.inner());
 }
 
+// whether recording counts in a bar first. returns the new setting
+#[tauri::command]
+pub fn t_toggle_count_in(state: daw::TState<'_>) -> bool {
+  !state.playlist.count_in.fetch_xor(true, Ordering::SeqCst)
+}
+
+#[tauri::command]
+pub fn get_count_in(state: daw::TState<'_>) -> bool {
+  state.playlist.count_in.load(Ordering::SeqCst)
+}
+
 #[tauri::command]
 pub fn get_metronome_enabled(
   state: daw::TState<'_>

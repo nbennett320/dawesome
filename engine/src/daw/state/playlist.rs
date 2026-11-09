@@ -71,6 +71,8 @@ pub struct Playlist {
   pub max_beats: AtomicU64,
   pub time_signature: Arc<Mutex<timing::TimeSignature>>,
   pub loop_enabled: AtomicBool,
+  // whether recording counts in a bar first
+  pub count_in: AtomicBool,
   pub audiograph: Arc<Mutex<daw::AudioGraph<'static>>>,
   // the same mixer the audio graph plays clips through, reachable without
   // the graph's lock
@@ -112,6 +114,7 @@ impl Playlist {
         },
       )),
       loop_enabled: AtomicBool::from(true),
+      count_in: AtomicBool::from(false),
       audiograph: Arc::new(Mutex::new(audiograph)),
       mixer,
       sequencer,

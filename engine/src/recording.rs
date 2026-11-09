@@ -172,7 +172,7 @@ pub fn start(state: &Arc<daw::InnerState>) -> Result<(), String> {
   // capturing starts first, so nothing's missed while playback gets going.
   // what comes before the run is heard is dropped (see keep_recording_from)
   daw::start_recording(&files)?;
-  daw::start_playlist(state);
+  daw::start_playlist_after(state, count_in(state));
 
   let heard = *state.playlist.started_time.lock().unwrap();
   let heard = match heard {
@@ -203,6 +203,16 @@ pub fn start(state: &Arc<daw::InnerState>) -> Result<(), String> {
   println!("recording {} tracks from {:?}", session.tracks.len(), session.start);
   state.recorder.lock().unwrap().session = Some(session);
   Ok(())
+}
+
+// how long recording counts in for: a bar, when counting in is on. what's
+// captured meanwhile is dropped with the rest from before the playhead's heard
+pub fn count_in(state: &daw::InnerState) -> Duration {
+  if !state.playlist.count_in.load(std::sync::atomic::Ordering::SeqCst) {
+    return Duration::ZERO;
+  }
+  let beats = state.playlist.time_signature.lock().unwrap().numerator.max(1);
+  daw::beat_interval(state) * beats as u32
 }
 
 // stop recording, and put the takes on their tracks. at a loop's end, the
@@ -344,6 +354,19 @@ mod tests {
     assert!(start(&state).unwrap_err().contains("Arm a track"));
     assert!(asked.elapsed() >= Duration::from_millis(45));
     done.join().unwrap();
+  }
+
+  #[test]
+  fn test_a_count_in_is_a_bar() {
+    let state = daw::InnerState::default();
+    // off unless it's turned on
+    assert_eq!(count_in(&state), Duration::ZERO);
+
+    state.playlist.count_in.store(true, std::sync::atomic::Ordering::SeqCst);
+    // 4/4 at 120bpm
+    assert_eq!(count_in(&state), Duration::from_secs(2));
+    state.playlist.time_signature.lock().unwrap().numerator = 3;
+    assert_eq!(count_in(&state), Duration::from_millis(1_500));
   }
 
   #[test]

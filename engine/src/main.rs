@@ -93,6 +93,8 @@ fn init_tauri() {
       set_playlist_tempo,
       t_toggle_metronome_enabled,
       get_metronome_enabled,
+      t_toggle_count_in,
+      get_count_in,
       get_playlist_runtime_formatted,
       get_playlist_beat_count,
       get_playlist_time_signature,

@@ -28,7 +28,7 @@ lazy_static! {
 }
 
 lazy_static! {
-  static ref METRONOME_TICK_ACCENTED_SOURCE: SampleBuffer = {
+  pub static ref METRONOME_TICK_ACCENTED_SOURCE: SampleBuffer = {
     SampleBuffer::load(METRONOME_TICK_ACCENTED_PATH).unwrap()
   };
 }
@@ -156,9 +156,18 @@ const SCHEDULE_AHEAD: Duration = Duration::from_millis(50);
 // sounds are sent to it a little early, each tagged with the frame it starts
 // on. this thread only decides what plays in each slice (a beat), and keeps
 // the beat counters in step with what's heard
+// the clicks of a count-in: one on each beat of the bar before playback
+// starts, from the run's start, the first accented
+pub fn count_in_clicks(beats: u16, beat: Duration) -> Vec<(Duration, bool)> {
+  (0..beats as u32).map(|n| (beat * n, n == 0)).collect()
+}
+
+// - count_in: how long to count in for (none for no count-in). the run
+//   starts with that long of clicks, and the playlist after them
 pub fn run_playlist(
   state_ref: &Arc<state::InnerState>,
   ready: mpsc::Sender<Result<(), String>>,
+  count_in: Duration,
 ) {
   let state = state_ref.clone();
   let tempo_interval = beat_interval(&state);
@@ -213,7 +222,20 @@ pub fn run_playlist(
     // so every later slice (and metronome tick) stays on the beat
     let lead = state::until_next_beat(start, tempo_interval);
     let mut slice = if lead.is_zero() { tempo_interval } else { lead };
-    let first = slice_voices(Duration::ZERO, slice, lead.is_zero(), true);
+
+    // a count-in's clicks come first (whether the metronome's on or not),
+    // then the playlist
+    let mut first: Vec<_> = if count_in.is_zero() { Vec::new() } else {
+      let beats = (count_in.as_secs_f64() / tempo_interval.as_secs_f64()).round() as u16;
+      count_in_clicks(beats, tempo_interval)
+        .into_iter()
+        .map(|(at, accented)| {
+          let click: &SampleBuffer = if accented { &METRONOME_TICK_ACCENTED_SOURCE } else { &METRONOME_TICK_SOURCE };
+          engine.voice(click.convert_samples(), Some(run), engine.frames_in(at), daw_core::Route::Direct)
+        })
+        .collect()
+    };
+    first.extend(slice_voices(count_in, slice, lead.is_zero(), true));
 
     // the run starts with its first slice, so nothing in it can arrive late
     let anchor = match engine
@@ -239,7 +261,8 @@ pub fn run_playlist(
     // (and the frontend cursor, which uses the same time) follows what's
     // heard. it's set before flagging the playlist as playing, so anything
     // that sees `playing == true` also sees this run's start time
-    *state.playlist.started_time.lock().unwrap() = Some(anchor.heard);
+    // (after a count-in, when the playlist's first frame is heard)
+    *state.playlist.started_time.lock().unwrap() = Some(anchor.heard + count_in);
     // the counters follow the playlist, which a pattern doesn't move
     let counts_beats = mode == state::PlayMode::Playlist;
     if counts_beats { set_beat_counters(&state, start, tempo_interval); }
@@ -260,7 +283,7 @@ pub fn run_playlist(
     let heard_at = |at: Duration| frame_at(at) + engine.frames_in(engine.latency());
 
     // where the current slice starts in the run
-    let mut slice_at = Duration::ZERO;
+    let mut slice_at = count_in;
 
     loop {
       let next_at = slice_at + slice;
@@ -401,6 +424,12 @@ pub fn stop_playlist(state: &state::InnerState) {
 }
 
 pub fn start_playlist(state: &Arc<state::InnerState>) {
+  start_playlist_after(state, Duration::ZERO);
+}
+
+// play the playlist from the playhead, after a count-in this long (see
+// run_playlist)
+pub fn start_playlist_after(state: &Arc<state::InnerState>, count_in: Duration) {
   println!("playing playlist");
 
   // a pattern playing on its own stops first
@@ -419,15 +448,15 @@ pub fn start_playlist(state: &Arc<state::InnerState>) {
     if *start >= end { *start = Duration::ZERO; }
   }
 
-  start_run(state);
+  start_run(state, count_in);
 }
 
 // start a run of whatever the mode is, and wait until the output stream is
 // open and the start time is set, so a `get_playlist_playing` right after
 // this sees the new run
-fn start_run(state: &Arc<state::InnerState>) {
+fn start_run(state: &Arc<state::InnerState>, count_in: Duration) {
   let (ready_tx, ready_rx) = mpsc::channel();
-  run_playlist(state, ready_tx);
+  run_playlist(state, ready_tx, count_in);
 
   match ready_rx.recv() {
     Ok(Ok(())) => {}
@@ -453,7 +482,7 @@ pub fn start_pattern(state: &Arc<state::InnerState>, id: u64) -> Result<(), Stri
     }
   }
   *state.playlist.mode.lock().unwrap() = state::PlayMode::Pattern(id);
-  start_run(state);
+  start_run(state, Duration::ZERO);
   Ok(())
 }
 
@@ -506,4 +535,48 @@ pub fn get_playlist_track_count(
     .unwrap();
   
   if count > 1 { count } else { state::defaults::NUM_OF_TRACKS }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::time::Instant;
+
+  #[test]
+  fn test_count_in_clicks() {
+    let beat = Duration::from_millis(500);
+    assert_eq!(count_in_clicks(4, beat), vec![
+      (Duration::ZERO, true),
+      (beat, false),
+      (beat * 2, false),
+      (beat * 3, false),
+    ]);
+    assert!(count_in_clicks(0, beat).is_empty());
+  }
+
+  // plays through the real output: run with `cargo test -- --ignored`
+  #[test]
+  #[ignore = "needs an audio output device"]
+  fn test_a_count_in_holds_the_playhead_for_a_bar() {
+    let state = Arc::new(state::InnerState::default());
+    *state.playlist.start_offset.lock().unwrap() = Duration::from_secs(1);
+    let count_in = Duration::from_secs(2);
+
+    start_playlist_after(&state, count_in);
+    let started = state.playlist.started_time.lock().unwrap().expect("a start time");
+    let heard = started.duration_since(Instant::now());
+    println!("the playlist is heard {:?} after play", heard);
+    // a bar off, less what's passed since (and plus the output's latency)
+    assert!(heard > Duration::from_millis(1_900) && heard < Duration::from_millis(2_200), "{:?}", heard);
+
+    // held at the playhead through the count-in
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(playhead(&state), Duration::from_secs(1));
+    // and moving once it's over
+    std::thread::sleep(Duration::from_millis(2_000));
+    let moved = playhead(&state);
+    assert!(moved > Duration::from_millis(1_300) && moved < Duration::from_millis(1_700), "{:?}", moved);
+
+    stop_playlist(&state);
+  }
 }

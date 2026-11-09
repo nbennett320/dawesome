@@ -24,6 +24,8 @@ export interface ProjectSettings {
   loopEnabled: boolean
   snapEnabled: boolean
   snapNote: SnapNote
+  // whether recording counts in a bar first (left out by older engines)
+  countIn?: boolean
 }
 
 // a clip after loading, with the new id the engine gave it

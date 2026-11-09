@@ -31,6 +31,8 @@ pub struct ProjectSettings {
   pub loop_enabled: bool,
   pub snap_enabled: bool,
   pub snap_note: daw::timing::Note,
+  // whether recording counts in a bar first
+  pub count_in: bool,
 }
 
 impl Default for ProjectSettings {
@@ -42,6 +44,7 @@ impl Default for ProjectSettings {
       loop_enabled: true,
       snap_enabled: daw::defaults::SNAP_ENABLED,
       snap_note: daw::defaults::SNAP_SUBDIVISION,
+      count_in: false,
     }
   }
 }
@@ -279,6 +282,7 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
       loop_enabled: state.playlist.loop_enabled.load(Ordering::SeqCst),
       snap_enabled: ui.snap_enabled,
       snap_note: ui.snap_subdivision,
+      count_in: state.playlist.count_in.load(Ordering::SeqCst),
     },
     clips,
     mixer,
@@ -301,6 +305,7 @@ pub fn apply(
   let settings = project.settings;
   state.metronome_enabled.store(settings.metronome_enabled, Ordering::SeqCst);
   state.playlist.loop_enabled.store(settings.loop_enabled, Ordering::SeqCst);
+  state.playlist.count_in.store(settings.count_in, Ordering::SeqCst);
   *state.playlist.time_signature.lock().unwrap() = settings.time_signature;
   {
     let mut ui = state.playlist.ui.lock().unwrap();
@@ -572,6 +577,23 @@ mod tests {
 
   fn saved_json(path: &str) -> Project {
     Project::from_json(&fs::read_to_string(path).unwrap()).unwrap()
+  }
+
+  #[test]
+  fn test_count_in_is_saved() {
+    let dir = test_dir("count-in");
+    let state = daw::InnerState::default();
+    state.playlist.count_in.store(true, Ordering::SeqCst);
+    let file = dir.join("song.dawesome");
+    save_to(&state, &file).unwrap();
+
+    let loaded = daw::InnerState::default();
+    assert!(load_from(&loaded, &file).unwrap().settings.count_in);
+    assert!(loaded.playlist.count_in.load(Ordering::SeqCst));
+    // projects from before it was saved don't count in
+    assert!(!Project::from_json("{}").unwrap().settings.count_in);
+
+    let _ = fs::remove_dir_all(&dir);
   }
 
   #[test]
