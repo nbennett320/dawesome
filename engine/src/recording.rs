@@ -66,6 +66,8 @@ struct Session {
 pub struct Recorder {
   armed: BTreeMap<u32, InputChoice>,
   session: Option<Session>,
+  // recordings that have stopped, whose takes aren't on their tracks yet
+  finishing: u32,
   clips: Vec<LoadedClip>,
   problems: Vec<String>,
 }
@@ -89,6 +91,26 @@ impl Recorder {
   pub fn recording(&self) -> bool {
     self.session.is_some()
   }
+
+  // recording, or putting the takes of a recording that's stopped on their
+  // tracks. the frontend keeps asking until this is over, so it gets them
+  fn busy(&self) -> bool {
+    self.session.is_some() || self.finishing > 0
+  }
+
+  // stop the recording, counting it as finishing until its takes are in
+  fn begin_finish(&mut self) -> Option<Session> {
+    let session = self.session.take()?;
+    self.finishing += 1;
+    Some(session)
+  }
+
+  // its takes are on their tracks
+  fn end_finish(&mut self, clips: Vec<LoadedClip>, problems: Vec<String>) {
+    self.clips.extend(clips);
+    self.problems.extend(problems);
+    self.finishing = self.finishing.saturating_sub(1);
+  }
 }
 
 pub fn is_recording(state: &daw::InnerState) -> bool {
@@ -107,7 +129,7 @@ pub struct Recorded {
 pub fn collect(state: &daw::InnerState) -> Recorded {
   let mut recorder = state.recorder.lock().unwrap();
   Recorded {
-    recording: recorder.recording(),
+    recording: recorder.busy(),
     clips: std::mem::take(&mut recorder.clips),
     problems: std::mem::take(&mut recorder.problems),
   }
@@ -115,6 +137,16 @@ pub fn collect(state: &daw::InnerState) -> Recorded {
 
 // start recording every armed track, playing from the playhead
 pub fn start(state: &Arc<daw::InnerState>) -> Result<(), String> {
+  // the last recording's takes may still be going on their tracks (it
+  // stopped with playback, or at a loop's end): it has the input until then
+  let waited = Instant::now();
+  while state.recorder.lock().unwrap().finishing > 0 {
+    if waited.elapsed() > Duration::from_secs(5) {
+      return Err("the last recording is still being saved".into());
+    }
+    std::thread::sleep(Duration::from_millis(5));
+  }
+
   let armed = {
     let recorder = state.recorder.lock().unwrap();
     if recorder.recording() { return Err("already recording".into()); }
@@ -176,7 +208,7 @@ pub fn start(state: &Arc<daw::InnerState>) -> Result<(), String> {
 // stop recording, and put the takes on their tracks. at a loop's end, the
 // takes end there
 pub fn finish(state: &daw::InnerState, at_loop_end: bool) {
-  let session = match state.recorder.lock().unwrap().session.take() {
+  let session = match state.recorder.lock().unwrap().begin_finish() {
     Some(session) => session,
     None => return,
   };
@@ -236,9 +268,7 @@ pub fn finish(state: &daw::InnerState, at_loop_end: bool) {
   }
 
   for problem in &problems { println!("recording: {}", problem); }
-  let mut recorder = state.recorder.lock().unwrap();
-  recorder.clips.extend(clips);
-  recorder.problems.extend(problems);
+  state.recorder.lock().unwrap().end_finish(clips, problems);
 }
 
 #[cfg(test)]
@@ -270,6 +300,50 @@ mod tests {
     assert_eq!(recorder.armed().len(), 1);
     recorder.set_armed(&[]);
     assert!(recorder.armed().is_empty());
+  }
+
+  // a stand-in for a recording in progress
+  fn session() -> Session {
+    Session { tracks: vec![], start: Duration::ZERO, keep_from: Instant::now(), loop_len: None }
+  }
+
+  #[test]
+  fn test_still_recording_until_the_takes_are_in() {
+    let state = daw::InnerState::default();
+    state.recorder.lock().unwrap().session = Some(session());
+    assert!(collect(&state).recording);
+
+    // stopped, but its takes aren't on their tracks yet: asking now used to
+    // say it was over, with no clips, so the frontend stopped asking and
+    // the clips only showed up with the next recording
+    let stopped = state.recorder.lock().unwrap().begin_finish();
+    assert!(stopped.is_some());
+    assert!(!is_recording(&state));
+    let meanwhile = collect(&state);
+    assert!(meanwhile.recording);
+    assert!(meanwhile.clips.is_empty());
+
+    state.recorder.lock().unwrap().end_finish(vec![], vec!["a problem".into()]);
+    assert_eq!(collect(&state), Recorded { recording: false, clips: vec![], problems: vec!["a problem".into()] });
+  }
+
+  #[test]
+  fn test_a_new_recording_waits_for_the_last_to_finish() {
+    let state = Arc::new(daw::InnerState::default());
+    state.recorder.lock().unwrap().session = Some(session());
+    state.recorder.lock().unwrap().begin_finish();
+
+    let finisher = state.clone();
+    let done = std::thread::spawn(move || {
+      std::thread::sleep(Duration::from_millis(50));
+      finisher.recorder.lock().unwrap().end_finish(vec![], vec![]);
+    });
+
+    // nothing's armed, so it's refused, but only once the last one's in
+    let asked = Instant::now();
+    assert!(start(&state).unwrap_err().contains("Arm a track"));
+    assert!(asked.elapsed() >= Duration::from_millis(45));
+    done.join().unwrap();
   }
 
   #[test]
