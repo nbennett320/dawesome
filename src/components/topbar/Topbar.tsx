@@ -8,10 +8,12 @@ import styles from './styles.module.scss'
 
 const Topbar = () => (
   <TopbarBase>
-    <div className={`${styles.Topbar} py-2`}>
+    <div className={`${styles.Topbar} items-center gap-6 py-2`}>
       <ButtonArea />
-      <TempoInput />
-      <SnapInput />
+      <div className='flex flex-row items-end gap-4'>
+        <TempoInput />
+        <SnapInput />
+      </div>
       <TopbarTimer />
     </div>
   </TopbarBase>

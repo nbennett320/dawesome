@@ -7,10 +7,10 @@ import {
   selectPlaylistBeatCount,
 } from '../../state/slices/playlistSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
-import styles from './styles.module.scss'
 
-const PlayPauseButton = () => {
-  const timer: { current: NodeJS.Timer | null } = React.useRef(null)
+// the runtime and beat count, on a soft display
+const TopbarTimer = () => {
+  const timer = React.useRef<ReturnType<typeof setInterval> | null>(null)
   const runtime = useAppSelector(selectPlaylistRuntime)
   const beatCount = useAppSelector(selectPlaylistBeatCount)
   const playing = useAppSelector(selectPlaylistPlaying)
@@ -22,32 +22,19 @@ const PlayPauseButton = () => {
         dispatch(fetchPlaylistRuntime())
         dispatch(fetchPlaylistBeatCount())
       }, 100)
-    } else {
-      clearInterval(timer.current as NodeJS.Timer)
+    } else if (timer.current) {
+      clearInterval(timer.current)
     }
   }, [playing])
-  const textClasses = `${styles.TopbarTimerLabel} text-gray-400 text-xs text-left`
 
   return (
-    <div className={`${styles.TopbarTimer} rounded`}>
-      <div className='flex flex-row'>
-        <span className={textClasses}>
-          Runtime:&nbsp;
-        </span>
-        {playing ? <span className={textClasses}>
-          {runtime}s
-        </span> : <span className={textClasses}>-</span>}
-      </div>
-      <div className='flex flex-row'>
-        <span className={textClasses}>
-          Beat count:&nbsp;
-        </span>
-        {playing ? <span className={textClasses}>
-          {beatCount}
-        </span> : <span className={textClasses}>-</span>}
-      </div>
+    <div className='ft-lcd grid grid-cols-[auto_auto] gap-x-3 items-baseline text-sm min-w-[9rem]' aria-live='off'>
+      <span className='ft-label text-[9px]'>Time</span>
+      <span className='text-right'>{playing ? `${runtime}s` : '--'}</span>
+      <span className='ft-label text-[9px]'>Beat</span>
+      <span className='text-right'>{playing ? beatCount : '--'}</span>
     </div>
   )
 }
 
-export default PlayPauseButton
+export default TopbarTimer

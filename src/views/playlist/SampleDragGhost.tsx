@@ -44,7 +44,7 @@ const SampleDragGhost = ({ playlistRef }: Props) => {
 
   return (
     <div
-      className="text-xs text-gray-800 whitespace-nowrap overflow-hidden text-ellipsis rounded"
+      className="text-xs text-slate-700 whitespace-nowrap overflow-hidden text-ellipsis rounded shadow-sm"
       style={{
         position: 'fixed',
         // held by the middle of its label, like the clip in the canvas
@@ -54,8 +54,9 @@ const SampleDragGhost = ({ playlistRef }: Props) => {
         maxWidth: '12rem',
         padding: '0 6px',
         lineHeight: `${LABEL_HEIGHT}px`,
-        border: '1px solid rgb(125, 211, 252)',
-        background: 'rgba(224, 242, 254, 0.9)',
+        // like a clip's label in the playlist (see sketch/theme.ts)
+        border: '1px solid rgb(203, 213, 225)',
+        background: 'rgba(241, 245, 249, 0.95)',
         pointerEvents: 'none',
         zIndex: 1000,
       }}

@@ -15,6 +15,7 @@ import { useAppDispatch, useAppSelector } from '../../hooks/redux'
 import { matchViewComponent } from '../../views/matchViewComponent'
 import { PaneTab, View, WindowNode } from '../../types/ui'
 import Close from '../icons/Close'
+import { AnalogButton, Led } from '../fourtrack'
 
 // react-dnd type for a tab being dragged
 const PANE_TAB = 'pane-tab'
@@ -57,11 +58,14 @@ interface TabItemProps {
   pane: WindowNode
   tab: PaneTab
   index: number
+  selected: boolean
+  // the LED: lit on the selected tab of the pane being worked in
+  lit: boolean
 }
 
 // a tab's label: drag it to another pane's tabs or body, drop a tab on it
 // to insert that tab before it
-const TabItem = ({ pane, tab, index }: TabItemProps) => {
+const TabItem = ({ pane, tab, index, selected, lit }: TabItemProps) => {
   const dispatch = useAppDispatch()
 
   const [, dragRef] = useDrag(() => ({
@@ -80,27 +84,25 @@ const TabItem = ({ pane, tab, index }: TabItemProps) => {
   return (
     <div
       ref={node => { dragRef(dropRef(node)) }}
-      className='flex row items-center justify-between'
-      style={{
-        padding: '6px 6px 6px 12px',
-        boxShadow: isOver ? 'inset 2px 0 0 rgb(56, 189, 248)' : undefined,
-      }}
+      className='group flex flex-row items-center gap-2 h-8 pl-3 pr-1.5'
+      style={{ boxShadow: isOver ? 'inset 2px 0 0 rgb(14, 165, 233)' : undefined }}
     >
-      <span>{tab.label}</span>
+      <Led color='blue' state={lit ? 'on' : 'off'} />
+      <span className={`ft-label ${selected ? 'text-slate-700' : 'group-hover:text-slate-600'}`}>{tab.label}</span>
 
       <button
-        className='ml-1 border-0 rounded-sm hover:bg-slate-200'
+        className={`rounded-sm p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 ${
+          selected ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
+        }`}
+        title={`Close ${tab.label}`}
+        aria-label={`Close ${tab.label}`}
         onClick={ev => {
           // don't select the tab being closed
           ev.stopPropagation()
           dispatch(closeTab(tab.component))
         }}
       >
-        <Close
-          height={16}
-          width={16}
-          fill='rgba(0, 0, 0, 0.67)'
-        />
+        <Close height={12} width={12} fill='currentColor' />
       </button>
     </div>
   )
@@ -174,8 +176,9 @@ const DropOverlay = ({ pane }: { pane: WindowNode }) => {
           className='absolute pointer-events-none'
           style={{
             ...zoneStyle[zone],
-            background: 'rgba(56, 189, 248, 0.2)',
-            border: '1px solid rgba(56, 189, 248, 0.6)',
+            background: 'rgba(125, 211, 252, 0.2)',
+            border: '1px solid rgba(14, 165, 233, 0.6)',
+            borderRadius: 4,
           }}
         />
       )}
@@ -185,7 +188,7 @@ const DropOverlay = ({ pane }: { pane: WindowNode }) => {
 
 // split icons for the tab bar
 const SplitIcon = ({ direction }: { direction: 'vertical' | 'horizontal' }) => (
-  <svg viewBox='0 0 16 16' width='14' height='14' fill='none' stroke='rgba(0, 0, 0, 0.67)'>
+  <svg viewBox='0 0 16 16' fill='none' stroke='currentColor' strokeWidth='1.25'>
     <rect x='1.5' y='2.5' width='13' height='11' rx='1' />
     {direction === 'vertical'
       ? <line x1='8' y1='2.5' x2='8' y2='13.5' />
@@ -238,11 +241,7 @@ const TabbedPane = ({ pane }: Props) => {
         selectedTabPanelClassName='react-tabs__tab-panel--selected h-full'
       >
         <div
-          className='flex flex-row items-center text-xs'
-          style={{
-            borderBottom: '1px solid #aaa',
-            boxShadow: focused ? 'inset 0 -2px 0 rgb(56, 189, 248)' : undefined,
-          }}
+          className='ft-panel flex flex-row items-stretch border-b border-slate-200'
         >
           <TabList className='flex flex-row' style={{ margin: 0, border: 'none' }}>
             {pane.tabs.map((tab, index) => (
@@ -250,30 +249,40 @@ const TabbedPane = ({ pane }: Props) => {
                 key={tab.component}
                 style={{ userSelect: 'none', padding: 0 }}
               >
-                <TabItem pane={pane} tab={tab} index={index} />
+                <TabItem
+                  pane={pane}
+                  tab={tab}
+                  index={index}
+                  selected={index === selectedIndex}
+                  lit={index === selectedIndex && (focused || !split)}
+                />
               </Tab>
             ))}
           </TabList>
 
           <TabListEnd pane={pane} />
 
-          <div className='flex flex-row px-1'>
-            <button
-              className='p-1 rounded-sm hover:bg-slate-200 disabled:opacity-30'
+          <div className='flex flex-row items-center gap-1.5 px-2 pt-0.5'>
+            <AnalogButton
+              size='xs'
+              className='ft-btn--tab'
               title='Split right'
+              aria-label='Split right'
               disabled={!canSplit}
-              onClick={() => splitSelected('vertical')}
+              onPress={() => splitSelected('vertical')}
             >
               <SplitIcon direction='vertical' />
-            </button>
-            <button
-              className='p-1 rounded-sm hover:bg-slate-200 disabled:opacity-30'
+            </AnalogButton>
+            <AnalogButton
+              size='xs'
+              className='ft-btn--tab'
               title='Split down'
+              aria-label='Split down'
               disabled={!canSplit}
-              onClick={() => splitSelected('horizontal')}
+              onPress={() => splitSelected('horizontal')}
             >
               <SplitIcon direction='horizontal' />
-            </button>
+            </AnalogButton>
           </div>
         </div>
 

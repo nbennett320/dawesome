@@ -17,6 +17,7 @@ import {
   PlaylistItemPixelOffset,
   PlaylistWindow
 } from '../../../types/playlist'
+import { theme } from './theme'
 
 export interface CanvasProps extends SketchProps {
   height: number
@@ -39,7 +40,7 @@ export const staticDefaults = {
   timelineHeight: 24,
   trackHeight: 100,
   playing: false,
-  debugMode: true,
+  debugMode: false,
 
   // defaults on Renderer construction, these will be reassigned
   // when the canvas renders
@@ -489,9 +490,9 @@ export class Renderer extends RendererBase {
       p.push()
       ctx.setLineDash([4, 3])
       p.strokeWeight(1)
-      p.stroke(14, 165, 233)
-      p.fill(125, 211, 252, 255*.25)
-      p.rect(this.beatToX(target.snappedBeat), phantomTop, width, height, 3)
+      p.stroke(...theme.accent)
+      p.fill(...theme.accentSoft, 255*.25)
+      p.rect(this.beatToX(target.snappedBeat), phantomTop + 2, width, height - 4, 3)
       ctx.setLineDash([])
       p.pop()
     }
@@ -602,11 +603,11 @@ export class Renderer extends RendererBase {
     p.push()
     if(targeted) {
       p.noStroke()
-      p.fill(125, 211, 252, 64)
+      p.fill(...theme.accentSoft, 64)
       p.rect(0, top, this.width, h)
-      p.stroke(14, 165, 233)
+      p.stroke(...theme.accent)
     } else {
-      p.stroke(170)
+      p.stroke(...theme.idle)
     }
 
     p.strokeWeight(1.5)
@@ -617,7 +618,8 @@ export class Renderer extends RendererBase {
 
     if(targeted) {
       p.noStroke()
-      p.fill(14, 165, 233)
+      p.fill(...theme.accent)
+      p.textFont(theme.font)
       p.textSize(11)
       p.textAlign(p.LEFT, p.CENTER)
       p.text('New track', cx + radius + 6, cy)
@@ -634,7 +636,7 @@ export class Renderer extends RendererBase {
 
     p.push()
     p.noStroke()
-    p.fill(0, 0, 0, active ? 115 : 64)
+    p.fill(...theme.scrollbar, active ? 140 : 80)
     p.rect(this.width - width - margin, bar.thumbTop + 2, width, bar.thumbHeight - 4, width / 2)
     p.pop()
   }
@@ -994,9 +996,7 @@ export class Renderer extends RendererBase {
         }
       )
       
-      p.background(255, 255, 255)
-      p.stroke(180, 180, 180)
-      p.fill(255, 255, 255)
+      p.background(...theme.background)
 
       this.transformX = p.constrain(this.transformX, width * (1 - currentScale), 0)
       // NaN never recovers through constrain, and breaks every clip's
@@ -1013,13 +1013,21 @@ export class Renderer extends RendererBase {
       p.translate(this.transformX, 1 - this.scrollY)
       p.scale(currentScale, 1)
 
-      // render vertical grid lines
-      const gridStroke = .2 * (1 - currentScale) > 0 ? .2 * (1 - currentScale) : .4
-      p.strokeWeight(gridStroke)
-      p.stroke(100, 100, 100)
-      for(let i = 0; i < width; i += width/beatsDisplayed) {
-        // p.line(i, 0, i, height)
-        p.line(i, 0, i, trackCount * staticDefaults.trackHeight + staticDefaults.timelineHeight + 1)
+      // every other track lane is shaded a little
+      p.noStroke()
+      p.fill(...theme.laneAlt)
+      for(let n = 1; n < trackCount; n += 2) {
+        p.rect(0, trackTop(n), width, staticDefaults.trackHeight)
+      }
+
+      // render vertical grid lines: one per beat, darker on each bar. 1px
+      // wide whatever the zoom
+      p.strokeWeight(1 / currentScale)
+      const gridBottom = trackTop(trackCount)
+      for(let beat = 0; beat < beatsDisplayed; beat++) {
+        const x = beat * width / beatsDisplayed
+        p.stroke(...(beat % theme.beatsPerBar === 0 ? theme.barLine : theme.beatLine))
+        p.line(x, 0, x, gridBottom)
       }
 
       // render playlist tracks

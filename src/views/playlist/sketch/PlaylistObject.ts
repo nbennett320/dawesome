@@ -5,6 +5,7 @@ import Waveform from './Waveform'
 import { CanvasProps, Renderer, staticDefaults } from './index'
 import { PlaylistItem } from '../../../types/playlist'
 import { P5BoundingBox, State as ComponentState } from '../../../render/P5Component'
+import { theme } from './theme'
 
 interface Props extends PlaylistComponentProps {
   playlistItem: PlaylistItem
@@ -97,32 +98,44 @@ class PlaylistObject extends PlaylistComponent<State> {
       height,
       width,
     } = this.waveform.boundingBox()
+    // a card, inset a little from the track lines, with a label band
+    const inset = 2
+    const cardTop = top + inset
+    const cardHeight = height - inset * 2
     this.p.strokeWeight(1)
-    this.p.stroke(125,211,252)
-    this.p.fill(224,242,254, 255*.6)
-    this.p.rect(left, top, width, height, 3, 3, 3, 3)
+    this.p.stroke(...theme.clipBorder)
+    this.p.fill(...theme.clip)
+    this.p.rect(left, cardTop, width, cardHeight, 3)
+    this.p.noStroke()
+    this.p.fill(...theme.clipLabel)
+    this.p.rect(left + .5, cardTop + .5, width - 1, this.labelHeight - inset - .5, 3, 3, 0, 0)
+    this.p.stroke(...theme.clipBorder)
     this.p.line(left, top + this.labelHeight, right, top + this.labelHeight)
 
     // render text
     this.p.noStroke()
-    this.p.fill('#222')
+    this.p.fill(...theme.clipText)
     this.p.push()
     this.p.scale(1 / this.currentScale, 1)
+    this.p.textFont(theme.font)
+    this.p.textSize(11)
+    this.p.textAlign(this.p.LEFT, this.p.TOP)
     this.p.textWrap(this.p.CHAR)
     // leave room for the modified dot
     const dotSpace = this.modified ? MODIFIED_DOT_SPACE : 0
     this.p.text(
-      this.playlistItem.path,
-      (left + 1) * this.currentScale,
-      top + 6,
-      width * this.currentScale - 1 - dotSpace,
-      this.labelHeight,
+      // the file's name, without its folders
+      this.playlistItem.path.split(/[\\/]/).pop() ?? this.playlistItem.path,
+      left * this.currentScale + 6,
+      cardTop + 3,
+      width * this.currentScale - 10 - dotSpace,
+      this.labelHeight - inset - 3,
     )
 
     // a dot at the end of the label: this clip's settings were changed
     // in the Sample tab. drawn unscaled, so it stays round when zoomed
     if(this.modified) {
-      this.p.fill(217, 119, 6)
+      this.p.fill(...theme.modified)
       this.p.circle(
         right * this.currentScale - MODIFIED_DOT_SPACE / 2,
         top + this.labelHeight / 2,

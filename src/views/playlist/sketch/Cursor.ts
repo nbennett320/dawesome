@@ -4,6 +4,7 @@ import { P5CanvasInstance } from 'react-p5-wrapper'
 import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import { Renderer, CanvasProps } from './index'
 import { P5BoundingBox } from '../../../render/P5Component'
+import { theme } from './theme'
 
 interface Props extends PlaylistComponentProps {}
 
@@ -55,8 +56,9 @@ class Cursor extends PlaylistComponent {
 
     if(ratio === null) return
 
-    this.p.triangle(0 + ratio, 0, 8+ ratio, 0, 0 + ratio, 8)
-    this.p.stroke(1)
+    // a small pointer in the ruler, centred on the line
+    this.p.noStroke()
+    this.p.triangle(ratio - 5, 0, ratio + 5, 0, ratio, 7)
   }
 
   drawCursorLine = () => {
@@ -64,7 +66,8 @@ class Cursor extends PlaylistComponent {
 
     if(ratio === null) return
 
-    this.p.line(0 + ratio, 0, 0 + ratio, this.renderer.height)
+    this.p.strokeWeight(1)
+    this.p.line(ratio, 0, ratio, this.renderer.height)
   }
 
   render = () => {
@@ -73,7 +76,9 @@ class Cursor extends PlaylistComponent {
     this.p.push()
 
     this.p.scale(1 / this.currentScale, 1)
-    this.p.fill(playing ? 'limegreen' : 'darkorange')
+    const colour = playing ? theme.playhead : theme.playheadStopped
+    this.p.fill(...colour)
+    this.p.stroke(...colour)
 
     this.drawTriangle()
     this.drawCursorLine()

@@ -4,6 +4,7 @@ import { P5CanvasInstance } from 'react-p5-wrapper'
 import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import { CanvasProps, Renderer } from './index'
 import { P5BoundingBox } from '../../../render/P5Component'
+import { theme } from './theme'
 
 interface Props extends PlaylistComponentProps {}
 
@@ -31,28 +32,49 @@ class Timeline extends PlaylistComponent {
   }
 
   drawNumbers() {
-    this.p.noStroke()
-    this.p.fill('#222')
-    this.p.textFont('Helvetica')
+    const { p } = this
+    p.textFont(theme.font)
+    p.textSize(10)
+    p.textAlign(p.LEFT, p.BASELINE)
 
     const limit = (this.renderer as Renderer).beatsDisplayed
+    const beatWidth = this.timelineWidth * this.currentScale / limit
 
+    // unscaled, so the numbers and ticks don't stretch when zoomed
+    p.push()
+    p.scale(1 / this.currentScale, 1)
     for(let i = 0; i < limit; i++) {
-      this.p.push()
-      this.p.scale(1 / this.currentScale, 1)
-      this.p.text(
-        i+1, 
-        (i * (this.timelineWidth * this.currentScale / limit) + 2), 
-        this.timelineHeight - 2
-      )
-      this.p.pop()
+      const x = i * beatWidth
+      const bar = i % theme.beatsPerBar === 0
+
+      // a tick up from the bottom, taller on each bar
+      p.stroke(...theme.rulerLine)
+      p.strokeWeight(1)
+      p.line(x, this.timelineHeight - (bar ? 10 : 5), x, this.timelineHeight)
+
+      p.noStroke()
+      p.fill(...(bar ? theme.rulerBarText : theme.rulerText))
+      p.textStyle(bar ? p.BOLD : p.NORMAL)
+      p.text(i + 1, x + 3, this.timelineHeight - 8)
     }
+    p.textStyle(p.NORMAL)
+    p.pop()
   }
 
   render() {
-    this.p.fill('#ccc')
-    this.p.rect(0, 0, this.timelineWidth, this.timelineHeight)
+    const { p } = this
+    p.noStroke()
+    p.fill(...theme.ruler)
+    p.rect(0, -1, this.timelineWidth, this.timelineHeight + 1)
     this.drawNumbers()
+
+    // a line under the ruler, 1px whatever the zoom
+    p.push()
+    p.scale(1 / this.currentScale, 1)
+    p.stroke(...theme.rulerLine)
+    p.strokeWeight(1)
+    p.line(0, this.timelineHeight - .5, this.timelineWidth * this.currentScale, this.timelineHeight - .5)
+    p.pop()
   }
 }
 

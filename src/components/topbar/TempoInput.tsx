@@ -1,30 +1,21 @@
 import React from 'react'
-import {
-  setPlaylistTempo,
-  selectPlaylistTempo,
-} from '../../state/slices/playlistSlice'
+import { setPlaylistTempo, selectPlaylistTempo } from '../../state/slices/playlistSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
-import Input from '../common/Input'
-import styles from './styles.module.scss'
 
 const TempoInput = () => {
   const tempo = useAppSelector(selectPlaylistTempo)
   const dispatch = useAppDispatch()
 
   return (
-    <div className={`${styles.TempoInput}`}>
-      <div className={`${styles.TempoInputFieldContainer}`}>
-        <Input
-          onInput={(e) =>
-            dispatch(setPlaylistTempo(parseFloat(e.currentTarget.value)))
-          }
-          value={tempo}
-          type="number"
-          label="Tempo"
-          className={`${styles.TempoInputField} text-gray-600 text-sm rounded`}
-          aria-label="Playlist tempo input"
-        />
-      </div>
+    <div className='flex flex-col gap-1 w-14'>
+      <span className='ft-label'>Tempo</span>
+      <input
+        type='number'
+        className='ft-readout text-sm py-1'
+        aria-label='Playlist tempo input'
+        value={tempo}
+        onInput={e => dispatch(setPlaylistTempo(parseFloat(e.currentTarget.value)))}
+      />
     </div>
   )
 }

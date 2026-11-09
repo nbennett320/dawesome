@@ -1,8 +1,7 @@
 import React from 'react'
-import Button from '../common/Button'
 import SidebarIcon from '../icons/SidebarIcon'
+import { AnalogButton, Led } from '../fourtrack'
 import { SidebarPage } from './Sidebar'
-import styles from './styles.module.scss'
 
 interface Props {
   open: boolean
@@ -11,6 +10,7 @@ interface Props {
   onClose: () => void
 }
 
+// the rail down the left: a key per sidebar page, latched while it's open
 const SidebarList = (props: React.PropsWithChildren<Props>) => {
   const handleClick = (page: SidebarPage) => {
     if(props.open && props.page === page) {
@@ -22,14 +22,19 @@ const SidebarList = (props: React.PropsWithChildren<Props>) => {
     }
   }
 
+  const samplesOpen = props.open && props.page === SidebarPage.FileBrowser
+
   return (
-    <div className="flex flex-col bg-slate-400 px-1">
-      <Button 
-        className="z-10"
-        onClick={() => { handleClick(SidebarPage.FileBrowser) }} 
+    <div className='ft-panel flex flex-col items-center gap-1 px-1.5 pt-3 border-r border-slate-200'>
+      <AnalogButton
+        size='xs'
+        latched={samplesOpen}
+        aria-label='Samples'
+        title={samplesOpen ? 'Hide samples' : 'Show samples'}
+        onPress={() => handleClick(SidebarPage.FileBrowser)}
       >
-        <SidebarIcon fill="white" />
-      </Button>
+        <SidebarIcon fill='currentColor' />
+      </AnalogButton>
     </div>
   )
 }

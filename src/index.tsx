@@ -6,6 +6,7 @@ import { HTML5Backend } from 'react-dnd-html5-backend'
 import { store } from './state/store'
 import App from './App'
 import './global.scss'
+import './components/fourtrack/fourtrack.css'
 
 const container = document.getElementById('root') as Element
 const root = createRoot(container)

@@ -12,7 +12,7 @@ interface Props {
   children?: React.ReactNode
 }
 
-export const THUMB_HEIGHT = 14
+export const THUMB_HEIGHT = 30
 
 // keyboard steps, in dB
 const STEP = 0.5
@@ -95,7 +95,7 @@ const Fader = ({ label, value, onChange, onReset, children }: Props) => {
   return (
     <div className='flex flex-row h-full gap-1'>
       {/* scale */}
-      <div className='relative w-5 text-[9px] leading-none text-gray-400 select-none' aria-hidden>
+      <div className='relative w-5 text-[9px] leading-none text-slate-400 font-semibold select-none' aria-hidden>
         {SCALE_MARKS.map(db => (
           <span
             key={db}
@@ -118,7 +118,7 @@ const Fader = ({ label, value, onChange, onReset, children }: Props) => {
         aria-valuenow={value}
         aria-valuetext={`${formatDb(value)} dB`}
         title='Drag (shift for fine moves), or double-click to reset'
-        className='relative w-6 h-full cursor-ns-resize touch-none outline-none rounded focus-visible:ring-2 focus-visible:ring-sky-400'
+        className='relative w-8 h-full cursor-ns-resize touch-none outline-none rounded focus-visible:ring-2 focus-visible:ring-sky-400'
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
@@ -126,20 +126,23 @@ const Fader = ({ label, value, onChange, onReset, children }: Props) => {
         onDoubleClick={onReset}
         onKeyDown={onKeyDown}
       >
-        {/* groove */}
+        {/* scale lines, behind the slot */}
+        {SCALE_MARKS.map(db => (
+          <div
+            key={db}
+            className={`absolute left-0.5 right-0.5 h-px ${db === 0 ? 'bg-slate-400' : 'bg-slate-200'}`}
+            style={{ bottom: `calc(${dbToPosition(db)} * (100% - ${THUMB_HEIGHT}px) + ${THUMB_HEIGHT / 2}px)` }}
+          />
+        ))}
+        {/* the slot */}
         <div
-          className='absolute left-1/2 -translate-x-1/2 w-1 rounded bg-gray-300'
-          style={{ top: THUMB_HEIGHT / 2, bottom: THUMB_HEIGHT / 2 }}
+          className='ft-fader-slot absolute left-1/2 -translate-x-1/2 w-1.5'
+          style={{ top: THUMB_HEIGHT / 2 - 4, bottom: THUMB_HEIGHT / 2 - 4 }}
         />
-        {/* 0 dB mark */}
-        <div
-          className='absolute left-0 right-0 h-px bg-gray-400'
-          style={{ bottom: `calc(${dbToPosition(0)} * (100% - ${THUMB_HEIGHT}px) + ${THUMB_HEIGHT / 2}px)` }}
-        />
-        {/* handle */}
+        {/* the cap */}
         <div
           data-thumb
-          className='absolute left-0 right-0 rounded-sm border border-gray-500 bg-gradient-to-b from-gray-100 to-gray-300 shadow'
+          className='ft-fader-cap absolute left-0.5 right-0.5'
           style={{
             height: THUMB_HEIGHT,
             bottom: `calc(${position} * (100% - ${THUMB_HEIGHT}px))`,

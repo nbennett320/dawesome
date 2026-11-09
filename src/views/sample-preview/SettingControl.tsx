@@ -1,4 +1,5 @@
 import React from 'react'
+import { Knob } from '../../components/fourtrack'
 
 interface Props {
   label: string
@@ -11,18 +12,24 @@ interface Props {
   // the number field shows the value multiplied by this (pan is -1..1,
   // shown as -100..100 %)
   fieldScale?: number
-  // a short description of the value, shown beside the label
+  // a short description of the value, shown under the field
   hint?: string
+  // > 1 gives the knob more room at the low end, for ranges like fade
+  // lengths where small values matter most. the value is
+  // min + (max - min) * position ^ taper
+  taper?: number
   onChange: (value: number) => void
-  // double clicking the label or slider calls this
+  // double clicking the label or knob calls this
   onReset: () => void
 }
 
 // round away floating point noise for display
 const tidy = (n: number) => Number(n.toFixed(4))
 
-// a setting with a slider and a number field. double click the label or
-// slider to reset it
+const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n))
+
+// one setting as a strip: its label, a knob, and a number field to type into.
+// double-click the label or knob to reset it
 const SettingControl = ({
   label,
   value,
@@ -32,6 +39,7 @@ const SettingControl = ({
   unit,
   fieldScale = 1,
   hint,
+  taper = 1,
   onChange,
   onReset,
 }: Props) => {
@@ -42,56 +50,71 @@ const SettingControl = ({
     if(draft === null) return
 
     const typed = parseFloat(draft)
-    if(Number.isFinite(typed)) onChange(typed / fieldScale)
+    if(Number.isFinite(typed)) onChange(clamp(typed / fieldScale, min, max))
     setDraft(null)
   }
 
+  // the knob turns through 0..1, mapped onto the range through the taper
+  const range = max - min || 1
+  const toPosition = (v: number) => (clamp(v, min, max) - min) / range
+  const position = taper === 1 ? toPosition(value) : toPosition(value) ** (1 / taper)
+  const fromPosition = (p: number) => {
+    const v = min + range * (taper === 1 ? p : p ** taper)
+    return clamp(Math.round(v / step) * step, min, max)
+  }
+
+  const text = `${tidy(value * fieldScale)}${unit ? ` ${unit}` : ''}`
+
   return (
-    <div className='flex flex-col gap-1 min-w-0'>
-      <div className='flex flex-row items-baseline justify-between gap-2 text-xs'>
-        <span
-          className='text-gray-400 select-none'
-          title='Double-click to reset'
-          onDoubleClick={onReset}
-        >
-          {label}
-        </span>
-        {hint && <span className='text-gray-500 truncate'>{hint}</span>}
-      </div>
+    <div className='ft-strip flex flex-col items-center gap-2 px-3 pt-2.5 pb-2 w-32'>
+      <span
+        className='ft-label'
+        title='Double-click to reset'
+        onDoubleClick={onReset}
+      >
+        {label}
+      </span>
 
-      <div className='flex flex-row items-center gap-2'>
-        <input
-          type='range'
-          aria-label={label}
-          className='flex-1 min-w-0'
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          title='Double-click to reset'
-          onChange={e => onChange(parseFloat(e.currentTarget.value))}
-          onDoubleClick={onReset}
+      {/* double-clicking resets to the setting's default, rather than the
+          knob's centre */}
+      <div
+        onDoubleClickCapture={e => {
+          e.stopPropagation()
+          onReset()
+        }}
+      >
+        <Knob
+          label={label}
+          title='Drag up or down (shift for fine moves), or double-click to reset'
+          size={44}
+          min={0}
+          max={1}
+          step={0.001}
+          value={position}
+          onChange={p => onChange(fromPosition(p))}
+          formatValue={() => text}
         />
-
-        <div className='flex flex-row items-center gap-1'>
-          <input
-            type='number'
-            className='w-16 text-gray-600 text-sm rounded border border-gray-300 px-1'
-            min={min * fieldScale}
-            max={max * fieldScale}
-            step={step * fieldScale}
-            value={draft ?? tidy(value * fieldScale)}
-            aria-label={`${label} value`}
-            onChange={e => setDraft(e.currentTarget.value)}
-            onBlur={commit}
-            onKeyDown={e => {
-              if(e.key === 'Enter') commit()
-              if(e.key === 'Escape') setDraft(null)
-            }}
-          />
-          {unit && <span className='w-6 text-xs text-gray-500'>{unit}</span>}
-        </div>
       </div>
+
+      <div className='w-full flex flex-row items-center gap-1'>
+        <input
+          type='text'
+          inputMode='decimal'
+          className='ft-readout flex-1 min-w-0'
+          value={draft ?? tidy(value * fieldScale)}
+          aria-label={`${label} value`}
+          onFocus={e => e.currentTarget.select()}
+          onChange={e => setDraft(e.currentTarget.value)}
+          onBlur={commit}
+          onKeyDown={e => {
+            if(e.key === 'Enter') e.currentTarget.blur()
+            if(e.key === 'Escape') setDraft(null)
+          }}
+        />
+        {unit && <span className='ft-label normal-case tracking-normal w-5'>{unit}</span>}
+      </div>
+
+      <span className='h-4 text-[10px] text-slate-400 truncate max-w-full' title={hint}>{hint}</span>
     </div>
   )
 }

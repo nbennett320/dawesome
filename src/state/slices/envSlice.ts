@@ -33,37 +33,25 @@ export const envSlice = createSlice({
     ) => {
       const { sampleItems, dirItems, rootChildren } = action.payload
 
-      state.browserSamples?.root.children.push(...rootChildren)
-      state.browserSamples = {
-        ...state.browserSamples,
-        ...sampleItems,
-        ...dirItems,
-      }
-
-      if(state.browserSamples?.root.children) {
-        // remove duplicated keys
-        state.browserSamples.root.children = [...new Set(state.browserSamples?.root.children)]
-      }
-
-      console.log("updated browserSamples: ", state.browserSamples)
+      // listing the root again (e.g. StrictMode's second effect) replaces it
+      state.browserSamples.root.children = rootChildren
+      Object.entries({ ...sampleItems, ...dirItems } as Record<string, BrowserSampleItem>).forEach(([key, item]) => {
+        state.browserSamples[key] = { ...item, children: state.browserSamples[key]?.children ?? item.children }
+      })
     },
     addBrowserSamples: (state, action) => {
       const { sampleItems, dirItems, children, dirPath } = action.payload
       
-      state.browserSamples[dirPath].children.push(...children)
-      state.browserSamples[dirPath].hasChildren = true
-      state.browserSamples = {
-        ...state.browserSamples,
-        ...sampleItems,
-        ...dirItems,
-      }
+      const dir = state.browserSamples[dirPath]
+      if(!dir) return
 
-      if(state.browserSamples?.root.children) {
-        // remove duplicated keys
-        state.browserSamples.root.children = [...new Set(state.browserSamples?.root.children)]
-      }
-
-      console.log("updated browserSamples: ", state.browserSamples)
+      // listing a folder again replaces its children. subfolders already
+      // opened keep what they listed
+      dir.children = children
+      dir.hasChildren = true
+      Object.entries({ ...sampleItems, ...dirItems } as Record<string, BrowserSampleItem>).forEach(([key, item]) => {
+        state.browserSamples[key] = { ...item, children: state.browserSamples[key]?.children ?? item.children }
+      })
     }
   },
 })
@@ -71,110 +59,80 @@ export const envSlice = createSlice({
 // start playlist samples methods
 export const { setBrowserSamples, addBrowserSamples } = envSlice.actions
 
-export const getBrowserRootSamples = () => async (dispatch: Dispatch) => {
-  const [samples, samplePaths, dirs, dirPaths] = 
-    await invoke<[string[], string[], string[], string[]]>('get_sidebar_samples', {})
+// the last part of a path, e.g. "./assets/drums" is "drums"
+export const baseName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path
+
+const byName = (a: BrowserSampleItem, b: BrowserSampleItem) =>
+  a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' })
+
+// the engine lists a directory as [sample names, sample paths, directory
+// paths, directory paths]. items are keyed by path, since names repeat across
+// folders. folders come first, then samples, each alphabetical
+const toItems = ([samples, samplePaths, dirs, dirPaths]: [string[], string[], string[], string[]], where: string) => {
+  if(samples.length !== samplePaths.length || dirs.length !== dirPaths.length) {
+    // eslint-disable-next-line no-console
+    console.error(`could not list ${where}: names and paths don't line up`)
+  }
+
   const sampleItems: Record<string, BrowserSampleItem> = {}
   const dirItems: Record<string, BrowserSampleItem> = {}
 
-  if(samples.length !== samplePaths.length) {
-    // eslint-disable-next-line no-console
-    console.error('Error getting root samples: sample.length is not equal to samplePaths.length')
-  }
-
-  if(dirs.length !== dirPaths.length) {
-    // eslint-disable-next-line no-console
-    console.error('Error getting root samples: dirs.length is not equal to dirPaths.length')
-  }
-
-  samples.forEach((sample, idx) => {
-    sampleItems[sample] = {
-      index: sample,
+  samplePaths.forEach((path, idx) => {
+    sampleItems[path] = {
+      index: path,
       canMove: false,
       hasChildren: false,
       children: [],
-      data: sample,
-      label: sample,
-      path: samplePaths[idx],
+      data: samples[idx] ?? baseName(path),
+      label: samples[idx] ?? baseName(path),
+      path,
       canRename: false,
       itemType: BrowserItemTypes.Sample,
-    } as BrowserSampleItem
+    }
   })
 
-  dirs.forEach((dir, idx) => {
-    dirItems[dir] = {
-      index: dir,
+  dirPaths.forEach(path => {
+    dirItems[path] = {
+      index: path,
       canMove: false,
-      hasChildren: false,
+      hasChildren: true,
       children: [],
-      data: dir,
-      label: dir,
-      path: dirPaths[idx],
+      data: baseName(path),
+      label: baseName(path),
+      path,
       canRename: false,
       itemType: BrowserItemTypes.Directory,
-    } as BrowserSampleItem
+    }
   })
 
-  const rootChildren = [...samples, ...dirs]
+  const children = [
+    ...Object.values(dirItems).sort(byName),
+    ...Object.values(sampleItems).sort(byName),
+  ].map(item => item.index)
 
-  dispatch(setBrowserSamples({ 
-    sampleItems, 
-    dirItems, 
-    rootChildren,
+  return { sampleItems, dirItems, children }
+}
+
+export const getBrowserRootSamples = () => async (dispatch: Dispatch) => {
+  const listing = await invoke<[string[], string[], string[], string[]]>('get_sidebar_samples', {})
+  const { sampleItems, dirItems, children } = toItems(listing, 'the samples folder')
+
+  dispatch(setBrowserSamples({
+    sampleItems,
+    dirItems,
+    rootChildren: children,
   }))
 }
 
 export const getDirectorySamples = (dirPath: string) => async (dispatch: Dispatch) => {
-  const [samples, samplePaths, dirs, dirPaths] = 
-    await invoke<[string[], string[], string[], string[]]>('enumerate_directory', {
-      dirPath,
-    })
-  const sampleItems: Record<string, BrowserSampleItem> = {}
-  const dirItems: Record<string, BrowserSampleItem> = {}
-
-  if(samples.length !== samplePaths.length) {
-    // eslint-disable-next-line no-console
-    console.error(`Error getting ${dirPath} samples: sample.length is not equal to samplePaths.length`)
-  }
-
-  if(dirs.length !== dirPaths.length) {
-    // eslint-disable-next-line no-console
-    console.error(`Error getting ${dirPath} samples: dirs.length is not equal to dirPaths.length`)
-  }
-
-  samples.forEach((sample, idx) => {
-    sampleItems[sample] = {
-      index: sample,
-      canMove: false,
-      hasChildren: false,
-      children: [],
-      data: sample,
-      label: sample,
-      path: samplePaths[idx],
-      canRename: false,
-      itemType: BrowserItemTypes.Sample,
-    } as BrowserSampleItem
+  const listing = await invoke<[string[], string[], string[], string[]]>('enumerate_directory', {
+    dirPath,
   })
+  const { sampleItems, dirItems, children } = toItems(listing, dirPath)
 
-  dirs.forEach((dir, idx) => {
-    dirItems[dir] = {
-      index: dir,
-      canMove: false,
-      hasChildren: false,
-      children: [],
-      data: dir,
-      label: dir,
-      path: dirPaths[idx],
-      canRename: false,
-      itemType: BrowserItemTypes.Directory,
-    } as BrowserSampleItem
-  })
-
-  const children = [...samples, ...dirs]
-
-  dispatch(addBrowserSamples({ 
-    sampleItems, 
-    dirItems, 
+  dispatch(addBrowserSamples({
+    sampleItems,
+    dirItems,
     children,
     dirPath,
   }))
