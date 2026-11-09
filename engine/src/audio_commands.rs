@@ -198,3 +198,11 @@ pub fn t_stop_recording(state: daw::TState<'_>) -> crate::recording::Recorded {
 pub fn collect_recording(state: daw::TState<'_>) -> crate::recording::Recorded {
   crate::recording::collect(&state)
 }
+
+// the project's takes, newest first, for the sidebar's recordings browser.
+// an unsaved project that hasn't recorded anything has none
+#[tauri::command]
+pub fn t_list_recordings(state: daw::TState<'_>) -> Vec<crate::project_files::RecordingFile> {
+  let dir = state.project.lock().unwrap().existing_recordings_dir();
+  dir.map(|dir| crate::project_files::list_recordings(&dir)).unwrap_or_default()
+}

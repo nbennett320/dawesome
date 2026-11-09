@@ -17,6 +17,10 @@ export interface RecordingState {
   // the input's channels, or null when there's no input
   inputChannels: number | null
   inputError: string | null
+  // goes up whenever the takes in the recordings folder may have changed
+  // (recorded, moved by a save, or another project opened), so the
+  // recordings browser lists them again
+  takesRevision: number
 }
 
 const initialState: RecordingState = {
@@ -25,6 +29,7 @@ const initialState: RecordingState = {
   armed: {},
   inputChannels: null,
   inputError: null,
+  takesRevision: 0,
 }
 
 export const recordingSlice = createSlice({
@@ -32,7 +37,12 @@ export const recordingSlice = createSlice({
   initialState,
   reducers: {
     setRecording: (state, action: PayloadAction<boolean>) => {
+      // starting makes a take's file, stopping finishes it
+      if(state.recording !== action.payload) state.takesRevision += 1
       state.recording = action.payload
+    },
+    takesChanged: state => {
+      state.takesRevision += 1
     },
     setCountIn: (state, action: PayloadAction<boolean>) => {
       state.countIn = action.payload
@@ -49,11 +59,16 @@ export const recordingSlice = createSlice({
     builder.addCase(reduceLoadedProject, (state, action: PayloadAction<LoadedProject>) => {
       state.countIn = action.payload.countIn ?? false
       state.armed = Object.fromEntries((action.payload.armed ?? []).map(track => [track.trackNumber, track.input]))
+      state.takesRevision += 1
+    })
+    // a save can move takes into the project's folder
+    builder.addCase(playlistSlice.actions.reduceMovedClips, state => {
+      state.takesRevision += 1
     })
   },
 })
 
-export const { setRecording, setRecordSetup, setCountIn } = recordingSlice.actions
+export const { setRecording, setRecordSetup, setCountIn, takesChanged } = recordingSlice.actions
 
 export const selectRecording = (state: RootState) => state.recording.recording
 export const selectArmed = (trackNumber: number) => (state: RootState): InputChoice | null =>
@@ -61,6 +76,7 @@ export const selectArmed = (trackNumber: number) => (state: RootState): InputCho
 export const selectAnyArmed = (state: RootState) => Object.keys(state.recording.armed).length > 0
 export const selectInputChannels = (state: RootState) => state.recording.inputChannels
 export const selectCountIn = (state: RootState) => state.recording.countIn
+export const selectTakesRevision = (state: RootState) => state.recording.takesRevision
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
@@ -97,6 +113,8 @@ const receive = (dispatch: Dispatch, recorded: Recorded) => {
     }))
     dispatch(playlistSlice.actions.setClipInfo({ id, settings, sampleDuration, playedDuration }))
   })
+  // a loop's earlier passes land while it's still recording
+  if(recorded.clips.length > 0) dispatch(recordingSlice.actions.takesChanged())
   if(recorded.problems.length > 0) {
     dispatch(setProjectNotice({ kind: 'error', message: `Recording: ${recorded.problems.join('; ')}` }))
   }

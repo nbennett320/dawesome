@@ -142,6 +142,7 @@ fn init_tauri() {
       t_start_recording,
       t_stop_recording,
       collect_recording,
+      t_list_recordings,
       get_record_setup,
       set_track_armed,
       listen_to_input,

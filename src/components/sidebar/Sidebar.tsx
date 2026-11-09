@@ -10,17 +10,13 @@ import SidebarBase from './SidebarBase'
 import SidebarList from './SidebarList'
 import SampleBrowser from '../toolbars/sample-browser/SampleBrowser'
 import PatternBrowser from '../toolbars/pattern-browser/PatternBrowser'
+import RecordingsBrowser from '../toolbars/recordings-browser/RecordingsBrowser'
 import styles from './styles.module.scss'
-
-// a page that isn't built yet
-const Placeholder = ({ name }: { name: string }) => (
-  <div className='px-3 pt-4 text-xs text-slate-400'>{name} are coming soon.</div>
-)
 
 const pages: Record<SidebarPage, () => React.ReactElement> = {
   [SidebarPage.Samples]: () => <SampleBrowser />,
   [SidebarPage.Patterns]: () => <PatternBrowser />,
-  [SidebarPage.Recordings]: () => <Placeholder name='Recordings' />,
+  [SidebarPage.Recordings]: () => <RecordingsBrowser />,
 }
 
 const Sidebar = () => {

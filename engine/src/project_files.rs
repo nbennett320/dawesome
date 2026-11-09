@@ -55,6 +55,16 @@ impl ProjectLocation {
     Ok(session)
   }
 
+  // the recordings folder as it is now, without making an unsaved project
+  // a folder of its own: None until an unsaved project records something
+  pub fn existing_recordings_dir(&self) -> Option<PathBuf> {
+    match (&self.path, &self.session) {
+      (Some(path), _) => Some(recordings_dir_for(path)),
+      (None, Some(session)) => Some(session.clone()),
+      (None, None) => None,
+    }
+  }
+
   // a new or opened project: takes no longer go in the old project's
   // places. an unsaved project's folder of takes is tidied away if nothing
   // was recorded into it
@@ -255,6 +265,87 @@ pub fn remove_if_empty(dir: &Path) {
   }
 }
 
+// a take in the recordings folder, for the sidebar's recordings browser
+#[derive(serde::Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingFile {
+  pub path: String,
+  // the file name, without .wav
+  pub name: String,
+  // how long it plays, or None when it can't be read (e.g. still recording,
+  // before its header is written)
+  pub duration_secs: Option<f64>,
+  // when it was last written, in ms since the unix epoch
+  pub modified_ms: Option<u64>,
+}
+
+// how long a wav file plays, from its header
+fn wav_seconds(path: &Path) -> Option<f64> {
+  let reader = hound::WavReader::open(path).ok()?;
+  let rate = reader.spec().sample_rate;
+  if rate == 0 { return None; }
+  Some(reader.duration() as f64 / rate as f64)
+}
+
+fn is_wav(path: &Path) -> bool {
+  path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("wav"))
+}
+
+// the takes in a recordings folder, newest first. a folder that isn't there
+// (nothing recorded yet) has none
+pub fn list_recordings(dir: &Path) -> Vec<RecordingFile> {
+  let entries = match fs::read_dir(dir) {
+    Ok(entries) => entries,
+    Err(_) => return Vec::new(),
+  };
+
+  let mut takes: Vec<RecordingFile> = entries
+    .filter_map(|entry| entry.ok())
+    .map(|entry| entry.path())
+    .filter(|path| path.is_file() && is_wav(path))
+    .map(|path| {
+      let modified_ms = fs::metadata(&path).and_then(|m| m.modified()).ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64);
+      RecordingFile {
+        name: path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
+        duration_secs: wav_seconds(&path),
+        modified_ms,
+        path: path.to_string_lossy().into_owned(),
+      }
+    })
+    .collect();
+
+  // newest first. takes written together (or on a file system that rounds
+  // times) fall back to their names, highest number first
+  takes.sort_by(|a, b| b.modified_ms.cmp(&a.modified_ms).then_with(|| natural_cmp(&b.name, &a.name)));
+  takes
+}
+
+// compares names with the numbers in them as numbers, so take_10 comes after
+// take_9
+fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+  fn parts(s: &str) -> Vec<(String, u64)> {
+    let mut out = Vec::new();
+    let mut text = String::new();
+    let mut digits = String::new();
+    for c in s.chars() {
+      if c.is_ascii_digit() {
+        digits.push(c);
+      } else {
+        if !digits.is_empty() {
+          out.push((std::mem::take(&mut text), digits.parse().unwrap_or(u64::MAX)));
+          digits.clear();
+        }
+        text.push(c);
+      }
+    }
+    out.push((text, if digits.is_empty() { 0 } else { digits.parse().unwrap_or(u64::MAX) }));
+    out
+  }
+  parts(a).cmp(&parts(b))
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -425,4 +516,64 @@ mod tests {
 
     let _ = fs::remove_dir_all(&dir);
   }
+
+  fn write_wav(path: &Path, rate: u32, frames: u32) {
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let spec = hound::WavSpec { channels: 2, sample_rate: rate, bits_per_sample: 16, sample_format: hound::SampleFormat::Int };
+    let mut writer = hound::WavWriter::create(path, spec).unwrap();
+    for _ in 0..frames * 2 { writer.write_sample(0i16).unwrap(); }
+    writer.finalize().unwrap();
+  }
+
+  #[test]
+  fn test_list_recordings() {
+    let dir = test_dir("list");
+    let recordings = dir.join("recordings");
+    write_wav(&recordings.join("song_11092026_9.wav"), 48_000, 24_000);
+    write_wav(&recordings.join("song_11092026_10.wav"), 44_100, 88_200);
+    // not a take, or not readable as one
+    touch(&recordings.join("notes.txt"));
+    touch(&recordings.join("BROKEN.WAV"));
+    fs::create_dir_all(recordings.join("old.wav")).unwrap();
+
+    let takes = list_recordings(&recordings);
+    let names: Vec<&str> = takes.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names.len(), 3);
+    assert!(names.contains(&"BROKEN"));
+
+    let take = |name: &str| takes.iter().find(|t| t.name == name).unwrap();
+    assert_eq!(take("song_11092026_9").duration_secs, Some(0.5));
+    assert_eq!(take("song_11092026_10").duration_secs, Some(2.0));
+    assert_eq!(take("BROKEN").duration_secs, None);
+    assert!(take("BROKEN").modified_ms.is_some());
+
+    // newest first
+    assert!(takes.windows(2).all(|w| w[0].modified_ms >= w[1].modified_ms));
+
+    // nothing recorded yet
+    assert!(list_recordings(&dir.join("missing")).is_empty());
+    let _ = fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_natural_cmp() {
+    use std::cmp::Ordering::*;
+    assert_eq!(natural_cmp("take_9", "take_10"), Less);
+    assert_eq!(natural_cmp("take_10", "take_10"), Equal);
+    assert_eq!(natural_cmp("a_2_1", "a_10_0"), Less);
+  }
+
+  #[test]
+  fn test_existing_recordings_dir_does_not_make_a_session() {
+    let mut location = ProjectLocation::default();
+    assert_eq!(location.existing_recordings_dir(), None);
+    assert!(location.session.is_none());
+
+    let session = location.recordings_dir().unwrap();
+    assert_eq!(location.existing_recordings_dir(), Some(session));
+
+    location.reset(Some(PathBuf::from("/music/song/song.dawesome")));
+    assert_eq!(location.existing_recordings_dir(), Some(PathBuf::from("/music/song/recordings")));
+  }
+
 }
