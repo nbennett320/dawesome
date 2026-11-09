@@ -23,13 +23,15 @@ const CLICK_SLOP = 5
 interface RowProps {
   pattern: Pattern
   hint: string
+  // placed in the playlist at least once
+  used: boolean
   selected: boolean
   playing: boolean
   onSelect: (pattern: Pattern) => void
 }
 
 // one pattern: click to show it in the Sequencer, drag it into the playlist
-const PatternRow = ({ pattern, hint, selected, playing, onSelect }: RowProps) => {
+const PatternRow = ({ pattern, hint, used, selected, playing, onSelect }: RowProps) => {
   const label = patternLabel(pattern)
 
   // where the press started, so letting go after a drag isn't a click
@@ -62,11 +64,16 @@ const PatternRow = ({ pattern, hint, selected, playing, onSelect }: RowProps) =>
         border-l-2 focus-visible:bg-sky-50 cursor-grab active:cursor-grabbing ${
           selected
             ? 'border-sky-500 bg-sky-50 text-slate-800'
-            : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-800'
+            : `border-transparent hover:bg-slate-100 hover:text-slate-800 ${used ? 'text-slate-600' : 'text-slate-400'}`
         }`}
       onMouseDown={onMouseDown}
       onClick={onClick}
     >
+      {/* a dot for patterns in the playlist, as the recordings browser marks takes */}
+      <span
+        className={`w-1.5 h-1.5 shrink-0 rounded-full ${used ? 'bg-sky-500' : 'bg-transparent'}`}
+        aria-label={used ? 'In use' : 'Not used'}
+      />
       <Led color='lime' state={playing ? 'on' : 'off'} className='shrink-0 scale-75' />
       <span className='truncate'>{label}</span>
       <span className='ml-auto pl-2 shrink-0 text-[10px] text-slate-400'>{hint}</span>
@@ -114,6 +121,7 @@ const PatternBrowser = () => {
             key={pattern.id}
             pattern={pattern}
             hint={patternHint(pattern, beatsPerBar, clipCounts.get(pattern.id) ?? 0)}
+            used={(clipCounts.get(pattern.id) ?? 0) > 0}
             selected={pattern.id === selectedId}
             playing={pattern.id === run?.patternId}
             onSelect={show}
