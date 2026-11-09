@@ -433,6 +433,61 @@ fn move_audiograph_node_to(
   }
 }
 
+// where a clip in a moved group ended up, for the frontend to draw it
+#[derive(serde::Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MovedNode {
+  id: u64,
+  // beats from the start of the playlist, after snapping
+  start_beat: f32,
+  track_number: u32,
+}
+
+// move several clips together (a selection being dragged). the grabbed clip
+// goes to `drop_beat` on `track_number`, snapped by the snap setting, and the
+// rest move by as much, so their spacing is kept
+#[tauri::command]
+pub fn move_audiograph_nodes(
+  state: daw::TState<'_>,
+  ids: Vec<u64>,
+  anchor_id: u64,
+  drop_beat: f32,
+  track_number: u32,
+) -> Result<Vec<MovedNode>, String> {
+  move_audiograph_nodes_to(state.inner(), &ids, anchor_id, drop_beat, track_number)
+}
+
+fn move_audiograph_nodes_to(
+  state: &daw::InnerState,
+  ids: &[u64],
+  anchor_id: u64,
+  drop_beat: f32,
+  track_number: u32,
+) -> Result<Vec<MovedNode>, String> {
+  let anchor_offset = beat_to_offset(state, Some(drop_beat));
+  // a clip can start as late as the end of the playlist, as with one clip
+  let (_, max_offset) = displayed_beats_and_duration(state);
+  let subdivision = {
+    let ui = state.playlist.ui.lock().unwrap();
+    if ui.snap_enabled { Some(ui.snap_subdivision) } else { None }
+  };
+
+  let moved = state
+    .playlist
+    .audiograph
+    .lock()
+    .unwrap()
+    .move_nodes(ids, anchor_id, anchor_offset, track_number, max_offset, subdivision)?;
+
+  Ok(moved.into_iter()
+    .map(|(id, offset, track_number)| MovedNode {
+      id,
+      start_beat: offset_to_beat(state, offset),
+      track_number,
+    })
+    .collect())
+}
+
 #[tauri::command]
 pub fn remove_audiograph_node(
   state: daw::TState<'_>,
@@ -1047,5 +1102,35 @@ mod tests {
     assert!((offset_to_beat(&state, offset) - 2.46).abs() < 0.001);
 
     assert!(node_beat(&state, 9_999).is_err());
+  }
+
+  #[test]
+  fn test_move_a_group_of_nodes() {
+    let state = daw::InnerState::default();
+    let sample = daw::METRONOME_TICK_PATH.to_string();
+    // 120bpm, one-beat snap. b is off the grid, a quarter beat after a
+    let a = add_audiograph_node(&state, sample.clone(), 0, beat_to_offset(&state, Some(2.)), true).unwrap();
+    let b = add_audiograph_node(&state, sample.clone(), 1, beat_to_offset(&state, Some(2.25)), false).unwrap();
+    let c = add_audiograph_node(&state, sample, 3, beat_to_offset(&state, Some(9.)), true).unwrap();
+    let beat = |id: u64| node_beat(&state, id).unwrap();
+
+    // a dropped at beat 4.4 on track 1: snaps to 4, b keeps its quarter
+    // beat gap, and everything moves down a track
+    let moved = move_audiograph_nodes_to(&state, &[a, b], a, 4.4, 1).unwrap();
+    assert_eq!(moved, vec![
+      MovedNode { id: a, start_beat: 4., track_number: 1 },
+      MovedNode { id: b, start_beat: 4.25, track_number: 2 },
+    ]);
+    // c wasn't in the group
+    assert_eq!(beat(c), 9.);
+
+    // dragged past the end of the 16 beats displayed: c stops at the end
+    move_audiograph_nodes_to(&state, &[a, c], c, 20., 3).unwrap();
+    assert_eq!((beat(a), beat(c)), (11., 16.));
+
+    // with snap off the grabbed clip lands exactly where it's dropped
+    state.playlist.ui.lock().unwrap().snap_enabled = false;
+    move_audiograph_nodes_to(&state, &[a, b], b, 1.5, 2).unwrap();
+    assert!((beat(b) - 1.5).abs() < 0.001);
   }
 }
