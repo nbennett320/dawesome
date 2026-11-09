@@ -175,7 +175,7 @@ export const setPatternStep = (patternId: number, rowId: number, step: number, o
   }
 
 // after a transport command: whether the engine plays, and which pattern
-const syncRun = async (dispatch: Dispatch) => {
+export const syncRun = async (dispatch: Dispatch) => {
   await syncPlayingFrom(dispatch)
   const t = await invoke<PlaylistTransport>('get_playlist_transport', {})
   dispatch(setRun(t.playing && t.patternId !== null && t.startTimeMs !== null

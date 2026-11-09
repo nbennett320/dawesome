@@ -11,6 +11,7 @@
 // arrive and leave through lock-free queues, and finished ones are sent back
 // to be freed by whoever sends the next command
 use crate::daw;
+use super::audio_settings::{buffer_choices, AudioSettings};
 use rodio::cpal::{
   self,
   traits::{DeviceTrait, HostTrait, StreamTrait},
@@ -113,6 +114,8 @@ pub struct Engine {
   garbage: Mutex<Consumer<Garbage>>,
   shared: Arc<Shared>,
   sample_rate: u32,
+  // the output device it plays through
+  device_name: String,
 }
 
 impl Engine {
@@ -138,6 +141,7 @@ impl Engine {
       garbage: Mutex::new(garbage_rx),
       shared: shared.clone(),
       sample_rate,
+      device_name: "no device".into(),
     };
     let renderer = Renderer::new(sample_rate, commands_rx, garbage_tx, shared);
 
@@ -146,6 +150,10 @@ impl Engine {
 
   pub fn sample_rate(&self) -> u32 {
     self.sample_rate
+  }
+
+  pub fn device_name(&self) -> &str {
+    &self.device_name
   }
 
   // frames the callback has rendered
@@ -496,36 +504,119 @@ fn next_frame(samples: &mut impl Iterator<Item = f32>) -> Option<(f32, f32)> {
   Some((l, r))
 }
 
+// the app's output: the engine, and the thread holding its stream (which
+// closes the stream when `close` is dropped)
+struct Output {
+  engine: Arc<Engine>,
+  _close: mpsc::Sender<()>,
+}
+
+struct Outputs {
+  open: Option<Output>,
+  // what it was opened with, or will be
+  settings: AudioSettings,
+  // something to tell the user about the output, like a saved device
+  // that's gone missing
+  notice: Option<String>,
+}
+
 // the app's engine, opened the first time it's needed. if the output can't
 // be opened, the next call tries again
 lazy_static! {
-  static ref ENGINE: Mutex<Option<Arc<Engine>>> = Mutex::new(None);
+  static ref OUTPUTS: Mutex<Outputs> = Mutex::new(Outputs {
+    open: None,
+    settings: AudioSettings::load_default(),
+    notice: None,
+  });
 }
 
 pub fn engine() -> Result<Arc<Engine>, String> {
-  let mut engine = ENGINE.lock().unwrap();
-  if let Some(engine) = engine.as_ref() { return Ok(engine.clone()); }
+  let mut outputs = OUTPUTS.lock().unwrap();
+  if let Some(output) = outputs.open.as_ref() { return Ok(output.engine.clone()); }
 
-  let opened = Arc::new(open_output()?);
-  *engine = Some(opened.clone());
-  Ok(opened)
+  // a saved device that's gone (or won't take the saved buffer size) gives
+  // way to the system's default
+  let settings = outputs.settings.clone();
+  let output = match open_output(&settings) {
+    Ok(output) => {
+      outputs.notice = None;
+      output
+    }
+    Err(e) if settings.output_device.is_some() || settings.buffer_frames.is_some() => {
+      let fallback = AudioSettings { output_device: None, buffer_frames: None, ..settings };
+      let output = open_output(&fallback)?;
+      outputs.notice = Some(format!(
+        "The saved audio output couldn't be used ({}), so the system default is playing instead", e));
+      output
+    }
+    Err(e) => return Err(e),
+  };
+
+  let engine = output.engine.clone();
+  outputs.open = Some(output);
+  Ok(engine)
 }
 
 // the engine, if it's been opened (so stopping doesn't open it)
 pub fn engine_if_open() -> Option<Arc<Engine>> {
-  ENGINE.lock().unwrap().clone()
+  OUTPUTS.lock().unwrap().open.as_ref().map(|output| output.engine.clone())
 }
 
-// open the default output device and start rendering to it. the stream
-// lives on its own thread for as long as the app runs (it can't be moved
-// between threads)
-fn open_output() -> Result<Engine, String> {
+// the settings the engine opens with
+pub fn audio_settings() -> AudioSettings {
+  OUTPUTS.lock().unwrap().settings.clone()
+}
+
+pub fn audio_notice() -> Option<String> {
+  OUTPUTS.lock().unwrap().notice.clone()
+}
+
+// change the devices or buffer size, reopening the output when they change
+// it, and save them. the new output is opened before the old one closes, so
+// settings that don't work leave things as they were. stop playing first:
+// a run playing on the old output stops hearing it
+pub fn apply_audio_settings(settings: AudioSettings) -> Result<(), String> {
+  let mut outputs = OUTPUTS.lock().unwrap();
+  let same_output = outputs.open.is_some()
+    && outputs.settings.output_device == settings.output_device
+    && outputs.settings.buffer_frames == settings.buffer_frames;
+
+  if !same_output {
+    // the old output closes as it's replaced
+    outputs.open = Some(open_output(&settings)?);
+  }
+  outputs.settings = settings;
+  outputs.notice = outputs.settings.save_default()
+    .err()
+    .map(|e| format!("The audio settings are in use, but couldn't be saved for next time: {}", e));
+
+  Ok(())
+}
+
+// an output device by name, or the system's default
+pub fn output_device(name: Option<&str>) -> Result<cpal::Device, String> {
+  let host = cpal::default_host();
+  match name {
+    None => host.default_output_device().ok_or_else(|| "there's no audio output device".to_string()),
+    Some(name) => host
+      .output_devices()
+      .map_err(|e| format!("could not list the audio outputs: {}", e))?
+      .find(|device| device.name().map(|n| n == name).unwrap_or(false))
+      .ok_or_else(|| format!("there's no audio output named '{}'", name)),
+  }
+}
+
+// open an output and start rendering to it. the stream lives on its own
+// thread (it can't be moved between threads) until the output is dropped
+fn open_output(settings: &AudioSettings) -> Result<Output, String> {
   let (opened_tx, opened_rx) = mpsc::channel();
+  let (close_tx, close_rx) = mpsc::channel::<()>();
+  let settings = settings.clone();
 
   thread::Builder::new()
     .name("audio output".into())
     .spawn(move || {
-      let stream = match build_output() {
+      let stream = match build_output(&settings) {
         Ok((engine, stream)) => {
           let _ = opened_tx.send(Ok(engine));
           stream
@@ -536,29 +627,48 @@ fn open_output() -> Result<Engine, String> {
         }
       };
 
-      let _keep = stream;
-      loop { thread::park(); }
+      // until the output is dropped (nothing is ever sent)
+      let _ = close_rx.recv();
+      drop(stream);
+      println!("audio output closed");
     })
     .map_err(|e| format!("could not start the audio output thread: {}", e))?;
 
-  opened_rx.recv().map_err(|_| "the audio output thread exited".to_string())?
+  let engine = Arc::new(
+    opened_rx.recv().map_err(|_| "the audio output thread exited".to_string())??);
+
+  // give the device a moment to start, so its latency is known
+  let started = Instant::now();
+  while engine.frames() == 0 && started.elapsed() < Duration::from_secs(1) {
+    thread::sleep(Duration::from_millis(2));
+  }
+
+  Ok(Output { engine, _close: close_tx })
 }
 
-fn build_output() -> Result<(Engine, cpal::Stream), String> {
-  let device = cpal::default_host()
-    .default_output_device()
-    .ok_or("no audio output device")?;
+fn build_output(settings: &AudioSettings) -> Result<(Engine, cpal::Stream), String> {
+  let device = output_device(settings.output_device.as_deref())?;
+  let name = device.name().unwrap_or_else(|_| "Unknown output".into());
   let supported = device.default_output_config()
-    .map_err(|e| format!("could not read the output device's settings: {}", e))?;
+    .map_err(|e| format!("could not read the settings of '{}': {}", name, e))?;
   let format = supported.sample_format();
-  let config: cpal::StreamConfig = supported.into();
+  let choices = buffer_choices(supported.buffer_size());
+  let mut config: cpal::StreamConfig = supported.into();
+
+  if let Some(frames) = settings.buffer_frames {
+    if !choices.contains(&frames) {
+      return Err(format!("'{}' can't use a buffer of {} frames", name, frames));
+    }
+    config.buffer_size = cpal::BufferSize::Fixed(frames);
+  }
 
   println!(
-    "audio output: {} ({} Hz, {} channels, {:?})",
-    device.name().unwrap_or_default(), config.sample_rate.0, config.channels, format,
+    "audio output: {} ({} Hz, {} channels, {:?}, buffer {:?})",
+    name, config.sample_rate.0, config.channels, format, config.buffer_size,
   );
 
-  let (engine, renderer) = Engine::new(config.sample_rate.0);
+  let (mut engine, renderer) = Engine::new(config.sample_rate.0);
+  engine.device_name = name;
   let stream = match format {
     cpal::SampleFormat::F32 => build_stream::<f32>(&device, &config, renderer),
     cpal::SampleFormat::I16 => build_stream::<i16>(&device, &config, renderer),
@@ -778,5 +888,28 @@ mod tests {
       engine.sample_rate(), engine.buffer_frames(), engine.latency(), anchor.frame,
     );
     assert!(engine.buffer_frames() > 0);
+  }
+
+  // opens real outputs: run with `cargo test -- --ignored`. doesn't touch
+  // the saved settings
+  #[test]
+  #[ignore = "needs an audio output device"]
+  fn test_outputs_open_with_settings() {
+    for frames in [128, 512] {
+      let output = open_output(&AudioSettings { buffer_frames: Some(frames), ..Default::default() })
+        .expect("could not open the output");
+      println!(
+        "{}: asked for {} frames, got {} ({:?} latency)",
+        output.engine.device_name(), frames, output.engine.buffer_frames(), output.engine.latency(),
+      );
+      // some devices go no lower than they can (Bluetooth outputs stop at
+      // 256, whatever range they claim), but never ask for less
+      assert!(output.engine.buffer_frames() >= frames as u64);
+    }
+
+    let missing = open_output(&AudioSettings { output_device: Some("no such device".into()), ..Default::default() });
+    assert!(missing.err().unwrap().contains("no such device"));
+    let odd = open_output(&AudioSettings { buffer_frames: Some(100), ..Default::default() });
+    assert!(odd.err().unwrap().contains("100 frames"));
   }
 }

@@ -4,19 +4,13 @@ import Topbar from './components/topbar/Topbar'
 import Sidebar from './components/sidebar/Sidebar'
 import TabWindow from './views/TabWindow'
 import { listeners } from './events/window'
-import { selectDevicePreferences } from './state/slices/windowSlice'
 import { projectName, selectProjectPath } from './state/slices/projectSlice'
 import ProjectNotice from './components/ProjectNotice'
 import DragGhost from './components/DragGhost'
 
 const App = () => {
-  const devicePreferences = useAppSelector(selectDevicePreferences)
   const dispatch = useAppDispatch()
   const projectPath = useAppSelector(selectProjectPath)
-
-  React.useEffect(() => {
-    listeners.devicePreferences(devicePreferences, dispatch)
-  }, [devicePreferences])
 
   // File menu: new, open, open recent, save, save as. Window menu: open tabs
   React.useEffect(() => {

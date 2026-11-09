@@ -1,3 +1,4 @@
+pub(crate) mod audio_settings;
 pub(crate) mod audiograph;
 pub(crate) mod buffer;
 pub(crate) mod clip;
@@ -10,6 +11,7 @@ pub(crate) mod sound_buffer;
 pub(crate) mod timing;
 pub(crate) mod waveform;
 
+pub use audio_settings::*;
 pub use audiograph::*;
 pub use buffer::*;
 pub use clip::*;

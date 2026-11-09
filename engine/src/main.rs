@@ -6,6 +6,7 @@ mod event_dispatch;
 mod project;
 mod recent;
 mod mixer_commands;
+mod audio_commands;
 mod sequencer_commands;
 mod bind_functions;
 
@@ -57,6 +58,7 @@ fn init_tauri() {
   use project::{save_project, load_project, new_project};
   use recent::{add_recent_project, remove_recent_project};
   use mixer_commands::*;
+  use audio_commands::*;
   use sequencer_commands::*;
 
   // read before the menu is built, which lists them
@@ -97,6 +99,8 @@ fn init_tauri() {
       enumerate_directory,
       t_preview_sample,
       get_audio_drivers,
+      get_audio_settings,
+      set_audio_settings,
       t_add_audiograph_node,
       move_audiograph_node,
       move_audiograph_nodes,
