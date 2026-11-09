@@ -8,16 +8,8 @@ built with Rust, Tauri, React, and Typescript.
   src="./docs/sc10.png" 
   alt="an early screenshot of Dawesome in its current state" 
 />
-<img 
-  src="./docs/sc7.png" 
-  alt="the playlist ui interface can no be zoomed in" 
-/>
-<img 
-  src="./docs/sc9.png" 
-  alt="the playlist ui interface can no be zoomed in" 
-/>
 
-_Early screenshots of Dawesome running on Mac_
+_Early screenshot of Dawesome running on Mac_
 <!-- _An early screenshot of Dawesome running on Xubuntu_ -->
 
 <br />
@@ -212,3 +204,13 @@ See the [Jest docs](https://jestjs.io/) for more information.
 - [Wry](https://github.com/tauri-apps/wry)
 
 See `docs/` for more.
+
+## Gallery
+<img 
+  src="./docs/sc7.png" 
+  alt="the playlist ui interface can no be zoomed in" 
+/>
+<img 
+  src="./docs/sc9.png" 
+  alt="the playlist ui interface can no be zoomed in" 
+/>
