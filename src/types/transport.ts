@@ -18,3 +18,11 @@ export interface PlaylistTransport {
   songEndMs: number
   beatsPerBar: number
 }
+
+// a wind (holding rewind or fast forward) in progress: which way, where it
+// started, and when (performance.now())
+export interface Wind {
+  direction: 1 | -1
+  fromMs: number
+  startedAt: number
+}

@@ -4,7 +4,7 @@ import {
   pausePlaylist,
   playPlaylist,
   seekPlaylist,
-  selectPlaylistPlaying,
+  setWind as setWindAction,
   stopPlaylist,
 } from '../../state/slices/playlistSlice'
 import {
@@ -25,16 +25,11 @@ import {
   PlayIcon,
   RecordIcon,
   RewindIcon,
-  RollingCounter,
   StopIcon,
-  TapeCounter,
 } from '../../components/fourtrack'
 import LatchKey from '../../components/topbar/LatchKey'
 import {
-  barAndBeat,
   fitCassetteWidth,
-  formatTime,
-  positionAt,
   tapeLengthMs,
   tapTarget,
   Wind,
@@ -42,7 +37,7 @@ import {
   windPosition,
   WIND_SPEED,
 } from './tape'
-import { useTicker, useTransport } from './useTransport'
+import { usePlayhead } from './usePlayhead'
 import { useElementSize } from './useElementSize'
 
 // holding a wind key this long winds the tape; a shorter press moves a bar
@@ -83,21 +78,16 @@ const HeadIcon = () => (
 // while held
 const TransportDeck = () => {
   const dispatch = useAppDispatch()
-  const playing = useAppSelector(selectPlaylistPlaying)
   const cassetteVisible = useAppSelector(selectCassetteVisible)
   const tapePathVisible = useAppSelector(selectTapePathVisible)
   const label = projectName(useAppSelector(selectProjectPath)) ?? 'untitled'
-  const { transport, refresh, assume } = useTransport()
-  const [wind, setWind] = React.useState<Wind | null>(null)
+  const {
+    transport, position, wind, playing, refresh, assume,
+  } = usePlayhead()
+  const setWind = (next: Wind | null) => dispatch(setWindAction(next))
   // recording isn't connected to the engine yet, so arming only lights the key
   const [armed, setArmed] = React.useState(false)
 
-  useTicker(playing || wind !== null)
-
-  let position = 0
-  if(transport) {
-    position = wind ? windPosition(wind, performance.now(), transport) : positionAt(transport, Date.now())
-  }
   const tape = transport ? tapeLengthMs(transport) : 1
   const progress = Math.min(1, position / tape)
 
@@ -202,7 +192,6 @@ const TransportDeck = () => {
     )
     : undefined
 
-  const { bar, beat } = transport ? barAndBeat(position, transport) : { bar: 1, beat: 1 }
 
   return (
     // the tab's whole body, scrolling only when even the smallest cassette
@@ -223,16 +212,6 @@ const TransportDeck = () => {
         )}
 
         <div ref={controls} className='flex flex-row flex-wrap items-end justify-center gap-4'>
-          <div className='ft-lcd grid grid-cols-[auto_auto_auto] gap-x-3 gap-y-1 items-center'>
-            <span className='ft-label text-[9px]'>Bar</span>
-            <span className='ft-label text-[9px]'>Beat</span>
-            <span className='ft-label text-[9px]'>Time</span>
-            <RollingCounter value={String(bar % 1000).padStart(3, '0')} label='Bar' />
-            {/* the beat changes too often to roll without distracting */}
-            <TapeCounter value={beat} digits={1} label='Beat' />
-            <RollingCounter value={formatTime(position)} label='Time' />
-          </div>
-
           <div className='ft-tray rounded-lg flex flex-row items-end gap-2 px-3 pt-2 pb-1.5'>
             <DeckKey
               label='Rec'

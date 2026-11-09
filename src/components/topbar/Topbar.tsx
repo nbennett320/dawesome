@@ -3,7 +3,7 @@ import TopbarBase from './TopbarBase'
 import ButtonArea from './ButtonArea'
 import TempoInput from './TempoInput'
 import SnapInput from './SnapInput'
-import TopbarTimer from './TopbarTimer'
+import TransportCounter from './TransportCounter'
 import styles from './styles.module.scss'
 import { useAppDispatch, useAppSelector } from '../../hooks/redux'
 import { selectPlaylistPlaying, syncPlaying } from '../../state/slices/playlistSlice'
@@ -33,7 +33,7 @@ const Topbar = () => {
           <TempoInput />
           <SnapInput />
         </div>
-        <TopbarTimer />
+        <TransportCounter />
       </div>
     </TopbarBase>
   )

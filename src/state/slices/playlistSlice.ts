@@ -13,6 +13,7 @@ import {
   playedDuration,
 } from '../../types/clip'
 import { LoadedProject, MissingSample } from '../../types/project'
+import { Wind } from '../../types/transport'
 import { openTab } from './windowSlice'
 
 // mirrors daw::timing::Note in the engine
@@ -35,6 +36,9 @@ export interface PlaylistState {
   // counts transport commands (play, pause, stop, seek), so views that follow
   // the playhead know to ask the engine where it is again
   transportRevision: number
+  // the Transport tab's rewind or fast forward being held, so every counter
+  // follows the tape while it winds
+  wind: Wind | null
   tempo: number
   runtime?: string | null
   currentBeat?: number | null
@@ -63,6 +67,7 @@ export interface PlaylistState {
 const initialState = {
   playing: false,
   transportRevision: 0,
+  wind: null,
   tempo: 120,
   runtime: null,
   currentBeat: null,
@@ -86,6 +91,9 @@ export const playlistSlice = createSlice({
   name: 'playlistSlice',
   initialState,
   reducers: {
+    setWind: (state, action: PayloadAction<Wind | null>) => {
+      state.wind = action.payload
+    },
     bumpTransportRevision: (state) => {
       state.transportRevision += 1
     },
@@ -262,6 +270,10 @@ export const selectPlaylistPlaying = (state: RootState) =>
 
 export const selectTransportRevision = (state: RootState) =>
   state.playlist.transportRevision
+
+export const { setWind } = playlistSlice.actions
+
+export const selectWind = (state: RootState) => state.playlist.wind
 // end play/pause methods
 
 // start tempo methods

@@ -1,4 +1,6 @@
-import { PlaylistTransport } from '../../types/transport'
+import { PlaylistTransport, Wind } from '../../types/transport'
+
+export type { Wind }
 
 // how much faster than play speed the tape winds
 export const WIND_SPEED = 10
@@ -70,13 +72,6 @@ export const tapTarget = (positionMs: number, direction: 1 | -1, t: PlaylistTran
   return Math.max(0, target * bar)
 }
 
-// a wind in progress: where it started, which way, and when
-export interface Wind {
-  direction: 1 | -1
-  fromMs: number
-  // performance.now() when it started
-  startedAt: number
-}
 
 // where a wind has got to at `now` (performance.now()), kept on the tape
 export const windPosition = (wind: Wind, now: number, t: PlaylistTransport): number => {
