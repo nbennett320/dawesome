@@ -6,11 +6,13 @@ import {
   inspectClip,
   moveNodeInPlaylist,
   removeFromPlaylist,
+  seekPlaylist,
   selectClipOverrides,
   selectPlaylistItems,
   selectPlaylistPlaying,
   selectPlaylistTempo,
-  selectPlaylistUI
+  selectPlaylistUI,
+  selectTransportRevision,
 } from '../../state/slices/playlistSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
 import type { RootState } from '../../state/store'
@@ -29,6 +31,8 @@ const PlaylistCanvas = () => {
 
   const dispatch = useAppDispatch()
   const playing = useAppSelector(selectPlaylistPlaying)
+  const transportRevision = useAppSelector(selectTransportRevision)
+  const handleSeek = React.useCallback((beat: number) => { dispatch(seekPlaylist(beat)) }, [dispatch])
   const tempo = useAppSelector(selectPlaylistTempo)
   const playlistTrackBoxRef = React.useRef<HTMLDivElement>(null)
   const items = useAppSelector(selectPlaylistItems)
@@ -181,6 +185,8 @@ const PlaylistCanvas = () => {
           onNodeRightClick={handleNodeRightClick}
           onNodeMove={handleNodeMove}
           onNodeDoubleClick={handleNodeDoubleClick}
+          transportRevision={transportRevision}
+          onSeek={handleSeek}
         />
       </div>}
       <SampleDragGhost playlistRef={ref} />

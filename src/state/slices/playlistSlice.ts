@@ -32,6 +32,9 @@ interface SnapSetting {
 
 export interface PlaylistState {
   playing: boolean
+  // counts transport commands (play, pause, stop, seek), so views that follow
+  // the playhead know to ask the engine where it is again
+  transportRevision: number
   tempo: number
   runtime?: string | null
   currentBeat?: number | null
@@ -59,6 +62,7 @@ export interface PlaylistState {
 // which parses dawesome.config file
 const initialState = {
   playing: false,
+  transportRevision: 0,
   tempo: 120,
   runtime: null,
   currentBeat: null,
@@ -82,6 +86,9 @@ export const playlistSlice = createSlice({
   name: 'playlistSlice',
   initialState,
   reducers: {
+    bumpTransportRevision: (state) => {
+      state.transportRevision += 1
+    },
     setPlaying: (state, action) => {
       state.playing = action.payload
     },
@@ -208,16 +215,18 @@ export const playlistSlice = createSlice({
 // start play/pause methods
 export const { setPlaying } = playlistSlice.actions
 
-export const togglePlay = () => async (dispatch: Dispatch) => {
-  invoke<void>('t_toggle_playlist', {})
-  const playing = await invoke<boolean>('get_playlist_playing', {})
-  dispatch(setPlaying(playing))
-}
-
 // whether the engine is playing, after a transport command
 const syncPlayingFrom = (dispatch: Dispatch) =>
   invoke<boolean>('get_playlist_playing', {})
-    .then(playing => { dispatch(setPlaying(playing)) })
+    .then(playing => {
+      dispatch(setPlaying(playing))
+      dispatch(playlistSlice.actions.bumpTransportRevision())
+    })
+
+export const togglePlay = () => async (dispatch: Dispatch) => {
+  await invoke<void>('t_toggle_playlist', {})
+  await syncPlayingFrom(dispatch)
+}
 
 const transportError = (what: string) => (e: unknown) =>
   // eslint-disable-next-line no-console
@@ -250,6 +259,9 @@ export const syncPlaying = () => (dispatch: Dispatch, getState: () => RootState)
 
 export const selectPlaylistPlaying = (state: RootState) =>
   state.playlist.playing
+
+export const selectTransportRevision = (state: RootState) =>
+  state.playlist.transportRevision
 // end play/pause methods
 
 // start tempo methods

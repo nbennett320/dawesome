@@ -19,6 +19,7 @@ import {
 } from '../../../types/playlist'
 import { theme } from './theme'
 import { PlaylistTransport } from '../../../types/transport'
+import { positionAt } from '../../transport/tape'
 
 export interface CanvasProps extends SketchProps {
   height: number
@@ -33,6 +34,10 @@ export interface CanvasProps extends SketchProps {
   onNodeRightClick: (id: number) => void
   onNodeMove: () => void
   onNodeDoubleClick: (id: number) => void
+  // see PlaylistState.transportRevision
+  transportRevision: number
+  // move the playhead to a beat (clicking or dragging in the ruler)
+  onSeek: (beat: number) => void
 }
 
 export const staticDefaults = {
@@ -161,6 +166,9 @@ const fetchNodeData = async (id: number) => {
   }
 }
 
+// whether a canvas y position is in the ruler, along the top
+const overRuler = (y: number): boolean => y >= 0 && y < staticDefaults.timelineHeight
+
 export class Renderer extends RendererBase {
   canvasEl = document.getElementById('playlist-canvas')
   height: number = staticDefaults.height
@@ -189,8 +197,18 @@ export class Renderer extends RendererBase {
   mousePressedY: number | null = null
 
   playing: boolean = staticDefaults.playing
-  // engine timing for the current run, used to draw the playback cursor
+  // where the engine's playhead is, and its timing while playing, used to
+  // draw the playback cursor
   transport: PlaylistTransport | null = null
+  transportRevision: number | null = null
+  // counts transport fetches, so a slow one can't replace a newer one's
+  #transportFetch = 0
+  // the beat the ruler is being dragged to, or was just released at (shown
+  // until the engine confirms it)
+  seekBeat: number | null = null
+  seekDragging = false
+  #seekTimeout: ReturnType<typeof setTimeout> | null = null
+  onSeek!: (beat: number) => void
 
   playlistTracks: Array<PlaylistTrack> = []
   playlistObjects: Array<PlaylistObject> = []
@@ -269,13 +287,52 @@ export class Renderer extends RendererBase {
   // fetch the engine's start time and beat length, so the cursor follows the
   // engine's beat loop instead of a frontend timer that starts at a different time
   syncTransport = async () => {
+    this.#transportFetch += 1
+    const fetch = this.#transportFetch
+
     try {
       const transport = await invoke<PlaylistTransport>('get_playlist_transport', {})
-      // playback may have stopped while waiting on the engine
-      if(this.playing) this.transport = transport
+      if(fetch !== this.#transportFetch) return
+
+      this.transport = transport
+      // a released seek has reached the engine
+      if(!this.seekDragging) this.seekBeat = null
     } catch(e) {
       console.error('could not sync the playback cursor:', e)
     }
+  }
+
+  // the playhead, in beats: following the engine's run while playing, or
+  // where the ruler's being dragged to
+  playheadBeat = (): number | null => {
+    if(this.seekBeat !== null) return this.seekBeat
+
+    const t = this.transport
+    if(!t || t.beatIntervalMs <= 0) return null
+    return positionAt(t, Date.now()) / t.beatIntervalMs
+  }
+
+  // the beat under the mouse in the ruler, snapped like clips are
+  rulerBeat = (screenX: number): number => this.snapBeat(this.screenXToBeat(screenX))
+
+  #startSeek = (screenX: number) => {
+    this.seekDragging = true
+    this.seekBeat = this.rulerBeat(screenX)
+  }
+
+  // tell the engine where the ruler was released. the playhead stays there
+  // until the engine's transport confirms it (or gives up after a moment)
+  #endSeek = () => {
+    if(!this.seekDragging || this.seekBeat === null) return
+    this.seekDragging = false
+
+    const beat = this.seekBeat
+    this.onSeek?.(beat)
+
+    if(this.#seekTimeout) clearTimeout(this.#seekTimeout)
+    this.#seekTimeout = setTimeout(() => {
+      if(!this.seekDragging) this.seekBeat = null
+    }, 1500)
   }
 
   syncSnapSetting = async () => {
@@ -716,6 +773,12 @@ export class Renderer extends RendererBase {
             return
           }
 
+          // the ruler moves the playhead, rather than panning
+          if(overRuler(p.mouseY)) {
+            this.#startSeek(p.mouseX)
+            return
+          }
+
           mousePressedX = p.mouseX
           mousePressedY = p.mouseY
           this.isMouseDown = true
@@ -739,6 +802,7 @@ export class Renderer extends RendererBase {
       // listeners run before window listeners), so a drag still in progress
       // here was released outside the canvas and is cancelled
       p.mouseReleased = () => {
+        this.#endSeek()
         this.scrollbarGrab = null
         mousePressedX = null
         mousePressedY = null
@@ -891,13 +955,14 @@ export class Renderer extends RendererBase {
       this.onNodeRightClick = props.onNodeRightClick
       this.onNodeMove = props.onNodeMove
       this.onNodeDoubleClick = props.onNodeDoubleClick
+      this.onSeek = props.onSeek
 
-      // only (re)sync the cursor when playback starts or stops, other prop
-      // updates (drops, moves, resizes) shouldn't reset it to the start
-      if(props.playing && !this.playing) {
+      // ask the engine where the playhead is when playback starts or stops,
+      // or after any other transport command. other prop updates (drops,
+      // moves, resizes) don't move it
+      if(props.playing !== this.playing || props.transportRevision !== this.transportRevision) {
+        this.transportRevision = props.transportRevision
         this.syncTransport()
-      } else if(!props.playing) {
-        this.transport = null
       }
 
       if(props.playing !== this.playing) {
@@ -1041,13 +1106,18 @@ export class Renderer extends RendererBase {
       p.translate(this.transformX, 1)
       p.scale(currentScale, 1)
       timeline.render()
-      cursor.render()
       p.pop()
+
+      // follow a ruler drag, even outside the canvas
+      if(this.seekDragging) this.seekBeat = this.rulerBeat(p.mouseX)
+      cursor.render()
 
       this.#drawScrollbar(p)
 
       if(this.scrollbarGrab !== null || this.overScrollbar(p.mouseX, p.mouseY)) {
         p.cursor(p.ARROW)
+      } else if(this.seekDragging || (overRuler(p.mouseY) && !this.clipDrag?.active && !this.sampleDrag)) {
+        p.cursor(p.HAND)
       } else if(this.clipDrag?.active || this.sampleDrag) {
         p.cursor('grabbing')
       } else if(this.clipUnderMouse()) {

@@ -6,6 +6,7 @@ import {
   selectPlaylistItems,
   selectPlaylistPlaying,
   selectPlaylistTempo,
+  selectTransportRevision,
 } from '../../state/slices/playlistSlice'
 import { RootState } from '../../state/store'
 import { PlaylistTransport } from '../../types/transport'
@@ -21,6 +22,7 @@ export const useTransport = () => {
   const loopEnabled = useAppSelector(selectLoopEnabled)
   // a clip's pitch changes how long it plays, so where the song ends
   const clipSettings = useAppSelector(selectClipSettings)
+  const revision = useAppSelector(selectTransportRevision)
   const [transport, setTransport] = React.useState<PlaylistTransport | null>(null)
 
   const refresh = React.useCallback(
@@ -33,7 +35,7 @@ export const useTransport = () => {
 
   React.useEffect(() => {
     refresh()
-  }, [refresh, playing, items, tempo, loopEnabled, clipSettings])
+  }, [refresh, playing, items, tempo, loopEnabled, clipSettings, revision])
 
   // show the playhead somewhere straight away, before the engine confirms it
   const assume = React.useCallback((positionMs: number) => {

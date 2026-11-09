@@ -26,12 +26,17 @@ const transport = (t: Partial<PlaylistTransport> = {}): PlaylistTransport => ({
 })
 
 describe('tapeLengthMs', () => {
-  it('runs to the end of the last clip', () => {
-    expect(tapeLengthMs(transport({ songEndMs: 5_250 }))).toBe(5_250)
+  it('is the loop while looping', () => {
+    expect(tapeLengthMs(transport({ songEndMs: 5_250 }))).toBe(8_000)
+    expect(tapeLengthMs(transport({ loopBeats: 8 }))).toBe(4_000)
   })
 
-  it('is four bars with no clips', () => {
-    expect(tapeLengthMs(transport())).toBe(8_000)
+  it('runs to the end of the last clip without looping', () => {
+    expect(tapeLengthMs(transport({ loopEnabled: false, songEndMs: 5_250 }))).toBe(5_250)
+  })
+
+  it('is four bars with no clips and no loop', () => {
+    expect(tapeLengthMs(transport({ loopEnabled: false, beatsPerBar: 3 }))).toBe(6_000)
   })
 })
 
@@ -78,7 +83,7 @@ describe('formatTime', () => {
 })
 
 describe('tapTarget', () => {
-  const t = transport({ songEndMs: 9_000 })
+  const t = transport({ loopEnabled: false, songEndMs: 9_000 })
 
   it('moves forward to the next bar', () => {
     expect(tapTarget(0, 1, t)).toBe(2_000)
@@ -104,13 +109,18 @@ describe('tapTarget', () => {
 })
 
 describe('windPosition', () => {
-  const t = transport({ songEndMs: 9_000 })
+  const t = transport({ loopEnabled: false, songEndMs: 9_000 })
 
   it('winds faster than playing', () => {
     expect(windPosition({ direction: 1, fromMs: 1_000, startedAt: 0 }, 100, t))
       .toBe(1_000 + WIND_SPEED * 100)
     expect(windPosition({ direction: -1, fromMs: 3_000, startedAt: 0 }, 100, t))
       .toBe(3_000 - WIND_SPEED * 100)
+  })
+
+  it('stops at the loop end while looping', () => {
+    const looping = transport({ songEndMs: 3_000 })
+    expect(windPosition({ direction: 1, fromMs: 1_000, startedAt: 0 }, 60_000, looping)).toBe(8_000)
   })
 
   it('stays on the tape', () => {

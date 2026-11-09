@@ -9,9 +9,17 @@ export const EMPTY_TAPE_BARS = 4
 // a bar, in ms
 export const barMs = (t: PlaylistTransport) => t.beatIntervalMs * Math.max(1, t.beatsPerBar)
 
-// the tape's length: to the end of the last clip
-export const tapeLengthMs = (t: PlaylistTransport) =>
-  (t.songEndMs > 0 ? t.songEndMs : barMs(t) * EMPTY_TAPE_BARS)
+// the loop's length, or 0 when looping is off
+export const loopLengthMs = (t: PlaylistTransport) =>
+  (t.loopEnabled ? t.beatIntervalMs * t.loopBeats : 0)
+
+// the tape's length: the loop, so the right reel fills just as playback
+// jumps back to the start. without looping, to the end of the last clip
+export const tapeLengthMs = (t: PlaylistTransport) => {
+  const loop = loopLengthMs(t)
+  if(loop > 0) return loop
+  return t.songEndMs > 0 ? t.songEndMs : barMs(t) * EMPTY_TAPE_BARS
+}
 
 // where the playhead is at `nowMs` (ms since the unix epoch), following the
 // engine's run while playing. matches daw::state::timeline_position
@@ -19,7 +27,7 @@ export const positionAt = (t: PlaylistTransport, nowMs: number): number => {
   if(!t.playing || t.startTimeMs === null) return t.positionMs
 
   const elapsed = t.startOffsetMs + Math.max(0, nowMs - t.startTimeMs)
-  const loopMs = t.loopEnabled ? t.beatIntervalMs * t.loopBeats : 0
+  const loopMs = loopLengthMs(t)
   if(loopMs > 0) return elapsed >= loopMs ? elapsed % loopMs : elapsed
 
   // the engine stops at the end of the song, on the next beat
