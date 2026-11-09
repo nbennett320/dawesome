@@ -36,6 +36,12 @@ export const theme = {
   // the dot on a clip whose settings were changed, like an amber LED
   modified: [245, 158, 11] as RGB, // amber-500
 
+  // selected clips, and the box dragged out to select them
+  selectedClip: [240, 249, 255] as RGB, // sky-50
+  selectedLabel: [224, 242, 254] as RGB, // sky-100
+  selectedBorder: [14, 165, 233] as RGB, // sky-500
+  lassoFill: [14, 165, 233] as RGB, // sky-500, drawn faint
+
   // drops, the new-track area
   accent: [14, 165, 233] as RGB, // sky-500
   accentSoft: [125, 211, 252] as RGB, // sky-300

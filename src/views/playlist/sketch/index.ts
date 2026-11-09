@@ -20,6 +20,7 @@ import {
 import { theme } from './theme'
 import { PlaylistTransport } from '../../../types/transport'
 import { positionAt } from '../../transport/tape'
+import { Lasso, keepExisting, lassoRect, lassoSelection, toggleSelected } from './selection'
 
 export interface CanvasProps extends SketchProps {
   height: number
@@ -219,6 +220,14 @@ export class Renderer extends RendererBase {
 
   clipDrag: ClipDrag | null = null
   sampleDrag: SampleDrag | null = null
+
+  // the clips picked with shift+click or a shift+drag box, by id
+  selectedIds: Set<number> = new Set()
+  // the box being dragged out with shift held, if any
+  lasso: Lasso | null = null
+  // whether the press was on empty track space (not a clip, the ruler or
+  // the scrollbar), so a click there without dragging clears the selection
+  #pressedOnEmpty = false
   // refreshed from the engine whenever a drag starts
   snap: SnapSetting = { enabled: true, beats: 1 }
 
@@ -341,6 +350,52 @@ export class Renderer extends RendererBase {
     } catch(e) {
       console.error('could not get the snap setting:', e)
     }
+  }
+
+  clearSelection = () => {
+    this.selectedIds = new Set()
+  }
+
+  // the mouse, in playlist coordinates
+  #mousePoint = (p: P5CanvasInstance<CanvasProps>) => ({
+    x: this.screenToPlaylistX(p.mouseX),
+    y: this.screenToPlaylistY(p.mouseY),
+  })
+
+  // start a selection box where the mouse was pressed
+  #startLasso = (p: P5CanvasInstance<CanvasProps>) => {
+    const start = this.#mousePoint(p)
+    this.lasso = { start, end: start, base: new Set(this.selectedIds) }
+  }
+
+  // stretch the box to the mouse, and select what it touches. run every
+  // frame, so the selection follows when the tracks scroll under the box
+  #followLasso = (p: P5CanvasInstance<CanvasProps>) => {
+    if(!this.lasso) return
+    this.lasso.end = this.#mousePoint(p)
+    this.selectedIds = lassoSelection(
+      this.lasso,
+      this.playlistObjects.map(clip => ({ id: clip.playlistItem.id, box: clip.boundingBox() })),
+    )
+  }
+
+  // the selection box: a dashed sky outline over a faint fill, drawn in
+  // canvas pixels so zoom doesn't stretch the dashes
+  #drawLasso = (p: P5CanvasInstance<CanvasProps>) => {
+    if(!this.lasso) return
+    const { left, top, width, height } = lassoRect(this.lasso)
+    const x = this.transformX + left * this.currentScale
+    const y = top - this.scrollY + 1
+
+    p.push()
+    p.fill(...theme.lassoFill, 255 * .08)
+    p.stroke(...theme.selectedBorder)
+    p.strokeWeight(1)
+    const ctx = p.drawingContext as CanvasRenderingContext2D
+    ctx.setLineDash([4, 3])
+    p.rect(x, y, width * this.currentScale, height)
+    ctx.setLineDash([])
+    p.pop()
   }
 
   // the clip under the mouse, if any (the last one drawn is on top)
@@ -617,11 +672,11 @@ export class Renderer extends RendererBase {
     if(room > 0) this.scrollTo((p.mouseY - this.scrollbarGrab - bar.top) / room * bar.max)
   }
 
-  // dragging a clip (or a sample from the sidebar) near the top or bottom of
-  // the tracks scrolls them, faster closer to the edge
+  // dragging a clip (or a sample from the sidebar, or a selection box) near
+  // the top or bottom of the tracks scrolls them, faster closer to the edge
   #autoScroll = (p: P5CanvasInstance<CanvasProps>) => {
     let y: number | null = null
-    if(this.clipDrag?.active) y = p.mouseY
+    if(this.clipDrag?.active || this.lasso) y = p.mouseY
     else if(this.sampleDrag) y = this.sampleDrag.y
     if(y === null) return
 
@@ -779,11 +834,24 @@ export class Renderer extends RendererBase {
             return
           }
 
+          const item = this.clipUnderMouse()
+
+          // shift+click a clip adds it to the selection, or takes it out.
+          // shift+drag on empty space draws a box to select clips with
+          if(ev.shiftKey) {
+            if(item) this.selectedIds = toggleSelected(this.selectedIds, item.playlistItem.id)
+            else this.#startLasso(p)
+            return
+          }
+
           mousePressedX = p.mouseX
           mousePressedY = p.mouseY
           this.isMouseDown = true
+          this.#pressedOnEmpty = !item
 
-          const item = this.clipUnderMouse()
+          // picking up a clip that isn't selected leaves the selection
+          if(item && !this.selectedIds.has(item.playlistItem.id)) this.clearSelection()
+
           if(item) {
             const { left, top } = item.boundingBox()
             this.clipDrag = {
@@ -803,6 +871,8 @@ export class Renderer extends RendererBase {
       // here was released outside the canvas and is cancelled
       p.mouseReleased = () => {
         this.#endSeek()
+        this.lasso = null
+        this.#pressedOnEmpty = false
         this.scrollbarGrab = null
         mousePressedX = null
         mousePressedY = null
@@ -851,6 +921,11 @@ export class Renderer extends RendererBase {
           this.onNodeMove(drag.item.playlistItem, target.beat, target.trackNumber)
         }
 
+        // a click on empty space (not a pan) clears the selection
+        if(this.#pressedOnEmpty && !this.isMouseDragged) this.clearSelection()
+        this.#pressedOnEmpty = false
+        this.lasso = null
+
         mousePressedX = null
         mousePressedY = null
         this.isMouseDown = false
@@ -876,6 +951,13 @@ export class Renderer extends RendererBase {
           }
         }
       })
+
+      // Esc clears the selection (and drops a box being drawn)
+      p.keyPressed = () => {
+        if(p.keyCode !== p.ESCAPE) return
+        this.lasso = null
+        this.clearSelection()
+      }
 
       canvas.drop((dropped) => {
         console.log("dropped this: ", dropped)
@@ -1024,6 +1106,7 @@ export class Renderer extends RendererBase {
 
         this.playlistObjects = newPlaylistObjects
         this.playlistTracks = newPlaylistTracks
+        this.selectedIds = keepExisting(this.selectedIds, newPlaylistObjects.map(c => c.playlistItem.id))
       })
     }
 
@@ -1066,6 +1149,7 @@ export class Renderer extends RendererBase {
       this.#autoScroll(p)
       // kept in range: the canvas or the track count may have changed size
       this.scrollTo(this.scrollY)
+      this.#followLasso(p)
 
       // the tracks, scrolled
       p.push()
@@ -1100,6 +1184,8 @@ export class Renderer extends RendererBase {
       p.pop()
 
       this.#drawNewTrackArea(p, canvas)
+      // under the ruler, which covers it when it reaches past the top
+      this.#drawLasso(p)
 
       // the timeline and playhead stay at the top, over the scrolled tracks
       p.push()
@@ -1114,7 +1200,9 @@ export class Renderer extends RendererBase {
 
       this.#drawScrollbar(p)
 
-      if(this.scrollbarGrab !== null || this.overScrollbar(p.mouseX, p.mouseY)) {
+      if(this.lasso) {
+        p.cursor(p.CROSS)
+      } else if(this.scrollbarGrab !== null || this.overScrollbar(p.mouseX, p.mouseY)) {
         p.cursor(p.ARROW)
       } else if(this.seekDragging || (overRuler(p.mouseY) && !this.clipDrag?.active && !this.sampleDrag)) {
         p.cursor(p.HAND)
@@ -1131,7 +1219,7 @@ export class Renderer extends RendererBase {
         // top-right, below the timeline: the bottom of the canvas can be
         // hidden behind the bottom of the playlist pane
         const debugWinWidth = 220
-        const debugWinHeight = 143
+        const debugWinHeight = 157
         const debugWinTop = staticDefaults.timelineHeight + 10
         p.noStroke()
         p.fill(255,187,153,255*.6)
@@ -1164,6 +1252,7 @@ export class Renderer extends RendererBase {
             `playing: ${this.playing}`,
             `scroll: ${Math.round(this.scrollY)} / ${Math.round(this.maxScrollY())}`,
             `sample drag: ${this.#sampleDragStatus()}`,
+            `selected: ${this.selectedIds.size}${this.lasso ? ' (box)' : ''}`,
           ].join('\n'),
           p.width - debugWinWidth + 6,
           debugWinTop + 14,

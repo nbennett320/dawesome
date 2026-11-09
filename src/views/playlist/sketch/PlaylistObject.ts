@@ -102,14 +102,18 @@ class PlaylistObject extends PlaylistComponent<State> {
     const inset = 2
     const cardTop = top + inset
     const cardHeight = height - inset * 2
-    this.p.strokeWeight(1)
-    this.p.stroke(...theme.clipBorder)
-    this.p.fill(...theme.clip)
+    // selected (shift+click, or a shift+drag box): sky instead of slate
+    const selected = (this.renderer as Renderer)?.selectedIds.has(this.playlistItem.id)
+    const border = selected ? theme.selectedBorder : theme.clipBorder
+    this.p.strokeWeight(selected ? 1.5 : 1)
+    this.p.stroke(...border)
+    this.p.fill(...(selected ? theme.selectedClip : theme.clip))
     this.p.rect(left, cardTop, width, cardHeight, 3)
     this.p.noStroke()
-    this.p.fill(...theme.clipLabel)
+    this.p.fill(...(selected ? theme.selectedLabel : theme.clipLabel))
     this.p.rect(left + .5, cardTop + .5, width - 1, this.labelHeight - inset - .5, 3, 3, 0, 0)
-    this.p.stroke(...theme.clipBorder)
+    this.p.strokeWeight(1)
+    this.p.stroke(...border)
     this.p.line(left, top + this.labelHeight, right, top + this.labelHeight)
 
     // render text
