@@ -28,11 +28,11 @@ const TopbarTimer = () => {
   }, [playing])
 
   return (
-    <div className='ft-lcd grid grid-cols-[auto_auto] gap-x-3 items-baseline text-sm min-w-[9rem]' aria-live='off'>
+    <div className='ft-lcd flex flex-row items-baseline gap-2 text-sm py-0.5' aria-live='off'>
       <span className='ft-label text-[9px]'>Time</span>
-      <span className='text-right'>{playing ? `${runtime}s` : '--'}</span>
+      <span className='text-right min-w-[5.5rem]'>{playing ? `${runtime}s` : '--'}</span>
       <span className='ft-label text-[9px]'>Beat</span>
-      <span className='text-right'>{playing ? beatCount : '--'}</span>
+      <span className='text-right min-w-[1.5rem]'>{playing ? beatCount : '--'}</span>
     </div>
   )
 }

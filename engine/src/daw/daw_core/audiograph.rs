@@ -881,6 +881,15 @@ impl AudioGraph<'static> {
     last.start_offset + last.duration()
   }
 
+  // where the last clip finishes playing (zero with no clips)
+  pub fn end(&self) -> Duration {
+    self.nodes
+      .iter()
+      .map(|node| node.start_offset + node.duration())
+      .max()
+      .unwrap_or(Duration::ZERO)
+  }
+
   pub fn duration_max(&self) -> Duration {
     self.beat_interval() * self.max_beats as u32
   }
@@ -1397,6 +1406,15 @@ mod tests {
     // a node exactly at the window end belongs to the next window only
     assert_eq!(starts(500), vec![500, 900]);
     assert_eq!(starts(1_000), Vec::<u128>::new());
+  }
+
+  #[test]
+  fn test_end_is_where_the_last_clip_finishes() {
+    assert_eq!(AudioGraph::new(44_100, 120f32, 8).end(), Duration::ZERO);
+
+    let audiograph = graph_with_ticks(&[900, 0, 200]);
+    let tick = audiograph.nodes[0].duration();
+    assert_eq!(audiograph.end(), Duration::from_millis(900) + tick);
   }
 
   #[test]

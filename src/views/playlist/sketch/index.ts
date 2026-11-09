@@ -18,6 +18,7 @@ import {
   PlaylistWindow
 } from '../../../types/playlist'
 import { theme } from './theme'
+import { PlaylistTransport } from '../../../types/transport'
 
 export interface CanvasProps extends SketchProps {
   height: number
@@ -94,21 +95,7 @@ interface GestureEvent extends UIEvent {
   scale: number
 }
 
-// mirrors PlaylistTransport in engine/src/event_dispatch.rs
-export interface PlaylistTransport {
-  playing: boolean
-  // engine start time of the current run, ms since the unix epoch (null
-  // before the first run)
-  startTimeMs: number | null
-  // where on the timeline the current run started
-  startOffsetMs: number
-  // where the playhead was when this was fetched
-  positionMs: number
-  beatIntervalMs: number
-  loopBeats: number
-  beatsDisplayed: number
-  loopEnabled: boolean
-}
+export type { PlaylistTransport }
 
 // mirrors SnapSetting in engine/src/event_dispatch.rs
 export interface SnapSetting {

@@ -168,6 +168,12 @@ pub fn playhead(state: &state::InnerState) -> Duration {
   state::timeline_position(start, started.elapsed(), loop_len)
 }
 
+// where the song ends (the last clip's end), or None with no clips
+pub fn song_end(state: &state::InnerState) -> Option<Duration> {
+  let end = state.playlist.audiograph.lock().unwrap().end();
+  if end.is_zero() { None } else { Some(end) }
+}
+
 // the beat counters (total beats in, and the beat of the bar) at an offset
 fn set_beat_counters(state: &state::InnerState, offset: Duration, interval: Duration) {
   let total = if interval.is_zero() { 0 } else { (offset.as_nanos() / interval.as_nanos()) as u64 };
@@ -280,6 +286,19 @@ pub fn run_playlist(
       };
       set_beat_counters(&state, next, tempo_interval);
 
+      // without looping, the tape runs out at the end of the song: stop
+      // there, once the last clip has played out
+      if loop_len.is_none() {
+        if let Some(end) = song_end(&state) {
+          if next >= end {
+            println!("reached the end of the song");
+            end_run(&state);
+            set_playhead(&state, end);
+            break;
+          }
+        }
+      }
+
       println!(
         "current beat: {}, total beats played: {}, looping: {}",
         state.playlist.current_beat.load(Ordering::SeqCst),
@@ -350,10 +369,15 @@ pub fn start_playlist(state: &Arc<state::InnerState>) {
   println!("playing playlist");
 
   // a playhead past the loop's end starts back at the top, so the run (and
-  // the frontend cursor) stays inside the loop
-  if let Some(len) = state.playlist.loop_len(beat_interval(state)) {
+  // the frontend cursor) stays inside the loop. without looping, playing
+  // from the end of the song starts it again
+  let end = match state.playlist.loop_len(beat_interval(state)) {
+    Some(len) => Some(len),
+    None => song_end(state),
+  };
+  if let Some(end) = end {
     let mut start = state.playlist.start_offset.lock().unwrap();
-    if *start >= len { *start = Duration::ZERO; }
+    if *start >= end { *start = Duration::ZERO; }
   }
 
   // wait until the output stream is open and the start time is set, so a

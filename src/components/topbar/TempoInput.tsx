@@ -7,11 +7,11 @@ const TempoInput = () => {
   const dispatch = useAppDispatch()
 
   return (
-    <div className='flex flex-col gap-1 w-14'>
+    <div className='flex flex-row items-center gap-1.5'>
       <span className='ft-label'>Tempo</span>
       <input
         type='number'
-        className='ft-readout text-sm py-1'
+        className='ft-readout text-sm py-0.5 w-14'
         aria-label='Playlist tempo input'
         value={tempo}
         onInput={e => dispatch(setPlaylistTempo(parseFloat(e.currentTarget.value)))}

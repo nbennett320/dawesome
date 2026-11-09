@@ -214,6 +214,40 @@ export const togglePlay = () => async (dispatch: Dispatch) => {
   dispatch(setPlaying(playing))
 }
 
+// whether the engine is playing, after a transport command
+const syncPlayingFrom = (dispatch: Dispatch) =>
+  invoke<boolean>('get_playlist_playing', {})
+    .then(playing => { dispatch(setPlaying(playing)) })
+
+const transportError = (what: string) => (e: unknown) =>
+  // eslint-disable-next-line no-console
+  console.error(`could not ${what}:`, e)
+
+// the transport's keys: play from the playhead, pause there, stop and go back
+// to the start
+export const playPlaylist = () => (dispatch: Dispatch) =>
+  invoke<void>('t_play_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('play'))
+
+export const pausePlaylist = () => (dispatch: Dispatch) =>
+  invoke<void>('t_pause_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('pause'))
+
+export const stopPlaylist = () => (dispatch: Dispatch) =>
+  invoke<void>('t_stop_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('stop'))
+
+// move the playhead to a beat (playing carries on from there)
+export const seekPlaylist = (beat: number) => (dispatch: Dispatch) =>
+  invoke<number>('t_seek_playlist', { beat })
+    .then(() => syncPlayingFrom(dispatch))
+    .catch(transportError(`move to beat ${beat}`))
+
+// catch the engine stopping by itself, at the end of the song
+export const syncPlaying = () => (dispatch: Dispatch, getState: () => RootState) =>
+  invoke<boolean>('get_playlist_playing', {})
+    .then(playing => {
+      if(playing !== getState().playlist.playing) dispatch(setPlaying(playing))
+    })
+    .catch(transportError('check whether the playlist is playing'))
+
 export const selectPlaylistPlaying = (state: RootState) =>
   state.playlist.playing
 // end play/pause methods

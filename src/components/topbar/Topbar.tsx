@@ -5,18 +5,38 @@ import TempoInput from './TempoInput'
 import SnapInput from './SnapInput'
 import TopbarTimer from './TopbarTimer'
 import styles from './styles.module.scss'
+import { useAppDispatch, useAppSelector } from '../../hooks/redux'
+import { selectPlaylistPlaying, syncPlaying } from '../../state/slices/playlistSlice'
 
-const Topbar = () => (
-  <TopbarBase>
-    <div className={`${styles.Topbar} items-center gap-6 py-2`}>
-      <ButtonArea />
-      <div className='flex flex-row items-end gap-4'>
-        <TempoInput />
-        <SnapInput />
+// the engine stops by itself at the end of the song (with looping off), so
+// check now and then while playing
+const usePlaybackSync = () => {
+  const playing = useAppSelector(selectPlaylistPlaying)
+  const dispatch = useAppDispatch()
+
+  React.useEffect(() => {
+    if(!playing) return undefined
+
+    const timer = setInterval(() => dispatch(syncPlaying()), 500)
+    return () => clearInterval(timer)
+  }, [playing, dispatch])
+}
+
+const Topbar = () => {
+  usePlaybackSync()
+
+  return (
+    <TopbarBase>
+      <div className={`${styles.Topbar} items-center gap-5 py-1.5`}>
+        <ButtonArea />
+        <div className='flex flex-row items-center gap-4'>
+          <TempoInput />
+          <SnapInput />
+        </div>
+        <TopbarTimer />
       </div>
-      <TopbarTimer />
-    </div>
-  </TopbarBase>
-)
+    </TopbarBase>
+  )
+}
 
 export default Topbar

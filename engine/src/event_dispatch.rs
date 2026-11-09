@@ -110,6 +110,10 @@ pub struct PlaylistTransport {
   // beats spanned by the full playlist width
   beats_displayed: u64,
   loop_enabled: bool,
+  // where the last clip finishes, in ms (0 with no clips)
+  song_end_ms: f64,
+  // the time signature's numerator
+  beats_per_bar: u16,
 }
 
 fn playlist_transport(state: &daw::InnerState) -> PlaylistTransport {
@@ -125,6 +129,8 @@ fn playlist_transport(state: &daw::InnerState) -> PlaylistTransport {
     loop_beats: state.playlist.max_beats.load(Ordering::SeqCst),
     beats_displayed: state.playlist.ui.lock().unwrap().max_beats_displayed,
     loop_enabled: state.playlist.loop_enabled.load(Ordering::SeqCst),
+    song_end_ms: daw::song_end(state).unwrap_or_default().as_secs_f64() * 1000.,
+    beats_per_bar: state.playlist.time_signature.lock().unwrap().numerator,
   }
 }
 
@@ -805,6 +811,8 @@ mod tests {
     assert_eq!(t.start_time_ms, None);
     assert!(!t.playing);
     assert_eq!(t.position_ms, 0.);
+    assert_eq!(t.song_end_ms, 0.);
+    assert_eq!(t.beats_per_bar, 4);
 
     let started = Instant::now() - Duration::from_millis(1_500);
     *state.playlist.started_time.lock().unwrap() = Some(started);
@@ -925,6 +933,18 @@ mod tests {
     assert_eq!(daw::seek_playlist(&state, -3.), 0.);
     assert_eq!(daw::seek_playlist(&state, 40.), 16.);
     assert_eq!(daw::seek_playlist(&state, f64::NAN), 0.);
+  }
+
+  #[test]
+  fn test_song_end_in_transport() {
+    let state = daw::InnerState::default();
+    let id = state.playlist.audiograph.lock().unwrap()
+      .construct_and_add_node(daw::METRONOME_TICK_PATH.to_string(), Duration::from_millis(1_000), 0)
+      .unwrap();
+    let tick = state.playlist.audiograph.lock().unwrap().get_node_by_id(id).unwrap().duration();
+
+    let expected = (Duration::from_millis(1_000) + tick).as_secs_f64() * 1000.;
+    assert!((playlist_transport(&state).song_end_ms - expected).abs() < 0.001);
   }
 
   #[test]
