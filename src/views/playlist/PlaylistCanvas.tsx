@@ -25,10 +25,59 @@ import { onSampleDrag } from '../../state/sampleDrag'
 import { OWN_DRAG_PREVIEW } from '../../components/DragGhost'
 import { selectFocusedView } from '../../state/slices/windowSlice'
 import { View } from '../../types/ui'
-import { isDeleteKey, isTypingTarget } from '../../util/keys'
-import { showPattern } from '../../state/slices/sequencerSlice'
+import { isDeleteKey, isExplodeKey, isTypingTarget } from '../../util/keys'
+import { explodePatternClips, showPattern } from '../../state/slices/sequencerSlice'
+import ClipMenu from './ClipMenu'
 
 const playlistRenderer = new Renderer()
+
+// a clip's right-click menu: where it opens, relative to the playlist's box
+interface OpenMenu {
+  id: number
+  x: number
+  y: number
+}
+
+// the right-click menu, with its own state, so opening it doesn't re-render
+// the canvas. `opener` is given the function that opens it
+const ClipMenuHost = ({ opener }: { opener: React.MutableRefObject<((m: OpenMenu) => void) | null> }) => {
+  const dispatch = useAppDispatch()
+  const [menu, setMenu] = React.useState<OpenMenu | null>(null)
+  const item = useAppSelector(selectPlaylistItems).find(i => i.id === menu?.id)
+  const close = React.useCallback(() => setMenu(null), [])
+
+  React.useEffect(() => {
+    // eslint-disable-next-line no-param-reassign
+    opener.current = setMenu
+    // eslint-disable-next-line no-param-reassign
+    return () => { opener.current = null }
+  }, [opener])
+
+  if(!menu || !item) return null
+
+  const { patternId } = item
+  const items = [
+    ...(patternId === undefined ? [] : [{
+      label: 'Explode into tracks',
+      shortcut: '⇧E',
+      onSelect: () => { dispatch(explodePatternClips([item.id])) },
+    }, {
+      label: 'Open in Sequencer',
+      onSelect: () => { dispatch(showPattern(patternId)) },
+    }]),
+    {
+      label: 'Delete',
+      shortcut: '⌫',
+      danger: true,
+      onSelect: () => {
+        // eslint-disable-next-line no-console
+        dispatch(removeFromPlaylist(item.id)).catch(e => console.error('could not delete the clip:', e))
+      },
+    },
+  ]
+
+  return <ClipMenu x={menu.x} y={menu.y} items={items} onClose={close} />
+}
 
 const PlaylistCanvas = () => {
   const ref = React.useRef<HTMLDivElement>(null)
@@ -133,8 +182,27 @@ const PlaylistCanvas = () => {
       dispatch(removeManyFromPlaylist(ids))
     }
 
+    // Shift+E explodes the selected pattern clips (sample clips in the
+    // selection are left alone)
+    const onExplodeKey = (ev: KeyboardEvent) => {
+      if(!isExplodeKey(ev) || ev.repeat || isTypingTarget(ev.target)) return
+      if(selectFocusedView(store.getState()) !== View.Playlist) return
+
+      const patternClips = new Set(store.getState().playlist.playlistItems
+        .filter(item => item.patternId !== undefined)
+        .map(item => item.id))
+      const ids = [...playlistRenderer.selectedIds].filter(id => patternClips.has(id))
+      if(!ids.length) return
+      ev.preventDefault()
+      dispatch(explodePatternClips(ids))
+    }
+
     window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    window.addEventListener('keydown', onExplodeKey)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keydown', onExplodeKey)
+    }
   }, [store, dispatch])
 
   // fit the canvas to the playlist's box whenever it changes size: the
@@ -169,9 +237,12 @@ const PlaylistCanvas = () => {
     setPlaylistWindow(pw)
   }, [])
 
-  const handleNodeRightClick = React.useCallback((id: number) => {
-    dispatch(removeFromPlaylist(id))
-  }, [dispatch])
+  // right-clicking a clip opens its menu where the mouse is
+  const openMenu = React.useRef<((m: OpenMenu) => void) | null>(null)
+  const handleNodeRightClick = React.useCallback((id: number, clientX: number, clientY: number) => {
+    const box = ref.current?.getBoundingClientRect()
+    if(box) openMenu.current?.({ id, x: clientX - box.left, y: clientY - box.top })
+  }, [])
 
   // a sample clip opens in the Sample tab, a pattern clip in the Sequencer
   const handleNodeDoubleClick = React.useCallback((id: number) => {
@@ -241,6 +312,7 @@ const PlaylistCanvas = () => {
           onSeek={handleSeek}
         />
       </div>}
+      <ClipMenuHost opener={openMenu} />
     </div>
   )
 }

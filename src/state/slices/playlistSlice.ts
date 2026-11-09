@@ -12,7 +12,7 @@ import {
   isDefaultClipSettings,
   playedDuration,
 } from '../../types/clip'
-import { LoadedProject, MissingSample } from '../../types/project'
+import { LoadedPatternClip, LoadedProject, MissingSample } from '../../types/project'
 import { Wind } from '../../types/transport'
 import { openTab } from './windowSlice'
 
@@ -149,6 +149,22 @@ export const playlistSlice = createSlice({
         if(!m) return
         item.startBeat = m.startBeat
         item.trackNumber = m.trackNumber
+      })
+    },
+    // pattern clips replaced by a pattern clip per sample (see
+    // explodePatternClips in sequencerSlice)
+    reduceExploded: (state, action: PayloadAction<{ removed: number[], clips: LoadedPatternClip[] }>) => {
+      const removed = new Set(action.payload.removed)
+      state.playlistItems = state.playlistItems.filter(item => !removed.has(item.id))
+      action.payload.clips.forEach(clip => {
+        state.playlistItems.push({
+          id: clip.id,
+          path: '',
+          patternId: clip.patternId,
+          startBeat: clip.startBeat,
+          trackNumber: clip.trackNumber,
+          pixelOffset: { ...NO_PIXEL_OFFSET },
+        })
       })
     },
     removePlaylistItem: (state, action) => {

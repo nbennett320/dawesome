@@ -4,7 +4,11 @@ import type { RootState } from '../store'
 import { Pattern, SequencerState, withStep } from '../../types/sequencer'
 import { PlaylistTransport } from '../../types/transport'
 import { View } from '../../types/ui'
+import { LoadedPatternClip } from '../../types/project'
+import { MixerSettings } from '../../types/mixer'
+import { setMixer } from './mixerSlice'
 import {
+  playlistSlice,
   reduceLoadedProject,
   refreshTrackCount,
   removePlaylistItem,
@@ -177,6 +181,25 @@ const syncRun = async (dispatch: Dispatch) => {
   dispatch(setRun(t.playing && t.patternId !== null && t.startTimeMs !== null
     ? { patternId: t.patternId, startTimeMs: t.startTimeMs, beatIntervalMs: t.beatIntervalMs }
     : null))
+}
+
+// split pattern clips in the playlist into a pattern clip per sample, each
+// playing a pattern of just that sample's steps (made in the pattern list, or
+// reused from an earlier explode) on its own track, so its own mixer strip.
+// ids that aren't pattern clips are skipped
+export const explodePatternClips = (ids: number[]) => async (dispatch: Dispatch) => {
+  if(!ids.length) return
+  try {
+    const { removed, clips, sequencer, mixer } = await invoke<{
+      removed: number[], clips: LoadedPatternClip[], sequencer: SequencerState, mixer: MixerSettings,
+    }>('explode_pattern_clips', { ids })
+    dispatch(setSequencer(sequencer))
+    dispatch(playlistSlice.actions.reduceExploded({ removed, clips }))
+    dispatch(setMixer(mixer))
+    await refreshTrackCount()(dispatch)
+  } catch(e) {
+    sequencerError('explode the pattern')(e)
+  }
 }
 
 // open a pattern in the Sequencer tab (double-clicking its clip)

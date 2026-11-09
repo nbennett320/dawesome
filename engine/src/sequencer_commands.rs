@@ -10,6 +10,7 @@ use serde::Serialize;
 
 use crate::daw;
 use crate::event_dispatch::{beat_to_offset, node_beat, PlacedNode};
+use crate::project::LoadedPatternClip;
 
 fn sequencer_state(state: &daw::InnerState) -> daw::SequencerState {
   state.playlist.sequencer.lock().unwrap().state()
@@ -220,6 +221,57 @@ fn add_pattern_clip_to(
   Ok(PlacedNode { id, start_beat })
 }
 
+// pattern clips that were exploded: the ones taken out, the pattern clips
+// that replaced them (one per sample), the sequencer (with the patterns the
+// explode made), and the mixer (whose tracks may have been named)
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Exploded {
+  removed: Vec<u64>,
+  clips: Vec<LoadedPatternClip>,
+  sequencer: daw::SequencerState,
+  mixer: daw::MixerSettings,
+}
+
+// split pattern clips into a pattern clip per sample, each playing a pattern
+// of just that sample's steps on a track of its own (see
+// AudioGraph::explode_pattern_node). ids that aren't pattern clips are
+// skipped. clips exploded before one that fails stay exploded
+#[tauri::command]
+pub fn explode_pattern_clips(state: daw::TState<'_>, ids: Vec<u64>) -> Result<Exploded, String> {
+  explode(&state, &ids)
+}
+
+fn explode(state: &daw::InnerState, ids: &[u64]) -> Result<Exploded, String> {
+  let mut audiograph = state.playlist.audiograph.lock().unwrap();
+  let interval = audiograph.beat_interval();
+  let mut removed = Vec::new();
+  let mut clips = Vec::new();
+
+  // one at a time, so a later clip's samples land on the tracks an earlier
+  // one's went to
+  for &id in ids {
+    if audiograph.get_pattern_node_by_id(id).is_none() { continue; }
+    let made = audiograph.explode_pattern_node(id)?;
+    removed.push(id);
+    for new_id in made {
+      let node = audiograph.get_pattern_node_by_id(new_id).expect("a clip that was just made");
+      clips.push(LoadedPatternClip {
+        id: new_id,
+        pattern_id: node.pattern_id,
+        track_number: node.track_number,
+        start_beat: if interval.is_zero() { 0. } else {
+          (node.start_offset.as_secs_f64() / interval.as_secs_f64()) as f32
+        },
+      });
+    }
+  }
+
+  let mixer = state.playlist.mixer.settings(audiograph.track_count());
+  let sequencer = state.playlist.sequencer.lock().unwrap().state();
+  Ok(Exploded { removed, clips, sequencer, mixer })
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -288,5 +340,28 @@ mod tests {
     let pattern = add_pattern_of(&state, 2).unwrap().id;
     // two bars of 4/4 at 120bpm
     assert_eq!(daw::pattern_len(&state, pattern), Some(Duration::from_millis(4_000)));
+  }
+
+  #[test]
+  fn test_explode_skips_sample_clips() {
+    let state = daw::InnerState::default();
+    let pattern = add_pattern_of(&state, 1).unwrap().id;
+    let row = add_row(&state, KICK).unwrap().rows[0].id;
+    state.playlist.sequencer.lock().unwrap().set_step(pattern, row, 4, true).unwrap();
+    let clip = add_pattern_clip_to(&state, pattern, 2, Some(4.)).unwrap().id;
+    let sample = state.playlist.audiograph.lock().unwrap()
+      .construct_and_add_node(KICK.to_string(), Duration::ZERO, 0).unwrap();
+
+    let exploded = explode(&state, &[sample, clip]).unwrap();
+    assert_eq!(exploded.removed, vec![clip]);
+    assert_eq!(exploded.clips.len(), 1);
+    // where the clip was. track 0 holds only kicks already, so it joins it
+    assert_eq!(exploded.clips[0].start_beat, 4.);
+    assert_eq!(exploded.clips[0].track_number, 0);
+    // a one-row pattern is its own split, so no new pattern is needed
+    assert_eq!(exploded.clips[0].pattern_id, pattern);
+    assert_eq!(exploded.sequencer.patterns.len(), 1);
+    let named = exploded.mixer.tracks.iter().find(|t| t.track_number == 0).unwrap();
+    assert_eq!(named.name.as_deref(), Some("assets_66-bd-01"));
   }
 }

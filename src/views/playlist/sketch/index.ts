@@ -34,7 +34,8 @@ export interface CanvasProps extends SketchProps {
   trackCount: number
   playlistObjects: PlaylistItem[]
   onItemDrop: (pw: PlaylistWindow) => void
-  onNodeRightClick: (id: number) => void
+  // a clip was right-clicked, at clientX, clientY in the window
+  onNodeRightClick: (id: number, clientX: number, clientY: number) => void
   onNodeMove: () => void
   // several selected clips were dragged together (see Renderer.onNodesMove)
   onNodesMove: (ids: number[], anchorId: number, dropBeat: number, trackNumber: number) => void
@@ -254,7 +255,7 @@ export class Renderer extends RendererBase {
   snap: SnapSetting = { enabled: true, beats: 1 }
 
   // reassigned function definitions
-  onNodeRightClick!: (id: number) => void
+  onNodeRightClick!: (id: number, clientX: number, clientY: number) => void
   onNodeDoubleClick!: (id: number) => void
   onNodeMove!: (
     item: PlaylistItem,

@@ -1028,6 +1028,52 @@ impl AudioGraph<'static> {
     ids
   }
 
+  // split a pattern clip into a clip per sample it plays: each plays a
+  // pattern holding just that sample's steps (see Sequencer::split_pattern),
+  // on a track of its own (see explode_tracks), so each sample gets its own
+  // mixer strip. unnamed tracks are named after their samples. returns the
+  // new clips' ids, in row order
+  pub fn explode_pattern_node(&mut self, id: u64) -> Result<Vec<u64>, String> {
+    let clip = self.get_pattern_node_by_id(id).cloned()
+      .ok_or_else(|| format!("no pattern clip with id {}", id))?;
+
+    let (split, placed_patterns) = {
+      let mut sequencer = self.sequencer.lock().unwrap();
+      let split = sequencer.split_pattern(clip.pattern_id)?;
+      // other pattern clips count as their sample's when they play just one
+      let placed: Vec<(u32, Option<String>)> = self.pattern_nodes.iter()
+        .filter(|n| n.id != id)
+        .map(|n| (n.track_number, sequencer.single_sample(n.pattern_id).map(str::to_string)))
+        .collect();
+      (split, placed)
+    };
+
+    let paths: Vec<&str> = split.iter().map(|(path, _)| path.as_str()).collect();
+    let placed: Vec<(u32, Option<&str>)> = self.nodes.iter()
+      .map(|n| (n.track_number, Some(n.sample_path())))
+      .chain(placed_patterns.iter().map(|(t, p)| (*t, p.as_deref())))
+      .collect();
+    let tracks = explode_tracks(&paths, clip.track_number, &placed, daw::defaults::NUM_OF_TRACKS);
+
+    self.remove_node(id)?;
+    let mut ids = Vec::new();
+    for ((path, pattern_id), &track) in split.iter().zip(&tracks) {
+      let new_id = self.next_id;
+      self.add_pattern_node_with_id(PatternNode {
+        id: new_id,
+        pattern_id: *pattern_id,
+        start_offset: clip.start_offset,
+        track_number: track,
+      });
+      ids.push(new_id);
+      if self.mixer.name(track).is_none() {
+        self.mixer.set_name(track, &daw::sample_name(path));
+      }
+    }
+
+    Ok(ids)
+  }
+
   // whether the playlist has any clips, of either kind
   pub fn has_clips(&self) -> bool {
     !self.nodes.is_empty() || !self.pattern_nodes.is_empty()
@@ -1248,6 +1294,50 @@ impl AudioGraph<'static> {
 
     tracks
   }
+}
+
+// which track each sample of an exploded pattern goes on, so every sample
+// gets a track (and mixer strip) of its own
+// - paths: the pattern's samples, in row order
+// - clip_track: the track the pattern clip was on
+// - placed: every other clip in the playlist, as (track, sample path), with
+//   None for pattern clips
+// - min_tracks: how many tracks the playlist always shows
+//
+// a sample goes on the track already holding only clips of it (its track
+// from an earlier explode), if there is one. otherwise the first sample
+// stays on the clip's track, unless that has other samples on it, and the
+// rest go on the first empty track, or a new one at the bottom
+pub fn explode_tracks(
+  paths: &[&str],
+  clip_track: u32,
+  placed: &[(u32, Option<&str>)],
+  min_tracks: u32,
+) -> Vec<u32> {
+  let mut placed: Vec<(u32, Option<&str>)> = placed.to_vec();
+  let mut tracks = Vec::new();
+
+  for (i, &path) in paths.iter().enumerate() {
+    let has_other_sample = |placed: &[(u32, Option<&str>)], track: u32| placed.iter()
+      .any(|&(t, p)| t == track && p.map_or(false, |p| p != path));
+    let dedicated = placed.iter()
+      .filter(|&&(_, p)| p == Some(path))
+      .map(|&(t, _)| t)
+      .filter(|&t| !has_other_sample(&placed, t))
+      .min();
+
+    let track = dedicated
+      .or_else(|| if i == 0 && !has_other_sample(&placed, clip_track) { Some(clip_track) } else { None })
+      .unwrap_or_else(|| {
+        let count = placed.iter().map(|&(t, _)| t + 1).max().unwrap_or(0).max(min_tracks);
+        (0..count).find(|&t| t != clip_track && !placed.iter().any(|&(pt, _)| pt == t)).unwrap_or(count)
+      });
+
+    placed.push((track, Some(path)));
+    tracks.push(track);
+  }
+
+  tracks
 }
 
 // where a group of clips lands when one of them, the anchor, is dropped at
@@ -2010,5 +2100,88 @@ mod tests {
     graph.add_pattern_node::<daw::timing::QuarterNote>(pattern, ms(0), 0, None).unwrap();
     graph.clear();
     assert!(!graph.has_clips());
+  }
+
+  #[test]
+  fn test_explode_tracks_on_an_empty_playlist() {
+    // the first sample stays on the clip's track, the rest take empty ones
+    assert_eq!(explode_tracks(&["kick", "snare", "hat"], 1, &[], 4), vec![1, 0, 2]);
+    // past the tracks shown: new ones at the bottom
+    assert_eq!(explode_tracks(&["a", "b", "c", "d", "e"], 0, &[], 4), vec![0, 1, 2, 3, 4]);
+  }
+
+  #[test]
+  fn test_explode_tracks_reuses_a_samples_track() {
+    // an earlier explode put kicks on 0 and snares on 5; another copy of the
+    // pattern sits on 0
+    let placed = [(0, Some("kick")), (5, Some("snare")), (0, None), (2, Some("bass"))];
+    assert_eq!(explode_tracks(&["kick", "snare", "hat"], 0, &placed, 4), vec![0, 5, 1]);
+  }
+
+  #[test]
+  fn test_explode_tracks_skips_shared_tracks() {
+    // the clip's track holds another sample, so the first sample moves off it,
+    // and a track with the sample and something else isn't its own
+    let placed = [(0, Some("bass")), (1, Some("kick")), (1, Some("bass"))];
+    assert_eq!(explode_tracks(&["kick"], 0, &placed, 4), vec![2]);
+  }
+
+  #[test]
+  fn test_explode_a_pattern_clip() {
+    let (mut graph, kick, pattern) = graph_with_pattern();
+    const SNARE: &str = "assets/assets_66-sd-01.wav";
+    {
+      let mut seq = graph.sequencer.lock().unwrap();
+      let snare = seq.add_row(SNARE, 44_100).unwrap();
+      seq.set_step(pattern, snare, 4, true).unwrap();
+    }
+    graph.mixer.set_name(0, "Drums");
+    let clip = graph.add_pattern_node::<daw::timing::QuarterNote>(pattern, ms(2_000), 0, None).unwrap();
+
+    let ids = graph.explode_pattern_node(clip).unwrap();
+    assert!(graph.get_pattern_node_by_id(clip).is_none());
+    // no sample clips: a pattern clip per sample
+    assert!(graph.nodes.is_empty());
+    assert_eq!(ids.len(), 2);
+
+    let made: Vec<PatternNode> = ids.iter().map(|&id| graph.get_pattern_node_by_id(id).unwrap().clone()).collect();
+    // where the clip was, the kick on its track, the snare on its own
+    assert_eq!(made.iter().map(|n| (n.start_offset, n.track_number)).collect::<Vec<_>>(),
+      vec![(ms(2_000), 0), (ms(2_000), 1)]);
+    {
+      let seq = graph.sequencer.lock().unwrap();
+      assert_eq!(seq.single_sample(made[0].pattern_id), Some(KICK));
+      assert_eq!(seq.single_sample(made[1].pattern_id), Some(SNARE));
+      assert!(seq.pattern(made[0].pattern_id).unwrap().lit(kick, 8));
+      // the source pattern is still there
+      assert_eq!(seq.patterns().len(), 3);
+    }
+
+    // a named track keeps its name, an unnamed one takes its sample's
+    assert_eq!(graph.mixer.name(0).as_deref(), Some("Drums"));
+    assert_eq!(graph.mixer.name(1).as_deref(), Some("assets_66-sd-01"));
+
+    // a second copy, exploded, reuses the patterns and the tracks
+    let copy = graph.add_pattern_node::<daw::timing::QuarterNote>(pattern, ms(4_000), 3, None).unwrap();
+    let again = graph.explode_pattern_node(copy).unwrap();
+    let placed: Vec<(u64, u32)> = again.iter()
+      .map(|&id| graph.get_pattern_node_by_id(id).unwrap())
+      .map(|n| (n.pattern_id, n.track_number))
+      .collect();
+    assert_eq!(placed, vec![(made[0].pattern_id, 0), (made[1].pattern_id, 1)]);
+    assert_eq!(graph.sequencer.lock().unwrap().patterns().len(), 3);
+
+    // sample clips can't be exploded
+    let sample = graph.construct_and_add_node(KICK.to_string(), ms(0), 0).unwrap();
+    assert!(graph.explode_pattern_node(sample).is_err());
+  }
+
+  #[test]
+  fn test_an_empty_pattern_clip_stays() {
+    let mut graph = AudioGraph::new(44_100, 120., 16);
+    let pattern = graph.sequencer.lock().unwrap().add_pattern(1, 4).unwrap();
+    let clip = graph.add_pattern_node::<daw::timing::QuarterNote>(pattern, ms(0), 0, None).unwrap();
+    assert!(graph.explode_pattern_node(clip).is_err());
+    assert!(graph.get_pattern_node_by_id(clip).is_some());
   }
 }

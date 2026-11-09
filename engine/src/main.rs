@@ -137,7 +137,8 @@ fn init_tauri() {
       set_pattern_step,
       t_play_pattern,
       t_toggle_pattern,
-      add_pattern_clip
+      add_pattern_clip,
+      explode_pattern_clips
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

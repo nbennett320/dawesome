@@ -1,4 +1,4 @@
-import { isDeleteKey, isTypingTarget } from './keys'
+import { isDeleteKey, isExplodeKey, isTypingTarget } from './keys'
 
 const el = (html: string) => {
   const box = document.createElement('div')
@@ -41,5 +41,21 @@ describe('isDeleteKey', () => {
     expect(isDeleteKey(key('d'))).toBe(false)
     expect(isDeleteKey(key('Backspace', { metaKey: true }))).toBe(false)
     expect(isDeleteKey(key('Delete', { altKey: true }))).toBe(false)
+  })
+})
+
+describe('isExplodeKey', () => {
+  const key = (k: string, mods: Partial<KeyboardEvent> = {}) =>
+    ({ key: k, shiftKey: true, metaKey: false, ctrlKey: false, altKey: false, ...mods })
+
+  it('is Shift+E', () => {
+    expect(isExplodeKey(key('E'))).toBe(true)
+    expect(isExplodeKey(key('e'))).toBe(true)
+  })
+
+  it('is not E without shift, or with another modifier', () => {
+    expect(isExplodeKey(key('e', { shiftKey: false }))).toBe(false)
+    expect(isExplodeKey(key('E', { metaKey: true }))).toBe(false)
+    expect(isExplodeKey(key('R'))).toBe(false)
   })
 })

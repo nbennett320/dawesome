@@ -39,6 +39,26 @@ describe('movePlaylistItem', () => {
   })
 })
 
+describe('reduceExploded', () => {
+  it('swaps pattern clips for a pattern clip per sample', () => {
+    const { actions } = playlistSlice
+    let state = reducer(undefined, { type: 'init' })
+    state = reducer(state, actions.addPlaylistItem({ id: 3, path: '', patternId: 5, startBeat: 4, trackNumber: 0 }))
+    state = reducer(state, actions.addPlaylistItem({ id: 4, path: 'keep.wav', startBeat: 0, trackNumber: 1 }))
+
+    state = reducer(state, actions.reduceExploded({
+      removed: [3],
+      clips: [
+        { id: 10, patternId: 6, trackNumber: 0, startBeat: 4 },
+        { id: 11, patternId: 7, trackNumber: 2, startBeat: 4 },
+      ],
+    }))
+
+    expect(state.playlistItems.map(i => i.id)).toEqual([4, 10, 11])
+    expect(state.playlistItems[2]).toMatchObject({ path: '', patternId: 7, trackNumber: 2, startBeat: 4 })
+  })
+})
+
 describe('reduceLoadedProject', () => {
   it('replaces the playlist with the loaded project', () => {
     const { actions } = playlistSlice

@@ -334,6 +334,70 @@ impl Sequencer {
       .collect()
   }
 
+  // the single sample a pattern plays, if it lights steps on just one row
+  // (the patterns an explode makes)
+  pub fn single_sample(&self, pattern_id: u64) -> Option<&str> {
+    let pattern = self.pattern(pattern_id)?;
+    let mut used = self.rows.iter()
+      .filter(|row| pattern.steps.get(&row.id).map_or(false, |s| s.iter().any(|&st| st < pattern.length)));
+    let row = used.next()?;
+    if used.next().is_some() { None } else { Some(&row.path) }
+  }
+
+  // split a pattern into a pattern per row it uses, each holding just that
+  // row's steps, at the same length. a pattern that already holds exactly
+  // those steps (made by an earlier split, or by hand) is used rather than
+  // making another; new ones go after the pattern, named like "verse (kick)", or "1 (kick)" unnamed.
+  // returns (row's sample, pattern id), in row order. the pattern itself is
+  // left as it is
+  pub fn split_pattern(&mut self, id: u64) -> Result<Vec<(String, u64)>, String> {
+    let source = self.pattern(id).cloned()
+      .ok_or_else(|| format!("no pattern with id {}", id))?;
+    let label = source.name.clone().unwrap_or_else(|| (source.id + 1).to_string());
+
+    let parts: Vec<(u64, String, BTreeSet<u32>)> = self.rows.iter()
+      .filter_map(|row| {
+        let steps: BTreeSet<u32> = source.steps.get(&row.id)?
+          .iter().copied().filter(|&s| s < source.length).collect();
+        if steps.is_empty() { None } else { Some((row.id, row.path.clone(), steps)) }
+      })
+      .collect();
+    if parts.is_empty() {
+      return Err(format!("pattern {} has no steps to explode", label));
+    }
+
+    let mut insert_at = self.patterns.iter().position(|p| p.id == id).expect("found above") + 1;
+    let mut split = Vec::new();
+    for (row_id, path, steps) in parts {
+      let wanted: BTreeMap<u64, BTreeSet<u32>> = [(row_id, steps)].into_iter().collect();
+      let existing = self.patterns.iter().find(|p| {
+        p.length == source.length
+          && p.steps.iter()
+            .map(|(r, s)| (*r, s.iter().copied().filter(|&st| st < p.length).collect::<BTreeSet<u32>>()))
+            .filter(|(_, s)| !s.is_empty())
+            .collect::<BTreeMap<_, _>>() == wanted
+      }).map(|p| p.id);
+
+      let pattern_id = match existing {
+        Some(found) => found,
+        None => {
+          let new_id = self.next_pattern_id;
+          self.next_pattern_id += 1;
+          self.patterns.insert(insert_at, Pattern {
+            id: new_id,
+            name: Some(format!("{} ({})", label, sample_name(&path))),
+            length: source.length,
+            steps: wanted,
+          });
+          insert_at += 1;
+          new_id
+        }
+      };
+      split.push((path, pattern_id));
+    }
+    Ok(split)
+  }
+
   // the sequencer for a project file
   pub fn saved(&self) -> SavedSequencer {
     SavedSequencer {
@@ -372,6 +436,14 @@ impl Sequencer {
     }
     missing
   }
+}
+
+// a sample's name: its file name without the extension
+pub fn sample_name(path: &str) -> String {
+  std::path::Path::new(path)
+    .file_stem()
+    .map(|s| s.to_string_lossy().into_owned())
+    .unwrap_or_else(|| path.to_string())
 }
 
 fn clamp_volume(volume: f32) -> f32 {
@@ -561,5 +633,42 @@ mod tests {
     assert_eq!(json["rows"][0]["muted"], false);
     assert_eq!(json["patterns"][0]["length"], 16);
     assert_eq!(json["patterns"][0]["steps"][kick.to_string()], serde_json::json!([2]));
+  }
+
+  #[test]
+  fn test_split_a_pattern_by_row() {
+    let (mut seq, kick, snare, pattern) = kit();
+    for step in [0, 8] { seq.set_step(pattern, kick, step, true).unwrap(); }
+    seq.set_step(pattern, snare, 4, true).unwrap();
+    seq.rename_pattern(pattern, "verse").unwrap();
+    let after = seq.add_pattern(1, 4).unwrap();
+
+    let split = seq.split_pattern(pattern).unwrap();
+    assert_eq!(split.len(), 2);
+    let (kick_path, kick_pattern) = &split[0];
+    let (_, snare_pattern) = &split[1];
+    assert_eq!(kick_path, KICK);
+
+    // each holds just its row's steps, named after its sample, after the source
+    let order: Vec<u64> = seq.patterns().iter().map(|p| p.id).collect();
+    assert_eq!(order, vec![pattern, *kick_pattern, *snare_pattern, after]);
+    let k = seq.pattern(*kick_pattern).unwrap();
+    assert_eq!(k.name.as_deref(), Some("verse (assets_66-bd-01)"));
+    assert_eq!(k.length, 16);
+    assert!(k.lit(kick, 0) && k.lit(kick, 8) && !k.lit(snare, 4));
+    assert_eq!(seq.single_sample(*snare_pattern), Some(SNARE));
+    assert_eq!(seq.single_sample(pattern), None);
+
+    // the source is unchanged, and splitting it again reuses the same patterns
+    assert!(seq.pattern(pattern).unwrap().lit(snare, 4));
+    assert_eq!(seq.split_pattern(pattern).unwrap(), split);
+    assert_eq!(seq.patterns().len(), 4);
+  }
+
+  #[test]
+  fn test_split_needs_steps() {
+    let (mut seq, _, _, pattern) = kit();
+    assert!(seq.split_pattern(pattern).is_err());
+    assert!(seq.split_pattern(99).is_err());
   }
 }
