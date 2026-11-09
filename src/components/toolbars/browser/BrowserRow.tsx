@@ -11,12 +11,15 @@ interface Props extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 // marks what the project uses, so the rest stands apart
+// (in a slot as wide as a folder's chevron, so names line up in a tree)
 const UsedDot = ({ used }: { used: boolean }) => (
-  <span
-    className={`w-1.5 h-1.5 shrink-0 rounded-full ${used ? 'bg-sky-500' : 'bg-transparent'}`}
-    role='img'
-    aria-label={used ? 'In use' : 'Not used'}
-  />
+  <span className='w-3 shrink-0 flex justify-center'>
+    <span
+      className={`w-1.5 h-1.5 rounded-full ${used ? 'bg-sky-500' : 'bg-transparent'}`}
+      role='img'
+      aria-label={used ? 'In use' : 'Not used'}
+    />
+  </span>
 )
 
 // a row in one of the sidebar's browsers. the same look everywhere, so a

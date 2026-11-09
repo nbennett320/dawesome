@@ -21,7 +21,7 @@ import { theme } from './theme'
 import { PlaylistTransport } from '../../../types/transport'
 import { positionAt } from '../../transport/tape'
 import { Lasso, groupLanding, keepExisting, lassoRect, lassoSelection, toggleSelected } from './selection'
-import { DragItem, dragItemKey } from '../../../state/sampleDrag'
+import { PlaceableItem as DragItem, dragItemKey } from '../../../state/sampleDrag'
 import { Pattern, SequencerState, patternSeconds } from '../../../types/sequencer'
 
 export interface CanvasProps extends SketchProps {

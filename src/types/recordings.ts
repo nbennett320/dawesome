@@ -1,4 +1,5 @@
 import { SequencerState } from './sequencer'
+import { FolderInfo, ROOT } from './folderTree'
 
 // the project's recorded takes, as the sidebar's recordings browser shows
 // them. mirrors RecordingFile in engine/src/project_files.rs
@@ -105,4 +106,25 @@ export interface MovedRecording {
   path: string
   movedClips: Array<{ id: number, path: string }>
   sequencer: SequencerState | null
+}
+
+// a recordings folder's path (relative to the recordings folder, / between
+// folders) as a folder in the browser's tree: the path is its key
+export const recordingFolders = (paths: string[]): FolderInfo[] => paths.map(path => {
+  const cut = path.lastIndexOf('/')
+  return { key: path, name: path.slice(cut + 1), parent: cut < 0 ? ROOT : path.slice(0, cut) }
+})
+
+// the folder a folder is in
+export const parentFolder = (path: string): string => {
+  const cut = path.lastIndexOf('/')
+  return cut < 0 ? ROOT : path.slice(0, cut)
+}
+
+// a folder path after the folder `from` moved to `to` (it, or one inside
+// it), or the path as it was
+export const movedFolderPath = (path: string, from: string, to: string): string => {
+  if(path === from) return to
+  if(path.startsWith(`${from}/`)) return to + path.slice(from.length)
+  return path
 }

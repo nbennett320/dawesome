@@ -1,5 +1,5 @@
 import {
-  RecordingFile, describeUse, formatTakeDate, formatTakeDuration, searchTakes, takeUses,
+  RecordingFile, describeUse, movedFolderPath, parentFolder, recordingFolders, formatTakeDate, formatTakeDuration, searchTakes, takeUses,
 } from './recordings'
 
 describe('formatTakeDuration', () => {
@@ -58,5 +58,24 @@ describe('searchTakes', () => {
     const takes = [take('song_11092026_0'), take('Vocal idea')]
     expect(searchTakes(takes, 'VOCAL').map(t => t.name)).toEqual(['Vocal idea'])
     expect(searchTakes(takes, ' ')).toEqual(takes)
+  })
+})
+
+describe('recordingFolders', () => {
+  it('keys folders by path, with their parents', () => {
+    expect(recordingFolders(['Vocals', 'Vocals/Verse 2'])).toEqual([
+      { key: 'Vocals', name: 'Vocals', parent: '' },
+      { key: 'Vocals/Verse 2', name: 'Verse 2', parent: 'Vocals' },
+    ])
+    expect(parentFolder('a/b/c')).toBe('a/b')
+    expect(parentFolder('a')).toBe('')
+  })
+})
+
+describe('movedFolderPath', () => {
+  it('moves the folder and what is in it, nothing else', () => {
+    expect(movedFolderPath('Vocals', 'Vocals', 'Old/Vocals')).toBe('Old/Vocals')
+    expect(movedFolderPath('Vocals/Verse', 'Vocals', 'Old/Vocals')).toBe('Old/Vocals/Verse')
+    expect(movedFolderPath('Vocals 2', 'Vocals', 'Old/Vocals')).toBe('Vocals 2')
   })
 })
