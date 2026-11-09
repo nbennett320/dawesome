@@ -459,7 +459,8 @@ pub struct SavedProject {
 //
 // takes recorded before the project was first saved are moved into its
 // recordings folder. saving as somewhere new copies the old project's takes
-// in, so the old project keeps its own. either way they're named after the
+// in, so the old project keeps its own. either way the whole folder comes
+// over (its folders, and takes nothing uses), and takes are named after the
 // project, keeping the day they were recorded
 pub fn save_project_to(
   state: &daw::InnerState,
@@ -492,10 +493,9 @@ pub fn save_project_to(
     let mut audiograph = state.playlist.audiograph.lock().unwrap();
     let mut seq = state.playlist.sequencer.lock().unwrap();
 
-    let paths: Vec<String> = audiograph.nodes.iter().map(|node| node.sample_path().to_string())
-      .chain(seq.rows().iter().map(|row| row.path.clone()))
-      .collect();
-    let (relocated, errors) = project_files::relocate_takes(&paths, &from, &to, &name, copy);
+    // the whole folder comes over, folders and unused takes too, so the
+    // recordings browser shows the same after saving
+    let (relocated, errors) = project_files::relocate_takes(&from, &to, &name, copy);
     problems = errors;
 
     for node in audiograph.nodes.iter_mut() {
@@ -663,6 +663,32 @@ mod tests {
     assert_eq!(location.recordings_dir().unwrap(), dir.join("song").join("recordings"));
     assert_eq!(location.name(), "song");
     drop(location);
+
+    let _ = fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_first_save_keeps_folders_and_unused_takes() {
+    let dir = test_dir("first-save-folders");
+    let state = daw::InnerState::default();
+    let session = dir.join("unsaved-session");
+    state.project.lock().unwrap().session = Some(session.clone());
+    let filed = record_take(&session.join("Vocals"), "untitled_11092026_0.wav");
+    let unused = record_take(&session, "untitled_11092026_1.wav");
+    let clip = add_clip(&state, &filed, 0, 0.);
+
+    let saved = save_project_to(&state, &dir.join("song.dawesome"), true).unwrap();
+
+    let recordings = dir.join("song").join("recordings");
+    let moved = recordings.join("Vocals").join("song_11092026_0.wav");
+    assert!(saved.problems.is_empty(), "{:?}", saved.problems);
+    assert!(moved.is_file());
+    assert!(recordings.join("song_11092026_1.wav").is_file());
+    assert!(!Path::new(&filed).exists() && !Path::new(&unused).exists());
+    assert!(!session.exists());
+
+    assert_eq!(saved.moved_clips, vec![MovedClip { id: clip, path: moved.to_string_lossy().into_owned() }]);
+    assert_eq!(saved_json(&saved.path).clips[0].path, "recordings/Vocals/song_11092026_0.wav");
 
     let _ = fs::remove_dir_all(&dir);
   }

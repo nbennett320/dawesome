@@ -167,12 +167,6 @@ pub fn names_in_tree(dir: &Path) -> std::collections::HashSet<String> {
   names
 }
 
-// the next free take name in a folder, for a project on a date. a name
-// used in any of its folders counts as taken
-pub fn next_take_path(dir: &Path, project: &str, date: &str) -> PathBuf {
-  next_take_paths(dir, project, date, 1).remove(0)
-}
-
 // the next `count` free take names in a folder, numbered one after another
 // (for takes recorded together)
 pub fn next_take_paths(dir: &Path, project: &str, date: &str, count: usize) -> Vec<PathBuf> {
@@ -224,50 +218,79 @@ pub struct Relocated {
   pub to: String,
 }
 
-// bring the takes among `paths` that are in `from` into `to`, renamed after
-// `project` (keeping the day they were recorded). takes are moved, or copied
-// when `copy` is set (so the project they came from keeps them). each path
-// is brought over once, however often it's listed. ones that can't be are
-// left where they are, and reported in the errors
-pub fn relocate_takes(
-  paths: &[String],
-  from: &Path,
-  to: &Path,
-  project: &str,
-  copy: bool,
-) -> (Vec<Relocated>, Vec<String>) {
+// bring everything in the recordings folder `from` into `to`, keeping its
+// folders (empty ones too), used or not. takes named like takes are renamed
+// after `project` (keeping the day they were recorded, numbered so no name
+// repeats anywhere in `to`), other files keep their names. they're moved, or
+// copied when `copy` is set (so the project they came from keeps them).
+// files that can't be brought over are left where they are, and reported in
+// the errors
+pub fn relocate_takes(from: &Path, to: &Path, project: &str, copy: bool) -> (Vec<Relocated>, Vec<String>) {
   let mut relocated: Vec<Relocated> = Vec::new();
   let mut errors = Vec::new();
+  if !from.is_dir() { return (relocated, errors); }
 
-  for path in paths {
-    if relocated.iter().any(|r| &r.from == path) { continue; }
-    let source = Path::new(path);
-    if !source.is_file() || !is_inside(source, from) { continue; }
+  // everything first: moving files while walking the folder could miss some
+  let mut folders = Vec::new();
+  let mut files = Vec::new();
+  walk(from, &mut |path, is_dir| {
+    if is_dir { folders.push(path.to_path_buf()) } else { files.push(path.to_path_buf()) }
+  });
+  if files.is_empty() && folders.is_empty() { return (relocated, errors); }
 
-    if let Err(e) = fs::create_dir_all(to) {
-      errors.push(format!("could not make the folder '{}': {}", to.display(), e));
-      break;
+  if let Err(e) = fs::create_dir_all(to) {
+    errors.push(format!("could not make the folder '{}': {}", to.display(), e));
+    return (relocated, errors);
+  }
+  for folder in &folders {
+    let made = to.join(folder.strip_prefix(from).unwrap_or(folder));
+    if let Err(e) = fs::create_dir_all(&made) {
+      errors.push(format!("could not make the folder '{}': {}", made.display(), e));
     }
+  }
+
+  let mut taken = names_in_tree(to);
+  for source in files {
+    let within = source.parent().and_then(|parent| parent.strip_prefix(from).ok()).unwrap_or_else(|| Path::new(""));
+    let dest = to.join(within);
+    if !dest.is_dir() { continue; } // its folder couldn't be made, which is reported
 
     let file_name = source.file_name().unwrap_or_default().to_string_lossy().into_owned();
     let target = match parse_take_name(&file_name) {
-      Some((_, date, _)) => next_take_path(to, project, &date),
-      None => free_path(to, &file_name),
+      Some((_, date, _)) => (0..)
+        .map(|n| take_name(project, &date, n))
+        .find(|name| !taken.contains(&name.to_lowercase()) && !dest.join(name).exists())
+        .map(|name| dest.join(name))
+        .expect("a free take number"),
+      None => free_path(&dest, &file_name),
     };
 
     let done = if copy {
-      fs::copy(source, &target).map(|_| ())
+      fs::copy(&source, &target).map(|_| ())
     } else {
       // a different disk can't be renamed onto: copy, then remove
-      fs::rename(source, &target).or_else(|_| {
-        fs::copy(source, &target).and_then(|_| fs::remove_file(source))
+      fs::rename(&source, &target).or_else(|_| {
+        fs::copy(&source, &target).and_then(|_| fs::remove_file(&source))
       })
     };
 
     match done {
-      Ok(()) => relocated.push(Relocated { from: path.clone(), to: target.to_string_lossy().into_owned() }),
+      Ok(()) => {
+        if let Some(name) = target.file_name() { taken.insert(name.to_string_lossy().to_lowercase()); }
+        relocated.push(Relocated {
+          from: source.to_string_lossy().into_owned(),
+          to: target.to_string_lossy().into_owned(),
+        });
+      }
       Err(e) => errors.push(format!("could not bring '{}' into the project: {}", file_name, e)),
     }
+  }
+
+  // moved: the folders left behind are empty now (unless something couldn't
+  // be moved). the deepest go first, so their parents empty too
+  if !copy {
+    folders.sort_by_key(|folder| std::cmp::Reverse(folder.components().count()));
+    for folder in &folders { remove_if_empty(folder); }
   }
 
   (relocated, errors)
@@ -618,13 +641,13 @@ mod tests {
   #[test]
   fn test_next_take_skips_taken_numbers() {
     let dir = test_dir("next-take");
-    assert_eq!(next_take_path(&dir, "song", "11092026"), dir.join("song_11092026_0.wav"));
+    assert_eq!(next_take_paths(&dir, "song", "11092026", 1)[0], dir.join("song_11092026_0.wav"));
 
     touch(&dir.join("song_11092026_0.wav"));
     touch(&dir.join("song_11092026_1.wav"));
     // another day's takes don't count
     touch(&dir.join("song_11082026_2.wav"));
-    assert_eq!(next_take_path(&dir, "song", "11092026"), dir.join("song_11092026_2.wav"));
+    assert_eq!(next_take_paths(&dir, "song", "11092026", 1)[0], dir.join("song_11092026_2.wav"));
 
     let _ = fs::remove_dir_all(&dir);
   }
@@ -636,27 +659,35 @@ mod tests {
     let recordings = dir.join("song").join("recordings");
     let a = touch(&session.join("untitled_11092026_0.wav"));
     let b = touch(&session.join("untitled_11102026_0.wav"));
-    // not a take's name, and a sample from elsewhere
+    // not a take's name
     let c = touch(&session.join("odd name.wav"));
-    let elsewhere = touch(&dir.join("samples").join("kick.wav"));
-    // a take already in the project
-    touch(&recordings.join("song_11092026_0.wav"));
+    // in folders, one of them empty
+    let d = touch(&session.join("Vocals").join("Verse").join("untitled_11092026_1.wav"));
+    fs::create_dir_all(session.join("Ideas")).unwrap();
+    // a take already in the project, in another folder: numbers don't repeat
+    touch(&recordings.join("Keep").join("song_11092026_0.wav"));
 
-    let paths = vec![a.clone(), b.clone(), c.clone(), a.clone(), elsewhere.clone()];
-    let (moved, errors) = relocate_takes(&paths, &session, &recordings, "song", false);
+    let (moved, errors) = relocate_takes(&session, &recordings, "song", false);
 
     assert!(errors.is_empty(), "{:?}", errors);
     let to = |from: &str| moved.iter().find(|r| r.from == from).map(|r| PathBuf::from(&r.to));
-    assert_eq!(to(&a), Some(recordings.join("song_11092026_1.wav")));
+    assert_eq!(moved.len(), 4);
     assert_eq!(to(&b), Some(recordings.join("song_11102026_0.wav")));
     assert_eq!(to(&c), Some(recordings.join("odd name.wav")));
-    assert_eq!(to(&elsewhere), None);
-    assert_eq!(moved.len(), 3);
+    // each name once, across every folder
+    let a_to = to(&a).unwrap();
+    let d_to = to(&d).unwrap();
+    assert_eq!(a_to.parent().unwrap(), recordings);
+    assert_eq!(d_to.parent().unwrap(), recordings.join("Vocals").join("Verse"));
+    let mut numbers = vec![a_to.file_name().unwrap().to_owned(), d_to.file_name().unwrap().to_owned()];
+    numbers.sort();
+    assert_eq!(numbers, vec!["song_11092026_1.wav", "song_11092026_2.wav"]);
+    assert!(recordings.join("Ideas").is_dir());
 
-    // moved, not copied
-    assert!(!Path::new(&a).exists());
-    assert!(recordings.join("song_11092026_1.wav").is_file());
-    assert!(Path::new(&elsewhere).exists());
+    // moved, not copied, and the folders left behind are gone
+    assert!(!Path::new(&a).exists() && !Path::new(&d).exists());
+    assert!(a_to.is_file() && d_to.is_file());
+    assert!(!session.join("Vocals").exists() && !session.join("Ideas").exists());
 
     let _ = fs::remove_dir_all(&dir);
   }
@@ -667,14 +698,26 @@ mod tests {
     let old = dir.join("song").join("recordings");
     let new = dir.join("remix").join("recordings");
     let take = touch(&old.join("song_11092026_0.wav"));
+    let kept = touch(&old.join("Vocals").join("lead.wav"));
 
-    let (copied, errors) = relocate_takes(&[take.clone()], &old, &new, "remix", true);
+    let (copied, errors) = relocate_takes(&old, &new, "remix", true);
 
     assert!(errors.is_empty());
-    assert_eq!(copied[0].to, new.join("remix_11092026_0.wav").to_string_lossy());
-    // the old project keeps its take
-    assert!(Path::new(&take).is_file());
+    let to = |from: &str| copied.iter().find(|r| r.from == from).map(|r| r.to.clone());
+    assert_eq!(to(&take), Some(new.join("remix_11092026_0.wav").to_string_lossy().into_owned()));
+    assert_eq!(to(&kept), Some(new.join("Vocals").join("lead.wav").to_string_lossy().into_owned()));
+    // the old project keeps its takes and folders
+    assert!(Path::new(&take).is_file() && Path::new(&kept).is_file());
 
+    let _ = fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_nothing_to_relocate() {
+    let dir = test_dir("relocate-nothing");
+    let (moved, errors) = relocate_takes(&dir.join("missing"), &dir.join("to"), "song", false);
+    assert!(moved.is_empty() && errors.is_empty());
+    assert!(!dir.join("to").exists());
     let _ = fs::remove_dir_all(&dir);
   }
 
@@ -765,7 +808,7 @@ mod tests {
 
     let next = next_take_paths(&recordings, "song", "11092026", 2);
     assert_eq!(next, vec![recordings.join("song_11092026_2.wav"), recordings.join("song_11092026_3.wav")]);
-    assert_eq!(next_take_path(&recordings, "song", "11092026"), recordings.join("song_11092026_2.wav"));
+    assert_eq!(next_take_paths(&recordings, "song", "11092026", 1)[0], recordings.join("song_11092026_2.wav"));
     let _ = fs::remove_dir_all(&dir);
   }
 
