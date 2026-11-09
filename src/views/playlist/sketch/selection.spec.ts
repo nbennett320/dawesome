@@ -1,4 +1,4 @@
-import { keepExisting, lassoRect, lassoSelection, rectsTouch, toggleSelected } from './selection'
+import { groupLanding, keepExisting, lassoRect, lassoSelection, rectsTouch, toggleSelected } from './selection'
 
 const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height })
 
@@ -67,5 +67,35 @@ describe('toggleSelected', () => {
 describe('keepExisting', () => {
   it('drops clips that are gone', () => {
     expect([...keepExisting(new Set([1, 2, 3]), [3, 1, 7])].sort()).toEqual([1, 3])
+  })
+})
+
+describe('groupLanding', () => {
+  const placed = [
+    { id: 1, beat: 2, track: 0 },
+    { id: 2, beat: 2.25, track: 1 },
+    { id: 3, beat: 6, track: 1 },
+  ]
+
+  it('moves every clip by as much as the grabbed one', () => {
+    expect(groupLanding(placed, 2, 4.25, 2, 16, 4)).toEqual([
+      { id: 1, beat: 4, track: 1 },
+      { id: 2, beat: 4.25, track: 2 },
+      { id: 3, beat: 8, track: 2 },
+    ])
+  })
+
+  it('stops the group at the start and end of the playlist', () => {
+    expect(groupLanding(placed, 3, 3, 1, 16, 4).map(c => c.beat)).toEqual([0, 0.25, 4])
+    expect(groupLanding(placed, 1, 15, 0, 16, 4).map(c => c.beat)).toEqual([12, 12.25, 16])
+  })
+
+  it('stops the group at the first track and the new-track area', () => {
+    expect(groupLanding(placed, 2, 2.25, 0, 16, 4).map(c => c.track)).toEqual([0, 1, 1])
+    expect(groupLanding(placed, 1, 2, 9, 16, 4).map(c => c.track)).toEqual([3, 4, 4])
+  })
+
+  it('lands nothing without the grabbed clip', () => {
+    expect(groupLanding(placed, 9, 0, 0, 16, 4)).toEqual([])
   })
 })

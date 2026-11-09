@@ -66,3 +66,35 @@ export const keepExisting = (selected: ReadonlySet<number>, ids: ReadonlyArray<n
   const existing = new Set(ids)
   return new Set([...selected].filter(id => existing.has(id)))
 }
+
+// a clip's place in the playlist
+export interface Placement {
+  id: number
+  beat: number
+  track: number
+}
+
+// where a group of clips lands when one of them, the anchor, is dropped at
+// `beat` on `track`. the same rule the engine uses (group_move in
+// audiograph.rs): every clip moves by the anchor's change, cut short so no
+// clip starts before 0 or after `maxBeat`, or goes above track 0 or below
+// `maxTrack` (the new-track area). `beat` should already be snapped
+export const groupLanding = (
+  placed: ReadonlyArray<Placement>,
+  anchorId: number,
+  beat: number,
+  track: number,
+  maxBeat: number,
+  maxTrack: number,
+): Placement[] => {
+  const anchor = placed.find(c => c.id === anchorId)
+  if(!anchor) return []
+
+  const clamp = (n: number, lo: number, hi: number) => Math.min(Math.max(n, lo), Math.max(lo, hi))
+  const beats = placed.map(c => c.beat)
+  const tracks = placed.map(c => c.track)
+  const shift = clamp(beat - anchor.beat, -Math.min(...beats), maxBeat - Math.max(...beats))
+  const down = clamp(track - anchor.track, -Math.min(...tracks), maxTrack - Math.max(...tracks))
+
+  return placed.map(c => ({ id: c.id, beat: c.beat + shift, track: c.track + down }))
+}

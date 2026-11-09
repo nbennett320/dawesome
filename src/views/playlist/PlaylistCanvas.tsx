@@ -5,6 +5,7 @@ import {
   addToPlaylist,
   inspectClip,
   moveNodeInPlaylist,
+  moveNodesInPlaylist,
   removeFromPlaylist,
   seekPlaylist,
   selectClipOverrides,
@@ -160,6 +161,17 @@ const PlaylistCanvas = () => {
     ))
   }, [dispatch])
 
+  // a selection was dragged: the grabbed clip to dropBeat on trackNumber,
+  // and the rest along with it
+  const handleNodesMove = React.useCallback((
+    ids: number[],
+    anchorId: number,
+    dropBeat: number,
+    trackNumber: number,
+  ) => {
+    dispatch(moveNodesInPlaylist(ids, anchorId, dropBeat, trackNumber))
+  }, [dispatch])
+
   return (
     <div 
       ref={ref}
@@ -184,6 +196,7 @@ const PlaylistCanvas = () => {
           onItemDrop={handleItemDrop}
           onNodeRightClick={handleNodeRightClick}
           onNodeMove={handleNodeMove}
+          onNodesMove={handleNodesMove}
           onNodeDoubleClick={handleNodeDoubleClick}
           transportRevision={transportRevision}
           onSeek={handleSeek}

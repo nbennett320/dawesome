@@ -141,6 +141,16 @@ export const playlistSlice = createSlice({
         }
       }
     },
+    // clips moved together (a dragged selection), placed where the engine put them
+    movePlaylistItems: (state, action: { type: string, payload: MovedNode[] }) => {
+      const moved = new Map(action.payload.map(m => [m.id, m]))
+      state.playlistItems.forEach(item => {
+        const m = moved.get(item.id)
+        if(!m) return
+        item.startBeat = m.startBeat
+        item.trackNumber = m.trackNumber
+      })
+    },
     removePlaylistItem: (state, action) => {
       state.playlistItems = state.playlistItems.filter(e => e.id !== action.payload.id)
 
@@ -348,6 +358,7 @@ export const selectLoopEnabled = (state: RootState) =>
 export const { 
   addPlaylistItem, 
   movePlaylistItem,
+  movePlaylistItems,
   removePlaylistItem
 } = playlistSlice.actions
 
@@ -427,6 +438,36 @@ export const moveNodeInPlaylist = (
   } as PlaylistItem))
 
   // moved below the last track (a new track), or off the last track
+  await refreshTrackCount()(dispatch)
+}
+
+// where a clip in a moved group ended up. mirrors MovedNode in
+// engine/src/event_dispatch.rs
+export interface MovedNode {
+  id: number
+  startBeat: number
+  trackNumber: number
+}
+
+// move selected clips together: the grabbed one (anchorId) to dropBeat on
+// trackNumber, and the rest by as much. the engine snaps and keeps them in
+// the playlist
+export const moveNodesInPlaylist = (
+  ids: number[],
+  anchorId: number,
+  dropBeat: number,
+  trackNumber: number,
+) => async (dispatch: Dispatch) => {
+  const moved = await invoke<MovedNode[]>('move_audiograph_nodes', {
+    ids,
+    anchorId,
+    dropBeat,
+    trackNumber,
+  })
+
+  dispatch(movePlaylistItems(moved))
+
+  // moved onto the new-track area, or off the last track
   await refreshTrackCount()(dispatch)
 }
 

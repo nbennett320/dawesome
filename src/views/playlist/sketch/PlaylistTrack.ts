@@ -64,13 +64,12 @@ class PlaylistTrack extends PlaylistComponent<State> {
     } = this
 
     // render audio nodes in the playlist
-    // a clip being dragged is drawn by the Renderer, pinned to the mouse
-    const { clipDrag } = this.renderer as Renderer
-    const dragged = clipDrag?.active ? clipDrag.item : null
+    // clips being dragged are drawn by the Renderer, pinned to the mouse
+    const renderer = this.renderer as Renderer
 
     playlistObjects
       .filter(item => item.playlistItem.trackNumber === this.trackNumber)
-      .filter(item => item !== dragged)
+      .filter(item => !renderer.isDragged(item))
       .forEach(item => {
         item.render()
 
