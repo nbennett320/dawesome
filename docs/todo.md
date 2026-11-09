@@ -19,6 +19,7 @@
         - Master pitch?
 - Playlist
     - Cmd + R -> Repeat (paste duplicate node after another)
+    - playlist vertical line/cursor indicating across all tracks what is currently playing
 - Shoetcuts 
     - Shift mode -> selection mode 
         - Ex, 2 Shift + J = Join
