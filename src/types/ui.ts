@@ -8,6 +8,8 @@ export enum View {
   Transport,
   // the drum machine: rows of samples, and patterns of 16th note steps
   Sequencer,
+  // which devices the engine plays and records through, and its buffer size
+  AudioSettings,
 }
 
 // the label a view's tab gets when it's opened
@@ -17,6 +19,7 @@ export const viewLabels: Record<View, string> = {
   [View.Mixer]: 'Mixer',
   [View.Transport]: 'Transport',
   [View.Sequencer]: 'Sequencer',
+  [View.AudioSettings]: 'Audio',
 }
 
 // how a split pane lays out its children, named like react-split-pane:

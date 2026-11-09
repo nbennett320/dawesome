@@ -3,6 +3,7 @@ import PlayPauseButton from './PlayPauseButton'
 import RecordButton from './RecordButton'
 import StopButton from './StopButton'
 import MetronomeButton from './MetronomeButton'
+import CountInButton from './CountInButton'
 import LoopButton from './LoopButton'
 import SnapButton from './SnapButton'
 
@@ -17,6 +18,7 @@ const ButtonArea = () => (
     </div>
     <div className='ft-tray rounded-md flex flex-row items-end gap-1.5 px-2 py-1'>
       <MetronomeButton />
+      <CountInButton />
       <LoopButton />
       <SnapButton />
     </div>

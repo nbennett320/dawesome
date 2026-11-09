@@ -377,6 +377,10 @@ impl<S: Source<Item = f32>> ChannelStrip<S> {
     strip
   }
 
+  pub fn inner_mut(&mut self) -> &mut S {
+    &mut self.inner
+  }
+
   // whether this strip is silenced by its mute, or by another track's solo
   fn silenced(&self) -> bool {
     if self.controls.muted() { return true; }
@@ -468,17 +472,7 @@ impl<S> Drop for ChannelStrip<S> {
 // the master's limiter: below LIMIT_KNEE the mix passes unchanged, above it
 // peaks are rounded off smoothly so they never pass 1.0, instead of being
 // cut off harshly by the output (the clip light still shows when this works)
-pub struct SoftLimit<S> {
-  inner: S,
-}
-
 const LIMIT_KNEE: f32 = 0.9;
-
-impl<S> SoftLimit<S> {
-  pub fn new(inner: S) -> Self {
-    SoftLimit { inner }
-  }
-}
 
 pub fn soft_limit(sample: f32) -> f32 {
   let level = sample.abs();
@@ -488,78 +482,6 @@ pub fn soft_limit(sample: f32) -> f32 {
   let room = 1. - LIMIT_KNEE;
   let over = (level - LIMIT_KNEE) / room;
   (LIMIT_KNEE + room * over.tanh()).copysign(sample)
-}
-
-impl<S: Source<Item = f32>> Iterator for SoftLimit<S> {
-  type Item = f32;
-
-  fn next(&mut self) -> Option<f32> {
-    self.inner.next().map(soft_limit)
-  }
-
-  fn size_hint(&self) -> (usize, Option<usize>) {
-    self.inner.size_hint()
-  }
-}
-
-impl<S: Source<Item = f32>> Source for SoftLimit<S> {
-  fn current_frame_len(&self) -> Option<usize> { self.inner.current_frame_len() }
-  fn channels(&self) -> u16 { self.inner.channels() }
-  fn sample_rate(&self) -> u32 { self.inner.sample_rate() }
-  fn total_duration(&self) -> Option<Duration> { self.inner.total_duration() }
-}
-
-// plays a source until `stop` is set, then fades it out over a few
-// milliseconds and ends, so stopping playback doesn't click
-pub struct FadeOnStop<S> {
-  inner: S,
-  stop: Arc<AtomicBool>,
-  // frames left in the fade, once it has started
-  fade_left: Option<u32>,
-  fade_frames: u32,
-  channel: u16,
-}
-
-// how long stopping takes to fade out
-const STOP_FADE: Duration = Duration::from_millis(10);
-
-impl<S: Source<Item = f32>> FadeOnStop<S> {
-  pub fn new(inner: S, stop: Arc<AtomicBool>) -> Self {
-    let fade_frames = (STOP_FADE.as_secs_f32() * inner.sample_rate() as f32).max(1.) as u32;
-    FadeOnStop { inner, stop, fade_left: None, fade_frames, channel: 0 }
-  }
-}
-
-impl<S: Source<Item = f32>> Iterator for FadeOnStop<S> {
-  type Item = f32;
-
-  fn next(&mut self) -> Option<f32> {
-    let channels = self.inner.channels().max(1);
-
-    if self.channel == 0 {
-      match self.fade_left {
-        Some(0) => return None,
-        Some(left) => self.fade_left = Some(left - 1),
-        None if self.stop.load(Ordering::Relaxed) => self.fade_left = Some(self.fade_frames),
-        None => {}
-      }
-    }
-
-    let sample = self.inner.next()?;
-    self.channel = (self.channel + 1) % channels;
-
-    Some(match self.fade_left {
-      Some(left) => sample * left as f32 / self.fade_frames as f32,
-      None => sample,
-    })
-  }
-}
-
-impl<S: Source<Item = f32>> Source for FadeOnStop<S> {
-  fn current_frame_len(&self) -> Option<usize> { self.inner.current_frame_len() }
-  fn channels(&self) -> u16 { self.inner.channels() }
-  fn sample_rate(&self) -> u32 { self.inner.sample_rate() }
-  fn total_duration(&self) -> Option<Duration> { None }
 }
 
 #[cfg(test)]
@@ -579,24 +501,6 @@ mod tests {
     assert_eq!(soft_limit(-1.2), -soft_limit(1.2));
     // smooth at the knee
     assert!((soft_limit(0.9001) - 0.9001).abs() < 1e-4);
-  }
-
-  #[test]
-  fn test_fade_on_stop() {
-    let stop = Arc::new(AtomicBool::new(false));
-    // stereo at 1kHz: a 10 frame fade
-    let mut out = FadeOnStop::new(ones(2, 1000), stop.clone());
-
-    assert!(out.by_ref().take(100).all(|s| s == 1.));
-    stop.store(true, Ordering::Relaxed);
-    let rest: Vec<f32> = out.collect();
-
-    // ends after the fade, long before the source does
-    assert_eq!(rest.len(), 22);
-    assert_eq!(rest[0], 1.);
-    assert_eq!(rest[2], rest[3]);
-    assert!(rest[2] < 1. && rest[2] > 0.8);
-    assert_eq!(rest[20], 0.);
   }
 
   // `frames` frames of 1.0 at 1kHz

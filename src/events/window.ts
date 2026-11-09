@@ -1,14 +1,9 @@
 import { listen } from '@tauri-apps/api/event'
-import { openTab, setShowDevicePreferences } from '../state/slices/windowSlice'
+import { openTab } from '../state/slices/windowSlice'
 import { ProjectCommand, openRecentProject, runProjectCommand } from '../state/slices/projectSlice'
 import type { AppDispatch } from '../state/store'
 import { View } from '../types/ui'
 
-const devicePreferences = async (selector: any, dispatcher: any) => {
-  await listen('menu-device-preference', ev => {
-    dispatcher(setShowDevicePreferences(!selector))
-  })
-}
 // the File menu's project items. resolves to a function that stops listening
 const projectMenu = (dispatch: AppDispatch) =>
   listen<{ data: ProjectCommand }>('menu-project', ev => {
@@ -28,9 +23,11 @@ const menuViews: Record<string, View> = {
   mixer: View.Mixer,
   transport: View.Transport,
   sequencer: View.Sequencer,
+  // Preferences › Audio Settings…
+  audio: View.AudioSettings,
 }
 
-// the Window menu: open a tab, or select it where it's already open.
+// the Window and Preferences menus: open a tab, or select it where it's already open.
 // resolves to a function that stops listening
 const viewMenu = (dispatch: AppDispatch) =>
   listen<{ data: string }>('menu-open-view', ev => {
@@ -39,7 +36,6 @@ const viewMenu = (dispatch: AppDispatch) =>
   })
 
 const listeners = { 
-  devicePreferences,
   projectMenu,
   recentProjectMenu,
   viewMenu,

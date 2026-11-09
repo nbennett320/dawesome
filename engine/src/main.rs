@@ -4,8 +4,11 @@ mod util;
 // mod lang;
 mod event_dispatch;
 mod project;
+mod project_files;
+mod recording;
 mod recent;
 mod mixer_commands;
+mod audio_commands;
 mod sequencer_commands;
 mod bind_functions;
 
@@ -54,13 +57,22 @@ fn debug(){
 
 fn init_tauri() {
   use event_dispatch::*;
-  use project::{save_project, load_project, new_project};
+  use project::{save_project, load_project, new_project, project_file_for};
   use recent::{add_recent_project, remove_recent_project};
   use mixer_commands::*;
+  use audio_commands::*;
   use sequencer_commands::*;
 
   // read before the menu is built, which lists them
   let recent_projects = recent::RecentProjects::load();
+
+  // open the audio output now, so the first play or preview doesn't wait
+  // for it. if it can't be opened, playing tries again
+  std::thread::spawn(|| {
+    if let Err(e) = daw::engine() {
+      println!("could not open the audio output: {}", e);
+    }
+  });
 
   tauri::Builder::default()
     .setup(app::window::setup)
@@ -81,6 +93,8 @@ fn init_tauri() {
       set_playlist_tempo,
       t_toggle_metronome_enabled,
       get_metronome_enabled,
+      t_toggle_count_in,
+      get_count_in,
       get_playlist_runtime_formatted,
       get_playlist_beat_count,
       get_playlist_time_signature,
@@ -89,6 +103,8 @@ fn init_tauri() {
       enumerate_directory,
       t_preview_sample,
       get_audio_drivers,
+      get_audio_settings,
+      set_audio_settings,
       t_add_audiograph_node,
       move_audiograph_node,
       move_audiograph_nodes,
@@ -109,6 +125,7 @@ fn init_tauri() {
       save_project,
       load_project,
       new_project,
+      project_file_for,
       add_recent_project,
       remove_recent_project,
       get_mixer,
@@ -122,7 +139,13 @@ fn init_tauri() {
       get_mixer_levels,
       get_playlist_max_length,
       init_playlist_workspace,
-      toggle_record_input,
+      t_start_recording,
+      t_stop_recording,
+      collect_recording,
+      get_record_setup,
+      set_track_armed,
+      listen_to_input,
+      get_input_levels,
       get_sequencer,
       add_sequencer_row,
       remove_sequencer_row,

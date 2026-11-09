@@ -1,3 +1,4 @@
+import { ArmedTrack } from './audio'
 import { ClipInfo } from './clip'
 import { MixerSettings } from './mixer'
 import { SequencerState } from './sequencer'
@@ -23,6 +24,8 @@ export interface ProjectSettings {
   loopEnabled: boolean
   snapEnabled: boolean
   snapNote: SnapNote
+  // whether recording counts in a bar first (left out by older engines)
+  countIn?: boolean
 }
 
 // a clip after loading, with the new id the engine gave it
@@ -50,6 +53,23 @@ export interface MissingSample {
 }
 
 // what the engine's load_project and new_project return
+// a clip whose take was brought into the project's folder, and where it is now
+export interface MovedClip {
+  id: number
+  path: string
+}
+
+// a project that's been saved (see save_project in engine/src/project.rs)
+export interface SavedProject {
+  // the file it was saved to: saved somewhere new, it's in a folder of its own
+  path: string
+  movedClips: MovedClip[]
+  // the Sequencer, when a row's take was brought in too
+  sequencer: SequencerState | null
+  // takes that couldn't be brought in, which are still used from where they are
+  problems: string[]
+}
+
 export interface LoadedProject extends ProjectSettings {
   clips: LoadedClip[]
   missing: MissingSample[]
@@ -58,4 +78,14 @@ export interface LoadedProject extends ProjectSettings {
   // the Sequencer tab's rows and patterns
   sequencer: SequencerState
   patternClips: LoadedPatternClip[]
+  // the tracks armed to record (left out by older engines)
+  armed?: ArmedTrack[]
+}
+
+// the clips recorded since the engine was last asked (see collect_recording
+// in engine/src/audio_commands.rs)
+export interface Recorded {
+  recording: boolean
+  clips: LoadedClip[]
+  problems: string[]
 }

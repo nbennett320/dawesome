@@ -42,9 +42,7 @@ pub fn add_sequencer_row(state: daw::TState<'_>, path: String) -> Result<daw::Se
 }
 
 fn add_row(state: &daw::InnerState, path: &str) -> Result<daw::SequencerState, String> {
-  // decoding a sample takes a moment, so it's done before taking the lock
-  let sample_rate = state.playlist.audiograph.lock().unwrap().sample_rate();
-  edit(state, |seq| seq.add_row(path, sample_rate).map(|_| ()))
+  edit(state, |seq| seq.add_row(path).map(|_| ()))
 }
 
 // take a row out, with its steps in every pattern
@@ -73,16 +71,7 @@ pub fn preview_sequencer_row(state: daw::TState<'_>, row_id: u64) -> Result<(), 
     .source();
 
   thread::spawn(move || {
-    let played = rodio::OutputStream::try_default()
-      .map_err(|e| e.to_string())
-      .and_then(|(_stream, handle)| {
-        let sink = rodio::Sink::try_new(&handle).map_err(|e| e.to_string())?;
-        sink.append(source);
-        sink.sleep_until_end();
-        Ok(())
-      });
-
-    if let Err(e) = played {
+    if let Err(e) = daw::engine().and_then(|engine| engine.preview(source)) {
       println!("could not preview sequencer row {}: {}", row_id, e);
     }
   });

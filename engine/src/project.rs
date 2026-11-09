@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::daw;
 use crate::event_dispatch::{clip_info, ClipInfo};
+use crate::project_files::{self, recordings_dir_for};
 
 // the newest project format this version of the app reads and writes.
 // bump it when a change means older apps would misread a project
@@ -30,6 +31,8 @@ pub struct ProjectSettings {
   pub loop_enabled: bool,
   pub snap_enabled: bool,
   pub snap_note: daw::timing::Note,
+  // whether recording counts in a bar first
+  pub count_in: bool,
 }
 
 impl Default for ProjectSettings {
@@ -41,6 +44,7 @@ impl Default for ProjectSettings {
       loop_enabled: true,
       snap_enabled: daw::defaults::SNAP_ENABLED,
       snap_note: daw::defaults::SNAP_SUBDIVISION,
+      count_in: false,
     }
   }
 }
@@ -85,6 +89,9 @@ pub struct Project {
   pub sequencer: daw::SavedSequencer,
   #[serde(skip_serializing_if = "Vec::is_empty")]
   pub pattern_clips: Vec<ProjectPatternClip>,
+  // the tracks armed to record, and the input channels each records
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub armed: Vec<crate::recording::ArmedTrack>,
 }
 
 impl Default for Project {
@@ -96,6 +103,7 @@ impl Default for Project {
       mixer: daw::MixerSettings::default(),
       sequencer: daw::SavedSequencer::default(),
       pattern_clips: Vec::new(),
+      armed: Vec::new(),
     }
   }
 }
@@ -176,6 +184,7 @@ pub struct LoadedProject {
   pub mixer: daw::MixerSettings,
   pub sequencer: daw::SequencerState,
   pub pattern_clips: Vec<LoadedPatternClip>,
+  pub armed: Vec<crate::recording::ArmedTrack>,
 }
 
 // the folder a project file is in, which its relative sample paths start from
@@ -273,11 +282,13 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
       loop_enabled: state.playlist.loop_enabled.load(Ordering::SeqCst),
       snap_enabled: ui.snap_enabled,
       snap_note: ui.snap_subdivision,
+      count_in: state.playlist.count_in.load(Ordering::SeqCst),
     },
     clips,
     mixer,
     sequencer,
     pattern_clips,
+    armed: state.recorder.lock().unwrap().armed(),
   }
 }
 
@@ -294,6 +305,7 @@ pub fn apply(
   let settings = project.settings;
   state.metronome_enabled.store(settings.metronome_enabled, Ordering::SeqCst);
   state.playlist.loop_enabled.store(settings.loop_enabled, Ordering::SeqCst);
+  state.playlist.count_in.store(settings.count_in, Ordering::SeqCst);
   *state.playlist.time_signature.lock().unwrap() = settings.time_signature;
   {
     let mut ui = state.playlist.ui.lock().unwrap();
@@ -302,6 +314,7 @@ pub fn apply(
   }
 
   state.playlist.mixer.apply(&project.mixer);
+  state.recorder.lock().unwrap().set_armed(&project.armed);
 
   let mut audiograph = state.playlist.audiograph.lock().unwrap();
   audiograph.clear();
@@ -347,10 +360,9 @@ pub fn apply(
   for row in &mut saved.rows {
     row.path = resolved_path(&row.path, project_dir).to_string_lossy().into_owned();
   }
-  let sample_rate = audiograph.sample_rate();
   let sequencer = {
     let mut sequencer = state.playlist.sequencer.lock().unwrap();
-    for (path, reason) in sequencer.restore(saved, sample_rate) {
+    for (path, reason) in sequencer.restore(saved) {
       missing.push(MissingSample { path, reason });
     }
     sequencer.state()
@@ -380,7 +392,7 @@ pub fn apply(
 
   let mixer = state.playlist.mixer.settings(audiograph.track_count());
 
-  LoadedProject { settings, clips, missing, mixer, sequencer, pattern_clips }
+  LoadedProject { settings, clips, missing, mixer, sequencer, pattern_clips, armed: project.armed.clone() }
 }
 
 // write the current playlist to a project file. the file is written next to
@@ -412,12 +424,115 @@ pub fn load_from(state: &daw::InnerState, project_path: &Path) -> Result<LoadedP
   let project = Project::from_json(&json)?;
   let dir = project_dir(project_path)?;
 
-  Ok(apply(state, &project, Some(&dir)))
+  let loaded = apply(state, &project, Some(&dir));
+  state.project.lock().unwrap().reset(Some(project_path.to_path_buf()));
+  Ok(loaded)
+}
+
+// a clip whose take was brought into the project, and where it is now
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MovedClip {
+  pub id: u64,
+  pub path: String,
+}
+
+// a project that's been saved
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedProject {
+  // the file it was saved to, which (saved somewhere new) is in a folder of
+  // its own
+  pub path: String,
+  pub moved_clips: Vec<MovedClip>,
+  // the sequencer, when a row's take was brought in too
+  pub sequencer: Option<daw::SequencerState>,
+  // takes that couldn't be brought into the project. they're still used
+  // from where they are
+  pub problems: Vec<String>,
+}
+
+// save the project, carrying on in the saved file
+// - somewhere_new: a first save, or Save As. the project gets a folder of
+//   its own (unless it's already in one). otherwise it's saved just where
+//   `path` says, so a project saved before folders stays as it was
+//
+// takes recorded before the project was first saved are moved into its
+// recordings folder. saving as somewhere new copies the old project's takes
+// in, so the old project keeps its own. either way they're named after the
+// project, keeping the day they were recorded
+pub fn save_project_to(
+  state: &daw::InnerState,
+  path: &Path,
+  somewhere_new: bool,
+) -> Result<SavedProject, String> {
+  let target = if somewhere_new { project_files::project_file_for(path) } else { path.to_path_buf() };
+  if let Some(dir) = target.parent().filter(|dir| !dir.as_os_str().is_empty()) {
+    fs::create_dir_all(dir)
+      .map_err(|e| format!("could not make the folder '{}': {}", dir.display(), e))?;
+  }
+  let name = project_files::project_name(&target).unwrap_or_else(|| project_files::UNTITLED.into());
+
+  // where the project's takes are now, and whether they stay there too
+  let from = {
+    let location = state.project.lock().unwrap();
+    match (&location.path, &location.session) {
+      (Some(path), _) => Some((recordings_dir_for(path), true)),
+      (None, Some(session)) => Some((session.clone(), false)),
+      (None, None) => None,
+    }
+  };
+  let to = recordings_dir_for(&target);
+
+  let mut moved_clips = Vec::new();
+  let mut sequencer = None;
+  let mut problems = Vec::new();
+
+  if let Some((from, copy)) = from.filter(|(from, _)| from.is_dir() && !project_files::same_dir(from, &to)) {
+    let mut audiograph = state.playlist.audiograph.lock().unwrap();
+    let mut seq = state.playlist.sequencer.lock().unwrap();
+
+    let paths: Vec<String> = audiograph.nodes.iter().map(|node| node.sample_path().to_string())
+      .chain(seq.rows().iter().map(|row| row.path.clone()))
+      .collect();
+    let (relocated, errors) = project_files::relocate_takes(&paths, &from, &to, &name, copy);
+    problems = errors;
+
+    for node in audiograph.nodes.iter_mut() {
+      if let Some(take) = relocated.iter().find(|take| take.from == node.sample_path()) {
+        node.set_sample_path(take.to.clone());
+        moved_clips.push(MovedClip { id: node.id, path: take.to.clone() });
+      }
+    }
+
+    let moved: Vec<(String, String)> = relocated.into_iter().map(|take| (take.from, take.to)).collect();
+    if seq.move_row_samples(&moved) {
+      sequencer = Some(seq.state());
+    }
+  }
+
+  save_to(state, &target)?;
+  state.project.lock().unwrap().reset(Some(target.clone()));
+
+  for problem in &problems { println!("saving the project: {}", problem); }
+  Ok(SavedProject {
+    path: target.to_string_lossy().into_owned(),
+    moved_clips,
+    sequencer,
+    problems,
+  })
 }
 
 #[tauri::command]
-pub fn save_project(state: daw::TState<'_>, path: String) -> Result<(), String> {
-  save_to(&state, Path::new(&path))
+pub fn save_project(state: daw::TState<'_>, path: String, somewhere_new: bool) -> Result<SavedProject, String> {
+  save_project_to(&state, Path::new(&path), somewhere_new)
+}
+
+// the file a project chosen to be saved at `path` would be saved to
+// somewhere new (in a folder of its own)
+#[tauri::command]
+pub fn project_file_for(path: String) -> String {
+  project_files::project_file_for(Path::new(&path)).to_string_lossy().into_owned()
 }
 
 #[tauri::command]
@@ -428,7 +543,9 @@ pub fn load_project(state: daw::TState<'_>, path: String) -> Result<LoadedProjec
 // start an empty project with the default settings
 #[tauri::command]
 pub fn new_project(state: daw::TState<'_>) -> LoadedProject {
-  apply(&state, &Project::default(), None)
+  let loaded = apply(&state, &Project::default(), None);
+  state.project.lock().unwrap().reset(None);
+  loaded
 }
 
 #[cfg(test)]
@@ -448,6 +565,167 @@ mod tests {
     let mut audiograph = state.playlist.audiograph.lock().unwrap();
     let offset = audiograph.beat_interval().mul_f64(beat);
     audiograph.construct_and_add_node(path.to_string(), offset, track).unwrap()
+  }
+
+  // a take (any short sample will do), as it would be recorded
+  fn record_take(dir: &Path, name: &str) -> String {
+    fs::create_dir_all(dir).unwrap();
+    let path = dir.join(name);
+    fs::copy(daw::METRONOME_TICK_PATH, &path).unwrap();
+    path.to_string_lossy().into_owned()
+  }
+
+  fn saved_json(path: &str) -> Project {
+    Project::from_json(&fs::read_to_string(path).unwrap()).unwrap()
+  }
+
+  #[test]
+  fn test_count_in_is_saved() {
+    let dir = test_dir("count-in");
+    let state = daw::InnerState::default();
+    state.playlist.count_in.store(true, Ordering::SeqCst);
+    let file = dir.join("song.dawesome");
+    save_to(&state, &file).unwrap();
+
+    let loaded = daw::InnerState::default();
+    assert!(load_from(&loaded, &file).unwrap().settings.count_in);
+    assert!(loaded.playlist.count_in.load(Ordering::SeqCst));
+    // projects from before it was saved don't count in
+    assert!(!Project::from_json("{}").unwrap().settings.count_in);
+
+    let _ = fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_armed_tracks_are_saved() {
+    use crate::recording::{ArmedTrack, InputChoice};
+    let dir = test_dir("armed");
+    let state = daw::InnerState::default();
+    let armed = vec![
+      ArmedTrack { track_number: 0, input: InputChoice { first: 0, stereo: true } },
+      ArmedTrack { track_number: 2, input: InputChoice { first: 3, stereo: false } },
+    ];
+    state.recorder.lock().unwrap().set_armed(&armed);
+    let file = dir.join("song.dawesome");
+    save_to(&state, &file).unwrap();
+
+    let loaded = daw::InnerState::default();
+    assert_eq!(load_from(&loaded, &file).unwrap().armed, armed);
+    assert_eq!(loaded.recorder.lock().unwrap().armed(), armed);
+
+    // a new project has nothing armed
+    apply(&loaded, &Project::default(), None);
+    assert!(loaded.recorder.lock().unwrap().armed().is_empty());
+
+    let _ = fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_first_save_makes_a_folder_and_brings_in_takes() {
+    let dir = test_dir("first-save");
+    let state = daw::InnerState::default();
+    // recorded before the project had a file
+    let session = dir.join("unsaved-session");
+    state.project.lock().unwrap().session = Some(session.clone());
+    let take = record_take(&session, "untitled_11092026_0.wav");
+    let clip = add_clip(&state, &take, 0, 0.);
+    let sample = add_clip(&state, daw::METRONOME_TICK_PATH, 1, 4.);
+    let row = state.playlist.sequencer.lock().unwrap().add_row(&take).unwrap();
+
+    let saved = save_project_to(&state, &dir.join("song.dawesome"), true).unwrap();
+
+    let project_file = dir.join("song").join("song.dawesome");
+    let recorded = dir.join("song").join("recordings").join("song_11092026_0.wav");
+    assert_eq!(saved.path, project_file.to_string_lossy());
+    assert!(project_file.is_file());
+    assert!(recorded.is_file());
+    assert!(!Path::new(&take).exists());
+    // the unsaved folder is tidied away once it's empty
+    assert!(!session.exists());
+    assert!(saved.problems.is_empty());
+
+    // the clip and the row follow their take; the other sample stays put
+    assert_eq!(saved.moved_clips, vec![MovedClip { id: clip, path: recorded.to_string_lossy().into_owned() }]);
+    let audiograph = state.playlist.audiograph.lock().unwrap();
+    assert_eq!(audiograph.get_node_by_id(clip).unwrap().sample_path(), recorded.to_string_lossy());
+    assert_eq!(audiograph.get_node_by_id(sample).unwrap().sample_path(), daw::METRONOME_TICK_PATH);
+    drop(audiograph);
+    let rows = saved.sequencer.expect("the sequencer, with its row moved").rows;
+    assert_eq!(rows.iter().find(|r| r.id == row).unwrap().path, recorded.to_string_lossy());
+
+    // saved relative to the project, so the folder can be moved
+    let project = saved_json(&saved.path);
+    assert_eq!(project.clips[0].path, "recordings/song_11092026_0.wav");
+    assert_eq!(project.sequencer.rows[0].path, "recordings/song_11092026_0.wav");
+
+    // and takes recorded from now on go in its recordings folder
+    let mut location = state.project.lock().unwrap();
+    assert_eq!(location.recordings_dir().unwrap(), dir.join("song").join("recordings"));
+    assert_eq!(location.name(), "song");
+    drop(location);
+
+    let _ = fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_save_as_copies_takes_into_the_new_project() {
+    let dir = test_dir("save-as");
+    let state = daw::InnerState::default();
+    let old_file = dir.join("song").join("song.dawesome");
+    let take = record_take(&dir.join("song").join("recordings"), "song_11092026_0.wav");
+    add_clip(&state, &take, 0, 0.);
+    save_project_to(&state, &old_file, false).unwrap();
+
+    let saved = save_project_to(&state, &dir.join("remix.dawesome"), true).unwrap();
+
+    let copy = dir.join("remix").join("recordings").join("remix_11092026_0.wav");
+    assert_eq!(saved.path, dir.join("remix").join("remix.dawesome").to_string_lossy());
+    assert!(copy.is_file());
+    // the old project still has its take, and still plays it
+    assert!(Path::new(&take).is_file());
+    assert_eq!(saved_json(old_file.to_str().unwrap()).clips[0].path, "recordings/song_11092026_0.wav");
+    assert_eq!(saved_json(&saved.path).clips[0].path, "recordings/remix_11092026_0.wav");
+
+    // saving again leaves the takes where they are
+    let again = save_project_to(&state, Path::new(&saved.path), false).unwrap();
+    assert!(again.moved_clips.is_empty());
+
+    let _ = fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_a_project_saved_before_folders_stays_where_it_is() {
+    let dir = test_dir("bare");
+    let state = daw::InnerState::default();
+    add_clip(&state, daw::METRONOME_TICK_PATH, 0, 0.);
+    let file = dir.join("old.dawesome");
+
+    let saved = save_project_to(&state, &file, false).unwrap();
+
+    assert_eq!(saved.path, file.to_string_lossy());
+    assert!(!dir.join("old").exists());
+    // its takes go next to it
+    assert_eq!(state.project.lock().unwrap().recordings_dir().unwrap(), dir.join("recordings"));
+
+    let _ = fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_opening_and_new_projects_move_where_takes_go() {
+    let dir = test_dir("open");
+    let state = daw::InnerState::default();
+    let file = dir.join("song").join("song.dawesome");
+    save_project_to(&state, &file, false).unwrap();
+
+    let other = daw::InnerState::default();
+    load_from(&other, &file).unwrap();
+    assert_eq!(other.project.lock().unwrap().path.as_deref(), Some(file.as_path()));
+
+    apply(&other, &Project::default(), None);
+    other.project.lock().unwrap().reset(None);
+    assert_eq!(other.project.lock().unwrap().name(), project_files::UNTITLED);
+
+    let _ = fs::remove_dir_all(&dir);
   }
 
   #[test]
@@ -654,7 +932,7 @@ mod tests {
       let mut audiograph = state.playlist.audiograph.lock().unwrap();
       let (row, pattern) = {
         let mut seq = audiograph.sequencer.lock().unwrap();
-        let row = seq.add_row(kick.to_str().unwrap(), 44_100).unwrap();
+        let row = seq.add_row(kick.to_str().unwrap()).unwrap();
         let pattern = seq.add_pattern(2, 4).unwrap();
         seq.set_step(pattern, row, 0, true).unwrap();
         seq.set_step(pattern, row, 12, true).unwrap();

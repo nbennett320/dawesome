@@ -52,12 +52,6 @@ pub fn setup(
           data: id.trim_start_matches("view-").into()
         }).unwrap();
       }
-      "device" => {
-        println!("emit device preference");
-        window_cp.app_handle().emit_all("menu-device-preference", EventPayload {
-          data: "menu-device-preference".into()
-        }).unwrap();
-      }
       _ => {}
     }
   });
@@ -99,10 +93,10 @@ pub fn build_menu(recent: &RecentProjects) -> tauri::Menu {
     .add_item(tauri::CustomMenuItem::new("view-sequencer".to_string(), "Sequencer")
       .accelerator("CmdOrCtrl+Shift+E")));
 
-  // define preference menu
-  let device_menu = tauri::CustomMenuItem::new("device".to_string(), "Devices");
+  // define preference menu: opens tabs, like the Window menu
+  let audio_menu = tauri::CustomMenuItem::new("view-audio".to_string(), "Audio Settings…");
   let preference_submenu = tauri::Submenu::new("Preferences", tauri::Menu::new()
-    .add_item(device_menu));
+    .add_item(audio_menu));
   
   tauri::Menu::new()
     .add_submenu(main_submenu)

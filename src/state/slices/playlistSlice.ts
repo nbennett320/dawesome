@@ -12,7 +12,7 @@ import {
   isDefaultClipSettings,
   playedDuration,
 } from '../../types/clip'
-import { LoadedPatternClip, LoadedProject, MissingSample } from '../../types/project'
+import { LoadedPatternClip, LoadedProject, MissingSample, MovedClip, SavedProject } from '../../types/project'
 import { Wind } from '../../types/transport'
 import { openTab } from './windowSlice'
 
@@ -131,6 +131,13 @@ export const playlistSlice = createSlice({
       } as PlaylistItem
       if(action.payload.patternId !== undefined) item.patternId = action.payload.patternId
       state.playlistItems.push(item)
+    },
+    // clips whose samples moved (takes brought into the project's folder)
+    reduceMovedClips: (state, action: PayloadAction<MovedClip[]>) => {
+      action.payload.forEach(({ id, path }) => {
+        const item = state.playlistItems.find(i => i.id === id)
+        if(item) item.path = path
+      })
     },
     movePlaylistItem: (state, action) => {
       const item = state.playlistItems.find(i => i.id === action.payload.id)
@@ -740,11 +747,13 @@ const showLoadedProject = async (
   return project.missing
 }
 
-// save the playlist to a project file
-export const saveProject = (path: string) => async (
-  _: Dispatch,
+// save the playlist to a project file. saved somewhere new (a first save, or
+// Save As), the project gets a folder of its own, and the file it's saved to
+// is returned
+export const saveProject = (path: string, somewhereNew: boolean) => async (
+  dispatch: Dispatch,
   getState: () => RootState,
-): Promise<void> => {
+): Promise<SavedProject> => {
   // clips changed in the last moment may not have been sent yet. send their
   // latest settings, so the file has them
   await Promise.all(Array.from(queuedSettings.keys()).map(id => {
@@ -752,7 +761,9 @@ export const saveProject = (path: string) => async (
     return sendSettingsNow(id, selectClipSettings(id)(getState()))
   }))
 
-  await invoke<void>('save_project', { path })
+  const saved = await invoke<SavedProject>('save_project', { path, somewhereNew })
+  dispatch(playlistSlice.actions.reduceMovedClips(saved.movedClips))
+  return saved
 }
 
 // replace the playlist with a project file. returns the samples it couldn't

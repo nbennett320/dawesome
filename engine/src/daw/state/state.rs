@@ -13,6 +13,10 @@ pub struct InnerState {
   pub metronome_enabled: AtomicBool,
   pub root_source: Arc<Mutex<(Sink, SourcesQueueOutput<f32>)>>,
   pub playlist: Playlist,
+  // where the project is saved, and where its takes go
+  pub project: Mutex<crate::project_files::ProjectLocation>,
+  // the armed tracks, and the recording in progress
+  pub recorder: Mutex<crate::recording::Recorder>,
 }
 
 impl InnerState {
@@ -24,7 +28,9 @@ impl InnerState {
     InnerState {
       metronome_enabled: AtomicBool::from(true),
       root_source: Arc::new(Mutex::new(Sink::new_idle())),
-      playlist: Playlist::default()
+      playlist: Playlist::default(),
+      project: Mutex::new(Default::default()),
+      recorder: Mutex::new(Default::default()),
     }
   }
 
