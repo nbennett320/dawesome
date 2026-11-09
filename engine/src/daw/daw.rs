@@ -288,8 +288,9 @@ pub fn run_playlist(
       let next = state::advance(current_offset, slice, loop_len);
 
       // without looping, the tape runs out at the end of the song: stop
-      // there, once the last clip has been heard
-      if loop_len.is_none() && counts_beats {
+      // there, once the last clip has been heard. not while recording,
+      // which can carry on past it
+      if loop_len.is_none() && counts_beats && !crate::recording::is_recording(&state) {
         if let Some(end) = song_end(&state) {
           if next >= end {
             if engine.wait_for_frame(heard_at(next_at), &current) && current() {
@@ -314,6 +315,13 @@ pub fn run_playlist(
       if !engine.wait_for_frame(heard_at(next_at), &current) || !current() { break; }
       if counts_beats { set_beat_counters(&state, next, tempo_interval); }
 
+      // the loop came round: a recording ends at the loop's end. its takes
+      // are put on their tracks off this thread, which mustn't fall behind
+      if next < current_offset && crate::recording::is_recording(&state) {
+        let state = state.clone();
+        thread::spawn(move || crate::recording::finish(&state, true));
+      }
+
       println!(
         "current beat: {}, total beats played: {}, looping: {}",
         state.playlist.current_beat.load(Ordering::SeqCst),
@@ -334,6 +342,9 @@ pub fn run_playlist(
 
 // end the current run, if any, leaving the playhead where it is
 fn end_run(state: &state::InnerState) {
+  // a recording ends with playback, its takes put on their tracks
+  crate::recording::finish(state, false);
+
   // tell the run's thread it's done, even before it's flagged as playing
   let run = state.playlist.run_id.fetch_add(1, Ordering::SeqCst);
 

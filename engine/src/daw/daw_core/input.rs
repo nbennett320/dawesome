@@ -12,11 +12,10 @@ use rodio::cpal::{
   self,
   traits::{DeviceTrait, HostTrait, StreamTrait},
   FromSample,
-  Sample,
   SizedSample,
 };
 use rtrb::{Consumer, Producer, RingBuffer};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
@@ -99,29 +98,47 @@ impl Capturer {
   }
 }
 
-// a recorded take
+// a file a take is recorded into, from some of the input's channels
+#[derive(Clone, Debug, PartialEq)]
+pub struct TakeFile {
+  pub path: PathBuf,
+  // the device channels it records, in order (one, or a stereo pair)
+  pub channels: Vec<usize>,
+}
+
+// a file of a recorded take
 #[derive(Clone, Debug, PartialEq)]
 pub struct Take {
   pub path: PathBuf,
   pub channels: u16,
   pub sample_rate: u32,
   pub frames: u64,
-  // when its first frame came into the input (none if nothing was recorded)
+}
+
+// a recorded take: a file for each part of the input recorded
+#[derive(Clone, Debug, PartialEq)]
+pub struct Takes {
+  pub files: Vec<Take>,
+  // when the first frame kept came into the input (none if nothing was)
   pub started: Option<Instant>,
   // samples lost because the disk couldn't keep up
   pub dropped: u64,
-}
-
-impl Take {
-  pub fn duration(&self) -> Duration {
-    Duration::from_secs_f64(self.frames as f64 / self.sample_rate.max(1) as f64)
-  }
 }
 
 // the queues the writer reads, handed back when a take is done
 struct Queues {
   samples: Consumer<f32>,
   marks: Consumer<Mark>,
+}
+
+// what the writer's told while it runs
+#[derive(Default)]
+struct TakeControl {
+  // frames captured before this aren't kept. until it's known, nothing is
+  // written (the queue holds what comes in meanwhile)
+  keep_from: Mutex<Option<Instant>>,
+  // the most frames kept
+  limit: Mutex<Option<u64>>,
 }
 
 // an open input
@@ -131,27 +148,38 @@ pub struct Input {
   device_name: String,
   sample_rate: u32,
   device_channels: u16,
-  record_channels: u16,
+  // the channels queued while capturing (all of them, up to the most metered)
+  captured_channels: u16,
   _close: Option<mpsc::Sender<()>>,
 }
 
 // a take being recorded
-struct Recording {
-  writer: thread::JoinHandle<Result<Take, String>>,
+pub struct Recording {
+  writer: thread::JoinHandle<Result<Takes, String>>,
+  control: Arc<TakeControl>,
+}
+
+impl Recording {
+  // keep what was captured from `at` on (when the run's first frame was
+  // heard, and so when the performer started playing along)
+  pub fn keep_from(&self, at: Instant) {
+    *self.control.keep_from.lock().unwrap() = Some(at);
+  }
 }
 
 impl Input {
   // an input and the capturer its callback runs, without a device (the
   // input stream drives the capturer, or a test does)
-  fn new(name: String, sample_rate: u32, device_channels: u16, record: Vec<usize>) -> (Input, Capturer) {
+  fn new(name: String, sample_rate: u32, device_channels: u16) -> (Input, Capturer) {
+    let channels = (device_channels as usize).clamp(1, MAX_INPUT_CHANNELS);
     let shared = Arc::new(InputShared {
       capturing: AtomicBool::new(false),
-      peaks: (0..(device_channels as usize).min(MAX_INPUT_CHANNELS)).map(|_| AtomicF32::new(0.)).collect(),
+      peaks: (0..channels).map(|_| AtomicF32::new(0.)).collect(),
       latency_ns: AtomicU64::new(0),
       dropped: AtomicU64::new(0),
     });
-    let capacity = (sample_rate as usize * QUEUE_SECONDS * record.len()).max(1);
-    let (samples_tx, samples_rx) = RingBuffer::new(capacity);
+    let capacity = sample_rate as usize * QUEUE_SECONDS * channels;
+    let (samples_tx, samples_rx) = RingBuffer::new(capacity.max(1));
     // a mark a buffer: plenty for a few seconds of tiny buffers
     let (marks_tx, marks_rx) = RingBuffer::new(4096);
 
@@ -161,14 +189,14 @@ impl Input {
       device_name: name,
       sample_rate,
       device_channels,
-      record_channels: record.len() as u16,
+      captured_channels: channels as u16,
       _close: None,
     };
     let capturer = Capturer {
       shared,
       samples: samples_tx,
       marks: marks_tx,
-      record,
+      record: (0..channels).collect(),
       frame: 0,
       was_capturing: false,
     };
@@ -178,10 +206,6 @@ impl Input {
 
   pub fn device_name(&self) -> &str {
     &self.device_name
-  }
-
-  pub fn sample_rate(&self) -> u32 {
-    self.sample_rate
   }
 
   pub fn device_channels(&self) -> u16 {
@@ -198,26 +222,37 @@ impl Input {
     self.shared.peaks.iter().map(|peak| peak.take()).collect()
   }
 
-  // start recording a take into a WAV file at `path`
-  fn start_take(&self, path: &Path) -> Result<Recording, String> {
+  // start recording a take into WAV files, each from some of the channels
+  fn start_take(&self, files: &[TakeFile]) -> Result<Recording, String> {
     if self.queues.lock().unwrap().is_none() {
       return Err("a take is already being recorded".into());
     }
-
-    let spec = hound::WavSpec {
-      channels: self.record_channels,
-      sample_rate: self.sample_rate,
-      bits_per_sample: 32,
-      sample_format: hound::SampleFormat::Float,
-    };
-    if let Some(dir) = path.parent() {
-      std::fs::create_dir_all(dir)
-        .map_err(|e| format!("could not make the folder '{}': {}", dir.display(), e))?;
+    if files.is_empty() {
+      return Err("there's nothing to record into".into());
     }
-    let file = hound::WavWriter::create(path, spec)
-      .map_err(|e| format!("could not create '{}': {}", path.display(), e))?;
 
-    // taken only once the file's made, so a failure leaves them in place
+    let mut writers = Vec::new();
+    for file in files {
+      if file.channels.is_empty() || file.channels.iter().any(|&ch| ch >= self.captured_channels as usize) {
+        return Err(format!(
+          "'{}' only has {} input channels", self.device_name, self.captured_channels));
+      }
+      let spec = hound::WavSpec {
+        channels: file.channels.len() as u16,
+        sample_rate: self.sample_rate,
+        bits_per_sample: 32,
+        sample_format: hound::SampleFormat::Float,
+      };
+      if let Some(dir) = file.path.parent() {
+        std::fs::create_dir_all(dir)
+          .map_err(|e| format!("could not make the folder '{}': {}", dir.display(), e))?;
+      }
+      let writer = hound::WavWriter::create(&file.path, spec)
+        .map_err(|e| format!("could not create '{}': {}", file.path.display(), e))?;
+      writers.push((file.clone(), writer));
+    }
+
+    // taken only once the files are made, so a failure leaves them in place
     let mut queues = self.queues.lock().unwrap().take()
       .ok_or("a take is already being recorded")?;
     // whatever's left from before belongs to no take
@@ -227,48 +262,66 @@ impl Input {
 
     let shared = self.shared.clone();
     let returned = self.queues.clone();
-    let path = path.to_path_buf();
-    let channels = self.record_channels;
+    let control = Arc::new(TakeControl::default());
+    let writer_control = control.clone();
+    let channels = self.captured_channels as usize;
     let sample_rate = self.sample_rate;
 
     self.shared.capturing.store(true, Ordering::Release);
     let writer = thread::Builder::new()
       .name("take writer".into())
       .spawn(move || {
-        let result = write_take(file, &mut queues, &shared);
+        let result = write_take(writers, &mut queues, &shared, &writer_control, channels, sample_rate);
         *returned.lock().unwrap() = Some(queues);
-        result.map(|(frames, started)| Take {
-          path,
-          channels,
-          sample_rate,
-          frames,
-          started,
-          dropped: shared.dropped.load(Ordering::Relaxed),
-        })
+        result
       })
       .map_err(|e| format!("could not start writing the take: {}", e))?;
 
-    Ok(Recording { writer })
+    Ok(Recording { writer, control })
   }
 
-  // stop recording, once what's been captured is written
-  fn stop_take(&self, recording: Recording) -> Result<Take, String> {
+  // stop recording, keeping at most `limit` frames, once what's been
+  // captured is written
+  fn stop_take(&self, recording: Recording, limit: Option<u64>) -> Result<Takes, String> {
+    *recording.control.limit.lock().unwrap() = limit;
     self.shared.capturing.store(false, Ordering::Release);
     recording.writer.join().map_err(|_| "the take's writer stopped unexpectedly".to_string())?
   }
 }
 
-// drain the queues into the file until capturing stops and what's left has
-// been written. returns the frames written and when the first was captured
+// the first frame captured at or after `at`, and when it was captured, from
+// the marks so far (none until a mark has come in)
+fn first_kept(marks: &[Mark], at: Instant, sample_rate: u32) -> Option<(u64, Instant)> {
+  let rate = sample_rate.max(1) as f64;
+  let first = marks.first()?;
+  // captured before the take started: keep it all
+  if first.captured >= at { return Some((first.frame, first.captured)); }
+
+  let mark = marks.iter().rev().find(|mark| mark.captured <= at).unwrap_or(first);
+  let into = (at - mark.captured).as_secs_f64() * rate;
+  let frames = into.ceil() as u64;
+  Some((mark.frame + frames, mark.captured + Duration::from_secs_f64(frames as f64 / rate)))
+}
+
+// drain the queues into the files until capturing stops and what's left has
+// been written, keeping frames from the take's start (once that's known) up
+// to its limit
 fn write_take<W: std::io::Write + std::io::Seek>(
-  mut file: hound::WavWriter<W>,
+  mut writers: Vec<(TakeFile, hound::WavWriter<W>)>,
   queues: &mut Queues,
   shared: &InputShared,
-) -> Result<(u64, Option<Instant>), String> {
-  let mut samples = 0u64;
-  let mut first: Option<Mark> = None;
-  let channels = file.spec().channels.max(1) as u64;
+  control: &TakeControl,
+  channels: usize,
+  sample_rate: u32,
+) -> Result<Takes, String> {
   let failed = |e: hound::Error| format!("could not write the take: {}", e);
+  let mut marks: Vec<Mark> = Vec::new();
+  // the first frame kept, once known, and when it was captured
+  let mut skip: Option<u64> = None;
+  let mut started: Option<Instant> = None;
+  // frames read from the queue, and kept
+  let mut read = 0u64;
+  let mut kept = 0u64;
 
   loop {
     // once capturing has stopped, the callback may still be finishing the
@@ -277,31 +330,67 @@ fn write_take<W: std::io::Write + std::io::Seek>(
     if stopping { thread::sleep(WRITE_EVERY); }
 
     while let Ok(mark) = queues.marks.pop() {
-      first.get_or_insert(mark);
+      marks.push(mark);
     }
 
-    let ready = queues.samples.slots();
-    if ready > 0 {
-      let chunk = queues.samples.read_chunk(ready).expect("slots that are ready");
-      let (a, b) = chunk.as_slices();
-      for &sample in a.iter().chain(b) {
-        file.write_sample(sample).map_err(failed)?;
+    if skip.is_none() {
+      let keep_from = *control.keep_from.lock().unwrap();
+      let found = match keep_from {
+        Some(at) => first_kept(&marks, at, sample_rate),
+        None => None,
+      };
+      match found {
+        Some((frame, at)) => {
+          skip = Some(frame);
+          started = Some(at);
+        }
+        // stopped before the take's start was known: keep it all
+        None if stopping => {
+          skip = Some(0);
+          started = marks.first().map(|mark| mark.captured);
+        }
+        None => {}
       }
-      samples += ready as u64;
-      chunk.commit_all();
+    }
+
+    if let Some(skip) = skip {
+      let limit = control.limit.lock().unwrap().unwrap_or(u64::MAX);
+      let ready = queues.samples.slots() / channels * channels;
+      if ready > 0 {
+        let chunk = queues.samples.read_chunk(ready).expect("slots that are ready");
+        let (a, b) = chunk.as_slices();
+        let samples: Vec<f32> = a.iter().chain(b).copied().collect();
+        chunk.commit_all();
+
+        for frame in samples.chunks_exact(channels) {
+          if read >= skip && kept < limit {
+            for (file, writer) in writers.iter_mut() {
+              for &ch in &file.channels {
+                writer.write_sample(frame[ch]).map_err(failed)?;
+              }
+            }
+            kept += 1;
+          }
+          read += 1;
+        }
+      }
     }
 
     if stopping { break; }
     thread::sleep(WRITE_EVERY);
   }
 
-  file.finalize().map_err(failed)?;
-  Ok((samples / channels, first.map(|mark| mark.captured)))
-}
+  let mut files = Vec::new();
+  for (file, writer) in writers {
+    writer.finalize().map_err(failed)?;
+    files.push(Take { path: file.path, channels: file.channels.len() as u16, sample_rate, frames: kept });
+  }
 
-// which of a device's channels a take records: the first two, or the only one
-fn record_channels(device_channels: u16) -> Vec<usize> {
-  (0..(device_channels as usize).min(2)).collect()
+  Ok(Takes {
+    files,
+    started: if kept > 0 { started } else { None },
+    dropped: shared.dropped.load(Ordering::Relaxed),
+  })
 }
 
 // an input device by name, or the system's default
@@ -377,7 +466,7 @@ fn build_input(name: Option<&str>, sample_rate: u32) -> Result<(Input, cpal::Str
 
   println!("audio input: {} ({} Hz, {} channels, {:?})", device_name, sample_rate, channels, format);
 
-  let (input, capturer) = Input::new(device_name, sample_rate, channels, record_channels(channels));
+  let (input, capturer) = Input::new(device_name, sample_rate, channels);
   let stream = match format {
     cpal::SampleFormat::F32 => build_stream::<f32>(&device, &config, capturer),
     cpal::SampleFormat::I16 => build_stream::<i16>(&device, &config, capturer),
@@ -467,18 +556,25 @@ pub fn input_if_open() -> Option<Arc<Input>> {
   INPUTS.lock().unwrap().open.clone()
 }
 
-pub fn recording() -> bool {
-  INPUTS.lock().unwrap().recording.is_some()
+// how many channels the chosen input has, without opening it
+pub fn input_channel_count() -> Result<u16, String> {
+  if let Some(input) = input_if_open() { return Ok(input.device_channels()); }
+
+  let settings = daw::audio_settings();
+  let device = input_device(settings.input_device.as_deref())?;
+  device.default_input_config()
+    .map(|config| config.channels())
+    .map_err(|e| format!("could not read the input's settings: {}", e))
 }
 
-// start recording a take into `path`
-pub fn start_recording(path: &Path) -> Result<(), String> {
+// start recording a take into these files. nothing's kept until it's told
+// when the take starts (see keep_recording_from)
+pub fn start_recording(files: &[TakeFile]) -> Result<(), String> {
   let mut inputs = INPUTS.lock().unwrap();
   if inputs.recording.is_some() { return Err("already recording".into()); }
 
   let input = open_or_reuse(&mut inputs)?;
-  let started = input.start_take(path);
-  match started {
+  match input.start_take(files) {
     Ok(recording) => {
       inputs.recording = Some((input, recording));
       Ok(())
@@ -490,23 +586,31 @@ pub fn start_recording(path: &Path) -> Result<(), String> {
   }
 }
 
-// stop recording, returning the take (none if nothing was recording)
-pub fn stop_recording() -> Result<Option<Take>, String> {
+// keep what's captured from `at` on
+pub fn keep_recording_from(at: Instant) {
+  if let Some((_, recording)) = INPUTS.lock().unwrap().recording.as_ref() {
+    recording.keep_from(at);
+  }
+}
+
+// stop recording, keeping at most `limit` frames, returning the take (none
+// if nothing was recording)
+pub fn stop_recording(limit: Option<u64>) -> Result<Option<Takes>, String> {
   let mut inputs = INPUTS.lock().unwrap();
   let (input, recording) = match inputs.recording.take() {
     Some(recording) => recording,
     None => return Ok(None),
   };
 
-  let take = input.stop_take(recording);
+  let takes = input.stop_take(recording, limit);
   close_if_unused(&mut inputs);
-  take.map(Some)
+  takes.map(Some)
 }
 
 // the input device or output changed: stop recording, and reopen the input
 // (at the output's rate) the next time it's needed
-pub fn reset_input() -> Option<Take> {
-  let take = stop_recording().ok().flatten();
+pub fn reset_input() -> Option<Takes> {
+  let takes = stop_recording(None).ok().flatten();
   let mut inputs = INPUTS.lock().unwrap();
   inputs.open = None;
   if inputs.listeners > 0 {
@@ -514,12 +618,13 @@ pub fn reset_input() -> Option<Take> {
       println!("could not reopen the audio input: {}", e);
     }
   }
-  take
+  takes
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
+  use std::path::Path;
 
   const RATE: u32 = 1_000;
 
@@ -541,58 +646,141 @@ mod tests {
     (spec, reader.samples::<f32>().map(|s| s.unwrap()).collect())
   }
 
+  fn file(path: &Path, channels: &[usize]) -> TakeFile {
+    TakeFile { path: path.to_path_buf(), channels: channels.to_vec() }
+  }
+
+  const MS: Duration = Duration::from_millis(1);
+
   #[test]
   fn test_a_take_holds_what_was_captured_while_recording() {
-    // a 4 channel device, recording its first two
-    let (input, mut capturer) = Input::new("test".into(), RATE, 4, record_channels(4));
+    let (input, mut capturer) = Input::new("test".into(), RATE, 4);
     let path = temp_take("captured");
     let t0 = Instant::now();
 
     // before recording: metered, not kept
     capturer.process(&frames(0, 10, 4), 4, t0);
-    let recording = input.start_take(&path).unwrap();
-    capturer.process(&frames(10, 10, 4), 4, t0 + Duration::from_millis(10));
-    capturer.process(&frames(20, 5, 4), 4, t0 + Duration::from_millis(20));
-    let take = input.stop_take(recording).unwrap();
+    let recording = input.start_take(&[file(&path, &[0, 1])]).unwrap();
+    recording.keep_from(t0);
+    capturer.process(&frames(10, 10, 4), 4, t0 + 10 * MS);
+    capturer.process(&frames(20, 5, 4), 4, t0 + 20 * MS);
+    let take = input.stop_take(recording, None).unwrap();
     // after: not kept
-    capturer.process(&frames(25, 10, 4), 4, t0 + Duration::from_millis(25));
+    capturer.process(&frames(25, 10, 4), 4, t0 + 25 * MS);
 
-    assert_eq!(take.frames, 15);
-    assert_eq!(take.channels, 2);
-    assert_eq!(take.sample_rate, RATE);
-    assert_eq!(take.started, Some(t0 + Duration::from_millis(10)));
+    // kept from the first frame captured
+    assert_eq!(take.started, Some(t0 + 10 * MS));
     assert_eq!(take.dropped, 0);
-    assert_eq!(take.duration(), Duration::from_millis(15));
+    assert_eq!(take.files.len(), 1);
+    let file = &take.files[0];
+    assert_eq!((file.frames, file.channels, file.sample_rate), (15, 2, RATE));
 
     let (spec, samples) = read(&path);
     assert_eq!(spec.sample_format, hound::SampleFormat::Float);
     assert_eq!(spec.bits_per_sample, 32);
-    assert_eq!(spec.channels, 2);
     assert_eq!(samples, frames(10, 15, 2));
 
     let _ = std::fs::remove_file(&path);
   }
 
   #[test]
+  fn test_frames_before_the_take_starts_are_dropped() {
+    let (input, mut capturer) = Input::new("test".into(), RATE, 1);
+    let path = temp_take("keep-from");
+    let t0 = Instant::now();
+
+    let recording = input.start_take(&[file(&path, &[0])]).unwrap();
+    // captured before the transport was heard
+    capturer.process(&frames(0, 10, 1), 1, t0);
+    capturer.process(&frames(10, 10, 1), 1, t0 + 10 * MS);
+    // the run is heard from 13.5ms: the first frame at or after that is 14
+    recording.keep_from(t0 + Duration::from_micros(13_500));
+    capturer.process(&frames(20, 5, 1), 1, t0 + 20 * MS);
+    let take = input.stop_take(recording, None).unwrap();
+
+    assert_eq!(read(&path).1, frames(14, 11, 1));
+    assert_eq!(take.started, Some(t0 + 14 * MS));
+    assert_eq!(take.files[0].frames, 11);
+
+    let _ = std::fs::remove_file(&path);
+  }
+
+  #[test]
+  fn test_a_take_stops_at_its_limit() {
+    let (input, mut capturer) = Input::new("test".into(), RATE, 1);
+    let path = temp_take("limit");
+    let t0 = Instant::now();
+
+    let recording = input.start_take(&[file(&path, &[0])]).unwrap();
+    recording.keep_from(t0 + 2 * MS);
+    capturer.process(&frames(0, 30, 1), 1, t0);
+    // the loop ended 20 frames in
+    let take = input.stop_take(recording, Some(20)).unwrap();
+
+    assert_eq!(read(&path).1, frames(2, 20, 1));
+    assert_eq!(take.files[0].frames, 20);
+
+    let _ = std::fs::remove_file(&path);
+  }
+
+  #[test]
+  fn test_each_armed_track_gets_its_own_channels() {
+    let (input, mut capturer) = Input::new("test".into(), RATE, 4);
+    let stereo = temp_take("pair");
+    let mono = temp_take("mono");
+
+    let recording = input.start_take(&[file(&stereo, &[2, 3]), file(&mono, &[0])]).unwrap();
+    recording.keep_from(Instant::now() - Duration::from_secs(1));
+    capturer.process(&frames(0, 3, 4), 4, Instant::now());
+    let take = input.stop_take(recording, None).unwrap();
+
+    assert_eq!(read(&stereo).1, vec![0.2, 0.3, 1.2, 1.3, 2.2, 2.3]);
+    assert_eq!(read(&mono).1, vec![0., 1., 2.]);
+    assert_eq!(take.files.iter().map(|f| f.channels).collect::<Vec<_>>(), vec![2, 1]);
+
+    // channels the device doesn't have
+    let refused = input.start_take(&[file(&mono, &[4])]).err().unwrap();
+    assert!(refused.contains("4 input channels"), "{}", refused);
+
+    let _ = std::fs::remove_file(&stereo);
+    let _ = std::fs::remove_file(&mono);
+  }
+
+  #[test]
+  fn test_stopped_before_its_start_was_known_keeps_everything() {
+    let (input, mut capturer) = Input::new("test".into(), RATE, 1);
+    let path = temp_take("unknown-start");
+    let t0 = Instant::now();
+
+    let recording = input.start_take(&[file(&path, &[0])]).unwrap();
+    capturer.process(&frames(0, 5, 1), 1, t0);
+    let take = input.stop_take(recording, None).unwrap();
+
+    assert_eq!(take.files[0].frames, 5);
+    assert_eq!(take.started, Some(t0));
+
+    let _ = std::fs::remove_file(&path);
+  }
+
+  #[test]
   fn test_takes_follow_one_another() {
-    let (input, mut capturer) = Input::new("test".into(), RATE, 1, record_channels(1));
+    let (input, mut capturer) = Input::new("test".into(), RATE, 1);
     let first = temp_take("first");
     let second = temp_take("second");
 
-    let recording = input.start_take(&first).unwrap();
+    let recording = input.start_take(&[file(&first, &[0])]).unwrap();
     capturer.process(&frames(0, 8, 1), 1, Instant::now());
-    let one = input.stop_take(recording).unwrap();
+    let one = input.stop_take(recording, None).unwrap();
 
     // a second take starts from nothing, though the queue was reused
-    let recording = input.start_take(&second).unwrap();
+    let recording = input.start_take(&[file(&second, &[0])]).unwrap();
     // and can't be started twice
-    assert!(input.start_take(&temp_take("third")).is_err());
+    assert!(input.start_take(&[file(&temp_take("third"), &[0])]).is_err());
     capturer.process(&frames(100, 3, 1), 1, Instant::now());
-    let two = input.stop_take(recording).unwrap();
+    let two = input.stop_take(recording, None).unwrap();
 
-    assert_eq!((one.frames, two.frames), (8, 3));
+    assert_eq!((one.files[0].frames, two.files[0].frames), (8, 3));
     assert_eq!(read(&second).1, frames(100, 3, 1));
-    assert_eq!(read(&second).0.channels, 1);
 
     let _ = std::fs::remove_file(&first);
     let _ = std::fs::remove_file(&second);
@@ -600,25 +788,25 @@ mod tests {
 
   #[test]
   fn test_what_does_not_fit_is_counted_not_blocked_on() {
-    let (input, mut capturer) = Input::new("test".into(), RATE, 1, record_channels(1));
+    let (input, mut capturer) = Input::new("test".into(), RATE, 1);
     let path = temp_take("overflow");
-    let recording = input.start_take(&path).unwrap();
+    let recording = input.start_take(&[file(&path, &[0])]).unwrap();
 
     // more than the queue holds, faster than the writer drains it
     let capacity = RATE as usize * QUEUE_SECONDS;
     capturer.process(&frames(0, capacity + 500, 1), 1, Instant::now());
-    let take = input.stop_take(recording).unwrap();
+    let take = input.stop_take(recording, None).unwrap();
 
     assert_eq!(take.dropped, (capacity + 500) as u64);
-    // the frames counted are those captured, so the take keeps its timing
-    assert_eq!(take.frames, 0);
+    assert_eq!(take.files[0].frames, 0);
+    assert_eq!(take.started, None);
 
     let _ = std::fs::remove_file(&path);
   }
 
   #[test]
   fn test_the_meter_reads_every_channel() {
-    let (input, mut capturer) = Input::new("test".into(), RATE, 3, record_channels(3));
+    let (input, mut capturer) = Input::new("test".into(), RATE, 3);
     capturer.process(&[0.1, -0.5, 0.2, -0.3, 0.4, 0.], 3, Instant::now());
 
     assert_eq!(input.take_peaks(), vec![0.3, 0.5, 0.2]);
@@ -628,24 +816,17 @@ mod tests {
 
   #[test]
   fn test_a_take_that_cannot_be_created_leaves_the_input_usable() {
-    let (input, _capturer) = Input::new("test".into(), RATE, 1, record_channels(1));
-    let file = temp_take("not-a-folder");
-    std::fs::write(&file, b"in the way").unwrap();
+    let (input, _capturer) = Input::new("test".into(), RATE, 1);
+    let blocker = temp_take("not-a-folder");
+    std::fs::write(&blocker, b"in the way").unwrap();
 
-    assert!(input.start_take(&file.join("take.wav")).is_err());
+    assert!(input.start_take(&[file(&blocker.join("take.wav"), &[0])]).is_err());
     let path = temp_take("after");
-    let recording = input.start_take(&path).unwrap();
-    input.stop_take(recording).unwrap();
+    let recording = input.start_take(&[file(&path, &[0])]).unwrap();
+    input.stop_take(recording, None).unwrap();
 
-    let _ = std::fs::remove_file(&file);
+    let _ = std::fs::remove_file(&blocker);
     let _ = std::fs::remove_file(&path);
-  }
-
-  #[test]
-  fn test_record_channels() {
-    assert_eq!(record_channels(1), vec![0]);
-    assert_eq!(record_channels(2), vec![0, 1]);
-    assert_eq!(record_channels(18), vec![0, 1]);
   }
 
   // records from the real default input: run with `cargo test -- --ignored`
@@ -657,19 +838,21 @@ mod tests {
     let input = open_input(None, rate).expect("could not open the input");
     let path = temp_take("device");
 
-    let recording = input.start_take(&path).unwrap();
+    let recording = input.start_take(&[file(&path, &[0])]).unwrap();
+    recording.keep_from(Instant::now());
     thread::sleep(Duration::from_millis(300));
-    let take = input.stop_take(recording).unwrap();
+    let take = input.stop_take(recording, None).unwrap();
+    let frames = take.files[0].frames;
 
     println!(
-      "{}: {} channels at {} Hz, recorded {:?} ({} frames), input latency {:?}, dropped {}",
-      input.device_name(), input.device_channels(), rate, take.duration(), take.frames, input.latency(), take.dropped,
+      "{}: {} channels at {} Hz, recorded {} frames, input latency {:?}, dropped {}",
+      input.device_name(), input.device_channels(), rate, frames, input.latency(), take.dropped,
     );
     assert!(take.started.is_some());
     assert_eq!(take.dropped, 0);
     let expected = rate as f64 * 0.3;
-    assert!((take.frames as f64 - expected).abs() < expected * 0.25, "{} frames", take.frames);
-    assert_eq!(hound::WavReader::open(&path).unwrap().duration() as u64, take.frames);
+    assert!((frames as f64 - expected).abs() < expected * 0.25, "{} frames", frames);
+    assert_eq!(hound::WavReader::open(&path).unwrap().duration() as u64, frames);
 
     let _ = std::fs::remove_file(&path);
   }

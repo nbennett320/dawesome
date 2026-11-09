@@ -1,3 +1,4 @@
+import { ArmedTrack } from './audio'
 import { ClipInfo } from './clip'
 import { MixerSettings } from './mixer'
 import { SequencerState } from './sequencer'
@@ -75,4 +76,14 @@ export interface LoadedProject extends ProjectSettings {
   // the Sequencer tab's rows and patterns
   sequencer: SequencerState
   patternClips: LoadedPatternClip[]
+  // the tracks armed to record (left out by older engines)
+  armed?: ArmedTrack[]
+}
+
+// the clips recorded since the engine was last asked (see collect_recording
+// in engine/src/audio_commands.rs)
+export interface Recorded {
+  recording: boolean
+  clips: LoadedClip[]
+  problems: string[]
 }

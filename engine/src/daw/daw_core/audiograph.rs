@@ -606,6 +606,15 @@ impl AudioGraph<'static> {
 
   // add nodes to the audio graph and sort the graph by
   // offset start time
+  // add a node made elsewhere (so its sample was decoded without holding the
+  // graph), giving it the next id. returns the id
+  pub fn insert_node(&mut self, mut node: AudioNode) -> u64 {
+    let id = self.next_id;
+    node.id = id;
+    self.add_node(node);
+    id
+  }
+
   pub fn add_node(&mut self, node: AudioNode) {
     // keep the counter ahead of any externally assigned id
     self.next_id = self.next_id.max(node.id + 1);
@@ -1484,6 +1493,15 @@ mod tests {
     assert!(daw::calc_waveform_from_samples(vec![1, 2, 3], 0).is_none());
     // a few samples (< 0.25ms) used to divide by zero
     assert!(daw::calc_waveform_from_samples(vec![100, -100, 50, -50], 1).is_some());
+  }
+
+  #[test]
+  fn test_silence_has_a_flat_waveform() {
+    // used to panic: silence smoothed and normalised by dividing by zero
+    let waveform = daw::calc_waveform_from_samples(vec![0; 48_000], 1).unwrap();
+    let levels: Vec<f32> = waveform.chunks(2).map(|point| point[1]).collect();
+    assert!(!levels.is_empty());
+    assert!(levels.iter().all(|&level| level == 0.));
   }
 
   #[test]

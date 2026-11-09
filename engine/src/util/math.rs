@@ -346,6 +346,9 @@ pub fn f_normalize<
     .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
     .unwrap().1;
 
+  // all the same (like silence): flat, rather than dividing by zero
+  if max == min { return vec![0.; xsf.len()]; }
+
   let mut norms = Vec::<f32>::new();
   for x in &xsf {
     let norm = (x - min) / (max - min);
@@ -392,6 +395,12 @@ pub fn gaussian_1d<
   only_weights: bool,
 ) -> Option<Vec<f32>> {
   match(std_dev(xs), xs.len()) {
+    // a constant signal (like silence) has nothing to smooth, and would
+    // divide by zero below
+    (Some(sd), len) if len > 0 && sd == 0. => Some(xs
+      .iter()
+      .map(|x| if only_weights { 1. } else { x.to_f32().unwrap() })
+      .collect()),
     (Some(sd), len) if len > 0 => {
       use std::f32::consts::{PI, E};
       

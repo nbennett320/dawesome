@@ -15,6 +15,13 @@ import {
   setTrackVolume,
 } from '../../state/slices/mixerSlice'
 import { selectPlaylistPlaying, selectPlaylistUI } from '../../state/slices/playlistSlice'
+import {
+  fetchRecordSetup,
+  selectArmed,
+  selectInputChannels,
+  selectRecording,
+  setTrackArmed,
+} from '../../state/slices/recordingSlice'
 import ChannelStrip from './ChannelStrip'
 import { AnalogButton, Led } from '../../components/fourtrack'
 import { MASTER_METER_KEY, RegisterMeter, trackMeterKey, useMixerMeters } from './useMixerMeters'
@@ -24,6 +31,9 @@ const TrackStrip = ({ trackNumber, register }: { trackNumber: number, register: 
   const mix = useAppSelector(selectTrackMix(trackNumber))
   const name = useAppSelector(selectTrackName(trackNumber))
   const anySolo = useAppSelector(selectAnySolo)
+  const armed = useAppSelector(selectArmed(trackNumber))
+  const channels = useAppSelector(selectInputChannels)
+  const recording = useAppSelector(selectRecording)
 
   return (
     <ChannelStrip
@@ -36,6 +46,17 @@ const TrackStrip = ({ trackNumber, register }: { trackNumber: number, register: 
       pan={{ value: mix.pan, onChange: pan => dispatch(setTrackPan(trackNumber, pan)) }}
       mute={{ on: mix.mute, onChange: on => dispatch(setTrackMute(trackNumber, on)) }}
       solo={{ on: mix.solo, onChange: on => dispatch(setTrackSolo(trackNumber, on)) }}
+      record={{
+        armed,
+        channels,
+        recording,
+        onChange: input => {
+          dispatch(setTrackArmed(trackNumber, input)).catch(e => {
+            // eslint-disable-next-line no-console
+            console.error('could not arm the track:', e)
+          })
+        },
+      }}
       silenced={anySolo && !mix.solo && !mix.mute}
     />
   )
@@ -90,6 +111,11 @@ const Mixer = () => {
     dispatch(fetchMixer()).catch(e => {
       // eslint-disable-next-line no-console
       console.error('could not read the mixer:', e)
+    })
+    // and which tracks are armed, and the input's channels
+    dispatch(fetchRecordSetup()).catch(e => {
+      // eslint-disable-next-line no-console
+      console.error('could not read the recording setup:', e)
     })
   }, [dispatch, trackCount])
 

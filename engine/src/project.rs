@@ -86,6 +86,9 @@ pub struct Project {
   pub sequencer: daw::SavedSequencer,
   #[serde(skip_serializing_if = "Vec::is_empty")]
   pub pattern_clips: Vec<ProjectPatternClip>,
+  // the tracks armed to record, and the input channels each records
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub armed: Vec<crate::recording::ArmedTrack>,
 }
 
 impl Default for Project {
@@ -97,6 +100,7 @@ impl Default for Project {
       mixer: daw::MixerSettings::default(),
       sequencer: daw::SavedSequencer::default(),
       pattern_clips: Vec::new(),
+      armed: Vec::new(),
     }
   }
 }
@@ -177,6 +181,7 @@ pub struct LoadedProject {
   pub mixer: daw::MixerSettings,
   pub sequencer: daw::SequencerState,
   pub pattern_clips: Vec<LoadedPatternClip>,
+  pub armed: Vec<crate::recording::ArmedTrack>,
 }
 
 // the folder a project file is in, which its relative sample paths start from
@@ -279,6 +284,7 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
     mixer,
     sequencer,
     pattern_clips,
+    armed: state.recorder.lock().unwrap().armed(),
   }
 }
 
@@ -303,6 +309,7 @@ pub fn apply(
   }
 
   state.playlist.mixer.apply(&project.mixer);
+  state.recorder.lock().unwrap().set_armed(&project.armed);
 
   let mut audiograph = state.playlist.audiograph.lock().unwrap();
   audiograph.clear();
@@ -380,7 +387,7 @@ pub fn apply(
 
   let mixer = state.playlist.mixer.settings(audiograph.track_count());
 
-  LoadedProject { settings, clips, missing, mixer, sequencer, pattern_clips }
+  LoadedProject { settings, clips, missing, mixer, sequencer, pattern_clips, armed: project.armed.clone() }
 }
 
 // write the current playlist to a project file. the file is written next to
@@ -565,6 +572,30 @@ mod tests {
 
   fn saved_json(path: &str) -> Project {
     Project::from_json(&fs::read_to_string(path).unwrap()).unwrap()
+  }
+
+  #[test]
+  fn test_armed_tracks_are_saved() {
+    use crate::recording::{ArmedTrack, InputChoice};
+    let dir = test_dir("armed");
+    let state = daw::InnerState::default();
+    let armed = vec![
+      ArmedTrack { track_number: 0, input: InputChoice { first: 0, stereo: true } },
+      ArmedTrack { track_number: 2, input: InputChoice { first: 3, stereo: false } },
+    ];
+    state.recorder.lock().unwrap().set_armed(&armed);
+    let file = dir.join("song.dawesome");
+    save_to(&state, &file).unwrap();
+
+    let loaded = daw::InnerState::default();
+    assert_eq!(load_from(&loaded, &file).unwrap().armed, armed);
+    assert_eq!(loaded.recorder.lock().unwrap().armed(), armed);
+
+    // a new project has nothing armed
+    apply(&loaded, &Project::default(), None);
+    assert!(loaded.recorder.lock().unwrap().armed().is_empty());
+
+    let _ = fs::remove_dir_all(&dir);
   }
 
   #[test]

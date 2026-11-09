@@ -108,9 +108,8 @@ pub fn set_audio_settings(state: daw::TState<'_>, settings: daw::AudioSettings) 
     || before.output_device != settings.output_device
     || before.buffer_frames != settings.buffer_frames
   {
-    if let Some(take) = daw::reset_input() {
-      println!("the audio settings changed while recording: kept {}", take.path.display());
-    }
+    // (playback, and so any recording, has already stopped)
+    daw::reset_input();
   }
   Ok(status())
 }
@@ -128,48 +127,65 @@ pub fn get_input_levels() -> Vec<f32> {
   daw::input_if_open().map(|input| input.take_peaks()).unwrap_or_default()
 }
 
-// a take that's been recorded
+// what recording needs to know: which tracks are armed, the input's
+// channels to choose from, and how recordings are lined up
 #[derive(Serialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct TakeInfo {
-  path: String,
-  seconds: f64,
-  channels: u16,
-  // samples lost because the disk couldn't keep up
-  dropped: u64,
+pub struct RecordSetup {
+  armed: Vec<crate::recording::ArmedTrack>,
+  // none when there's no input to record from
+  input_channels: Option<u16>,
+  input_error: Option<String>,
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct RecordingStatus {
-  recording: bool,
-  // the take just finished, when recording stopped
-  take: Option<TakeInfo>,
-}
-
-// start recording a take into the project's recordings folder (or, before
-// the project's saved, a folder of its own), or stop and keep it
-#[tauri::command(async)]
-pub fn t_toggle_recording(state: daw::TState<'_>) -> Result<RecordingStatus, String> {
-  if let Some(take) = daw::stop_recording()? {
-    println!("recorded {} ({:.2}s, {} samples dropped)", take.path.display(), take.duration().as_secs_f64(), take.dropped);
-    return Ok(RecordingStatus {
-      recording: false,
-      take: Some(TakeInfo {
-        path: take.path.to_string_lossy().into_owned(),
-        seconds: take.duration().as_secs_f64(),
-        channels: take.channels,
-        dropped: take.dropped,
-      }),
-    });
-  }
-
-  let path = {
-    let mut location = state.project.lock().unwrap();
-    let dir = location.recordings_dir()?;
-    crate::project_files::next_take_path(&dir, &location.name(), &crate::project_files::today())
+fn record_setup(state: &daw::InnerState) -> RecordSetup {
+  let (input_channels, input_error) = match daw::input_channel_count() {
+    Ok(channels) => (Some(channels), None),
+    Err(e) => (None, Some(e)),
   };
-  daw::start_recording(&path)?;
-  println!("recording to {}", path.display());
-  Ok(RecordingStatus { recording: true, take: None })
+  RecordSetup {
+    armed: state.recorder.lock().unwrap().armed(),
+    input_channels,
+    input_error,
+  }
+}
+
+#[tauri::command(async)]
+pub fn get_record_setup(state: daw::TState<'_>) -> RecordSetup {
+  record_setup(&state)
+}
+
+// arm a track to record these input channels, or (with none) disarm it
+#[tauri::command(async)]
+pub fn set_track_armed(
+  state: daw::TState<'_>,
+  track_number: u32,
+  input: Option<crate::recording::InputChoice>,
+) -> RecordSetup {
+  state.recorder.lock().unwrap().arm(track_number, input);
+  record_setup(&state)
+}
+
+// record every armed track, playing from the playhead
+#[tauri::command(async)]
+pub fn t_start_recording(state: daw::TState<'_>) -> Result<crate::recording::Recorded, String> {
+  crate::recording::start(state.inner())?;
+  Ok(crate::recording::collect(&state))
+}
+
+// stop recording (and playback, which keeps its place), with the clips the
+// takes became
+#[tauri::command(async)]
+pub fn t_stop_recording(state: daw::TState<'_>) -> crate::recording::Recorded {
+  if crate::recording::is_recording(&state) {
+    daw::pause_playlist(&state);
+  }
+  crate::recording::collect(&state)
+}
+
+// whether it's still recording, and the clips recorded since last asked
+// (recording also ends when playback stops, or at a loop's end)
+#[tauri::command]
+pub fn collect_recording(state: daw::TState<'_>) -> crate::recording::Recorded {
+  crate::recording::collect(&state)
 }

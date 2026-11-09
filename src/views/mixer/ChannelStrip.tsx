@@ -1,6 +1,7 @@
 import React from 'react'
 import { formatDb, formatPan, MAX_DB, MAX_NAME_CHARS, MIN_DB } from '../../types/mixer'
-import { Knob, MuteSolo } from '../../components/fourtrack'
+import { AnalogButton, Knob, Led, MuteSolo } from '../../components/fourtrack'
+import { InputChoice, inputChoices, inputKey, inputLabel, parseInputKey } from '../../types/audio'
 import Fader, { THUMB_HEIGHT } from './Fader'
 import Meter from './Meter'
 import { RegisterMeter } from './useMixerMeters'
@@ -98,6 +99,58 @@ const NameLabel = ({ label, silenced, onRename }: {
   )
 }
 
+// arming a track to record, and the input channels it records
+export interface RecordControl {
+  // the input channels it records, when it's armed
+  armed: InputChoice | null
+  // the input's channels to choose from (null without an input)
+  channels: number | null
+  // recording now (an armed track's LED flashes)
+  recording: boolean
+  onChange: (input: InputChoice | null) => void
+}
+
+const RecordArm = ({ label, record }: { label: string, record: RecordControl }) => {
+  const { armed, channels, recording, onChange } = record
+  // what it records once armed: what it last recorded, or the first two channels
+  const [choice, setChoice] = React.useState<InputChoice>(armed ?? { first: 0, stereo: (channels ?? 2) >= 2 })
+  React.useEffect(() => { if(armed) setChoice(armed) }, [armed])
+
+  let led: 'off' | 'on' | 'blink' = 'off'
+  if(armed) led = recording ? 'blink' : 'on'
+  const choices = channels ? inputChoices(channels) : [choice]
+
+  return (
+    <div className='flex flex-row items-center gap-1'>
+      <Led color='red' state={led} />
+      <AnalogButton
+        variant='text'
+        size='xs'
+        latched={armed !== null}
+        aria-label={`Arm ${label} to record`}
+        title={channels === null ? 'Arm to record (there\'s no input to record from)' : 'Arm to record'}
+        onPress={() => onChange(armed ? null : choice)}
+      >
+        R
+      </AnalogButton>
+      <select
+        className='ft-readout text-[10px] py-0 w-full min-w-0'
+        aria-label={`${label} records from`}
+        title='The input channels it records'
+        value={inputKey(choice)}
+        onChange={e => {
+          const picked = parseInputKey(e.currentTarget.value)
+          if(!picked) return
+          setChoice(picked)
+          if(armed) onChange(picked)
+        }}
+      >
+        {choices.map(c => <option key={inputKey(c)} value={inputKey(c)}>{inputLabel(c)}</option>)}
+      </select>
+    </div>
+  )
+}
+
 interface Props {
   label: string
   volumeDb: number
@@ -109,6 +162,8 @@ interface Props {
   // mute and solo (track strips)
   mute?: { on: boolean, onChange: (on: boolean) => void }
   solo?: { on: boolean, onChange: (on: boolean) => void }
+  // arming to record (track strips)
+  record?: RecordControl
   // silenced by another track's solo
   silenced?: boolean
   // renaming (track strips). an empty name goes back to the default
@@ -130,6 +185,7 @@ const ChannelStrip = ({
   pan,
   mute,
   solo,
+  record,
   silenced = false,
   onRename,
   footer,
@@ -180,6 +236,8 @@ const ChannelStrip = ({
     </div>
 
     <DbField label={label} value={volumeDb} onChange={onVolume} />
+
+    {record && <RecordArm label={label} record={record} />}
 
     <div className='flex flex-row justify-center h-11'>
       {mute && solo && (

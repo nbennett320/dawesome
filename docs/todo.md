@@ -56,3 +56,5 @@
     - Overall toggle 
         - If the current sidebar view is enabled, and the user clicks the button that would navigate to the current view: collapse the sidebar
     - Recordings browser!!!
+- infra
+    - what is the difference between audio_commands and bind_functions?

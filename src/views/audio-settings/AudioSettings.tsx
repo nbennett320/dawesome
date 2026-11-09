@@ -95,6 +95,47 @@ const InputMeter = ({ onOpened, onError }: { onOpened: () => void, onError: (e: 
   )
 }
 
+// how much earlier recordings are placed, typed in milliseconds
+const OffsetField = ({ value, disabled, onChange }: {
+  value: number
+  disabled: boolean
+  onChange: (ms: number) => void
+}) => {
+  const [draft, setDraft] = React.useState<string | null>(null)
+  const commit = () => {
+    if(draft === null) return
+    const ms = parseFloat(draft)
+    if(Number.isFinite(ms) && ms !== value) onChange(Math.max(-1000, Math.min(1000, ms)))
+    setDraft(null)
+  }
+
+  return (
+    <div className='flex flex-col gap-1'>
+      <label htmlFor='audio-record-offset' className='flex flex-col gap-1'>
+        <span className='ft-label'>Recording offset (ms)</span>
+        <input
+          id='audio-record-offset'
+          type='text'
+          inputMode='decimal'
+          className='ft-readout text-sm py-1 w-24'
+          disabled={disabled}
+          value={draft ?? String(value)}
+          onFocus={e => e.currentTarget.select()}
+          onChange={e => setDraft(e.currentTarget.value)}
+          onBlur={commit}
+          onKeyDown={e => {
+            if(e.key === 'Enter') e.currentTarget.blur()
+            if(e.key === 'Escape') setDraft(null)
+          }}
+        />
+      </label>
+      <span className='text-xs text-slate-500 max-w-md'>
+        If recordings land late, raise this by how much. Bluetooth headphones often need 150 to 250.
+      </span>
+    </div>
+  )
+}
+
 const devices = (names: string[], chosen: string | null) => [
   { value: '', label: 'System default' },
   // a saved device that isn't plugged in stays listed, so it shows as chosen
@@ -198,6 +239,11 @@ const AudioSettings = () => {
           {status.input && (
             <span className='text-xs text-slate-500'>Input latency {msLabel(status.input.latencyMs)}</span>
           )}
+          <OffsetField
+            value={settings.recordOffsetMs}
+            disabled={disabled}
+            onChange={ms => apply({ recordOffsetMs: ms })}
+          />
         </section>
 
         <section className='flex flex-col gap-1'>

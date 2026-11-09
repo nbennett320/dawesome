@@ -5,6 +5,7 @@ mod util;
 mod event_dispatch;
 mod project;
 mod project_files;
+mod recording;
 mod recent;
 mod mixer_commands;
 mod audio_commands;
@@ -136,7 +137,11 @@ fn init_tauri() {
       get_mixer_levels,
       get_playlist_max_length,
       init_playlist_workspace,
-      t_toggle_recording,
+      t_start_recording,
+      t_stop_recording,
+      collect_recording,
+      get_record_setup,
+      set_track_armed,
       listen_to_input,
       get_input_levels,
       get_sequencer,

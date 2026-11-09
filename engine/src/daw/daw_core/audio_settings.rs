@@ -18,6 +18,10 @@ pub struct AudioSettings {
   pub input_device: Option<String>,
   // frames per buffer. none for the device's default
   pub buffer_frames: Option<u32>,
+  // how much earlier recordings are placed than the devices' reported
+  // latency says, in milliseconds. for devices that don't report all of it
+  // (Bluetooth headphones add a lot). negative places them later
+  pub record_offset_ms: f64,
 }
 
 // where the settings are saved, e.g. ~/Library/Application Support/dawesome
@@ -82,6 +86,7 @@ mod tests {
       output_device: Some("Studio Interface".into()),
       input_device: Some("Studio Interface".into()),
       buffer_frames: Some(128),
+      record_offset_ms: 150.,
     };
 
     settings.save(&file).unwrap();

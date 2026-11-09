@@ -150,6 +150,16 @@ pub fn next_take_path(dir: &Path, project: &str, date: &str) -> PathBuf {
     .expect("a free take number")
 }
 
+// the next `count` free take names in a folder, numbered one after another
+// (for takes recorded together)
+pub fn next_take_paths(dir: &Path, project: &str, date: &str, count: usize) -> Vec<PathBuf> {
+  (0..)
+    .map(|n| dir.join(take_name(project, date, n)))
+    .filter(|path| !path.exists())
+    .take(count)
+    .collect()
+}
+
 // a free path in `dir` for a file called `file_name`, numbering it when
 // that's taken
 fn free_path(dir: &Path, file_name: &str) -> PathBuf {
@@ -305,6 +315,20 @@ mod tests {
   fn test_session_folder_names_sort_by_date() {
     assert_eq!(session_folder_name("11092026", 0xabc123), "20261109-abc123");
     assert_eq!(session_folder_name("11092026", 0xff), "20261109-0000ff");
+  }
+
+  #[test]
+  fn test_takes_recorded_together_get_their_own_numbers() {
+    let dir = test_dir("next-takes");
+    touch(&dir.join("song_11092026_1.wav"));
+
+    assert_eq!(next_take_paths(&dir, "song", "11092026", 3), vec![
+      dir.join("song_11092026_0.wav"),
+      dir.join("song_11092026_2.wav"),
+      dir.join("song_11092026_3.wav"),
+    ]);
+
+    let _ = fs::remove_dir_all(&dir);
   }
 
   #[test]
