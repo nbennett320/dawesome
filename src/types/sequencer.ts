@@ -1,3 +1,5 @@
+import { FolderInfo, ROOT } from './folderTree'
+
 // the pattern sequencer: rows of samples shared by every pattern, and
 // patterns that light some of each row's steps. mirrors
 // engine/src/daw/daw_core/sequencer.rs
@@ -26,12 +28,24 @@ export interface Pattern {
   length: number
   // the steps lit on each row, by row id
   steps: Record<string, number[]>
+  // the folder it's in, in the sidebar's pattern browser (left out at the top)
+  folder?: number | null
+}
+
+// a folder of patterns, in the sidebar's pattern browser. folders only sort
+// patterns: they don't change how anything plays
+export interface PatternFolder {
+  id: number
+  name: string
+  // the folder it's in (left out at the top)
+  parent?: number | null
 }
 
 // what every sequencer command returns
 export interface SequencerState {
   rows: SequencerRow[]
   patterns: Pattern[]
+  folders: PatternFolder[]
 }
 
 // what a pattern is called: its name, or its number. numbers come from ids,
@@ -81,3 +95,42 @@ export const stepAt = (elapsedMs: number, pattern: Pattern, beatIntervalMs: numb
 // each row's lit steps in a pattern, in row order: what a pattern clip draws
 export const litRows = (pattern: Pattern, rows: SequencerRow[]): number[][] =>
   rows.map(row => (pattern.steps[row.id] ?? []).filter(s => s < pattern.length))
+
+// what's shown faintly after a pattern's name: its length, and how many
+// times it's in the playlist
+export const patternHint = (pattern: Pattern, beatsPerBar: number, clips: number): string => {
+  const bars = patternBars(pattern, beatsPerBar)
+  const length = bars === null ? `${pattern.length} steps` : `${bars} bar${bars === 1 ? '' : 's'}`
+  return clips ? `${length} · ${clips}×` : length
+}
+
+// the patterns whose label has the search in it, keeping the Sequencer's order
+export const searchPatterns = (patterns: Pattern[], query: string): Pattern[] => {
+  const search = query.trim().toLowerCase()
+  if(!search) return patterns
+  return patterns.filter(p => patternLabel(p).toLowerCase().includes(search))
+}
+
+// pattern folders in the browser's tree are keyed by their ids, as strings
+// (the top is ROOT)
+export const folderKey = (id: number | null | undefined): string =>
+  (id === null || id === undefined ? ROOT : String(id))
+
+export const folderIdOf = (key: string): number | null => (key === ROOT ? null : Number(key))
+
+export const patternFolderInfos = (folders: PatternFolder[]): FolderInfo[] =>
+  folders.map(f => ({ key: folderKey(f.id), name: f.name, parent: folderKey(f.parent) }))
+
+// where a folder is, by name from the top: "Drums / Fills"
+export const folderPathLabel = (folders: PatternFolder[], id: number | null | undefined): string => {
+  const byId = new Map(folders.map(f => [f.id, f]))
+  const names: string[] = []
+  const seen = new Set<number>()
+  let folder = id === null || id === undefined ? undefined : byId.get(id)
+  while(folder && !seen.has(folder.id)) {
+    seen.add(folder.id)
+    names.unshift(folder.name)
+    folder = folder.parent === null || folder.parent === undefined ? undefined : byId.get(folder.parent)
+  }
+  return names.join(' / ')
+}

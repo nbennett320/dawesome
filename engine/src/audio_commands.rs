@@ -3,6 +3,7 @@
 // they run off the main thread: listing devices and reopening the output can
 // take a moment
 use crate::daw;
+use std::path::{Path, PathBuf};
 use rodio::cpal::traits::{DeviceTrait, HostTrait};
 use serde::Serialize;
 
@@ -197,4 +198,290 @@ pub fn t_stop_recording(state: daw::TState<'_>) -> crate::recording::Recorded {
 #[tauri::command]
 pub fn collect_recording(state: daw::TState<'_>) -> crate::recording::Recorded {
   crate::recording::collect(&state)
+}
+
+// the project's takes (newest first) and folders, for the sidebar's
+// recordings browser. an unsaved project that hasn't recorded anything has
+// none
+#[tauri::command]
+pub fn t_list_recordings(state: daw::TState<'_>) -> crate::project_files::RecordingsListing {
+  let dir = state.project.lock().unwrap().existing_recordings_dir();
+  dir.map(|dir| crate::project_files::list_recordings(&dir)).unwrap_or_default()
+}
+
+// the recordings folder, for changing what's in it, as long as nothing's
+// being recorded into it
+// - make: make the folder for an unsaved project that hasn't recorded yet
+fn recordings_dir_to_change(state: &daw::InnerState, make: bool) -> Result<PathBuf, String> {
+  if crate::recording::is_busy(state) {
+    return Err("wait for the recording to finish".into());
+  }
+  let mut location = state.project.lock().unwrap();
+  match location.existing_recordings_dir() {
+    Some(dir) => Ok(dir),
+    None if make => location.recordings_dir(),
+    None => Err("the project has no recordings".to_string()),
+  }
+}
+
+// a take or a folder after it's moved or renamed, and the clips and
+// sequencer rows that now play from its new place
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct MovedRecording {
+  // where it is now: a take's full path, or a folder's path relative to the
+  // recordings folder (as they were given)
+  pub path: String,
+  pub moved_clips: Vec<crate::project::MovedClip>,
+  // the sequencer, when a row plays a take that moved
+  pub sequencer: Option<daw::SequencerState>,
+  // the saved project file couldn't be changed to follow it, so it'll only
+  // find it once the project's saved again
+  pub problem: Option<String>,
+}
+
+// where a sample is after `from` (a take, or a folder of them) moved to `to`
+fn moved_path(path: &str, from: &Path, to: &Path) -> Option<String> {
+  let rest = Path::new(path).strip_prefix(from).ok()?;
+  let moved = if rest.as_os_str().is_empty() { to.to_path_buf() } else { to.join(rest) };
+  Some(moved.to_string_lossy().into_owned())
+}
+
+// what moved, after it's moved on disk: clips and sequencer rows play it
+// from where it is now, and so does the saved project file
+fn moved(state: &daw::InnerState, from: &Path, to: &Path, path: String) -> MovedRecording {
+  let (moved_clips, sequencer) = repoint(state, from, to);
+  let project = state.project.lock().unwrap().path.clone();
+  let problem = project
+    .and_then(|file| crate::project::follow_moved_recording(&file, from, to).err())
+    .map(|e| format!("the project file still has the old place, until it's saved: {}", e));
+  if let Some(problem) = &problem { println!("{}", problem); }
+  MovedRecording { path, moved_clips, sequencer, problem }
+}
+
+// clips and sequencer rows playing `from` (a take, or anything in a folder)
+// play from `to` instead
+fn repoint(state: &daw::InnerState, from: &Path, to: &Path) -> (Vec<crate::project::MovedClip>, Option<daw::SequencerState>) {
+  let mut moved_clips = Vec::new();
+  if from == to { return (moved_clips, None); }
+
+  let mut audiograph = state.playlist.audiograph.lock().unwrap();
+  for node in audiograph.nodes.iter_mut() {
+    if let Some(path) = moved_path(node.sample_path(), from, to) {
+      node.set_sample_path(path.clone());
+      moved_clips.push(crate::project::MovedClip { id: node.id, path });
+    }
+  }
+
+  let mut seq = state.playlist.sequencer.lock().unwrap();
+  let moved: Vec<(String, String)> = seq.rows().iter()
+    .filter_map(|row| moved_path(&row.path, from, to).map(|path| (row.path.clone(), path)))
+    .collect();
+  let sequencer = if !moved.is_empty() && seq.move_row_samples(&moved) { Some(seq.state()) } else { None };
+
+  (moved_clips, sequencer)
+}
+
+// whether any clip or sequencer row plays `path` (a take, or anything in a
+// folder)
+fn in_use(state: &daw::InnerState, path: &Path) -> bool {
+  state.playlist.audiograph.lock().unwrap().nodes.iter().any(|node| Path::new(node.sample_path()).starts_with(path))
+    || state.playlist.sequencer.lock().unwrap().rows().iter().any(|row| Path::new(&row.path).starts_with(path))
+}
+
+// rename a take (it stays in its folder), keeping the clips and sequencer
+// rows that play it
+#[tauri::command]
+pub fn t_rename_recording(state: daw::TState<'_>, path: String, name: String) -> Result<MovedRecording, String> {
+  rename_recording(&state, &path, &name)
+}
+
+fn rename_recording(state: &daw::InnerState, path: &str, name: &str) -> Result<MovedRecording, String> {
+  let dir = recordings_dir_to_change(state, false)?;
+  let from = PathBuf::from(path);
+  let to = crate::project_files::rename_take(&from, &dir, name)?;
+  let path = to.to_string_lossy().into_owned();
+  Ok(moved(state, &from, &to, path))
+}
+
+// move a take into a folder (relative to the recordings folder, "" for the
+// top), keeping the clips and sequencer rows that play it
+#[tauri::command]
+pub fn t_move_recording(state: daw::TState<'_>, path: String, to_folder: String) -> Result<MovedRecording, String> {
+  move_recording(&state, &path, &to_folder)
+}
+
+fn move_recording(state: &daw::InnerState, path: &str, to_folder: &str) -> Result<MovedRecording, String> {
+  let dir = recordings_dir_to_change(state, false)?;
+  let from = PathBuf::from(path);
+  if !from.is_file() {
+    return Err("that isn't one of the project's recordings".into());
+  }
+  let to = crate::project_files::move_into(&dir, &from, to_folder)?;
+  let path = to.to_string_lossy().into_owned();
+  Ok(moved(state, &from, &to, path))
+}
+
+// move one folder into another (both relative to the recordings folder),
+// with everything in it
+#[tauri::command]
+pub fn t_move_recording_folder(state: daw::TState<'_>, folder: String, to_folder: String) -> Result<MovedRecording, String> {
+  move_recording_folder(&state, &folder, &to_folder)
+}
+
+fn move_recording_folder(state: &daw::InnerState, folder: &str, to_folder: &str) -> Result<MovedRecording, String> {
+  let dir = recordings_dir_to_change(state, false)?;
+  if folder.is_empty() {
+    return Err("the recordings folder itself can't be moved".into());
+  }
+  let from = crate::project_files::folder_in(&dir, folder)?;
+  let to = crate::project_files::move_into(&dir, &from, to_folder)?;
+  let path = crate::project_files::relative(&dir, &to);
+  Ok(moved(state, &from, &to, path))
+}
+
+// a new, empty folder inside `parent` (relative to the recordings folder,
+// "" for the top). returns its path, relative
+#[tauri::command]
+pub fn t_create_recording_folder(state: daw::TState<'_>, parent: String, name: String) -> Result<String, String> {
+  let dir = recordings_dir_to_change(&state, true)?;
+  crate::project_files::create_folder(&dir, &parent, &name)
+}
+
+// rename a folder, keeping the clips and sequencer rows that play what's in it
+#[tauri::command]
+pub fn t_rename_recording_folder(state: daw::TState<'_>, folder: String, name: String) -> Result<MovedRecording, String> {
+  rename_recording_folder(&state, &folder, &name)
+}
+
+fn rename_recording_folder(state: &daw::InnerState, folder: &str, name: &str) -> Result<MovedRecording, String> {
+  let dir = recordings_dir_to_change(state, false)?;
+  let (from, to) = crate::project_files::rename_folder(&dir, folder, name)?;
+  let path = crate::project_files::relative(&dir, &to);
+  Ok(moved(state, &from, &to, path))
+}
+
+// move a take the project doesn't use to the trash
+#[tauri::command]
+pub fn t_delete_recording(state: daw::TState<'_>, path: String) -> Result<(), String> {
+  let dir = recordings_dir_to_change(&state, false)?;
+  let file = Path::new(&path);
+  if !file.is_file() || !crate::project_files::is_inside(file, &dir) {
+    return Err("that isn't one of the project's recordings".into());
+  }
+  if in_use(&state, file) {
+    return Err("the project still uses this recording".into());
+  }
+  trash::delete(file).map_err(|e| format!("could not move the recording to the trash: {}", e))
+}
+
+// move a folder, and everything in it, to the trash. refused while the
+// project uses any take in it
+#[tauri::command]
+pub fn t_delete_recording_folder(state: daw::TState<'_>, folder: String) -> Result<(), String> {
+  let dir = recordings_dir_to_change(&state, false)?;
+  if folder.is_empty() {
+    return Err("the recordings folder itself can't be deleted".into());
+  }
+  let path = crate::project_files::folder_in(&dir, &folder)?;
+  if in_use(&state, &path) {
+    return Err("the project still uses recordings in this folder".into());
+  }
+  trash::delete(&path).map_err(|e| format!("could not move the folder to the trash: {}", e))
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn test_dir(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir()
+      .join(format!("dawesome-audio-commands-{}-{}", name, std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::canonicalize(dir).unwrap()
+  }
+
+  // a saved project with a take on the playlist and in a sequencer row
+  fn saved_project(name: &str) -> (daw::InnerState, PathBuf, PathBuf, String) {
+    let dir = test_dir(name);
+    let state = daw::InnerState::default();
+    let file = dir.join("song").join("song.dawesome");
+    let recordings = dir.join("song").join("recordings");
+    std::fs::create_dir_all(&recordings).unwrap();
+    let take = recordings.join("song_11092026_0.wav").to_string_lossy().into_owned();
+    std::fs::copy(daw::METRONOME_TICK_PATH, &take).unwrap();
+    std::fs::create_dir_all(recordings.join("Vocals")).unwrap();
+
+    state.playlist.audiograph.lock().unwrap()
+      .construct_and_add_node(take.clone(), std::time::Duration::ZERO, 0).unwrap();
+    state.playlist.sequencer.lock().unwrap().add_row(&take).unwrap();
+    crate::project::save_project_to(&state, &file, false).unwrap();
+    (state, dir, file, take)
+  }
+
+  // the project as it opens next time, and the samples it couldn't find
+  fn reopen(file: &Path) -> (crate::project::LoadedProject, daw::InnerState) {
+    let state = daw::InnerState::default();
+    let loaded = crate::project::load_from(&state, file).unwrap();
+    (loaded, state)
+  }
+
+  #[test]
+  fn test_a_moved_take_is_found_when_the_project_is_opened_again() {
+    let (state, dir, file, take) = saved_project("reopen-moved");
+    let moved = move_recording(&state, &take, "Vocals").unwrap();
+
+    let (loaded, _) = reopen(&file);
+    assert!(loaded.missing.is_empty(), "{:?}", loaded.missing);
+    assert_eq!(loaded.clips[0].path, moved.path);
+    assert_eq!(loaded.sequencer.rows[0].path, moved.path);
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_renamed_takes_and_folders_are_found_when_the_project_is_opened_again() {
+    let (state, dir, file, take) = saved_project("reopen-renamed");
+    let renamed = rename_recording(&state, &take, "lead").unwrap();
+    move_recording(&state, &renamed.path, "Vocals").unwrap();
+    rename_recording_folder(&state, "Vocals", "Lead vocals").unwrap();
+    std::fs::create_dir_all(dir.join("song").join("recordings").join("Old")).unwrap();
+    let last = move_recording_folder(&state, "Lead vocals", "Old").unwrap();
+    assert_eq!(last.path, "Old/Lead vocals");
+
+    let (loaded, _) = reopen(&file);
+    let expected = dir.join("song").join("recordings").join("Old").join("Lead vocals").join("lead.wav");
+    assert!(loaded.missing.is_empty(), "{:?}", loaded.missing);
+    assert_eq!(loaded.clips[0].path, expected.to_string_lossy());
+    assert_eq!(loaded.sequencer.rows[0].path, expected.to_string_lossy());
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_moving_a_take_saves_nothing_else() {
+    let (state, dir, file, take) = saved_project("reopen-unsaved");
+    // a change made after saving, and not saved
+    state.playlist.audiograph.lock().unwrap()
+      .construct_and_add_node(daw::METRONOME_TICK_PATH.to_string(), std::time::Duration::ZERO, 1).unwrap();
+    move_recording(&state, &take, "Vocals").unwrap();
+
+    let (loaded, _) = reopen(&file);
+    assert_eq!(loaded.clips.len(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_moved_path() {
+    let from = Path::new("/song/recordings/Vocals");
+    let to = Path::new("/song/recordings/Old/Vocals");
+    // a take in the folder, or the folder itself
+    assert_eq!(moved_path("/song/recordings/Vocals/a.wav", from, to), Some("/song/recordings/Old/Vocals/a.wav".into()));
+    assert_eq!(moved_path("/song/recordings/Vocals/x/b.wav", from, to), Some("/song/recordings/Old/Vocals/x/b.wav".into()));
+    // a take that moved on its own
+    let take = Path::new("/song/recordings/a.wav");
+    assert_eq!(moved_path("/song/recordings/a.wav", take, Path::new("/song/recordings/B/a.wav")), Some("/song/recordings/B/a.wav".into()));
+    // not in it, even with a name that starts the same
+    assert_eq!(moved_path("/song/recordings/Vocals 2/a.wav", from, to), None);
+    assert_eq!(moved_path("/samples/kick.wav", from, to), None);
+  }
 }

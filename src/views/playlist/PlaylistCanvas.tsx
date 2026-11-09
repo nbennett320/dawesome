@@ -21,7 +21,7 @@ import { useAppSelector, useAppDispatch } from '../../hooks/redux'
 import type { RootState } from '../../state/store'
 import { PlaylistWindow, PlaylistItem } from '../../types/playlist'
 import { Renderer } from './sketch'
-import { onSampleDrag } from '../../state/sampleDrag'
+import { isPlaceable, onSampleDrag } from '../../state/sampleDrag'
 import { OWN_DRAG_PREVIEW } from '../../components/DragGhost'
 import { selectFocusedView } from '../../state/slices/windowSlice'
 import { View } from '../../types/ui'
@@ -106,7 +106,8 @@ const PlaylistCanvas = () => {
   // where the preview showed on release
   React.useEffect(() => onSampleDrag(({ type, item, clientX, clientY }) => {
     const el = ref.current
-    if(!el) return
+    // folders only move within the sidebar
+    if(!el || !isPlaceable(item)) return
 
     // the element actually under the mouse, so other panes covering the
     // playlist's box don't count as being over it

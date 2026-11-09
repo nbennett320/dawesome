@@ -400,8 +400,13 @@ pub fn apply(
 // half-written project
 pub fn save_to(state: &daw::InnerState, project_path: &Path) -> Result<(), String> {
   let dir = project_dir(project_path)?;
-  let project = capture(state, Some(&dir));
-  let json = serde_json::to_string_pretty(&project)
+  write_project(&capture(state, Some(&dir)), project_path)
+}
+
+// write a project file, all at once: a file that's half written is never
+// left in its place
+fn write_project(project: &Project, project_path: &Path) -> Result<(), String> {
+  let json = serde_json::to_string_pretty(project)
     .map_err(|e| format!("could not write the project: {}", e))?;
 
   let mut tmp = project_path.as_os_str().to_owned();
@@ -414,6 +419,43 @@ pub fn save_to(state: &daw::InnerState, project_path: &Path) -> Result<(), Strin
       let _ = fs::remove_file(&tmp);
       format!("could not save '{}': {}", project_path.display(), e)
     })
+}
+
+// a path that may not be there any more, with its folder resolved (links
+// and all), so it compares with the resolved paths a project file's point to
+fn resolved_parent(path: &Path) -> PathBuf {
+  match (path.parent().and_then(|parent| fs::canonicalize(parent).ok()), path.file_name()) {
+    (Some(parent), Some(name)) => parent.join(name),
+    _ => path.to_path_buf(),
+  }
+}
+
+// a take, or a folder of them, moved in the recordings folder. that happens
+// on disk straight away, so the saved project file follows it: opening the
+// project before it's next saved still finds its takes. only the moved
+// paths change in the file, so other changes stay unsaved
+pub fn follow_moved_recording(project_path: &Path, from: &Path, to: &Path) -> Result<(), String> {
+  if !project_path.is_file() { return Ok(()); }
+  let json = fs::read_to_string(project_path)
+    .map_err(|e| format!("could not open '{}': {}", project_path.display(), e))?;
+  let mut project = Project::from_json(&json)?;
+  let dir = project_dir(project_path)?;
+  let from = resolved_parent(from);
+  let to = resolved_parent(to);
+
+  let mut changed = false;
+  let mut follow = |stored: &mut String| {
+    let resolved = resolved_parent(&resolved_path(stored, Some(&dir)));
+    if let Ok(rest) = resolved.strip_prefix(&from) {
+      let moved = if rest.as_os_str().is_empty() { to.clone() } else { to.join(rest) };
+      *stored = stored_path(&moved.to_string_lossy(), Some(&dir));
+      changed = true;
+    }
+  };
+  project.clips.iter_mut().for_each(|clip| follow(&mut clip.path));
+  project.sequencer.rows.iter_mut().for_each(|row| follow(&mut row.path));
+
+  if changed { write_project(&project, project_path) } else { Ok(()) }
 }
 
 // replace the playlist with a project file. nothing changes if the file
@@ -459,7 +501,8 @@ pub struct SavedProject {
 //
 // takes recorded before the project was first saved are moved into its
 // recordings folder. saving as somewhere new copies the old project's takes
-// in, so the old project keeps its own. either way they're named after the
+// in, so the old project keeps its own. either way the whole folder comes
+// over (its folders, and takes nothing uses), and takes are named after the
 // project, keeping the day they were recorded
 pub fn save_project_to(
   state: &daw::InnerState,
@@ -492,10 +535,9 @@ pub fn save_project_to(
     let mut audiograph = state.playlist.audiograph.lock().unwrap();
     let mut seq = state.playlist.sequencer.lock().unwrap();
 
-    let paths: Vec<String> = audiograph.nodes.iter().map(|node| node.sample_path().to_string())
-      .chain(seq.rows().iter().map(|row| row.path.clone()))
-      .collect();
-    let (relocated, errors) = project_files::relocate_takes(&paths, &from, &to, &name, copy);
+    // the whole folder comes over, folders and unused takes too, so the
+    // recordings browser shows the same after saving
+    let (relocated, errors) = project_files::relocate_takes(&from, &to, &name, copy);
     problems = errors;
 
     for node in audiograph.nodes.iter_mut() {
@@ -663,6 +705,32 @@ mod tests {
     assert_eq!(location.recordings_dir().unwrap(), dir.join("song").join("recordings"));
     assert_eq!(location.name(), "song");
     drop(location);
+
+    let _ = fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_first_save_keeps_folders_and_unused_takes() {
+    let dir = test_dir("first-save-folders");
+    let state = daw::InnerState::default();
+    let session = dir.join("unsaved-session");
+    state.project.lock().unwrap().session = Some(session.clone());
+    let filed = record_take(&session.join("Vocals"), "untitled_11092026_0.wav");
+    let unused = record_take(&session, "untitled_11092026_1.wav");
+    let clip = add_clip(&state, &filed, 0, 0.);
+
+    let saved = save_project_to(&state, &dir.join("song.dawesome"), true).unwrap();
+
+    let recordings = dir.join("song").join("recordings");
+    let moved = recordings.join("Vocals").join("song_11092026_0.wav");
+    assert!(saved.problems.is_empty(), "{:?}", saved.problems);
+    assert!(moved.is_file());
+    assert!(recordings.join("song_11092026_1.wav").is_file());
+    assert!(!Path::new(&filed).exists() && !Path::new(&unused).exists());
+    assert!(!session.exists());
+
+    assert_eq!(saved.moved_clips, vec![MovedClip { id: clip, path: moved.to_string_lossy().into_owned() }]);
+    assert_eq!(saved_json(&saved.path).clips[0].path, "recordings/Vocals/song_11092026_0.wav");
 
     let _ = fs::remove_dir_all(&dir);
   }

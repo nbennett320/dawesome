@@ -35,6 +35,7 @@ export interface SequencerSliceState extends SequencerState {
 const initialState: SequencerSliceState = {
   rows: [],
   patterns: [],
+  folders: [],
   selectedPatternId: null,
   run: null,
 }
@@ -54,6 +55,7 @@ export const sequencerSlice = createSlice({
     setSequencer: (state, action: PayloadAction<SequencerState>) => {
       state.rows = action.payload.rows
       state.patterns = action.payload.patterns
+      state.folders = action.payload.folders ?? []
       fixSelection(state)
     },
     selectPattern: (state, action: PayloadAction<number>) => {
@@ -79,6 +81,7 @@ export const sequencerSlice = createSlice({
         const { sequencer } = action.payload
         state.rows = sequencer?.rows ?? []
         state.patterns = sequencer?.patterns ?? []
+        state.folders = sequencer?.folders ?? []
         state.selectedPatternId = null
         state.run = null
         fixSelection(state)
@@ -161,6 +164,38 @@ export const removePattern = (patternId: number) => async (dispatch: Dispatch) =
     sequencerError('delete the pattern')(e)
   }
 }
+
+// pattern folders, in the sidebar's pattern browser. unlike the edits above,
+// these throw, so the browser can say why (a name that's taken, a folder
+// whose patterns are in the playlist)
+const folderEdit = (command: string, args: Record<string, unknown>) => async (dispatch: Dispatch) => {
+  dispatch(setSequencer(await invoke<SequencerState>(command, args)))
+}
+
+// a new, empty folder in `parent` (null: the top). returns its id
+export const addPatternFolder = (name: string, parent: number | null) =>
+  async (dispatch: Dispatch): Promise<number> => {
+    const { id, sequencer } = await invoke<{ id: number, sequencer: SequencerState }>(
+      'add_pattern_folder', { name, parent })
+    dispatch(setSequencer(sequencer))
+    return id
+  }
+
+export const renamePatternFolder = (folderId: number, name: string) =>
+  folderEdit('rename_pattern_folder', { folderId, name })
+
+// move a folder into another, or (null) to the top
+export const movePatternFolder = (folderId: number, parent: number | null) =>
+  folderEdit('move_pattern_folder', { folderId, parent })
+
+// put a pattern in a folder, or (null) at the top
+export const movePatternToFolder = (patternId: number, folder: number | null) =>
+  folderEdit('move_pattern', { patternId, folder })
+
+// delete a folder, its folders and its patterns. the engine refuses while
+// any of them is in the playlist
+export const removePatternFolder = (folderId: number) =>
+  folderEdit('remove_pattern_folder', { folderId })
 
 export const renamePattern = (patternId: number, name: string) =>
   edit('rename the pattern', 'rename_pattern', { patternId, name })
@@ -251,6 +286,7 @@ export const stopPattern = () => async (dispatch: Dispatch) => {
 
 export const selectSequencerRows = (state: RootState) => state.sequencer.rows
 export const selectPatterns = (state: RootState) => state.sequencer.patterns
+export const selectPatternFolders = (state: RootState) => state.sequencer.folders
 export const selectSelectedPatternId = (state: RootState) => state.sequencer.selectedPatternId
 export const selectSelectedPattern = (state: RootState): Pattern | null =>
   state.sequencer.patterns.find(p => p.id === state.sequencer.selectedPatternId) ?? null

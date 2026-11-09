@@ -5,14 +5,27 @@
 // during an HTML drag the playlist canvas couldn't draw the clip following
 // the mouse, while mouse events keep p5's draw loop running as normal
 
-// what's being dragged
+// the sidebar browsers that have folders
+export type FolderScope = 'recordings' | 'patterns'
+
+// what's being dragged. a folder only moves within its browser: it can't be
+// placed in the playlist or the Sequencer
 export type DragItem =
   | { kind: 'sample', path: string }
   | { kind: 'pattern', patternId: number, label: string }
+  | { kind: 'folder', scope: FolderScope, key: string, label: string }
+
+// what can be dropped into the playlist (or, for samples, the Sequencer)
+export type PlaceableItem = Exclude<DragItem, { kind: 'folder' }>
+
+export const isPlaceable = (item: DragItem): item is PlaceableItem => item.kind !== 'folder'
 
 // tells drags apart: the same key is the same thing being dragged
-export const dragItemKey = (item: DragItem): string =>
-  (item.kind === 'sample' ? `sample:${item.path}` : `pattern:${item.patternId}`)
+export const dragItemKey = (item: DragItem): string => {
+  if(item.kind === 'sample') return `sample:${item.path}`
+  if(item.kind === 'pattern') return `pattern:${item.patternId}`
+  return `folder:${item.scope}:${item.key}`
+}
 
 // what a dragged thing is called, for the label following the mouse
 export const dragItemLabel = (item: DragItem): string =>

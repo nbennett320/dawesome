@@ -1,11 +1,13 @@
-import { createSlice, Dispatch, PayloadAction } from '@reduxjs/toolkit'
+import { createSlice, PayloadAction } from '@reduxjs/toolkit'
 import { RootState } from 'state/store'
-import { WindowPane, SplitDirection, View, viewLabels } from '../../types/ui'
+import { WindowPane, SidebarPage, SplitDirection, View, viewLabels } from '../../types/ui'
 import * as paneTree from '../paneTree'
 
 export interface WindowState {
   playlist: boolean
   sidebar: boolean
+  // the page the sidebar shows (kept while it's closed)
+  sidebarPage: SidebarPage
   windowPane: WindowPane
   // the pane last clicked in, where opened tabs go
   focusedPaneId: string
@@ -20,6 +22,7 @@ export interface WindowState {
 const initialState = {
   playlist: true,
   sidebar: true,
+  sidebarPage: SidebarPage.Samples,
   windowPane: {
     id: 'dawesome',
     root: {
@@ -56,8 +59,19 @@ export const windowSlice = createSlice({
   name: 'windowSlice',
   initialState,
   reducers: {
-    setSidebar: (state, action) => {
+    setSidebar: (state, action: PayloadAction<boolean>) => {
       state.sidebar = action.payload
+    },
+    // a key on the sidebar's rail was pressed: pressing the page that's
+    // showing closes the sidebar, any other opens it on that page
+    pressSidebarPage: (state, action: PayloadAction<SidebarPage>) => {
+      if(state.sidebar && state.sidebarPage === action.payload) {
+        state.sidebar = false
+        return
+      }
+
+      state.sidebar = true
+      state.sidebarPage = action.payload
     },
     setCassetteVisible: (state, action: PayloadAction<boolean>) => {
       state.cassetteVisible = action.payload
@@ -143,17 +157,11 @@ export const windowSlice = createSlice({
 })
 
 // start sidebar methods
-export const { setSidebar } = windowSlice.actions
-
-export const toggleSidebar = () => (
-  dispatch: Dispatch,
-  getState: () => RootState
-) => {
-  const open = getState().window.sidebar
-  dispatch(setSidebar(!open))
-}
+export const { setSidebar, pressSidebarPage } = windowSlice.actions
 
 export const selectSidebar = (state: RootState) => state.window.sidebar
+
+export const selectSidebarPage = (state: RootState) => state.window.sidebarPage
 // end sidebar methods
 
 // start window layout methods

@@ -55,6 +55,33 @@ pub struct Pattern {
   pub length: u32,
   // the steps lit on each row, by row id
   pub steps: BTreeMap<u64, BTreeSet<u32>>,
+  // the folder it's in, in the sidebar's pattern browser (none: the top)
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub folder: Option<u64>,
+}
+
+// a folder of patterns, in the sidebar's pattern browser. folders only sort
+// patterns: they don't change how anything plays
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PatternFolder {
+  pub id: u64,
+  pub name: String,
+  // the folder it's in (none: the top)
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub parent: Option<u64>,
+}
+
+// a folder's name, trimmed. it can't be blank, or too long to show
+fn folder_name(name: &str) -> Result<String, String> {
+  let name = name.trim();
+  if name.is_empty() {
+    return Err("a folder needs a name".into());
+  }
+  if name.chars().count() > 120 {
+    return Err("that name is too long".into());
+  }
+  Ok(name.to_string())
 }
 
 impl Pattern {
@@ -81,6 +108,7 @@ pub struct RowInfo {
 pub struct SequencerState {
   pub rows: Vec<RowInfo>,
   pub patterns: Vec<Pattern>,
+  pub folders: Vec<PatternFolder>,
 }
 
 // a row as saved in a project (its path is made relative by project.rs)
@@ -103,11 +131,14 @@ fn default_row_volume() -> f32 { ROW_VOLUME }
 pub struct SavedSequencer {
   pub rows: Vec<SavedRow>,
   pub patterns: Vec<Pattern>,
+  // left out of projects saved before pattern folders
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub folders: Vec<PatternFolder>,
 }
 
 impl SavedSequencer {
   pub fn is_empty(&self) -> bool {
-    self.rows.is_empty() && self.patterns.is_empty()
+    self.rows.is_empty() && self.patterns.is_empty() && self.folders.is_empty()
   }
 }
 
@@ -115,8 +146,10 @@ impl SavedSequencer {
 pub struct Sequencer {
   rows: Vec<SequencerRow>,
   patterns: Vec<Pattern>,
+  folders: Vec<PatternFolder>,
   next_row_id: u64,
   next_pattern_id: u64,
+  next_folder_id: u64,
 }
 
 // steps in `bars` bars of `beats_per_bar` beats
@@ -185,13 +218,15 @@ impl Sequencer {
         muted: r.muted,
       }).collect(),
       patterns: self.patterns.clone(),
+      folders: self.folders.clone(),
     }
   }
 
-  // forget every row and pattern, e.g. before loading a project
+  // forget every row, pattern and folder, e.g. before loading a project
   pub fn clear(&mut self) {
     self.rows.clear();
     self.patterns.clear();
+    self.folders.clear();
   }
 
   // add a row playing the sample at `path`, at the bottom. returns its id
@@ -255,6 +290,7 @@ impl Sequencer {
       name: None,
       length: steps_in_bars(bars, beats_per_bar),
       steps: BTreeMap::new(),
+      folder: None,
     })?;
     Ok(id)
   }
@@ -401,6 +437,8 @@ impl Sequencer {
             name: Some(format!("{} ({})", label, sample_name(&path))),
             length: source.length,
             steps: wanted,
+            // next to the pattern it came from
+            folder: source.folder,
           });
           insert_at += 1;
           new_id
@@ -409,6 +447,130 @@ impl Sequencer {
       split.push((path, pattern_id));
     }
     Ok(split)
+  }
+
+  pub fn folders(&self) -> &[PatternFolder] {
+    &self.folders
+  }
+
+  pub fn folder(&self, id: u64) -> Option<&PatternFolder> {
+    self.folders.iter().find(|f| f.id == id)
+  }
+
+  fn folder_mut(&mut self, id: u64) -> Result<&mut PatternFolder, String> {
+    self.folders.iter_mut().find(|f| f.id == id)
+      .ok_or_else(|| format!("no pattern folder with id {}", id))
+  }
+
+  // a folder to put something in: none (the top), or one that's there
+  fn check_folder(&self, folder: Option<u64>) -> Result<(), String> {
+    match folder {
+      Some(id) if self.folder(id).is_none() => Err(format!("no pattern folder with id {}", id)),
+      _ => Ok(()),
+    }
+  }
+
+  // whether `id` is `ancestor`, or inside it. parents that loop (which
+  // restore doesn't allow) stop the search
+  pub fn folder_within(&self, id: u64, ancestor: u64) -> bool {
+    let mut at = Some(id);
+    for _ in 0..=self.folders.len() {
+      match at {
+        Some(found) if found == ancestor => return true,
+        Some(found) => at = self.folder(found).and_then(|f| f.parent),
+        None => return false,
+      }
+    }
+    false
+  }
+
+  // folder names don't repeat in a folder (case aside), as on disk
+  // - except: a folder that can keep its name (it's the one being renamed)
+  fn check_folder_name(&self, name: &str, parent: Option<u64>, except: Option<u64>) -> Result<(), String> {
+    let taken = self.folders.iter()
+      .any(|f| f.parent == parent && Some(f.id) != except && f.name.to_lowercase() == name.to_lowercase());
+    if taken { Err(format!("there's already a folder called '{}' there", name)) } else { Ok(()) }
+  }
+
+  // a new, empty folder in `parent` (none: the top). returns its id
+  pub fn add_folder(&mut self, name: &str, parent: Option<u64>) -> Result<u64, String> {
+    let name = folder_name(name)?;
+    self.check_folder(parent)?;
+    self.check_folder_name(&name, parent, None)?;
+    let id = self.next_folder_id;
+    self.next_folder_id += 1;
+    self.folders.push(PatternFolder { id, name, parent });
+    Ok(id)
+  }
+
+  pub fn rename_folder(&mut self, id: u64, name: &str) -> Result<(), String> {
+    let name = folder_name(name)?;
+    let parent = self.folder(id).ok_or_else(|| format!("no pattern folder with id {}", id))?.parent;
+    self.check_folder_name(&name, parent, Some(id))?;
+    self.folder_mut(id)?.name = name;
+    Ok(())
+  }
+
+  // move a folder (with what's in it) into another, or (none) to the top.
+  // a folder can't go inside itself
+  pub fn move_folder(&mut self, id: u64, parent: Option<u64>) -> Result<(), String> {
+    let name = self.folder(id).ok_or_else(|| format!("no pattern folder with id {}", id))?.name.clone();
+    self.check_folder(parent)?;
+    if parent.map_or(false, |p| self.folder_within(p, id)) {
+      return Err("a folder can't go inside itself".into());
+    }
+    self.check_folder_name(&name, parent, Some(id))?;
+    self.folder_mut(id)?.parent = parent;
+    Ok(())
+  }
+
+  // put a pattern in a folder, or (none) at the top
+  pub fn move_pattern(&mut self, id: u64, folder: Option<u64>) -> Result<(), String> {
+    self.check_folder(folder)?;
+    self.pattern_mut(id)?.folder = folder;
+    Ok(())
+  }
+
+  // the patterns in a folder, and in its folders
+  pub fn patterns_in_folder(&self, id: u64) -> Vec<u64> {
+    self.patterns.iter()
+      .filter(|p| p.folder.map_or(false, |f| self.folder_within(f, id)))
+      .map(|p| p.id)
+      .collect()
+  }
+
+  // delete a folder, the folders in it, and every pattern in them. returns
+  // the patterns deleted (their clips in the playlist are the caller's)
+  pub fn remove_folder(&mut self, id: u64) -> Result<Vec<u64>, String> {
+    if self.folder(id).is_none() {
+      return Err(format!("no pattern folder with id {}", id));
+    }
+    let patterns = self.patterns_in_folder(id);
+    let gone: Vec<u64> = self.folders.iter().filter(|f| self.folder_within(f.id, id)).map(|f| f.id).collect();
+    self.patterns.retain(|p| !patterns.contains(&p.id));
+    self.folders.retain(|f| !gone.contains(&f.id));
+    Ok(patterns)
+  }
+
+  // a project's folders. one with an id used already is left out; one whose
+  // parent isn't there, or whose parents loop, goes at the top
+  fn restore_folders(&mut self, saved: Vec<PatternFolder>) {
+    for folder in saved {
+      if self.folder(folder.id).is_some() {
+        println!("left out pattern folder {}: its id is used twice", folder.id);
+        continue;
+      }
+      self.next_folder_id = self.next_folder_id.max(folder.id + 1);
+      self.folders.push(folder);
+    }
+    let ids: Vec<u64> = self.folders.iter().map(|f| f.id).collect();
+    for id in ids {
+      let parent = self.folder(id).and_then(|f| f.parent);
+      let lost = parent.map_or(false, |p| self.folder(p).is_none() || self.folder_within(p, id));
+      if lost {
+        if let Ok(folder) = self.folder_mut(id) { folder.parent = None; }
+      }
+    }
   }
 
   // the sequencer for a project file
@@ -421,6 +583,7 @@ impl Sequencer {
         muted: r.muted,
       }).collect(),
       patterns: self.patterns.clone(),
+      folders: self.folders.clone(),
     }
   }
 
@@ -440,8 +603,13 @@ impl Sequencer {
         missing.push((path, e));
       }
     }
+    self.restore_folders(saved.folders);
     for mut pattern in saved.patterns {
       pattern.steps.retain(|row_id, steps| self.rows.iter().any(|r| r.id == *row_id) && !steps.is_empty());
+      // a folder that isn't there: at the top
+      if pattern.folder.map_or(false, |id| self.folder(id).is_none()) {
+        pattern.folder = None;
+      }
       let id = pattern.id;
       if let Err(e) = self.insert_pattern(pattern) {
         println!("left out pattern {}: {}", id, e);
@@ -637,6 +805,115 @@ mod tests {
   }
 
   #[test]
+  fn test_folders() {
+    let (mut seq, _, _, pattern) = kit();
+    let drums = seq.add_folder("  Drums ", None).unwrap();
+    let fills = seq.add_folder("Fills", Some(drums)).unwrap();
+    assert_eq!(seq.folder(drums).unwrap().name, "Drums");
+    assert_eq!(seq.folder(fills).unwrap().parent, Some(drums));
+
+    // names: not blank, and not twice in a folder (case aside)
+    assert!(seq.add_folder("  ", None).is_err());
+    assert!(seq.add_folder("drums", None).is_err());
+    assert!(seq.add_folder("Drums", Some(drums)).is_ok());
+    assert!(seq.add_folder("x", Some(99)).is_err());
+    assert!(seq.rename_folder(fills, "FILLS").is_ok());
+    let other = seq.add_folder("Other", Some(drums)).unwrap();
+    assert!(seq.rename_folder(other, "fills").is_err());
+
+    // patterns go in folders, and back to the top
+    seq.move_pattern(pattern, Some(fills)).unwrap();
+    assert_eq!(seq.pattern(pattern).unwrap().folder, Some(fills));
+    assert!(seq.move_pattern(pattern, Some(99)).is_err());
+    assert_eq!(seq.patterns_in_folder(drums), vec![pattern]);
+
+    // a copy goes in the same folder
+    let copy = seq.duplicate_pattern(pattern).unwrap();
+    assert_eq!(seq.pattern(copy).unwrap().folder, Some(fills));
+
+    // folders move, but not inside themselves
+    assert!(seq.move_folder(drums, Some(fills)).is_err());
+    assert!(seq.move_folder(drums, Some(drums)).is_err());
+    seq.move_folder(fills, None).unwrap();
+    assert_eq!(seq.folder(fills).unwrap().parent, None);
+    assert!(!seq.folder_within(fills, drums));
+  }
+
+  #[test]
+  fn test_removing_a_folder_takes_what_is_in_it() {
+    let (mut seq, _, _, pattern) = kit();
+    let outside = seq.add_pattern(1, 4).unwrap();
+    let drums = seq.add_folder("Drums", None).unwrap();
+    let fills = seq.add_folder("Fills", Some(drums)).unwrap();
+    let keep = seq.add_folder("Keep", None).unwrap();
+    seq.move_pattern(pattern, Some(fills)).unwrap();
+
+    assert_eq!(seq.remove_folder(drums).unwrap(), vec![pattern]);
+    assert!(seq.folder(drums).is_none() && seq.folder(fills).is_none());
+    assert!(seq.folder(keep).is_some());
+    assert!(seq.pattern(pattern).is_none());
+    assert!(seq.pattern(outside).is_some());
+    assert!(seq.remove_folder(drums).is_err());
+  }
+
+  #[test]
+  fn test_folders_are_saved_and_restored() {
+    let (mut seq, _, _, pattern) = kit();
+    let drums = seq.add_folder("Drums", None).unwrap();
+    let fills = seq.add_folder("Fills", Some(drums)).unwrap();
+    seq.move_pattern(pattern, Some(fills)).unwrap();
+
+    let mut loaded = Sequencer::default();
+    loaded.restore(seq.saved());
+    assert_eq!(loaded.folders(), seq.folders());
+    assert_eq!(loaded.pattern(pattern).unwrap().folder, Some(fills));
+    // new ids carry on after the loaded ones
+    assert!(loaded.add_folder("New", None).unwrap() > fills);
+  }
+
+  #[test]
+  fn test_a_project_without_folders_still_loads() {
+    let json = serde_json::json!({
+      "rows": [],
+      "patterns": [{ "id": 0, "name": null, "length": 16, "steps": {} }],
+    });
+    let saved: SavedSequencer = serde_json::from_value(json).unwrap();
+    assert!(saved.folders.is_empty());
+    let mut loaded = Sequencer::default();
+    loaded.restore(saved);
+    assert_eq!(loaded.pattern(0).unwrap().folder, None);
+
+    // and one without folders is saved as before
+    let json = serde_json::to_value(loaded.saved()).unwrap();
+    assert!(json.get("folders").is_none());
+    assert!(json["patterns"][0].get("folder").is_none());
+  }
+
+  #[test]
+  fn test_broken_folders_are_mended_on_load() {
+    let folder = |id, parent| PatternFolder { id, name: format!("f{}", id), parent };
+    let pattern = Pattern { id: 0, name: None, length: 16, steps: BTreeMap::new(), folder: Some(42) };
+    let saved = SavedSequencer {
+      rows: vec![],
+      patterns: vec![pattern],
+      folders: vec![
+        folder(1, Some(2)), folder(2, Some(1)), // a loop
+        folder(3, Some(99)),                    // a parent that's gone
+        folder(3, None),                        // an id used twice
+      ],
+    };
+    let mut loaded = Sequencer::default();
+    loaded.restore(saved);
+
+    assert_eq!(loaded.folders().len(), 3);
+    // the loop is broken, and each folder still reaches the top
+    assert!(loaded.folders().iter().all(|f| !f.parent.map_or(false, |p| loaded.folder_within(p, f.id))));
+    assert_eq!(loaded.folder(3).unwrap().parent, None);
+    // the pattern's folder wasn't there: it's at the top
+    assert_eq!(loaded.pattern(0).unwrap().folder, None);
+  }
+
+  #[test]
   fn test_state_names_match_the_frontend() {
     let (mut seq, kick, _, pattern) = kit();
     seq.set_step(pattern, kick, 2, true).unwrap();
@@ -645,6 +922,11 @@ mod tests {
     assert_eq!(json["rows"][0]["muted"], false);
     assert_eq!(json["patterns"][0]["length"], 16);
     assert_eq!(json["patterns"][0]["steps"][kick.to_string()], serde_json::json!([2]));
+    let folder = seq.add_folder("Drums", None).unwrap();
+    seq.move_pattern(pattern, Some(folder)).unwrap();
+    let json = serde_json::to_value(seq.state()).unwrap();
+    assert_eq!(json["patterns"][0]["folder"], folder);
+    assert_eq!(json["folders"][0], serde_json::json!({ "id": folder, "name": "Drums" }));
   }
 
   #[test]

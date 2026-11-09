@@ -21,7 +21,7 @@ import { theme } from './theme'
 import { PlaylistTransport } from '../../../types/transport'
 import { positionAt } from '../../transport/tape'
 import { Lasso, groupLanding, keepExisting, lassoRect, lassoSelection, toggleSelected } from './selection'
-import { DragItem, dragItemKey } from '../../../state/sampleDrag'
+import { PlaceableItem as DragItem, dragItemKey } from '../../../state/sampleDrag'
 import { Pattern, SequencerState, patternSeconds } from '../../../types/sequencer'
 
 export interface CanvasProps extends SketchProps {
@@ -52,7 +52,7 @@ export const staticDefaults = {
   timelineHeight: 24,
   trackHeight: 100,
   playing: false,
-  debugMode: false,
+  debugMode: true,
 
   // defaults on Renderer construction, these will be reassigned
   // when the canvas renders
@@ -242,7 +242,7 @@ export class Renderer extends RendererBase {
 
   // the Sequencer's rows and patterns, which pattern clips draw. read every
   // frame, so editing a pattern shows straight away without rebuilding
-  sequencer: SequencerState = { rows: [], patterns: [] }
+  sequencer: SequencerState = { rows: [], patterns: [], folders: [] }
 
   // the clips picked with shift+click or a shift+drag box, by id
   selectedIds: Set<number> = new Set()
