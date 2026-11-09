@@ -6,6 +6,7 @@ import { CanvasProps, Renderer, staticDefaults } from './index'
 import { PlaylistItem } from '../../../types/playlist'
 import { P5BoundingBox, State as ComponentState } from '../../../render/P5Component'
 import { theme } from './theme'
+import { STEPS_PER_BEAT, litRows, patternLabel } from '../../../types/sequencer'
 
 interface Props extends PlaylistComponentProps {
   playlistItem: PlaylistItem
@@ -70,6 +71,20 @@ class PlaylistObject extends PlaylistComponent<State> {
 
   boundingBox = (): P5BoundingBox => this.waveform.boundingBox()
 
+  // the pattern a pattern clip plays (undefined for a sample clip, or a
+  // pattern that's gone)
+  #pattern = () => {
+    const { patternId } = this.playlistItem
+    return patternId === undefined ? undefined : (this.renderer as Renderer)?.patternOf(patternId)
+  }
+
+  // what the label says: the sample's file name, or the pattern's name
+  #label = (): string => {
+    const { patternId, path } = this.playlistItem
+    if(patternId !== undefined) return patternLabel(this.#pattern() ?? { id: patternId, name: null })
+    return path.split(/[\\/]/).pop() ?? path
+  }
+
   // how long the clip plays for, in seconds. changes with its pitch
   setDuration = (seconds: number) => {
     this.duration = seconds
@@ -102,15 +117,20 @@ class PlaylistObject extends PlaylistComponent<State> {
     const inset = 2
     const cardTop = top + inset
     const cardHeight = height - inset * 2
-    // selected (shift+click, or a shift+drag box): sky instead of slate
+    // selected (shift+click, or a shift+drag box): sky instead of slate (or
+    // a pattern clip's amber)
     const selected = (this.renderer as Renderer)?.selectedIds.has(this.playlistItem.id)
-    const border = selected ? theme.selectedBorder : theme.clipBorder
+    const isPattern = this.playlistItem.patternId !== undefined
+    let colors = { border: theme.clipBorder, card: theme.clip, label: theme.clipLabel }
+    if(isPattern) colors = { border: theme.patternBorder, card: theme.patternClip, label: theme.patternLabel }
+    if(selected) colors = { border: theme.selectedBorder, card: theme.selectedClip, label: theme.selectedLabel }
+    const { border } = colors
     this.p.strokeWeight(selected ? 1.5 : 1)
     this.p.stroke(...border)
-    this.p.fill(...(selected ? theme.selectedClip : theme.clip))
+    this.p.fill(...colors.card)
     this.p.rect(left, cardTop, width, cardHeight, 3)
     this.p.noStroke()
-    this.p.fill(...(selected ? theme.selectedLabel : theme.clipLabel))
+    this.p.fill(...colors.label)
     this.p.rect(left + .5, cardTop + .5, width - 1, this.labelHeight - inset - .5, 3, 3, 0, 0)
     this.p.strokeWeight(1)
     this.p.stroke(...border)
@@ -128,8 +148,8 @@ class PlaylistObject extends PlaylistComponent<State> {
     // leave room for the modified dot
     const dotSpace = this.modified ? MODIFIED_DOT_SPACE : 0
     this.p.text(
-      // the file's name, without its folders
-      this.playlistItem.path.split(/[\\/]/).pop() ?? this.playlistItem.path,
+      // the file's name, without its folders, or the pattern's name
+      this.#label(),
       left * this.currentScale + 6,
       cardTop + 3,
       width * this.currentScale - 10 - dotSpace,
@@ -161,13 +181,53 @@ class PlaylistObject extends PlaylistComponent<State> {
     this.p.pop()
   }
 
+  // a pattern clip's body: a lane per sequencer row, with a cell for each
+  // lit step, over faint beat lines
+  drawPattern = () => {
+    const pattern = this.#pattern()
+    const { left, top, width, height } = this.waveform.boundingBox()
+    const bodyTop = top + this.labelHeight + 3
+    const bodyHeight = height - this.labelHeight - 7
+    if(!pattern || pattern.length <= 0 || bodyHeight <= 0) return
+
+    const stepWidth = width / pattern.length
+
+    this.p.strokeWeight(1 / this.currentScale)
+    this.p.stroke(...theme.patternBeat)
+    for(let step = STEPS_PER_BEAT; step < pattern.length; step += STEPS_PER_BEAT) {
+      const x = left + step * stepWidth
+      this.p.line(x, bodyTop, x, bodyTop + bodyHeight)
+    }
+
+    const lanes = litRows(pattern, (this.renderer as Renderer).sequencer.rows)
+    if(!lanes.length) return
+    const laneHeight = bodyHeight / lanes.length
+    // a little gap around each cell, unless they'd vanish
+    const gapX = Math.min(stepWidth * .15, 1 / this.currentScale)
+    const gapY = Math.min(laneHeight * .15, 1)
+
+    this.p.noStroke()
+    this.p.fill(...theme.patternHit)
+    lanes.forEach((steps, lane) => {
+      const y = bodyTop + lane * laneHeight
+      steps.forEach(step => {
+        this.p.rect(left + step * stepWidth + gapX, y + gapY, stepWidth - gapX * 2, laneHeight - gapY * 2)
+      })
+    })
+  }
+
   render = () => {
     const { waveform } = this
 
+    // a pattern clip is as long as its pattern, which can change at any time
+    const { patternId } = this.playlistItem
+    if(patternId !== undefined) this.setDuration((this.renderer as Renderer).patternSecondsOf(patternId))
+
     this.drawBoundingBox()
 
-    // render waveform
-    waveform.render()
+    // render waveform, or the pattern
+    if(patternId === undefined) waveform.render()
+    else this.drawPattern()
 
     if((this.renderer as Renderer)?.debugMode) {
       // mouse drop height debug

@@ -17,6 +17,11 @@ export interface PlaylistTransport {
   // where the last clip finishes (0 with no clips)
   songEndMs: number
   beatsPerBar: number
+  // the pattern playing on its own (Play in the Sequencer tab), or null.
+  // while one plays, the playlist's playhead stays still
+  patternId: number | null
+  // how long that pattern is. it started at startTimeMs and loops at this
+  patternLengthMs: number
 }
 
 // a wind (holding rewind or fast forward) in progress: which way, where it

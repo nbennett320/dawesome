@@ -1,15 +1,29 @@
-// dragging a sample from the sidebar into the playlist
+// dragging a sample from the sidebar into the playlist or the sequencer,
+// or a pattern from the Sequencer's pattern strip into the playlist
 //
 // this uses plain mouse events instead of HTML drag and drop (react-dnd):
 // during an HTML drag the playlist canvas couldn't draw the clip following
 // the mouse, while mouse events keep p5's draw loop running as normal
+
+// what's being dragged
+export type DragItem =
+  | { kind: 'sample', path: string }
+  | { kind: 'pattern', patternId: number, label: string }
+
+// tells drags apart: the same key is the same thing being dragged
+export const dragItemKey = (item: DragItem): string =>
+  (item.kind === 'sample' ? `sample:${item.path}` : `pattern:${item.patternId}`)
+
+// what a dragged thing is called, for the label following the mouse
+export const dragItemLabel = (item: DragItem): string =>
+  (item.kind === 'sample' ? item.path.split(/[\\/]/).pop() ?? item.path : item.label)
 
 export interface SampleDragEvent {
   // move: the mouse moved while dragging
   // drop: the mouse was released
   // cancel: the drag was abandoned (escape pressed, or the window lost focus)
   type: 'move' | 'drop' | 'cancel'
-  path: string
+  item: DragItem
   clientX: number
   clientY: number
 }
@@ -33,7 +47,7 @@ const emit = (ev: SampleDragEvent) => listeners.forEach(fn => fn(ev))
 
 // call from a sample's mousedown. follows the mouse until it's released
 export const beginSampleDrag = (
-  path: string,
+  item: DragItem,
   down: { button: number, clientX: number, clientY: number },
 ) => {
   if(down.button !== 0) return
@@ -57,7 +71,7 @@ export const beginSampleDrag = (
 
   const cancel = () => {
     cleanup()
-    if(dragging) emit({ type: 'cancel', path, ...last })
+    if(dragging) emit({ type: 'cancel', item, ...last })
   }
 
   window.addEventListener('mousemove', (ev: MouseEvent) => {
@@ -73,12 +87,12 @@ export const beginSampleDrag = (
       body.style.userSelect = 'none'
     }
 
-    emit({ type: 'move', path, ...last })
+    emit({ type: 'move', item, ...last })
   }, { signal })
 
   window.addEventListener('mouseup', (ev: MouseEvent) => {
     cleanup()
-    if(dragging) emit({ type: 'drop', path, clientX: ev.clientX, clientY: ev.clientY })
+    if(dragging) emit({ type: 'drop', item, clientX: ev.clientX, clientY: ev.clientY })
   }, { signal })
 
   window.addEventListener('keydown', (ev: KeyboardEvent) => {

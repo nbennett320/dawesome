@@ -15,7 +15,10 @@ use crate::event_dispatch::{clip_info, ClipInfo};
 
 // the newest project format this version of the app reads and writes.
 // bump it when a change means older apps would misread a project
-pub const PROJECT_VERSION: u32 = 1;
+pub const PROJECT_VERSION: u32 = 2;
+// what a project without patterns is saved as, so older apps can still open
+// it. version 2 added the sequencer and pattern clips
+pub const PROJECT_VERSION_WITHOUT_PATTERNS: u32 = 1;
 
 // the playlist's settings, as saved in a project
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
@@ -55,6 +58,16 @@ pub struct ProjectClip {
   pub settings: daw::ClipSettings,
 }
 
+// a pattern placed in the playlist, as saved in a project
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectPatternClip {
+  pub pattern_id: u64,
+  pub track_number: u32,
+  // beats from the start of the playlist
+  pub start_beat: f64,
+}
+
 // a project file. missing fields take their defaults, so hand edited or
 // older files still load
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -66,15 +79,23 @@ pub struct Project {
   pub clips: Vec<ProjectClip>,
   // only tracks changed from their defaults, or named, are saved
   pub mixer: daw::MixerSettings,
+  // the Sequencer tab's rows (with their sample paths saved like clips') and
+  // patterns, left out when there are none
+  #[serde(skip_serializing_if = "daw::SavedSequencer::is_empty")]
+  pub sequencer: daw::SavedSequencer,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub pattern_clips: Vec<ProjectPatternClip>,
 }
 
 impl Default for Project {
   fn default() -> Self {
     Project {
-      version: PROJECT_VERSION,
+      version: PROJECT_VERSION_WITHOUT_PATTERNS,
       settings: ProjectSettings::default(),
       clips: Vec::new(),
       mixer: daw::MixerSettings::default(),
+      sequencer: daw::SavedSequencer::default(),
+      pattern_clips: Vec::new(),
     }
   }
 }
@@ -125,6 +146,16 @@ pub struct LoadedClip {
   pub info: ClipInfo,
 }
 
+// a pattern clip after loading, with its new id
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LoadedPatternClip {
+  pub id: u64,
+  pub pattern_id: u64,
+  pub track_number: u32,
+  pub start_beat: f32,
+}
+
 // a clip that couldn't be loaded, so it was left out
 #[derive(Serialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -143,6 +174,8 @@ pub struct LoadedProject {
   pub missing: Vec<MissingSample>,
   // every track's strip, up to the playlist's track count
   pub mixer: daw::MixerSettings,
+  pub sequencer: daw::SequencerState,
+  pub pattern_clips: Vec<LoadedPatternClip>,
 }
 
 // the folder a project file is in, which its relative sample paths start from
@@ -193,22 +226,36 @@ fn tidy_beat(beat: f64) -> f64 {
 // the current playlist as a project, with sample paths relative to
 // `project_dir` where they can be
 pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
-  let (tempo, clips) = {
+  let (tempo, clips, pattern_clips, sequencer) = {
     let audiograph = state.playlist.audiograph.lock().unwrap();
     let interval = audiograph.beat_interval().as_secs_f64();
+    let beat_of = |offset: Duration| if interval > 0. {
+      tidy_beat(offset.as_secs_f64() / interval)
+    } else {
+      0.
+    };
 
     let clips = audiograph.nodes.iter().map(|node| ProjectClip {
       path: stored_path(node.sample_path(), project_dir),
       track_number: node.track_number,
-      start_beat: if interval > 0. {
-        tidy_beat(node.start_offset.as_secs_f64() / interval)
-      } else {
-        0.
-      },
+      start_beat: beat_of(node.start_offset),
       settings: node.settings(),
     }).collect();
 
-    (audiograph.tempo(), clips)
+    // in the order they start, so saving twice gives the same file
+    let mut pattern_clips: Vec<ProjectPatternClip> = audiograph.pattern_nodes.iter().map(|node| ProjectPatternClip {
+      pattern_id: node.pattern_id,
+      track_number: node.track_number,
+      start_beat: beat_of(node.start_offset),
+    }).collect();
+    pattern_clips.sort_by(|a, b| a.start_beat.total_cmp(&b.start_beat).then(a.track_number.cmp(&b.track_number)));
+
+    let mut sequencer = state.playlist.sequencer.lock().unwrap().saved();
+    for row in &mut sequencer.rows {
+      row.path = stored_path(&row.path, project_dir);
+    }
+
+    (audiograph.tempo(), clips, pattern_clips, sequencer)
   };
 
   let ui = *state.playlist.ui.lock().unwrap();
@@ -216,8 +263,9 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
   let mut mixer = state.playlist.mixer.settings(0);
   mixer.tracks.retain(|track| track.settings != daw::ChannelSettings::default() || track.name.is_some());
 
+  let uses_patterns = !sequencer.is_empty() || !pattern_clips.is_empty();
   Project {
-    version: PROJECT_VERSION,
+    version: if uses_patterns { PROJECT_VERSION } else { PROJECT_VERSION_WITHOUT_PATTERNS },
     settings: ProjectSettings {
       tempo,
       time_signature: *state.playlist.time_signature.lock().unwrap(),
@@ -228,6 +276,8 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
     },
     clips,
     mixer,
+    sequencer,
+    pattern_clips,
   }
 }
 
@@ -292,9 +342,45 @@ pub fn apply(
     }
   }
 
+  // the sequencer's rows, with their paths found like clips'
+  let mut saved = project.sequencer.clone();
+  for row in &mut saved.rows {
+    row.path = resolved_path(&row.path, project_dir).to_string_lossy().into_owned();
+  }
+  let sample_rate = audiograph.sample_rate();
+  let sequencer = {
+    let mut sequencer = state.playlist.sequencer.lock().unwrap();
+    for (path, reason) in sequencer.restore(saved, sample_rate) {
+      missing.push(MissingSample { path, reason });
+    }
+    sequencer.state()
+  };
+
+  // pattern clips, each with a new id. a clip of a pattern the project
+  // doesn't have is left out
+  let mut pattern_clips = Vec::new();
+  for clip in &project.pattern_clips {
+    if !sequencer.patterns.iter().any(|p| p.id == clip.pattern_id) {
+      println!("left out a clip of pattern {}, which isn't in the project", clip.pattern_id);
+      continue;
+    }
+    let start_beat = if clip.start_beat.is_finite() { clip.start_beat.max(0.) } else { 0. };
+    match audiograph.add_pattern_node::<daw::timing::Note>(
+      clip.pattern_id, interval.mul_f64(start_beat), clip.track_number, None,
+    ) {
+      Ok(id) => pattern_clips.push(LoadedPatternClip {
+        id,
+        pattern_id: clip.pattern_id,
+        track_number: clip.track_number,
+        start_beat: start_beat as f32,
+      }),
+      Err(e) => println!("left out a clip of pattern {}: {}", clip.pattern_id, e),
+    }
+  }
+
   let mixer = state.playlist.mixer.settings(audiograph.track_count());
 
-  LoadedProject { settings, clips, missing, mixer }
+  LoadedProject { settings, clips, missing, mixer, sequencer, pattern_clips }
 }
 
 // write the current playlist to a project file. the file is written next to
@@ -553,5 +639,102 @@ mod tests {
     assert_eq!(loaded.mixer.master.volume_db, 0.);
 
     fs::remove_dir_all(dir).unwrap();
+  }
+
+  #[test]
+  fn test_patterns_saved_and_loaded() {
+    let dir = test_dir("patterns");
+    let project_path = dir.join("beat.dawesome");
+    fs::create_dir_all(dir.join("drums")).unwrap();
+    let kick = dir.join("drums").join("kick.wav");
+    fs::copy("assets/assets_66-bd-01.wav", &kick).unwrap();
+
+    let state = daw::InnerState::default();
+    let pattern = {
+      let mut audiograph = state.playlist.audiograph.lock().unwrap();
+      let (row, pattern) = {
+        let mut seq = audiograph.sequencer.lock().unwrap();
+        let row = seq.add_row(kick.to_str().unwrap(), 44_100).unwrap();
+        let pattern = seq.add_pattern(2, 4).unwrap();
+        seq.set_step(pattern, row, 0, true).unwrap();
+        seq.set_step(pattern, row, 12, true).unwrap();
+        seq.rename_pattern(pattern, "intro").unwrap();
+        seq.set_row_volume(row, 0.5).unwrap();
+        (row, pattern)
+      };
+      let _ = row;
+      let beat = audiograph.beat_interval();
+      audiograph.add_pattern_node::<daw::timing::Note>(pattern, beat * 4, 1, None).unwrap();
+      audiograph.add_pattern_node::<daw::timing::Note>(pattern, beat * 0, 0, None).unwrap();
+      pattern
+    };
+    save_to(&state, &project_path).unwrap();
+
+    let saved = Project::from_json(&fs::read_to_string(&project_path).unwrap()).unwrap();
+    assert_eq!(saved.version, PROJECT_VERSION);
+    // inside the project's folder, so saved relative to it
+    assert_eq!(saved.sequencer.rows[0].path, "drums/kick.wav");
+    // in the order they start
+    assert_eq!(saved.pattern_clips.iter().map(|c| c.start_beat).collect::<Vec<_>>(), vec![0., 4.]);
+
+    let other = daw::InnerState::default();
+    let loaded = load_from(&other, &project_path).unwrap();
+    assert!(loaded.missing.is_empty());
+    assert_eq!(loaded.sequencer.rows.len(), 1);
+    assert_eq!(loaded.sequencer.rows[0].volume, 0.5);
+    assert_eq!(loaded.sequencer.patterns[0].name.as_deref(), Some("intro"));
+    assert_eq!(loaded.sequencer.patterns[0].length, 32);
+    assert_eq!(loaded.pattern_clips.len(), 2);
+    assert!(loaded.pattern_clips.iter().all(|c| c.pattern_id == pattern));
+    assert_eq!(other.playlist.audiograph.lock().unwrap().pattern_nodes.len(), 2);
+
+    // and saved again, it's the same project
+    assert_eq!(capture(&other, Some(&dir)), capture(&state, Some(&dir)));
+
+    fs::remove_dir_all(dir).unwrap();
+  }
+
+  #[test]
+  fn test_projects_without_patterns_stay_version_1() {
+    let state = daw::InnerState::default();
+    add_clip(&state, daw::METRONOME_TICK_PATH, 0, 0.);
+    let project = capture(&state, None);
+    assert_eq!(project.version, PROJECT_VERSION_WITHOUT_PATTERNS);
+
+    // and leave the new fields out of the file
+    let json = serde_json::to_value(&project).unwrap();
+    assert!(json.get("sequencer").is_none());
+    assert!(json.get("patternClips").is_none());
+  }
+
+  #[test]
+  fn test_missing_row_samples_and_unknown_patterns() {
+    let state = daw::InnerState::default();
+    let project = Project::from_json(r#"{
+      "version": 2,
+      "sequencer": {
+        "rows": [{ "id": 0, "path": "/nowhere/kick.wav" }],
+        "patterns": [{ "id": 3, "name": null, "length": 16, "steps": { "0": [0, 4] } }]
+      },
+      "patternClips": [
+        { "patternId": 3, "trackNumber": 0, "startBeat": 2 },
+        { "patternId": 8, "trackNumber": 0, "startBeat": 0 }
+      ]
+    }"#).unwrap();
+
+    let loaded = apply(&state, &project, None);
+    assert_eq!(loaded.missing.len(), 1);
+    assert_eq!(loaded.missing[0].path, "/nowhere/kick.wav");
+    // the pattern is kept, without the missing row's steps
+    assert_eq!(loaded.sequencer.patterns.len(), 1);
+    assert!(loaded.sequencer.patterns[0].steps.is_empty());
+    // only the clip of a pattern that exists
+    assert_eq!(loaded.pattern_clips.len(), 1);
+    assert_eq!(loaded.pattern_clips[0].start_beat, 2.);
+
+    // a new project clears the sequencer
+    let fresh = apply(&state, &Project::default(), None);
+    assert!(fresh.sequencer.patterns.is_empty());
+    assert!(fresh.pattern_clips.is_empty());
   }
 }

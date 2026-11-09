@@ -248,6 +248,11 @@ impl Mixer {
   }
 
   // name a track, or clear its name with an empty one. returns the name kept
+  // a track's name, if it's been given one
+  pub fn name(&self, track_number: u32) -> Option<String> {
+    self.names.lock().unwrap().get(&track_number).cloned()
+  }
+
   pub fn set_name(&self, track_number: u32, name: &str) -> Option<String> {
     let name: String = name.trim().chars().take(MAX_NAME_CHARS).collect();
     let mut names = self.names.lock().unwrap();

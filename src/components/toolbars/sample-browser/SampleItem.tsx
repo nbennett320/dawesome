@@ -48,8 +48,8 @@ const SampleItem = ({ item, depth, open, selected, hint, onToggle, onPreview }: 
       onToggle(item)
     } else {
       onPreview(item)
-      // dragging the sample into the playlist adds it there
-      beginSampleDrag(item.path, ev)
+      // dragging the sample into the playlist (or the sequencer) adds it there
+      beginSampleDrag({ kind: 'sample', path: item.path }, ev)
     }
   }
 

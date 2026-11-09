@@ -26,7 +26,8 @@ export const tapeLengthMs = (t: PlaylistTransport) => {
 // where the playhead is at `nowMs` (ms since the unix epoch), following the
 // engine's run while playing. matches daw::state::timeline_position
 export const positionAt = (t: PlaylistTransport, nowMs: number): number => {
-  if(!t.playing || t.startTimeMs === null) return t.positionMs
+  // a pattern playing on its own doesn't move the playlist's playhead
+  if(!t.playing || t.startTimeMs === null || t.patternId !== null) return t.positionMs
 
   const elapsed = t.startOffsetMs + Math.max(0, nowMs - t.startTimeMs)
   const loopMs = loopLengthMs(t)

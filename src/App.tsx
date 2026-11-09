@@ -7,6 +7,7 @@ import { listeners } from './events/window'
 import { selectDevicePreferences } from './state/slices/windowSlice'
 import { projectName, selectProjectPath } from './state/slices/projectSlice'
 import ProjectNotice from './components/ProjectNotice'
+import DragGhost from './components/DragGhost'
 
 const App = () => {
   const devicePreferences = useAppSelector(selectDevicePreferences)
@@ -47,6 +48,7 @@ const App = () => {
           <TabWindow />
         </div>
       </div>
+      <DragGhost />
     </div>
   )
 }

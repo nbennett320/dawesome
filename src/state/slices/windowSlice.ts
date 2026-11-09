@@ -31,6 +31,7 @@ const initialState = {
         { label: viewLabels[View.SamplePreview], component: View.SamplePreview },
         { label: viewLabels[View.Mixer], component: View.Mixer },
         { label: viewLabels[View.Transport], component: View.Transport },
+        { label: viewLabels[View.Sequencer], component: View.Sequencer },
       ],
       activeView: View.Playlist,
     },

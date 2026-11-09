@@ -25,3 +25,5 @@
         - Ex, 2 Shift + J = Join
         - Shift + drag = secect lasso
 - context menu on right click?
+
+- patterns -> pattern bank

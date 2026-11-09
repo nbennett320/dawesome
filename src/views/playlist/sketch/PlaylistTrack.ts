@@ -88,11 +88,12 @@ class PlaylistTrack extends PlaylistComponent<State> {
           console.log("right clicked on item: ", item.playlistItem.path, ev)
 
           const { id } = item.playlistItem;
-          (this.renderer as Renderer).onNodeRightClick(id);
+          // opens the clip's menu where the mouse is
+          (this.renderer as Renderer).onNodeRightClick(id, ev.clientX, ev.clientY);
           (this.renderer as Renderer).isMouseDragged = false
           ;(this.renderer as Renderer).clipDrag = null
 
-          // reset cursor to arrow after removing an item from the playlist
+          // reset cursor to arrow while the menu is open
           setTimeout(() => {
             p.cursor(p.ARROW)
           })

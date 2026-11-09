@@ -21,6 +21,8 @@ import { theme } from './theme'
 import { PlaylistTransport } from '../../../types/transport'
 import { positionAt } from '../../transport/tape'
 import { Lasso, groupLanding, keepExisting, lassoRect, lassoSelection, toggleSelected } from './selection'
+import { DragItem, dragItemKey } from '../../../state/sampleDrag'
+import { Pattern, SequencerState, patternSeconds } from '../../../types/sequencer'
 
 export interface CanvasProps extends SketchProps {
   height: number
@@ -32,7 +34,8 @@ export interface CanvasProps extends SketchProps {
   trackCount: number
   playlistObjects: PlaylistItem[]
   onItemDrop: (pw: PlaylistWindow) => void
-  onNodeRightClick: (id: number) => void
+  // a clip was right-clicked, at clientX, clientY in the window
+  onNodeRightClick: (id: number, clientX: number, clientY: number) => void
   onNodeMove: () => void
   // several selected clips were dragged together (see Renderer.onNodesMove)
   onNodesMove: (ids: number[], anchorId: number, dropBeat: number, trackNumber: number) => void
@@ -126,10 +129,13 @@ interface ClipDrag {
   group: PlaylistObject[]
 }
 
-// a sample being dragged in from the sidebar. the mouse is outside the canvas
-// when the drag starts, so PlaylistCanvas reports its position
+// a sample being dragged in from the sidebar, or a pattern from the
+// Sequencer. the mouse is outside the canvas when the drag starts, so
+// PlaylistCanvas reports its position
 interface SampleDrag {
-  path: string
+  item: DragItem
+  // see dragItemKey
+  key: string
   // mouse position on the canvas
   x: number
   y: number
@@ -234,6 +240,10 @@ export class Renderer extends RendererBase {
   clipDrag: ClipDrag | null = null
   sampleDrag: SampleDrag | null = null
 
+  // the Sequencer's rows and patterns, which pattern clips draw. read every
+  // frame, so editing a pattern shows straight away without rebuilding
+  sequencer: SequencerState = { rows: [], patterns: [] }
+
   // the clips picked with shift+click or a shift+drag box, by id
   selectedIds: Set<number> = new Set()
   // the box being dragged out with shift held, if any
@@ -245,7 +255,7 @@ export class Renderer extends RendererBase {
   snap: SnapSetting = { enabled: true, beats: 1 }
 
   // reassigned function definitions
-  onNodeRightClick!: (id: number) => void
+  onNodeRightClick!: (id: number, clientX: number, clientY: number) => void
   onNodeDoubleClick!: (id: number) => void
   onNodeMove!: (
     item: PlaylistItem,
@@ -480,17 +490,35 @@ export class Renderer extends RendererBase {
   // start or update the sidebar drag preview
   // - x, y: mouse position on the canvas
   // - containerTop: the playlist's top in the window, used for waveform y
-  setSampleDrag = (path: string, x: number, y: number, containerTop: number) => {
-    if(this.sampleDrag?.path === path) {
+  setSampleDrag = (item: DragItem, x: number, y: number, containerTop: number) => {
+    const key = dragItemKey(item)
+    if(this.sampleDrag?.key === key) {
       this.sampleDrag.x = x
       this.sampleDrag.y = y
       return
     }
 
-    this.sampleDrag = { path, x, y, containerTop, data: null, preview: null, error: null }
-    this.#loadSamplePreview(path)
+    this.sampleDrag = { item, key, x, y, containerTop, data: null, preview: null, error: null }
+    if(item.kind === 'sample') {
+      this.#loadSamplePreview(item.path, key)
+    } else {
+      // a pattern clip has no waveform: it draws its pattern (see PlaylistObject)
+      this.sampleDrag.data = { soundData: [], duration: this.patternSecondsOf(item.patternId) }
+    }
     this.syncSnapSetting()
   }
+
+  // the pattern a pattern clip plays, if it still exists
+  patternOf = (patternId: number): Pattern | undefined =>
+    this.sequencer.patterns.find(p => p.id === patternId)
+
+  // how long a pattern plays for at the playlist's tempo, in seconds
+  patternSecondsOf = (patternId: number): number => {
+    const pattern = this.patternOf(patternId)
+    return pattern ? patternSeconds(pattern, this.tempo) : 0
+  }
+
+  setSequencer = (sequencer: SequencerState) => { this.sequencer = sequencer }
 
   clearSampleDrag = () => { this.sampleDrag = null }
 
@@ -514,17 +542,17 @@ export class Renderer extends RendererBase {
     if(override?.playedDuration !== undefined) obj.setDuration(override.playedDuration)
   }
 
-  #loadSamplePreview = async (path: string) => {
+  #loadSamplePreview = async (path: string, key: string) => {
     try {
       const [soundData, duration] =
         await invoke<[number[], number]>('get_sample_preview', { samplePath: path })
       // the drag may have ended, or moved on to another sample, while loading
-      if(this.sampleDrag?.path !== path) return
+      if(this.sampleDrag?.key !== key) return
 
       this.sampleDrag.data = { soundData, duration }
     } catch(e) {
       console.error('could not preview sample:', path, e)
-      if(this.sampleDrag?.path === path) this.sampleDrag.error = String(e)
+      if(this.sampleDrag?.key === key) this.sampleDrag.error = String(e)
     }
   }
 
@@ -538,7 +566,7 @@ export class Renderer extends RendererBase {
     if(!drag?.data) return null
     if(drag.preview) return drag.preview
 
-    const { path, containerTop, data: { soundData, duration } } = drag
+    const { item, containerTop, data: { soundData, duration } } = drag
     drag.preview = new PlaylistObject(p, canvas, this, {
       currentScale: this.currentScale,
       soundData,
@@ -549,7 +577,8 @@ export class Renderer extends RendererBase {
       trackHeight: staticDefaults.trackHeight,
       playlistItem: {
         id: -1,
-        path,
+        path: item.kind === 'sample' ? item.path : '',
+        ...(item.kind === 'pattern' ? { patternId: item.patternId } : {}),
         startBeat: 0,
         trackNumber: 0,
         // same vertical offset added clips get (see addToPlaylist)
@@ -1128,7 +1157,11 @@ export class Renderer extends RendererBase {
 
       const buildClip = async (item: PlaylistItem): Promise<PlaylistObject | null> => {
         try {
-          const { wf: soundData, dur: duration } = await fetchNodeData(item.id)
+          // a pattern clip has no sample: it draws its pattern, and is as
+          // long as the pattern is (see PlaylistObject)
+          const { wf: soundData, dur: duration } = item.patternId === undefined
+            ? await fetchNodeData(item.id)
+            : { wf: [], dur: this.patternSecondsOf(item.patternId) }
           const clip = new PlaylistObject(p, built, this, {
             currentScale,
             soundData,
