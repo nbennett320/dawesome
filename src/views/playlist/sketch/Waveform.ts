@@ -4,6 +4,7 @@ import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import { CanvasProps, Renderer, staticDefaults } from './index'
 import { PlaylistItemPixelOffset } from '../../../types/playlist'
 import { theme } from './theme'
+import { Peaks, peakRange, peaksOfPairs } from './peaks'
 
 interface Props extends PlaylistComponentProps {
   // id: number
@@ -56,13 +57,9 @@ class Waveform extends PlaylistComponent {
   // the clip is as wide as its duration on the timeline
   #getWidth = () => (this.renderer as Renderer).secondsToWidth(this.duration)
 
-  // x of the i'th waveform point (soundData holds [x, y] pairs, where x is
-  // the point's index), spread evenly across the clip's width
-  pointX = (i: number, left: number) => {
-    const points = this.soundData.length / 2
-
-    return left + (points > 0 ? this.soundData[i] / points : 0) * this.#getWidth()
-  }
+  // the levels, summarised for drawing a pixel column at a time. built the
+  // first time the clip is drawn
+  #peaks: Peaks | null = null
 
   boundingBox = () => ({
     minHeight: this.minHeight,
@@ -75,24 +72,103 @@ class Waveform extends PlaylistComponent {
     width: this.#getWidth(),
   })
   
+  // the waveform is the line through the engine's points (soundData holds
+  // [x, y] pairs: x is the point's index, y is 0..1), spread evenly across
+  // the clip's width and filling the clip below its label
+  //
+  // a clip usually has many points to each pixel (about 2000 a second of
+  // sound), so rather than a line per point, each column of pixels on screen
+  // is filled from the lowest to the highest point the line passes through
+  // there, all in one path. zoomed in past a point per pixel, the line is
+  // traced through the points on screen. either way only what's on screen
+  // is drawn, and it looks the same as a line per point
   render = () => {
-    const { minHeight, height, labelHeight } = this
-    const left = this.#getX()
+    const { minHeight, height, labelHeight, p } = this
+    const count = this.soundData.length / 2
+    if(count < 2) return
 
-    // the waveform fills the clip below its label. points are 0..1 from the
-    // engine. (this used to subtract the playlist's distance from the top of
-    // the window, taken from where the clip was dropped, so clips loaded from
-    // a project, which were never dropped, were drawn a track too low)
+    // (this used to subtract the playlist's distance from the top of the
+    // window, taken from where the clip was dropped, so clips loaded from a
+    // project, which were never dropped, were drawn a track too low)
     const bodyTop = minHeight + labelHeight
     const bodyHeight = height - labelHeight
-    const pointY = (i: number) => bodyTop + this.soundData[i] * bodyHeight
+    const left = this.#getX()
+    const width = this.#getWidth()
+    if(width <= 0 || bodyHeight <= 0) return
 
-    // no `* currentScale` here: the canvas is already scaled when this draws
-    this.p.strokeWeight(.75)
-    this.p.stroke(...theme.clipWave)
-    for(let i = 0; i < this.soundData.length - 2; i+=2) {
-      this.p.line(this.pointX(i, left), pointY(i+1), this.pointX(i+2, left), pointY(i+3))
+    // where this draws on the canvas, in its device pixels: whatever zoom,
+    // pan, scroll, or drag offset the canvas is transformed by, and the
+    // screen's pixel density. only x is ever scaled by zoom
+    const ctx = p.drawingContext as CanvasRenderingContext2D
+    const { a: scaleX, e: offsetX, d: scaleY, f: offsetY } = ctx.getTransform()
+    const { width: canvasWidth, height: canvasHeight } = ctx.canvas
+    if(scaleX <= 0 || scaleY <= 0) return
+
+    // scrolled out of view, above or below
+    const deviceTop = bodyTop * scaleY + offsetY
+    if(deviceTop + bodyHeight * scaleY < 0 || deviceTop > canvasHeight) return
+
+    // the device x of point i, and the (fractional) point at device x
+    const pointsPerUnit = count / width
+    const deviceX = (i: number) => (left + i / pointsPerUnit) * scaleX + offsetX
+    const pointAt = (x: number) => ((x - offsetX) / scaleX - left) * pointsPerUnit
+    const y = (level: number) => bodyTop + level * bodyHeight
+
+    // the columns on screen, left of the canvas's right edge
+    const first = Math.max(0, Math.floor(deviceX(0)))
+    const last = Math.min(canvasWidth, Math.ceil(deviceX(count - 1)))
+    if(first >= last) return
+
+    // the line is .75px wide, as it was when it was drawn a line per point
+    const lineWidth = .75
+
+    p.push()
+    if(count / (width * scaleX) >= 1) {
+      // a point or more to each column
+      if(!this.#peaks) this.#peaks = peaksOfPairs(this.soundData)
+      const peaks = this.#peaks
+      // a column, in playlist x
+      const columnWidth = 1 / scaleX
+
+      p.noStroke()
+      p.fill(...theme.clipWave)
+      ctx.beginPath()
+      for(let column = first; column < last; column++) {
+        // the points either side of the column too, since the line from
+        // each passes through it
+        const range = peakRange(peaks, Math.floor(pointAt(column)), Math.ceil(pointAt(column + 1)))
+        if(range) {
+          const [low, high] = range
+          ctx.rect(
+            (column - offsetX) / scaleX,
+            y(low) - lineWidth / 2,
+            columnWidth,
+            (high - low) * bodyHeight + lineWidth,
+          )
+        }
+      }
+      ctx.fill()
+    } else {
+      // zoomed in: fewer points than columns. the line through the points on
+      // screen, and the ones just off either side
+      const from = Math.max(0, Math.floor(pointAt(first)))
+      const to = Math.min(count - 1, Math.ceil(pointAt(last)))
+      const pointX = (i: number) => left + i / pointsPerUnit
+
+      p.stroke(...theme.clipWave)
+      p.noFill()
+      ctx.beginPath()
+      ctx.moveTo(pointX(from), y(this.soundData[2 * from + 1]))
+      for(let i = from + 1; i <= to; i++) {
+        ctx.lineTo(pointX(i), y(this.soundData[2 * i + 1]))
+      }
+      // stroked without the zoom, which would otherwise stretch the line's
+      // width along with the timeline (y is only scaled by pixel density)
+      ctx.setTransform(scaleY, 0, 0, scaleY, 0, 0)
+      ctx.lineWidth = lineWidth
+      ctx.stroke()
     }
+    p.pop()
   }
 }
 
