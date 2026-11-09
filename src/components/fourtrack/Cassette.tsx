@@ -5,6 +5,9 @@ import { clamp, cx } from './util'
 const WIDTH = 320
 const HEIGHT = 200
 
+// width over height, for fitting the cassette into a box
+export const CASSETTE_ASPECT = WIDTH / HEIGHT
+
 // reel centres, seen through the window
 const REEL_Y = 92
 const LEFT_X = 112

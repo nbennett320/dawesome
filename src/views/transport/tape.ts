@@ -88,3 +88,19 @@ export const windPosition = (wind: Wind, now: number, t: PlaylistTransport): num
 // whether a wind has reached the end of the tape it's winding towards
 export const windDone = (wind: Wind, positionMs: number, t: PlaylistTransport): boolean =>
   (wind.direction < 0 ? positionMs <= 0 : positionMs >= Math.max(tapeLengthMs(t), wind.fromMs))
+
+// the cassette's largest width and the smallest it shrinks to, in pixels.
+// below the smallest, the tab scrolls instead
+export const CASSETTE_MAX_WIDTH = 520
+export const CASSETTE_MIN_WIDTH = 180
+
+// how wide the cassette can be to fit in the room left beside and above the
+// keys (heights and widths in pixels)
+export const fitCassetteWidth = (
+  roomWidth: number,
+  roomHeight: number,
+  aspect: number,
+): number => {
+  const fits = Math.min(roomWidth, roomHeight * aspect, CASSETTE_MAX_WIDTH)
+  return Math.max(CASSETTE_MIN_WIDTH, Math.floor(fits))
+}

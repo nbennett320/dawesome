@@ -12,6 +12,7 @@ import { projectName, selectProjectPath } from '../../state/slices/projectSlice'
 import {
   AnalogButton,
   Cassette,
+  CASSETTE_ASPECT,
   FastForwardIcon,
   Led,
   LedState,
@@ -25,6 +26,7 @@ import {
 import LatchKey from '../../components/topbar/LatchKey'
 import {
   barAndBeat,
+  fitCassetteWidth,
   formatTime,
   positionAt,
   tapeLengthMs,
@@ -35,9 +37,15 @@ import {
   WIND_SPEED,
 } from './tape'
 import { useTicker, useTransport } from './useTransport'
+import { useElementSize } from './useElementSize'
 
 // holding a wind key this long winds the tape; a shorter press moves a bar
 const HOLD_MS = 250
+
+// the deck's padding, and the gap between the cassette and the keys (p-4,
+// gap-5)
+const PADDING = 16
+const GAP = 20
 
 // a key with its name printed under it, and room for an LED above
 const DeckKey = ({ label, led, children }: { label: string, led?: React.ReactNode, children: React.ReactNode }) => (
@@ -166,107 +174,125 @@ const TransportDeck = () => {
   let recordLed: LedState = 'off'
   if(armed) recordLed = playing ? 'on' : 'blink'
 
+  // the cassette fills the room the keys leave, at its own shape
+  const box = React.useRef<HTMLDivElement>(null)
+  const controls = React.useRef<HTMLDivElement>(null)
+  const room = useElementSize(box)
+  const controlsSize = useElementSize(controls)
+  const cassetteWidth = room && controlsSize
+    ? fitCassetteWidth(
+      room.width - PADDING * 2,
+      room.height - PADDING * 2 - controlsSize.height - GAP,
+      CASSETTE_ASPECT,
+    )
+    : undefined
+
   const { bar, beat } = transport ? barAndBeat(position, transport) : { bar: 1, beat: 1 }
 
   return (
-    <div className='flex flex-col items-center gap-5'>
-      {cassetteVisible && (
-        <div className='w-full max-w-md'>
-          <Cassette progress={progress} speed={speed} label={label} />
-        </div>
-      )}
+    // the tab's whole body, scrolling only when even the smallest cassette
+    // and the keys don't fit
+    <div ref={box} className='ft-panel h-full w-full overflow-auto'>
+      <div className='min-h-full flex flex-col items-center justify-center gap-5 p-4'>
+        {/* hidden until measured, so it doesn't start at the wrong size */}
+        {cassetteVisible && (
+          <div className='shrink-0 max-w-full' style={{ width: cassetteWidth, visibility: cassetteWidth ? undefined : 'hidden' }}>
+            <Cassette progress={progress} speed={speed} label={label} />
+          </div>
+        )}
 
-      <div className='flex flex-row flex-wrap items-end justify-center gap-4'>
-        <div className='ft-lcd grid grid-cols-[auto_auto_auto] gap-x-3 gap-y-1 items-center'>
-          <span className='ft-label text-[9px]'>Bar</span>
-          <span className='ft-label text-[9px]'>Beat</span>
-          <span className='ft-label text-[9px]'>Time</span>
-          <TapeCounter value={bar} digits={3} label='Bar' />
-          <TapeCounter value={beat} digits={1} label='Beat' />
-          <span className='text-sm tabular-nums min-w-[4rem] text-right'>{formatTime(position)}</span>
-        </div>
+        <div ref={controls} className='flex flex-row flex-wrap items-end justify-center gap-4'>
+          <div className='ft-lcd grid grid-cols-[auto_auto_auto] gap-x-3 gap-y-1 items-center'>
+            <span className='ft-label text-[9px]'>Bar</span>
+            <span className='ft-label text-[9px]'>Beat</span>
+            <span className='ft-label text-[9px]'>Time</span>
+            <TapeCounter value={bar} digits={3} label='Bar' />
+            <TapeCounter value={beat} digits={1} label='Beat' />
+            <span className='text-sm tabular-nums min-w-[4rem] text-right'>{formatTime(position)}</span>
+          </div>
 
-        <div className='ft-tray rounded-lg flex flex-row items-end gap-2 px-3 pt-2 pb-1.5'>
-          <DeckKey
-            label='Rec'
-            led={<Led color='red' state={recordLed} />}
+          <div className='ft-tray rounded-lg flex flex-row items-end gap-2 px-3 pt-2 pb-1.5'>
+            <DeckKey
+              label='Rec'
+              led={<Led color='red' state={recordLed} />}
+            >
+              <AnalogButton
+                size='sm'
+                latched={armed}
+                aria-label='Arm recording'
+                title="Arm recording (recording isn't connected yet)"
+                onPress={() => setArmed(!armed)}
+              >
+                <RecordIcon className='ft-icon-rec' />
+              </AnalogButton>
+            </DeckKey>
+            <DeckKey label='Rew'>
+              <AnalogButton
+                size='sm'
+                latched={wind?.direction === -1}
+                aria-label='Rewind'
+                title='Rewind: tap to go back a bar, hold to wind'
+                {...windKeyProps(-1)}
+              >
+                <RewindIcon />
+              </AnalogButton>
+            </DeckKey>
+            <DeckKey label='F Fwd'>
+              <AnalogButton
+                size='sm'
+                latched={wind?.direction === 1}
+                aria-label='Fast forward'
+                title='Fast forward: tap to go forward a bar, hold to wind'
+                {...windKeyProps(1)}
+              >
+                <FastForwardIcon />
+              </AnalogButton>
+            </DeckKey>
+            <DeckKey label='Play'>
+              <AnalogButton
+                size='sm'
+                latched={playing}
+                aria-label='Play'
+                title='Play'
+                onPress={() => dispatch(playPlaylist())}
+              >
+                <PlayIcon />
+              </AnalogButton>
+            </DeckKey>
+            <DeckKey label='Stop'>
+              <AnalogButton
+                size='sm'
+                aria-label='Stop'
+                title='Stop, and go back to the start'
+                onPress={() => {
+                  assume(0)
+                  dispatch(stopPlaylist()).then(refresh)
+                }}
+              >
+                <StopIcon />
+              </AnalogButton>
+            </DeckKey>
+            <DeckKey label='Pause'>
+              <AnalogButton
+                size='sm'
+                latched={paused}
+                aria-label='Pause'
+                title={paused ? 'Carry on playing' : 'Pause'}
+                onPress={() => dispatch(playing ? pausePlaylist() : playPlaylist())}
+              >
+                <PauseIcon />
+              </AnalogButton>
+            </DeckKey>
+          </div>
+
+          <LatchKey
+            label={cassetteVisible ? 'Hide the cassette' : 'Show the cassette'}
+            on={cassetteVisible}
+            onToggle={() => dispatch(setCassetteVisible(!cassetteVisible))}
           >
-            <AnalogButton
-              size='sm'
-              latched={armed}
-              aria-label='Arm recording'
-              title="Arm recording (recording isn't connected yet)"
-              onPress={() => setArmed(!armed)}
-            >
-              <RecordIcon className='ft-icon-rec' />
-            </AnalogButton>
-          </DeckKey>
-          <DeckKey label='Rew'>
-            <AnalogButton
-              size='sm'
-              latched={wind?.direction === -1}
-              aria-label='Rewind'
-              title='Rewind: tap to go back a bar, hold to wind'
-              {...windKeyProps(-1)}
-            >
-              <RewindIcon />
-            </AnalogButton>
-          </DeckKey>
-          <DeckKey label='F Fwd'>
-            <AnalogButton
-              size='sm'
-              latched={wind?.direction === 1}
-              aria-label='Fast forward'
-              title='Fast forward: tap to go forward a bar, hold to wind'
-              {...windKeyProps(1)}
-            >
-              <FastForwardIcon />
-            </AnalogButton>
-          </DeckKey>
-          <DeckKey label='Play'>
-            <AnalogButton
-              size='sm'
-              latched={playing}
-              aria-label='Play'
-              title='Play'
-              onPress={() => dispatch(playPlaylist())}
-            >
-              <PlayIcon />
-            </AnalogButton>
-          </DeckKey>
-          <DeckKey label='Stop'>
-            <AnalogButton
-              size='sm'
-              aria-label='Stop'
-              title='Stop, and go back to the start'
-              onPress={() => {
-                assume(0)
-                dispatch(stopPlaylist()).then(refresh)
-              }}
-            >
-              <StopIcon />
-            </AnalogButton>
-          </DeckKey>
-          <DeckKey label='Pause'>
-            <AnalogButton
-              size='sm'
-              latched={paused}
-              aria-label='Pause'
-              title={paused ? 'Carry on playing' : 'Pause'}
-              onPress={() => dispatch(playing ? pausePlaylist() : playPlaylist())}
-            >
-              <PauseIcon />
-            </AnalogButton>
-          </DeckKey>
+            <TapeIcon />
+          </LatchKey>
         </div>
-
-        <LatchKey
-          label={cassetteVisible ? 'Hide the cassette' : 'Show the cassette'}
-          on={cassetteVisible}
-          onToggle={() => dispatch(setCassetteVisible(!cassetteVisible))}
-        >
-          <TapeIcon />
-        </LatchKey>
       </div>
     </div>
   )

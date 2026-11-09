@@ -1,6 +1,9 @@
 import { PlaylistTransport } from '../../types/transport'
 import {
   barAndBeat,
+  CASSETTE_MAX_WIDTH,
+  CASSETTE_MIN_WIDTH,
+  fitCassetteWidth,
   formatTime,
   positionAt,
   tapeLengthMs,
@@ -131,5 +134,21 @@ describe('windPosition', () => {
     expect(windDone(forward, 9_000, t)).toBe(true)
     expect(windDone(back, 0, t)).toBe(true)
     expect(windDone(back, 10, t)).toBe(false)
+  })
+})
+
+describe('fitCassetteWidth', () => {
+  it('fits the narrower of the room\'s width and height', () => {
+    expect(fitCassetteWidth(300, 500, 1.6)).toBe(300)
+    expect(fitCassetteWidth(500, 200, 1.6)).toBe(320)
+  })
+
+  it('stops growing at its largest', () => {
+    expect(fitCassetteWidth(2_000, 2_000, 1.6)).toBe(CASSETTE_MAX_WIDTH)
+  })
+
+  it('stops shrinking at its smallest', () => {
+    expect(fitCassetteWidth(50, 50, 1.6)).toBe(CASSETTE_MIN_WIDTH)
+    expect(fitCassetteWidth(500, -40, 1.6)).toBe(CASSETTE_MIN_WIDTH)
   })
 })
