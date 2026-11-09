@@ -10,6 +10,7 @@ import {
   msLabel,
   rateLabel,
 } from '../../types/audio'
+import { AnalogButton, ResetIcon } from '../../components/fourtrack'
 
 // a choice of devices (or the system's default), or buffer sizes
 const Choice = ({ label, value, options, disabled, onChange }: {
@@ -120,8 +121,8 @@ const AudioSettings = () => {
             onChange={frames => apply({ bufferFrames: frames ? Number(frames) : null })}
           />
           <p className='text-xs text-slate-500 max-w-md'>
-            Smaller buffers mean less delay, but are more work for the computer. If playback
-            crackles, choose a bigger one.
+            Smaller buffers mean less delay, but are more work for the computer. 
+            If playback crackles, choose a bigger one.
           </p>
         </section>
 
@@ -133,13 +134,10 @@ const AudioSettings = () => {
             disabled={disabled}
             onChange={name => apply({ inputDevice: name || null })}
           />
-          <p className='text-xs text-slate-500 max-w-md'>
-            What recording listens to.
-          </p>
         </section>
 
         <section className='flex flex-col gap-1'>
-          <span className='ft-label'>Now playing through</span>
+          <span className='ft-label'>Playback Status</span>
           {output ? (
             <div className='ft-lcd text-xs flex flex-col gap-0.5 w-fit'>
               <span>{output.device}</span>
@@ -155,22 +153,24 @@ const AudioSettings = () => {
           ) : (
             <span>Nothing: the output couldn&apos;t be opened</span>
           )}
+
           {note && <span className='text-xs text-slate-500'>{note}</span>}
-          <span className='text-xs text-slate-500 max-w-md'>
-            {"Bluetooth headphones add delay that they don't report, so recordings made while "
-              + 'listening through them can land late.'}
-          </span>
         </section>
 
         <div className='flex flex-row gap-2 items-center'>
-          <button
+          {/* <button
             type='button'
             className='rounded px-2 py-1 hover:bg-slate-100 text-slate-600'
             disabled={disabled}
             onClick={load}
           >
             Refresh devices
-          </button>
+          </button> */}
+          <span className='text-xs'>Refresh devices</span>  
+          <AnalogButton size='md' aria-label='Refresh samples' title='List the samples folder again' onPress={load} disabled={disabled}>
+            <ResetIcon />
+          </AnalogButton>
+
           {applying && <span className='text-xs text-slate-500'>Switching…</span>}
         </div>
       </div>
