@@ -35,6 +35,15 @@ impl InputChoice {
     InputChoice { first: 0, stereo: device_channels >= 2 }
   }
 
+  // this choice, kept to the channels an input has: a pair past them is
+  // the first pair (or, on a mono input, its channel), and a channel past
+  // them is the first
+  pub fn fit(self, device_channels: u16) -> Self {
+    let last = self.first as u32 + self.stereo as u32;
+    if device_channels == 0 || last < device_channels as u32 { return self; }
+    if self.stereo { InputChoice::default_for(device_channels) } else { InputChoice { first: 0, stereo: false } }
+  }
+
   pub fn channels(&self) -> Vec<usize> {
     let first = self.first as usize;
     if self.stereo { vec![first, first + 1] } else { vec![first] }
@@ -160,12 +169,16 @@ pub fn start(state: &Arc<daw::InnerState>) -> Result<(), String> {
   // the run start together
   if state.playlist.playing() { daw::pause_playlist(state); }
 
+  // each track records what it was armed with, kept to the channels the
+  // input has (it may have been armed on another input, or in a project
+  // made with one)
+  let channels = daw::input_channel_count()?;
   let files: Vec<daw::TakeFile> = {
     let mut location = state.project.lock().unwrap();
     let dir = location.recordings_dir()?;
     let paths = project_files::next_take_paths(&dir, &location.name(), &project_files::today(), armed.len());
     armed.iter().zip(paths)
-      .map(|(track, path)| daw::TakeFile { path, channels: track.input.channels() })
+      .map(|(track, path)| daw::TakeFile { path, channels: track.input.fit(channels).channels() })
       .collect()
   };
 
@@ -201,7 +214,11 @@ pub fn start(state: &Arc<daw::InnerState>) -> Result<(), String> {
     loop_len: state.playlist.loop_len(interval),
   };
   println!("recording {} tracks from {:?}", session.tracks.len(), session.start);
-  state.recorder.lock().unwrap().session = Some(session);
+  let mut recorder = state.recorder.lock().unwrap();
+  recorder.session = Some(session);
+  // recording from another input than the one chosen is worth knowing
+  if let Some(notice) = daw::input_notice() { recorder.problems.push(notice); }
+  drop(recorder);
   Ok(())
 }
 
@@ -223,9 +240,8 @@ pub fn finish(state: &daw::InnerState, at_loop_end: bool) {
     None => return,
   };
 
-  let rate = daw::engine_if_open().map(|engine| engine.sample_rate()).unwrap_or(48_000);
   let limit = match (at_loop_end, session.loop_len) {
-    (true, Some(len)) => Some(((len.saturating_sub(session.start)).as_secs_f64() * rate as f64).round() as u64),
+    (true, Some(len)) => Some(len.saturating_sub(session.start)),
     _ => None,
   };
 
@@ -242,6 +258,7 @@ pub fn finish(state: &daw::InnerState, at_loop_end: bool) {
       // it started late (capture hadn't begun when the run was heard): the
       // clip starts as late
       // (by less than a frame is just the take starting on a whole frame)
+      let rate = takes.files.first().map(|take| take.sample_rate).unwrap_or(48_000);
       let frame = Duration::from_secs_f64(1. / rate.max(1) as f64);
       let late = takes.started
         .map(|started| started.saturating_duration_since(session.keep_from))
@@ -291,6 +308,27 @@ mod tests {
     assert_eq!(InputChoice::default_for(8), InputChoice { first: 0, stereo: true });
     assert_eq!(InputChoice { first: 2, stereo: true }.channels(), vec![2, 3]);
     assert_eq!(InputChoice { first: 5, stereo: false }.channels(), vec![5]);
+  }
+
+  #[test]
+  fn test_choices_fit_the_input() {
+    let mono = |first| InputChoice { first, stereo: false };
+    let pair = |first| InputChoice { first, stereo: true };
+
+    // ones that fit stay as they are
+    assert_eq!(pair(0).fit(2), pair(0));
+    assert_eq!(pair(2).fit(4), pair(2));
+    assert_eq!(mono(3).fit(4), mono(3));
+    // a pair on a mono input records its channel
+    assert_eq!(pair(0).fit(1), mono(0));
+    // a pair past an input's channels is its first pair
+    assert_eq!(pair(2).fit(2), pair(0));
+    assert_eq!(pair(1).fit(2), pair(0));
+    // a channel past them is the first
+    assert_eq!(mono(1).fit(1), mono(0));
+    assert_eq!(mono(5).fit(4), mono(0));
+    // nothing known about the input: as chosen
+    assert_eq!(pair(4).fit(0), pair(4));
   }
 
   #[test]
@@ -408,7 +446,8 @@ mod tests {
     let recorded = collect(&state);
     println!("{:?}", recorded);
     assert!(!recorded.recording);
-    assert!(recorded.problems.is_empty());
+    // (a saved input that isn't connected is said, and the default used)
+    assert!(recorded.problems.iter().all(|p| p.contains("default input")), "{:?}", recorded.problems);
     let clip = &recorded.clips[0];
     assert_eq!(clip.track_number, 1);
     assert_eq!(clip.start_beat, 2.);

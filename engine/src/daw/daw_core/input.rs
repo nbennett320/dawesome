@@ -3,8 +3,10 @@
 // was captured. a writer thread drains the queue into a WAV file, so the
 // audio thread never waits on the disk
 //
-// the input is opened at the output's rate (the engine follows its devices
-// rather than resampling what's recorded), and only while something needs
+// the input is opened at the output's rate when it can be. an input that
+// can't (like a Bluetooth headset's microphone) records at its own rate, and
+// its takes are converted to the output's rate as they play, like any sample
+// at another rate. it's only open while something needs
 // it: the Audio tab's meter, or a take being recorded. on macOS that's when
 // the microphone light shows
 use crate::daw::{self, AtomicF32};
@@ -208,6 +210,11 @@ impl Input {
     &self.device_name
   }
 
+  // what it records at: the output's rate, unless it can't
+  pub fn sample_rate(&self) -> u32 {
+    self.sample_rate
+  }
+
   pub fn device_channels(&self) -> u16 {
     self.device_channels
   }
@@ -280,10 +287,12 @@ impl Input {
     Ok(Recording { writer, control })
   }
 
-  // stop recording, keeping at most `limit` frames, once what's been
+  // stop recording, keeping at most `limit` of it, once what's been
   // captured is written
-  fn stop_take(&self, recording: Recording, limit: Option<u64>) -> Result<Takes, String> {
-    *recording.control.limit.lock().unwrap() = limit;
+  fn stop_take(&self, recording: Recording, limit: Option<Duration>) -> Result<Takes, String> {
+    // in this input's frames, which may not be the output's
+    let frames = limit.map(|limit| (limit.as_secs_f64() * self.sample_rate as f64).round() as u64);
+    *recording.control.limit.lock().unwrap() = frames;
     self.shared.capturing.store(false, Ordering::Release);
     recording.writer.join().map_err(|_| "the take's writer stopped unexpectedly".to_string())?
   }
@@ -453,20 +462,24 @@ fn build_input(name: Option<&str>, sample_rate: u32) -> Result<(Input, cpal::Str
     c.channels() == default_channels,
     c.sample_format() == cpal::SampleFormat::F32,
   );
-  let supported = configs.iter().max_by_key(|c| rank(c))
-    .ok_or_else(|| format!(
-      "'{}' can't record at {} Hz, the output's rate. Choose an input and output that share a rate",
-      device_name, sample_rate))?
-    .clone()
-    .with_sample_rate(cpal::SampleRate(sample_rate));
+  let supported = match configs.iter().max_by_key(|c| rank(c)) {
+    Some(config) => config.clone().with_sample_rate(cpal::SampleRate(sample_rate)),
+    // it can't: its own rate, converted as its takes play
+    None => device.default_input_config()
+      .map_err(|e| format!("could not read the settings of '{}': {}", device_name, e))?,
+  };
 
   let format = supported.sample_format();
   let config: cpal::StreamConfig = supported.into();
   let channels = config.channels;
+  let rate = config.sample_rate.0;
 
-  println!("audio input: {} ({} Hz, {} channels, {:?})", device_name, sample_rate, channels, format);
+  println!("audio input: {} ({} Hz, {} channels, {:?})", device_name, rate, channels, format);
+  if rate != sample_rate {
+    println!("  (it can't record at the output's {} Hz: its takes are converted as they play)", sample_rate);
+  }
 
-  let (input, capturer) = Input::new(device_name, sample_rate, channels);
+  let (input, capturer) = Input::new(device_name, rate, channels);
   let stream = match format {
     cpal::SampleFormat::F32 => build_stream::<f32>(&device, &config, capturer),
     cpal::SampleFormat::I16 => build_stream::<i16>(&device, &config, capturer),
@@ -516,10 +529,29 @@ struct Inputs {
   // the meters looking at it
   listeners: u32,
   recording: Option<(Arc<Input>, Recording)>,
+  // why the chosen input isn't the one open, if it isn't
+  notice: Option<String>,
 }
 
 lazy_static! {
-  static ref INPUTS: Mutex<Inputs> = Mutex::new(Inputs { open: None, listeners: 0, recording: None });
+  static ref INPUTS: Mutex<Inputs> = Mutex::new(Inputs { open: None, listeners: 0, recording: None, notice: None });
+}
+
+// use the chosen input, or (when it's gone, or won't work) the system's
+// default, saying why
+fn with_fallback<T>(
+  chosen: Option<&str>,
+  use_input: impl Fn(Option<&str>) -> Result<T, String>,
+) -> Result<(T, Option<String>), String> {
+  match (use_input(chosen), chosen) {
+    (Ok(input), _) => Ok((input, None)),
+    (Err(e), Some(name)) => {
+      let input = use_input(None)?;
+      Ok((input, Some(format!(
+        "'{}' couldn't be used ({}), so the system's default input is used instead", name, e))))
+    }
+    (Err(e), None) => Err(e),
+  }
 }
 
 fn open_or_reuse(inputs: &mut Inputs) -> Result<Arc<Input>, String> {
@@ -527,9 +559,18 @@ fn open_or_reuse(inputs: &mut Inputs) -> Result<Arc<Input>, String> {
 
   let rate = daw::engine()?.sample_rate();
   let settings = daw::audio_settings();
-  let input = Arc::new(open_input(settings.input_device.as_deref(), rate)?);
+  let (input, notice) = with_fallback(settings.input_device.as_deref(), |name| open_input(name, rate))?;
+  if let Some(notice) = &notice { println!("{}", notice); }
+
+  let input = Arc::new(input);
   inputs.open = Some(input.clone());
+  inputs.notice = notice;
   Ok(input)
+}
+
+// why the chosen input isn't the one in use, if it isn't
+pub fn input_notice() -> Option<String> {
+  INPUTS.lock().unwrap().notice.clone()
 }
 
 fn close_if_unused(inputs: &mut Inputs) {
@@ -560,11 +601,15 @@ pub fn input_if_open() -> Option<Arc<Input>> {
 pub fn input_channel_count() -> Result<u16, String> {
   if let Some(input) = input_if_open() { return Ok(input.device_channels()); }
 
+  // the same input opening it would use
   let settings = daw::audio_settings();
-  let device = input_device(settings.input_device.as_deref())?;
-  device.default_input_config()
-    .map(|config| config.channels())
-    .map_err(|e| format!("could not read the input's settings: {}", e))
+  let (channels, _) = with_fallback(settings.input_device.as_deref(), |name| {
+    input_device(name)?
+      .default_input_config()
+      .map(|config| config.channels())
+      .map_err(|e| format!("could not read its settings: {}", e))
+  })?;
+  Ok(channels)
 }
 
 // start recording a take into these files. nothing's kept until it's told
@@ -593,9 +638,9 @@ pub fn keep_recording_from(at: Instant) {
   }
 }
 
-// stop recording, keeping at most `limit` frames, returning the take (none
-// if nothing was recording)
-pub fn stop_recording(limit: Option<u64>) -> Result<Option<Takes>, String> {
+// stop recording, keeping at most `limit` of it, returning the take (none if
+// nothing was recording)
+pub fn stop_recording(limit: Option<Duration>) -> Result<Option<Takes>, String> {
   let mut inputs = INPUTS.lock().unwrap();
   let (input, recording) = match inputs.recording.take() {
     Some(recording) => recording,
@@ -613,6 +658,7 @@ pub fn reset_input() -> Option<Takes> {
   let takes = stop_recording(None).ok().flatten();
   let mut inputs = INPUTS.lock().unwrap();
   inputs.open = None;
+  inputs.notice = None;
   if inputs.listeners > 0 {
     if let Err(e) = open_or_reuse(&mut inputs) {
       println!("could not reopen the audio input: {}", e);
@@ -714,11 +760,34 @@ mod tests {
     let recording = input.start_take(&[file(&path, &[0])]).unwrap();
     recording.keep_from(t0 + 2 * MS);
     capturer.process(&frames(0, 30, 1), 1, t0);
-    // the loop ended 20 frames in
-    let take = input.stop_take(recording, Some(20)).unwrap();
+    // the loop ended 20 frames (20ms at the test's rate) in
+    let take = input.stop_take(recording, Some(20 * MS)).unwrap();
 
     assert_eq!(read(&path).1, frames(2, 20, 1));
     assert_eq!(take.files[0].frames, 20);
+
+    let _ = std::fs::remove_file(&path);
+  }
+
+  #[test]
+  fn test_a_take_at_another_rate_is_limited_in_time() {
+    // an input at twice the test's usual rate (like a 24kHz headset
+    // microphone, while the output runs at 48kHz)
+    let (input, mut capturer) = Input::new("headset".into(), RATE * 2, 1);
+    let path = temp_take("other-rate");
+    let t0 = Instant::now();
+
+    let recording = input.start_take(&[file(&path, &[0])]).unwrap();
+    recording.keep_from(t0);
+    capturer.process(&frames(0, 100, 1), 1, t0);
+    // the loop ended 20ms in: 40 of this input's frames
+    let take = input.stop_take(recording, Some(20 * MS)).unwrap();
+
+    assert_eq!(take.files[0].frames, 40);
+    assert_eq!(take.files[0].sample_rate, RATE * 2);
+    let (spec, samples) = read(&path);
+    assert_eq!(spec.sample_rate, RATE * 2);
+    assert_eq!(samples, frames(0, 40, 1));
 
     let _ = std::fs::remove_file(&path);
   }
@@ -802,6 +871,30 @@ mod tests {
     assert_eq!(take.started, None);
 
     let _ = std::fs::remove_file(&path);
+  }
+
+  #[test]
+  fn test_a_missing_input_falls_back_to_the_default() {
+    // what each input gives: the chosen one is unplugged
+    let open = |name: Option<&str>| match name {
+      Some("Interface") => Err("there's no audio input named 'Interface'".to_string()),
+      Some(other) => Ok(other.to_string()),
+      None => Ok("default".to_string()),
+    };
+
+    let (used, notice) = with_fallback(Some("Interface"), open).unwrap();
+    assert_eq!(used, "default");
+    let notice = notice.unwrap();
+    assert!(notice.contains("'Interface'") && notice.contains("default input"), "{}", notice);
+
+    // one that's there is used, with nothing to say
+    assert_eq!(with_fallback(Some("Mic"), open).unwrap(), ("Mic".to_string(), None));
+    assert_eq!(with_fallback(None, open).unwrap(), ("default".to_string(), None));
+
+    // without a default either, the default's problem is the one given
+    let nothing = |_: Option<&str>| Err::<String, _>("there's no audio input device".to_string());
+    assert_eq!(with_fallback(Some("Interface"), nothing).unwrap_err(), "there's no audio input device");
+    assert_eq!(with_fallback(None, nothing).unwrap_err(), "there's no audio input device");
   }
 
   #[test]

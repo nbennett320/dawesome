@@ -12,6 +12,9 @@ use serde::Serialize;
 pub struct InputStatus {
   device: String,
   channels: u16,
+  // the output's, unless the input can't record at it (its takes are then
+  // converted as they play)
+  sample_rate: u32,
   // from a frame coming into the device to the engine getting it
   latency_ms: f64,
 }
@@ -80,9 +83,15 @@ fn status() -> AudioStatus {
     input: daw::input_if_open().map(|input| InputStatus {
       device: input.device_name().to_string(),
       channels: input.device_channels(),
+      sample_rate: input.sample_rate(),
       latency_ms: input.latency().as_secs_f64() * 1000.,
     }),
-    notice: open_error.or_else(daw::audio_notice),
+    notice: {
+      // anything wrong with the output, then the input
+      let notices: Vec<String> = [open_error.or_else(daw::audio_notice), daw::input_notice()]
+        .into_iter().flatten().collect();
+      if notices.is_empty() { None } else { Some(notices.join(". ")) }
+    },
   }
 }
 

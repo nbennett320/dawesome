@@ -38,6 +38,9 @@ export interface AudioStatus {
 export interface InputStatus {
   device: string
   channels: number
+  // the output's, unless the input can't record at it (its takes are then
+  // converted as they play)
+  sampleRate: number
   // from a frame coming into the device to the engine getting it
   latencyMs: number
 }
@@ -65,6 +68,15 @@ export interface RecordSetup {
 // the first two channels, or the only one
 export const defaultInput = (channels: number | null): InputChoice =>
   ({ first: 0, stereo: (channels ?? 2) >= 2 })
+
+// a choice kept to the channels an input has, as the engine does when it
+// records (see InputChoice::fit in engine/src/recording.rs): a pair past them
+// is the first pair (or, on a mono input, its channel), and a channel past
+// them is the first
+export const fitInput = (choice: InputChoice, channels: number | null): InputChoice => {
+  if(!channels || choice.first + (choice.stereo ? 1 : 0) < channels) return choice
+  return choice.stereo ? defaultInput(channels) : { first: 0, stereo: false }
+}
 
 export const inputLabel = ({ first, stereo }: InputChoice): string =>
   (stereo ? `In ${first + 1}+${first + 2}` : `In ${first + 1}`)

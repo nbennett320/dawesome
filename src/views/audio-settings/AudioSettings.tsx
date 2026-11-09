@@ -237,7 +237,11 @@ const AudioSettings = () => {
           />
           <InputMeter onOpened={load} onError={inputError} />
           {status.input && (
-            <span className='text-xs text-slate-500'>Input latency {msLabel(status.input.latencyMs)}</span>
+            <span className='text-xs text-slate-500'>
+              Input latency {msLabel(status.input.latencyMs)} · {rateLabel(status.input.sampleRate)}
+              {output && status.input.sampleRate !== output.sampleRate
+                && ` (it can't record at ${rateLabel(output.sampleRate)}, so takes are converted as they play)`}
+            </span>
           )}
           <OffsetField
             value={settings.recordOffsetMs}

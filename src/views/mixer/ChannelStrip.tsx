@@ -1,7 +1,9 @@
 import React from 'react'
 import { formatDb, formatPan, MAX_DB, MAX_NAME_CHARS, MIN_DB } from '../../types/mixer'
 import { AnalogButton, Knob, Led, MuteSolo } from '../../components/fourtrack'
-import { InputChoice, inputChoices, inputKey, inputLabel, parseInputKey } from '../../types/audio'
+import {
+  InputChoice, defaultInput, fitInput, inputChoices, inputKey, inputLabel, parseInputKey,
+} from '../../types/audio'
 import Fader, { THUMB_HEIGHT } from './Fader'
 import Meter from './Meter'
 import { RegisterMeter } from './useMixerMeters'
@@ -112,13 +114,18 @@ export interface RecordControl {
 
 const RecordArm = ({ label, record }: { label: string, record: RecordControl }) => {
   const { armed, channels, recording, onChange } = record
-  // what it records once armed: what it last recorded, or the first two channels
-  const [choice, setChoice] = React.useState<InputChoice>(armed ?? { first: 0, stereo: (channels ?? 2) >= 2 })
+  // what it was set to record: what it was armed with, or the first two
+  // channels (or the only one)
+  const [choice, setChoice] = React.useState<InputChoice>(armed ?? defaultInput(channels))
   React.useEffect(() => { if(armed) setChoice(armed) }, [armed])
+  // and what it will record, on this input. the input's channels can be
+  // learnt after this is shown, or change with the input, or the project
+  // may have been armed with another input
+  const shown = fitInput(choice, channels)
 
   let led: 'off' | 'on' | 'blink' = 'off'
   if(armed) led = recording ? 'blink' : 'on'
-  const choices = channels ? inputChoices(channels) : [choice]
+  const choices = channels ? inputChoices(channels) : [shown]
 
   return (
     <div className='flex flex-row items-center gap-1'>
@@ -129,7 +136,7 @@ const RecordArm = ({ label, record }: { label: string, record: RecordControl }) 
         latched={armed !== null}
         aria-label={`Arm ${label} to record`}
         title={channels === null ? 'Arm to record (there\'s no input to record from)' : 'Arm to record'}
-        onPress={() => onChange(armed ? null : choice)}
+        onPress={() => onChange(armed ? null : shown)}
       >
         R
       </AnalogButton>
@@ -137,7 +144,7 @@ const RecordArm = ({ label, record }: { label: string, record: RecordControl }) 
         className='ft-readout text-[10px] py-0 w-full min-w-0'
         aria-label={`${label} records from`}
         title='The input channels it records'
-        value={inputKey(choice)}
+        value={inputKey(shown)}
         onChange={e => {
           const picked = parseInputKey(e.currentTarget.value)
           if(!picked) return

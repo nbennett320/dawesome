@@ -1,5 +1,5 @@
 import {
-  AudioSettings, OutputStatus, bufferMs, bufferNote, defaultInput, inputChoices, inputKey, inputLabel, meterPosition,
+  AudioSettings, OutputStatus, bufferMs, bufferNote, defaultInput, fitInput, inputChoices, inputKey, inputLabel, meterPosition,
   msLabel, parseInputKey, rateLabel,
 } from './audio'
 
@@ -39,6 +39,21 @@ test('meter positions', () => {
   expect(meterPosition(NaN)).toBe(0)
   // clipping stays at the top
   expect(meterPosition(1.4)).toBe(1)
+})
+
+test('choices fit the input, as the engine fits them', () => {
+  const mono = (first: number) => ({ first, stereo: false })
+  const pair = (first: number) => ({ first, stereo: true })
+
+  expect(fitInput(pair(0), 2)).toEqual(pair(0))
+  expect(fitInput(pair(2), 4)).toEqual(pair(2))
+  expect(fitInput(mono(3), 4)).toEqual(mono(3))
+  // the MacBook's microphone has one channel
+  expect(fitInput(pair(0), 1)).toEqual(mono(0))
+  expect(fitInput(pair(2), 2)).toEqual(pair(0))
+  expect(fitInput(mono(5), 4)).toEqual(mono(0))
+  // before the input's channels are known
+  expect(fitInput(pair(4), null)).toEqual(pair(4))
 })
 
 test('input choices', () => {
