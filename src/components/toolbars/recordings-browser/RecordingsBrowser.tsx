@@ -142,6 +142,7 @@ const RecordingsBrowser = () => {
   const applyMoved = (moved: MovedRecording) => {
     dispatch(playlistSlice.actions.reduceMovedClips(moved.movedClips))
     if(moved.sequencer) dispatch(setSequencer(moved.sequencer))
+    if(moved.problem) dispatch(setProjectNotice({ kind: 'error', message: `Moved, but ${moved.problem}` }))
     dispatch(takesChanged())
   }
 

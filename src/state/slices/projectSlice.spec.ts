@@ -33,7 +33,7 @@ const emptyProject: LoadedProject = {
   clips: [],
   missing: [],
   mixer: { tracks: [], master: { volumeDb: 0, pan: 0, mute: false, solo: false } },
-  sequencer: { rows: [], patterns: [] },
+  sequencer: { rows: [], patterns: [], folders: [] },
   patternClips: [],
 }
 

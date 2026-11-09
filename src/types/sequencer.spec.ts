@@ -9,6 +9,10 @@ import {
   withStep,
   patternHint,
   searchPatterns,
+  folderKey,
+  folderIdOf,
+  folderPathLabel,
+  patternFolderInfos,
 } from './sequencer'
 
 const pattern = (steps: Record<string, number[]> = {}, length = 16): Pattern =>
@@ -104,5 +108,27 @@ describe('patternHint', () => {
 
   it('counts the clips in the playlist', () => {
     expect(patternHint(named(0, null, 16), 4, 3)).toBe('1 bar · 3×')
+  })
+})
+
+describe('pattern folders', () => {
+  const folders = [{ id: 3, name: 'Drums' }, { id: 7, name: 'Fills', parent: 3 }]
+
+  it('keys folders by id, with the top as the empty key', () => {
+    expect(folderKey(7)).toBe('7')
+    expect(folderKey(null)).toBe('')
+    expect(folderKey(undefined)).toBe('')
+    expect(folderIdOf('7')).toBe(7)
+    expect(folderIdOf('')).toBeNull()
+    expect(patternFolderInfos(folders)).toEqual([
+      { key: '3', name: 'Drums', parent: '' },
+      { key: '7', name: 'Fills', parent: '3' },
+    ])
+  })
+
+  it('names where a folder is, from the top', () => {
+    expect(folderPathLabel(folders, 7)).toBe('Drums / Fills')
+    expect(folderPathLabel(folders, null)).toBe('')
+    expect(folderPathLabel([{ id: 1, name: 'a', parent: 2 }, { id: 2, name: 'b', parent: 1 }], 1)).toBe('b / a')
   })
 })

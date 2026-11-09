@@ -133,6 +133,66 @@ fn remove_pattern_of(state: &daw::InnerState, pattern_id: u64) -> Result<Removed
   Ok(RemovedPattern { removed_clips, sequencer: sequencer.state() })
 }
 
+// a folder that was just made, and the sequencer with it
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AddedFolder {
+  id: u64,
+  sequencer: daw::SequencerState,
+}
+
+// a new, empty folder of patterns in `parent` (none: the top)
+#[tauri::command]
+pub fn add_pattern_folder(state: daw::TState<'_>, name: String, parent: Option<u64>) -> Result<AddedFolder, String> {
+  add_pattern_folder_to(&state, &name, parent)
+}
+
+fn add_pattern_folder_to(state: &daw::InnerState, name: &str, parent: Option<u64>) -> Result<AddedFolder, String> {
+  let mut sequencer = state.playlist.sequencer.lock().unwrap();
+  let id = sequencer.add_folder(name, parent)?;
+  Ok(AddedFolder { id, sequencer: sequencer.state() })
+}
+
+#[tauri::command]
+pub fn rename_pattern_folder(state: daw::TState<'_>, folder_id: u64, name: String) -> Result<daw::SequencerState, String> {
+  edit(&state, |seq| seq.rename_folder(folder_id, &name))
+}
+
+// move a folder of patterns into another, or (none) to the top
+#[tauri::command]
+pub fn move_pattern_folder(state: daw::TState<'_>, folder_id: u64, parent: Option<u64>) -> Result<daw::SequencerState, String> {
+  edit(&state, |seq| seq.move_folder(folder_id, parent))
+}
+
+// put a pattern in a folder, or (none) at the top
+#[tauri::command]
+pub fn move_pattern(state: daw::TState<'_>, pattern_id: u64, folder: Option<u64>) -> Result<daw::SequencerState, String> {
+  edit(&state, |seq| seq.move_pattern(pattern_id, folder))
+}
+
+// delete a folder of patterns, with its folders and patterns. refused while
+// any of its patterns is in the playlist, so no clip goes with it unseen
+#[tauri::command]
+pub fn remove_pattern_folder(state: daw::TState<'_>, folder_id: u64) -> Result<daw::SequencerState, String> {
+  remove_pattern_folder_of(&state, folder_id)
+}
+
+fn remove_pattern_folder_of(state: &daw::InnerState, folder_id: u64) -> Result<daw::SequencerState, String> {
+  // the graph is locked before the sequencer, as everywhere
+  let audiograph = state.playlist.audiograph.lock().unwrap();
+  let mut sequencer = state.playlist.sequencer.lock().unwrap();
+  let inside = sequencer.patterns_in_folder(folder_id);
+  let placed = inside.iter().filter(|id| audiograph.pattern_nodes.iter().any(|n| n.pattern_id == **id)).count();
+  if placed > 0 {
+    return Err(format!(
+      "{} of its patterns {} in the playlist",
+      placed, if placed == 1 { "is" } else { "are" },
+    ));
+  }
+  sequencer.remove_folder(folder_id)?;
+  Ok(sequencer.state())
+}
+
 // name a pattern. a blank name shows its number again
 #[tauri::command]
 pub fn rename_pattern(state: daw::TState<'_>, pattern_id: u64, name: String) -> Result<daw::SequencerState, String> {
@@ -305,6 +365,29 @@ mod tests {
     assert_eq!(removed.sequencer.patterns.len(), 1);
     assert_eq!(state.playlist.audiograph.lock().unwrap().pattern_nodes.len(), 1);
     assert!(remove_pattern_of(&state, pattern).is_err());
+  }
+
+  #[test]
+  fn test_a_folder_in_use_isnt_removed() {
+    let state = daw::InnerState::default();
+    let placed = add_pattern_of(&state, 1).unwrap().id;
+    let unplaced = add_pattern_of(&state, 1).unwrap().id;
+    let folder = add_pattern_folder_to(&state, "Drums", None).unwrap().id;
+    {
+      let mut seq = state.playlist.sequencer.lock().unwrap();
+      seq.move_pattern(placed, Some(folder)).unwrap();
+      seq.move_pattern(unplaced, Some(folder)).unwrap();
+    }
+    add_pattern_clip_to(&state, placed, 0, Some(0.)).unwrap();
+
+    let refused = remove_pattern_folder_of(&state, folder).unwrap_err();
+    assert!(refused.contains("1 of its patterns is"), "{}", refused);
+    assert_eq!(state.playlist.sequencer.lock().unwrap().patterns().len(), 2);
+
+    // with its clip gone, the folder and both patterns go
+    state.playlist.audiograph.lock().unwrap().remove_pattern_nodes_of(placed);
+    let seq = remove_pattern_folder_of(&state, folder).unwrap();
+    assert!(seq.patterns.is_empty() && seq.folders.is_empty());
   }
 
   #[test]

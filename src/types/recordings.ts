@@ -106,6 +106,8 @@ export interface MovedRecording {
   path: string
   movedClips: Array<{ id: number, path: string }>
   sequencer: SequencerState | null
+  // the saved project file couldn't follow it: it'll find it once saved
+  problem: string | null
 }
 
 // a recordings folder's path (relative to the recordings folder, / between

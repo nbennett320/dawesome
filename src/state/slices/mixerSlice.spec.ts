@@ -118,7 +118,7 @@ describe('mixerSlice', () => {
       clips: [],
       missing: [],
       mixer,
-      sequencer: { rows: [], patterns: [] },
+      sequencer: { rows: [], patterns: [], folders: [] },
       patternClips: [],
     } as LoadedProject))
 

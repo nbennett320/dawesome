@@ -9,13 +9,21 @@ const sequencer: SequencerState = {
   rows: [{ id: 0, path: '/drums/kick.wav', volume: 1, muted: false }],
   patterns: [
     { id: 0, name: null, length: 16, steps: { 0: [0, 8] } },
-    { id: 4, name: 'fill', length: 32, steps: {} },
+    { id: 4, name: 'fill', length: 32, steps: {}, folder: 1 },
   ],
+  folders: [{ id: 1, name: 'Fills' }],
 }
 
 const init = () => reducer(undefined, { type: 'init' })
 
 describe('sequencerSlice', () => {
+  it('keeps the pattern folders the engine sends', () => {
+    const state = reducer(init(), setSequencer(sequencer))
+    expect(state.folders).toEqual([{ id: 1, name: 'Fills' }])
+    expect(state.patterns[1].folder).toBe(1)
+    expect(reducer(state, setSequencer({ ...sequencer, folders: [] })).folders).toEqual([])
+  })
+
   it('selects the first pattern, and keeps the selection while it exists', () => {
     let state = reducer(init(), setSequencer(sequencer))
     expect(state.selectedPatternId).toBe(0)
@@ -29,7 +37,7 @@ describe('sequencerSlice', () => {
     expect(state.selectedPatternId).toBe(0)
 
     // and nothing without patterns
-    state = reducer(state, setSequencer({ rows: [], patterns: [] }))
+    state = reducer(state, setSequencer({ rows: [], patterns: [], folders: [] }))
     expect(state.selectedPatternId).toBeNull()
   })
 
@@ -55,7 +63,7 @@ describe('sequencerSlice', () => {
   })
 
   it("takes a loaded project's sequencer", () => {
-    let state = reducer(init(), setSequencer({ rows: [], patterns: [{ id: 9, name: null, length: 16, steps: {} }] }))
+    let state = reducer(init(), setSequencer({ rows: [], patterns: [{ id: 9, name: null, length: 16, steps: {} }], folders: [] }))
     state = reducer(state, selectPattern(9))
 
     state = reducer(state, reduceLoadedProject({ sequencer, patternClips: [] } as unknown as LoadedProject))

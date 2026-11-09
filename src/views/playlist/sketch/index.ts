@@ -242,7 +242,7 @@ export class Renderer extends RendererBase {
 
   // the Sequencer's rows and patterns, which pattern clips draw. read every
   // frame, so editing a pattern shows straight away without rebuilding
-  sequencer: SequencerState = { rows: [], patterns: [] }
+  sequencer: SequencerState = { rows: [], patterns: [], folders: [] }
 
   // the clips picked with shift+click or a shift+drag box, by id
   selectedIds: Set<number> = new Set()
