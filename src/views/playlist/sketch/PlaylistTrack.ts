@@ -73,20 +73,11 @@ class PlaylistTrack extends PlaylistComponent<State> {
       .forEach(item => {
         item.render()
 
-        item.onClick((ev, data) => {
-          if(p.mouseButton === p.LEFT) {
-            // handle left click
-            console.log("left clicked on item: ", item.playlistItem.path, ev)
-          } 
-        })
-
         // handle right click
         // right click function is called in Renderer.#handleRightClick
         // because p5's left/right click handle appears to not be working
         // in the webview canvas
         item.onRightClick = (ev, data) => {
-          console.log("right clicked on item: ", item.playlistItem.path, ev)
-
           const { id } = item.playlistItem;
           // opens the clip's menu where the mouse is
           (this.renderer as Renderer).onNodeRightClick(id, ev.clientX, ev.clientY);
