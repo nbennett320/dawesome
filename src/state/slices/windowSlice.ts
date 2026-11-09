@@ -187,6 +187,10 @@ export const selectWindowPane = (state: RootState) => state.window.windowPane.ro
 
 export const selectFocusedPaneId = (state: RootState) => state.window.focusedPaneId
 
+// the view showing in the focused pane, e.g. for keys that act on it
+export const selectFocusedView = (state: RootState): View | undefined =>
+  paneTree.findPane(state.window.windowPane.root, state.window.focusedPaneId)?.activeView
+
 export const selectCassetteVisible = (state: RootState) => state.window.cassetteVisible
 
 export const selectTapePathVisible = (state: RootState) => state.window.tapePathVisible

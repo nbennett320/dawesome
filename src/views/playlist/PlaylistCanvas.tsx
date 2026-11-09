@@ -7,6 +7,7 @@ import {
   moveNodeInPlaylist,
   moveNodesInPlaylist,
   removeFromPlaylist,
+  removeManyFromPlaylist,
   seekPlaylist,
   selectClipOverrides,
   selectPlaylistItems,
@@ -21,6 +22,9 @@ import { PlaylistWindow, PlaylistItem } from '../../types/playlist'
 import { Renderer } from './sketch'
 import { onSampleDrag } from '../../state/sampleDrag'
 import SampleDragGhost from './SampleDragGhost'
+import { selectFocusedView } from '../../state/slices/windowSlice'
+import { View } from '../../types/ui'
+import { isDeleteKey, isTypingTarget } from '../../util/keys'
 
 const playlistRenderer = new Renderer()
 
@@ -102,6 +106,24 @@ const PlaylistCanvas = () => {
     apply()
     return store.subscribe(apply)
   }, [store])
+
+  // Delete or Backspace removes the selected clips, while the playlist is
+  // the focused pane's tab and nothing that takes typing has the key
+  React.useEffect(() => {
+    const onKeyDown = (ev: KeyboardEvent) => {
+      if(!isDeleteKey(ev) || ev.repeat || isTypingTarget(ev.target)) return
+      if(selectFocusedView(store.getState()) !== View.Playlist) return
+
+      const ids = playlistRenderer.takeSelection()
+      if(!ids.length) return
+      // Backspace would otherwise navigate back in some webviews
+      ev.preventDefault()
+      dispatch(removeManyFromPlaylist(ids))
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [store, dispatch])
 
   // fit the canvas to the playlist's box whenever it changes size: the
   // window resizing, the sidebar toggling, a split pane's divider moving,

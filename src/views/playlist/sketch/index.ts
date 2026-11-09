@@ -372,6 +372,15 @@ export class Renderer extends RendererBase {
     this.selectedIds = new Set()
   }
 
+  // the selected clips' ids, clearing the selection (to delete them). none
+  // while clips are being dragged or a box drawn
+  takeSelection = (): number[] => {
+    if(this.clipDrag?.active || this.lasso) return []
+    const ids = [...this.selectedIds]
+    this.clearSelection()
+    return ids
+  }
+
   // the mouse, in playlist coordinates
   #mousePoint = (p: P5CanvasInstance<CanvasProps>) => ({
     x: this.screenToPlaylistX(p.mouseX),

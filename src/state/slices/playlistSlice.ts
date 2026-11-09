@@ -471,6 +471,22 @@ export const moveNodesInPlaylist = (
   await refreshTrackCount()(dispatch)
 }
 
+// remove several clips (a selection). each is taken off the playlist once the
+// engine has removed it, so a failure leaves the rest consistent
+export const removeManyFromPlaylist = (ids: number[]) => async (dispatch: Dispatch) => {
+  try {
+    // one at a time, in order: each removal locks the engine's audio graph
+    await ids.reduce(async (previous, id) => {
+      await previous
+      await invoke('remove_audiograph_node', { id })
+      dispatch(removePlaylistItem({ id }))
+    }, Promise.resolve())
+  } finally {
+    // the last clips on the bottom tracks may have gone
+    await refreshTrackCount()(dispatch)
+  }
+}
+
 export const removeFromPlaylist = (id: number) => async (dispatch: Dispatch) => {
   await invoke('remove_audiograph_node', {
     id
