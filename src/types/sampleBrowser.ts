@@ -35,15 +35,11 @@ export class SampleBrowserDataProvider<T = BrowserSampleItem> implements TreeDat
     items: Record<TreeItemIndex, TreeItem<T>>, 
     setItemName: (item: TreeItem<T>, newName: string) => TreeItem<T>,
   ) {
-    console.log("constructor:",items)
     this.data = { items }
     this.setItemName = setItemName
   }
 
   public async getTreeItem (itemId: TreeItemIndex): Promise<TreeItem> {
-    console.log("getTreeItem: ", itemId)
-    // eslint-disable-next-line no-debugger
-    console.log("data.items[itemId]:", this.data.items[itemId], ", data.items:",this.data.items)
     return this.data.items[itemId]
   }
 
@@ -52,8 +48,6 @@ export class SampleBrowserDataProvider<T = BrowserSampleItem> implements TreeDat
     itemId: TreeItemIndex, 
     newChildren: TreeItemIndex[]
   ): Promise<void> {
-    console.log("onChangeItemChildren: ", itemId)
-
     // this.data.items = { data.items, ...newChildren }
     const res = new Promise<void>((val) => {})
     return res

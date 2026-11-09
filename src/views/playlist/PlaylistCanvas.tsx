@@ -144,8 +144,6 @@ const PlaylistCanvas = () => {
     }
   }), [])
 
-  console.log("items", items)
-
   // show clips' played lengths and modified dots as their settings change.
   // read from the store directly rather than as props: a prop update
   // rebuilds every clip, which would flicker while dragging a control

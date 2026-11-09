@@ -302,20 +302,17 @@ export class Renderer extends RendererBase {
   calculateTrackNumber = (dropData: PlaylistItemPixelOffset): number => {
     const dropY = dropData.y - dropData.top
 
-    console.log("obj", this.playlistTracks, this)
     let trackNumber = -1
     for(let i = 0; i < this.playlistTracks.length; i++) {
       const track = this.playlistTracks[i]
       const [min, max] = [track.minHeight, track.maxHeight]
-      console.log("track data: min, max, dropy", min, max, dropY)
-      
+
       if(min < dropY && dropY < max) {
         trackNumber = track.trackNumber
         break
       }
     }
 
-    console.log("calculated trackNumber: ", trackNumber)
     return trackNumber
   }
 
@@ -862,8 +859,6 @@ export class Renderer extends RendererBase {
     this.beatToX(seconds * this.tempo / 60)
 
   #handleRightClick = (ev: MouseEvent, p: P5CanvasInstance<CanvasProps>) => {
-    console.log("handled right click", ev)
-
     // the clip on top, as for clicks (not one hidden under the timeline)
     const item = this.clipUnderMouse()
     if(item) {
@@ -1052,10 +1047,6 @@ export class Renderer extends RendererBase {
         this.clearSelection()
       }
 
-      canvas.drop((dropped) => {
-        console.log("dropped this: ", dropped)
-      })
-
       // handle right click
       this.canvasEl = document.getElementById(canvas.id())
       this.canvasEl?.addEventListener('contextmenu', (e) => {
@@ -1110,7 +1101,6 @@ export class Renderer extends RendererBase {
 
     // handle canvas recieved props
     p.updateWithProps = props => {
-      console.log("updating with props", props)
       if(!canvas) {
         console.error("this.canvas in the playlist Renderer was null when p.updatingWithProps was called.")
         return
