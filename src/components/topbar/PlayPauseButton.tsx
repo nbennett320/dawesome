@@ -1,5 +1,6 @@
 import React from 'react'
-import { togglePlay, selectPlaylistPlaying } from '../../state/slices/playlistSlice'
+import { selectPlaylistPlaying } from '../../state/slices/playlistSlice'
+import { togglePlayHere } from '../../state/slices/sequencerSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
 import { AnalogButton, PauseIcon, PlayIcon } from '../fourtrack'
 
@@ -14,7 +15,8 @@ const PlayPauseButton = () => {
       latched={playing}
       aria-label={playing ? 'Pause' : 'Play'}
       title={playing ? 'Pause' : 'Play'}
-      onPress={() => dispatch(togglePlay())}
+      // in the Sequencer, loops its pattern instead (see togglePlayHere)
+      onPress={() => dispatch(togglePlayHere())}
     >
       {playing ? <PauseIcon /> : <PlayIcon />}
     </AnalogButton>

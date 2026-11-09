@@ -6,6 +6,8 @@ export enum View {
   Mixer,
   // the tape deck: a cassette and its play, pause, stop and wind keys
   Transport,
+  // the drum machine: rows of samples, and patterns of 16th note steps
+  Sequencer,
 }
 
 // the label a view's tab gets when it's opened
@@ -14,6 +16,7 @@ export const viewLabels: Record<View, string> = {
   [View.SamplePreview]: 'Sample',
   [View.Mixer]: 'Mixer',
   [View.Transport]: 'Transport',
+  [View.Sequencer]: 'Sequencer',
 }
 
 // how a split pane lays out its children, named like react-split-pane:

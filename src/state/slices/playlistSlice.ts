@@ -87,6 +87,12 @@ const initialState = {
   },
 } as PlaylistState
 
+// a clip that wasn't dropped with the mouse (loaded, or a pattern clip),
+// so there's no drop position to debug
+const NO_PIXEL_OFFSET: PlaylistItemPixelOffset = {
+  x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0, xOffset: 0, yOffset: 0,
+}
+
 export const playlistSlice = createSlice({
   name: 'playlistSlice',
   initialState,
@@ -116,30 +122,24 @@ export const playlistSlice = createSlice({
       state.loopEnabled = action.payload
     },
     addPlaylistItem: (state, action) => {
-      state.playlistItems.push({
+      const item = {
         id: action.payload.id,
         path: action.payload.path,
         startBeat: action.payload.startBeat,
         trackNumber: action.payload.trackNumber,
         pixelOffset: action.payload.pixelOffset,
-      } as PlaylistItem)
+      } as PlaylistItem
+      if(action.payload.patternId !== undefined) item.patternId = action.payload.patternId
+      state.playlistItems.push(item)
     },
     movePlaylistItem: (state, action) => {
-      for(let i = 0; i < state.playlistItems.length; i++) {
-        const item = state.playlistItems[i]
+      const item = state.playlistItems.find(i => i.id === action.payload.id)
+      if(!item) return
 
-        if(item.id === action.payload.id) {
-          state.playlistItems[i] = {
-            id: action.payload.id,
-            path: action.payload.path,
-            startBeat: action.payload.startBeat,
-            trackNumber: action.payload.trackNumber,
-            pixelOffset: action.payload.pixelOffset,
-          } as PlaylistItem
-
-          break
-        }
-      }
+      // the rest (its sample, or its pattern) stays as it was
+      item.startBeat = action.payload.startBeat
+      item.trackNumber = action.payload.trackNumber
+      item.pixelOffset = action.payload.pixelOffset
     },
     // clips moved together (a dragged selection), placed where the engine put them
     movePlaylistItems: (state, action: { type: string, payload: MovedNode[] }) => {
@@ -215,10 +215,19 @@ export const playlistSlice = createSlice({
         startBeat: clip.startBeat,
         trackNumber: clip.trackNumber,
         // only used to debug where a clip was dropped
-        pixelOffset: {
-          x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0, xOffset: 0, yOffset: 0,
-        },
+        pixelOffset: { ...NO_PIXEL_OFFSET },
       }))
+      // older projects, and the engine's tests' fixtures, have no patterns
+      ;(project.patternClips ?? []).forEach(clip => {
+        state.playlistItems.push({
+          id: clip.id,
+          path: '',
+          patternId: clip.patternId,
+          startBeat: clip.startBeat,
+          trackNumber: clip.trackNumber,
+          pixelOffset: { ...NO_PIXEL_OFFSET },
+        })
+      })
 
       state.clipSettings = {}
       state.clipSampleDurations = {}
@@ -234,7 +243,7 @@ export const playlistSlice = createSlice({
 export const { setPlaying } = playlistSlice.actions
 
 // whether the engine is playing, after a transport command
-const syncPlayingFrom = (dispatch: Dispatch) =>
+export const syncPlayingFrom = (dispatch: Dispatch) =>
   invoke<boolean>('get_playlist_playing', {})
     .then(playing => {
       dispatch(setPlaying(playing))
@@ -405,6 +414,31 @@ export const addToPlaylist = (
   } as PlaylistItem))
 
   // a clip dropped below the last track made a new one
+  await refreshTrackCount()(dispatch)
+}
+
+// place a pattern in the playlist (dragged from the Sequencer's pattern
+// strip). the clip stays linked to the pattern
+export const addPatternToPlaylist = (
+  patternId: number,
+  trackNumber: number,
+  dropBeat: number,
+) => async (dispatch: Dispatch) => {
+  const { id, startBeat } = await invoke<{ id: number, startBeat: number }>('add_pattern_clip', {
+    patternId,
+    trackNumber,
+    dropBeat,
+  })
+
+  dispatch(addPlaylistItem({
+    id,
+    path: '',
+    patternId,
+    startBeat,
+    trackNumber,
+    pixelOffset: { ...NO_PIXEL_OFFSET },
+  } as PlaylistItem))
+
   await refreshTrackCount()(dispatch)
 }
 

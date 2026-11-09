@@ -157,7 +157,8 @@ pub fn beat_interval(state: &state::InnerState) -> Duration {
 // where the next run will start while stopped or paused
 pub fn playhead(state: &state::InnerState) -> Duration {
   let start = *state.playlist.start_offset.lock().unwrap();
-  if !state.playlist.playing() { return start; }
+  // a pattern playing on its own leaves the playlist's playhead where it is
+  if !state.playlist.playing_playlist() { return start; }
 
   let started = match *state.playlist.started_time.lock().unwrap() {
     Some(started) => started,
@@ -166,6 +167,15 @@ pub fn playhead(state: &state::InnerState) -> Duration {
 
   let loop_len = state.playlist.loop_len(beat_interval(state));
   state::timeline_position(start, started.elapsed(), loop_len)
+}
+
+// how long a pattern plays for at the playlist's tempo, or None if there's no
+// such pattern, or it has no steps
+pub fn pattern_len(state: &state::InnerState, id: u64) -> Option<Duration> {
+  let interval = beat_interval(state);
+  state.playlist.sequencer.lock().unwrap()
+    .pattern_len(id, interval)
+    .filter(|len| !len.is_zero())
 }
 
 // where the song ends (the last clip's end), or None with no clips
@@ -189,6 +199,8 @@ pub fn run_playlist(
 ) {
   let state = state_ref.clone();
   let tempo_interval = beat_interval(&state);
+  // what this run plays, fixed for the run
+  let mode = state.playlist.mode();
 
   // taken before the thread starts, so a stop sent right after this (before
   // the thread gets going) still ends this run
@@ -224,8 +236,11 @@ pub fn run_playlist(
       previous.store(true, Ordering::SeqCst);
     }
 
-    // the run plays from the playhead
-    let start = *state.playlist.start_offset.lock().unwrap();
+    // the run plays from the playhead, or a pattern from its start
+    let start = match mode {
+      state::PlayMode::Playlist => *state.playlist.start_offset.lock().unwrap(),
+      state::PlayMode::Pattern(_) => Duration::ZERO,
+    };
 
     // every tick is scheduled relative to the start time, so time spent
     // building each slice doesn't accumulate into drift
@@ -239,7 +254,9 @@ pub fn run_playlist(
       audiograph_ref.init(started);
       audiograph_ref.set_current_offset(Some(start));
     }
-    set_beat_counters(&state, start, tempo_interval);
+    // the counters follow the playlist, which a pattern doesn't move
+    let counts_beats = mode == state::PlayMode::Playlist;
+    if counts_beats { set_beat_counters(&state, start, tempo_interval); }
     state.playlist.set_playing(true);
     let _ = ready.send(Ok(()));
 
@@ -264,7 +281,12 @@ pub fn run_playlist(
         println!("tick: {}ms", audiograph_ref.current_offset.unwrap_or_default().as_millis());
 
         let metronome = on_beat && state.metronome_enabled.load(Ordering::SeqCst);
-        audiograph_ref.run_for(&stream_handle, &bus, slice, metronome, resume);
+        match mode {
+          state::PlayMode::Playlist =>
+            audiograph_ref.run_for(&stream_handle, &bus, slice, metronome, resume),
+          state::PlayMode::Pattern(id) =>
+            audiograph_ref.run_pattern_for(&stream_handle, &bus, id, slice, metronome, resume),
+        }
       } // release the audiograph while sleeping so commands aren't blocked
 
       // sleep until the start of the next slice
@@ -277,18 +299,30 @@ pub fn run_playlist(
 
       // move on, jumping back to the start at the loop's end (looping is read
       // each slice, so toggling it applies right away)
-      let loop_len = state.playlist.loop_len(tempo_interval);
+      // a pattern always loops, at its length now (it can be changed while
+      // it plays). a pattern deleted while playing ends the run
+      let loop_len = match mode {
+        state::PlayMode::Playlist => state.playlist.loop_len(tempo_interval),
+        state::PlayMode::Pattern(id) => match pattern_len(&state, id) {
+          Some(len) => Some(len),
+          None => {
+            println!("the pattern that was playing is gone");
+            end_run(&state);
+            break;
+          }
+        },
+      };
       let next = {
         let mut audiograph_ref = state.playlist.audiograph.lock().unwrap();
         let next = state::advance(audiograph_ref.current_offset.unwrap_or_default(), slice, loop_len);
         audiograph_ref.set_current_offset(Some(next));
         next
       };
-      set_beat_counters(&state, next, tempo_interval);
+      if counts_beats { set_beat_counters(&state, next, tempo_interval); }
 
       // without looping, the tape runs out at the end of the song: stop
       // there, once the last clip has played out
-      if loop_len.is_none() {
+      if loop_len.is_none() && counts_beats {
         if let Some(end) = song_end(&state) {
           if next >= end {
             println!("reached the end of the song");
@@ -351,6 +385,13 @@ fn set_playhead(state: &state::InnerState, offset: Duration) {
 pub fn pause_playlist(state: &state::InnerState) {
   println!("pausing playlist");
 
+  // a pattern playing on its own just stops: the playlist's playhead
+  // never moved
+  if state.playlist.playing_pattern().is_some() {
+    end_run(state);
+    return;
+  }
+
   // read before stopping, while the run's start time still applies
   let position = playhead(state);
   end_run(state);
@@ -361,12 +402,18 @@ pub fn pause_playlist(state: &state::InnerState) {
 pub fn stop_playlist(state: &state::InnerState) {
   println!("stopping playlist");
 
+  // stopping a pattern leaves the playlist's playhead alone
+  let pattern = state.playlist.playing_pattern().is_some();
   end_run(state);
-  set_playhead(state, Duration::ZERO);
+  if !pattern { set_playhead(state, Duration::ZERO); }
 }
 
 pub fn start_playlist(state: &Arc<state::InnerState>) {
   println!("playing playlist");
+
+  // a pattern playing on its own stops first
+  if state.playlist.playing_pattern().is_some() { end_run(state); }
+  *state.playlist.mode.lock().unwrap() = state::PlayMode::Playlist;
 
   // a playhead past the loop's end starts back at the top, so the run (and
   // the frontend cursor) stays inside the loop. without looping, playing
@@ -380,16 +427,42 @@ pub fn start_playlist(state: &Arc<state::InnerState>) {
     if *start >= end { *start = Duration::ZERO; }
   }
 
-  // wait until the output stream is open and the start time is set, so a
-  // `get_playlist_playing` right after this sees the new run
+  start_run(state);
+}
+
+// start a run of whatever the mode is, and wait until the output stream is
+// open and the start time is set, so a `get_playlist_playing` right after
+// this sees the new run
+fn start_run(state: &Arc<state::InnerState>) {
   let (ready_tx, ready_rx) = mpsc::channel();
   run_playlist(state, ready_tx);
 
   match ready_rx.recv() {
     Ok(Ok(())) => {}
-    Ok(Err(e)) => println!("could not start playlist: {}", e),
-    Err(_) => println!("could not start playlist: playback thread exited"),
+    Ok(Err(e)) => println!("could not start playback: {}", e),
+    Err(_) => println!("could not start playback: playback thread exited"),
   }
+}
+
+// loop a pattern on its own from its start (Play in the Sequencer tab),
+// stopping whatever was playing. the playlist's playhead stays where it is
+pub fn start_pattern(state: &Arc<state::InnerState>, id: u64) -> Result<(), String> {
+  println!("playing pattern {}", id);
+  if pattern_len(state, id).is_none() {
+    return Err(format!("no pattern with id {}", id));
+  }
+
+  if state.playlist.playing() {
+    if state.playlist.playing_playlist() {
+      // keep the playlist's place, as pausing would
+      pause_playlist(state);
+    } else {
+      end_run(state);
+    }
+  }
+  *state.playlist.mode.lock().unwrap() = state::PlayMode::Pattern(id);
+  start_run(state);
+  Ok(())
 }
 
 // move the playhead to a beat, kept within the playlist. while playing,
@@ -400,7 +473,8 @@ pub fn seek_playlist(state: &Arc<state::InnerState>, beat: f64) -> f64 {
   let beat = if beat.is_finite() { beat.clamp(0., end) } else { 0. };
   let offset = state::snap_to_beat(interval.mul_f64(beat), interval);
 
-  let playing = state.playlist.playing();
+  // a pattern playing on its own carries on: only the playhead moves
+  let playing = state.playlist.playing_playlist();
   if playing { end_run(state); }
   set_playhead(state, offset);
   if playing { start_playlist(state); }

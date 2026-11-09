@@ -49,6 +49,14 @@ impl PlaylistUI {
   }
 }
 
+// what a run plays: the playlist, or one pattern looped on its own (Play in
+// the Sequencer tab)
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PlayMode {
+  Playlist,
+  Pattern(u64),
+}
+
 pub struct Playlist {
   playing: AtomicBool,
   recording: AtomicBool,
@@ -68,6 +76,11 @@ pub struct Playlist {
   // the same mixer the audio graph plays clips through, reachable without
   // the graph's lock
   pub mixer: Arc<daw::Mixer>,
+  // the same sequencer the audio graph plays pattern clips from. lock it
+  // after the graph, never before
+  pub sequencer: Arc<Mutex<daw::Sequencer>>,
+  // what the current (or last) run plays. set before each run starts
+  pub mode: Mutex<PlayMode>,
   // set to stop the current run's master bus (see daw::run_playlist)
   pub bus_stop: Mutex<Option<Arc<AtomicBool>>>,
   pub ui: Arc<Mutex<PlaylistUI>>,
@@ -85,6 +98,7 @@ impl Playlist {
       daw::state::defaults::MAX_BEATS
     );
     let mixer = audiograph.mixer.clone();
+    let sequencer = audiograph.sequencer.clone();
 
     Playlist {
       playing: AtomicBool::from(false),
@@ -104,6 +118,8 @@ impl Playlist {
       loop_enabled: AtomicBool::from(true),
       audiograph: Arc::new(Mutex::new(audiograph)),
       mixer,
+      sequencer,
+      mode: Mutex::new(PlayMode::Playlist),
       bus_stop: Mutex::new(None),
       ui: Arc::new(Mutex::from(PlaylistUI::new())),
     }
@@ -115,6 +131,23 @@ impl Playlist {
 
   pub fn set_playing(&self, val: bool) {
     self.playing.store(val, atomic::Ordering::SeqCst)
+  }
+
+  pub fn mode(&self) -> PlayMode {
+    *self.mode.lock().unwrap()
+  }
+
+  // the pattern playing on its own, if one is
+  pub fn playing_pattern(&self) -> Option<u64> {
+    match self.mode() {
+      PlayMode::Pattern(id) if self.playing() => Some(id),
+      _ => None,
+    }
+  }
+
+  // whether the playlist itself is playing (not a pattern on its own)
+  pub fn playing_playlist(&self) -> bool {
+    self.playing() && self.mode() == PlayMode::Playlist
   }
 
   pub fn recording(&self) -> bool {

@@ -2,6 +2,7 @@ import React from 'react'
 import { useStore } from 'react-redux'
 import { ReactP5Wrapper } from 'react-p5-wrapper'
 import { 
+  addPatternToPlaylist,
   addToPlaylist,
   inspectClip,
   moveNodeInPlaylist,
@@ -21,10 +22,11 @@ import type { RootState } from '../../state/store'
 import { PlaylistWindow, PlaylistItem } from '../../types/playlist'
 import { Renderer } from './sketch'
 import { onSampleDrag } from '../../state/sampleDrag'
-import SampleDragGhost from './SampleDragGhost'
+import { OWN_DRAG_PREVIEW } from '../../components/DragGhost'
 import { selectFocusedView } from '../../state/slices/windowSlice'
 import { View } from '../../types/ui'
 import { isDeleteKey, isTypingTarget } from '../../util/keys'
+import { showPattern } from '../../state/slices/sequencerSlice'
 
 const playlistRenderer = new Renderer()
 
@@ -50,9 +52,10 @@ const PlaylistCanvas = () => {
     trackCount,
   } = useAppSelector(selectPlaylistUI)
 
-  // samples dragged in from the sidebar: show the clip under the mouse while
-  // it's over the playlist, and add it where the preview showed on release
-  React.useEffect(() => onSampleDrag(({ type, path, clientX, clientY }) => {
+  // samples dragged in from the sidebar, and patterns from the Sequencer:
+  // show the clip under the mouse while it's over the playlist, and add it
+  // where the preview showed on release
+  React.useEffect(() => onSampleDrag(({ type, item, clientX, clientY }) => {
     const el = ref.current
     if(!el) return
 
@@ -64,7 +67,7 @@ const PlaylistCanvas = () => {
     const y = clientY - top
 
     if(type === 'move' && over) {
-      playlistRenderer.setSampleDrag(path, x, y, top)
+      playlistRenderer.setSampleDrag(item, x, y, top)
       return
     }
 
@@ -73,7 +76,14 @@ const PlaylistCanvas = () => {
     if(type === 'drop' && over) {
       const { beat, trackNumber } = playlistRenderer.dropTarget(x, y)
 
-      dispatch(addToPlaylist(path, trackNumber, beat, {
+      if(item.kind === 'pattern') {
+        dispatch(addPatternToPlaylist(item.patternId, trackNumber, beat))
+          // eslint-disable-next-line no-console
+          .catch(e => console.error('could not place the pattern:', e))
+        return
+      }
+
+      dispatch(addToPlaylist(item.path, trackNumber, beat, {
         x: clientX,
         y: clientY,
         left,
@@ -101,6 +111,8 @@ const PlaylistCanvas = () => {
       last = playlist
 
       if(changed) playlistRenderer.setClipOverrides(selectClipOverrides(store.getState()))
+      // pattern clips draw their pattern as it's edited
+      playlistRenderer.setSequencer(store.getState().sequencer)
     }
 
     apply()
@@ -161,9 +173,12 @@ const PlaylistCanvas = () => {
     dispatch(removeFromPlaylist(id))
   }, [dispatch])
 
+  // a sample clip opens in the Sample tab, a pattern clip in the Sequencer
   const handleNodeDoubleClick = React.useCallback((id: number) => {
-    dispatch(inspectClip(id))
-  }, [dispatch])
+    const item = store.getState().playlist.playlistItems.find(i => i.id === id)
+    if(item?.patternId !== undefined) dispatch(showPattern(item.patternId))
+    else dispatch(inspectClip(id))
+  }, [dispatch, store])
 
   // a clip already in the playlist was dragged and dropped. the renderer
   // works out the beat (accounting for zoom, pan, and where the clip was
@@ -197,6 +212,8 @@ const PlaylistCanvas = () => {
   return (
     <div 
       ref={ref}
+      // the canvas draws dragged clips itself
+      {...{ [OWN_DRAG_PREVIEW]: true }}
       // fills the pane's body exactly, so the canvas is the visible height and
       // the tracks scroll inside it
       className='absolute inset-0 overflow-hidden'
@@ -224,7 +241,6 @@ const PlaylistCanvas = () => {
           onSeek={handleSeek}
         />
       </div>}
-      <SampleDragGhost playlistRef={ref} />
     </div>
   )
 }

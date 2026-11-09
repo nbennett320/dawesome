@@ -118,6 +118,8 @@ describe('mixerSlice', () => {
       clips: [],
       missing: [],
       mixer,
+      sequencer: { rows: [], patterns: [] },
+      patternClips: [],
     } as LoadedProject))
 
     expect(selectTrackMix(0)(state(store)).mute).toBe(false)

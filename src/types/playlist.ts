@@ -22,6 +22,9 @@ export type PlaylistItem = {
   startBeat: number,
   trackNumber: number,
   pixelOffset: PlaylistItemPixelOffset,
+  // set on a pattern clip: the pattern it plays (it has no sample, so its
+  // path is empty)
+  patternId?: number,
 }
 
 export type PlaylistItemWaveformData = {

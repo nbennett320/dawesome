@@ -1,5 +1,6 @@
 import { ClipInfo } from './clip'
 import { MixerSettings } from './mixer'
+import { SequencerState } from './sequencer'
 import type { SnapNote } from '../state/slices/playlistSlice'
 
 // project files (.dawesome) hold the playlist's clips and settings, and the
@@ -34,6 +35,14 @@ export interface LoadedClip extends ClipInfo {
   startBeat: number
 }
 
+// a pattern placed in the playlist, after loading, with its new id
+export interface LoadedPatternClip {
+  id: number
+  patternId: number
+  trackNumber: number
+  startBeat: number
+}
+
 // a clip that couldn't be loaded, so it was left out of the playlist
 export interface MissingSample {
   path: string
@@ -46,4 +55,7 @@ export interface LoadedProject extends ProjectSettings {
   missing: MissingSample[]
   // every track's strip, up to the playlist's track count
   mixer: MixerSettings
+  // the Sequencer tab's rows and patterns
+  sequencer: SequencerState
+  patternClips: LoadedPatternClip[]
 }

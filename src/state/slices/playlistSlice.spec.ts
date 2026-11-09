@@ -24,7 +24,20 @@ const loaded: LoadedProject = {
   ],
   missing: [],
   mixer: { tracks: [], master: { volumeDb: 0, pan: 0, mute: false, solo: false } },
+  sequencer: { rows: [], patterns: [] },
+  patternClips: [{ id: 9, patternId: 2, trackNumber: 1, startBeat: 8 }],
 }
+
+describe('movePlaylistItem', () => {
+  it('keeps what a clip plays: its sample, or its pattern', () => {
+    const { actions } = playlistSlice
+    let state = reducer(undefined, { type: 'init' })
+    state = reducer(state, actions.addPlaylistItem({ id: 3, path: '', patternId: 5, startBeat: 0, trackNumber: 0 }))
+    state = reducer(state, actions.movePlaylistItem({ id: 3, path: '', startBeat: 4, trackNumber: 2 }))
+
+    expect(state.playlistItems[0]).toMatchObject({ id: 3, patternId: 5, startBeat: 4, trackNumber: 2 })
+  })
+})
 
 describe('reduceLoadedProject', () => {
   it('replaces the playlist with the loaded project', () => {
@@ -48,9 +61,13 @@ describe('reduceLoadedProject', () => {
     expect(state.loopEnabled).toBe(false)
     expect(state.snapNote).toBe('EighthNote')
 
-    expect(state.playlistItems).toHaveLength(1)
+    expect(state.playlistItems).toHaveLength(2)
     expect(state.playlistItems[0]).toMatchObject({
       id: 7, path: '/samples/kick.wav', trackNumber: 2, startBeat: 4.5,
+    })
+    // pattern clips come after, with no sample
+    expect(state.playlistItems[1]).toMatchObject({
+      id: 9, path: '', patternId: 2, trackNumber: 1, startBeat: 8,
     })
     expect(state.clipSettings).toEqual({ 7: { ...defaultClipSettings, pitch: 12 } })
     expect(state.clipSampleDurations).toEqual({ 7: 2 })
@@ -62,7 +79,7 @@ describe('reduceLoadedProject', () => {
       id: 1, path: 'old.wav', startBeat: 0, trackNumber: 0,
     }))
 
-    state = reducer(state, reduceLoadedProject({ ...loaded, clips: [] }))
+    state = reducer(state, reduceLoadedProject({ ...loaded, clips: [], patternClips: [] }))
 
     expect(state.playlistItems).toEqual([])
     expect(state.clipSettings).toEqual({})

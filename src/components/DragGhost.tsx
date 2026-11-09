@@ -1,10 +1,9 @@
 import React from 'react'
-import { onSampleDrag } from '../../state/sampleDrag'
+import { dragItemLabel, onSampleDrag } from '../state/sampleDrag'
 
-interface Props {
-  // the playlist, where the canvas draws the dragged clip itself
-  playlistRef: React.RefObject<HTMLElement>
-}
+// an element marked with this draws what's dragged over it itself (the
+// playlist canvas draws the whole clip), so the label hides over it
+export const OWN_DRAG_PREVIEW = 'data-own-drag-preview'
 
 interface Ghost {
   name: string
@@ -15,18 +14,19 @@ interface Ghost {
 // matches the label height of clips in the playlist canvas
 const LABEL_HEIGHT = 20
 
-// a clip label pinned to the mouse while a sample is dragged from the sidebar.
+// a clip label pinned to the mouse while a sample is dragged from the sidebar
+// (or a pattern from the Sequencer).
 // shown everywhere except over the playlist, where the canvas takes over and
 // draws the full clip and where it will land
 //
-// kept in its own component so following the mouse doesn't re-render the
-// playlist canvas
-const SampleDragGhost = ({ playlistRef }: Props) => {
+// mounted once, at the top of the app, and kept in its own component so
+// following the mouse doesn't re-render anything else
+const DragGhost = () => {
   const [ghost, setGhost] = React.useState<Ghost | null>(null)
 
-  React.useEffect(() => onSampleDrag(({ type, path, clientX, clientY }) => {
-    const overPlaylist = !!playlistRef.current?.contains(
-      document.elementFromPoint(clientX, clientY))
+  React.useEffect(() => onSampleDrag(({ type, item, clientX, clientY }) => {
+    const overPlaylist = !!document.elementFromPoint(clientX, clientY)
+      ?.closest(`[${OWN_DRAG_PREVIEW}]`)
 
     if(type !== 'move' || overPlaylist) {
       setGhost(null)
@@ -34,7 +34,7 @@ const SampleDragGhost = ({ playlistRef }: Props) => {
     }
 
     setGhost({
-      name: path.split(/[\\/]/).pop() ?? path,
+      name: dragItemLabel(item),
       x: clientX,
       y: clientY,
     })
@@ -66,4 +66,4 @@ const SampleDragGhost = ({ playlistRef }: Props) => {
   )
 }
 
-export default SampleDragGhost
+export default DragGhost

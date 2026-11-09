@@ -4,6 +4,7 @@ import windowReducer from './slices/windowSlice'
 import envReducer from './slices/envSlice'
 import projectReducer from './slices/projectSlice'
 import mixerReducer from './slices/mixerSlice'
+import sequencerReducer from './slices/sequencerSlice'
 
 export const store = configureStore({
   reducer: {
@@ -12,6 +13,7 @@ export const store = configureStore({
     env: envReducer,
     project: projectReducer,
     mixer: mixerReducer,
+    sequencer: sequencerReducer,
   },
 })
 

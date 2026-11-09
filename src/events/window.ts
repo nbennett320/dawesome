@@ -27,6 +27,7 @@ const menuViews: Record<string, View> = {
   sample: View.SamplePreview,
   mixer: View.Mixer,
   transport: View.Transport,
+  sequencer: View.Sequencer,
 }
 
 // the Window menu: open a tab, or select it where it's already open.

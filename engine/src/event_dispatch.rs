@@ -24,7 +24,8 @@ pub fn t_toggle_playlist(state: daw::TState<'_>) {
 // play from the playhead (nothing if already playing)
 #[tauri::command]
 pub fn t_play_playlist(state: daw::TState<'_>) {
-  if !state.playlist.playing() {
+  // a pattern playing on its own is replaced by the playlist
+  if !state.playlist.playing_playlist() {
     daw::start_playlist(state.inner());
   }
 }
@@ -114,6 +115,13 @@ pub struct PlaylistTransport {
   song_end_ms: f64,
   // the time signature's numerator
   beats_per_bar: u16,
+  // the pattern playing on its own (Play in the Sequencer tab), or None
+  // when the playlist is playing or nothing is. while a pattern plays, the
+  // playlist's playhead stays still
+  pattern_id: Option<u64>,
+  // how long that pattern is, in ms. it started at `start_time_ms` and
+  // loops at this length
+  pattern_length_ms: f64,
 }
 
 fn playlist_transport(state: &daw::InnerState) -> PlaylistTransport {
@@ -131,6 +139,10 @@ fn playlist_transport(state: &daw::InnerState) -> PlaylistTransport {
     loop_enabled: state.playlist.loop_enabled.load(Ordering::SeqCst),
     song_end_ms: daw::song_end(state).unwrap_or_default().as_secs_f64() * 1000.,
     beats_per_bar: state.playlist.time_signature.lock().unwrap().numerator,
+    pattern_id: state.playlist.playing_pattern(),
+    pattern_length_ms: state.playlist.playing_pattern()
+      .and_then(|id| daw::pattern_len(state, id))
+      .map_or(0., |len| len.as_secs_f64() * 1000.),
   }
 }
 
@@ -275,7 +287,7 @@ fn displayed_beats_and_duration(
 // into a start offset
 // positions are in beats rather than pixels, so they don't depend on the
 // canvas size, zoom, or pan, which the frontend accounts for
-fn beat_to_offset(
+pub(crate) fn beat_to_offset(
   state: &daw::InnerState,
   beat: Option<f32>,
 ) -> std::time::Duration {
@@ -286,7 +298,7 @@ fn beat_to_offset(
 
 // the inverse of beat_to_offset: how many beats into the playlist
 // a start offset is
-fn offset_to_beat(
+pub(crate) fn offset_to_beat(
   state: &daw::InnerState,
   offset: std::time::Duration,
 ) -> f32 {
@@ -298,15 +310,14 @@ fn offset_to_beat(
 }
 
 // where a node starts, in beats from the start of the playlist, after snapping
-fn node_beat(state: &daw::InnerState, id: u64) -> Result<f32, String> {
-  let offset = state
+pub(crate) fn node_beat(state: &daw::InnerState, id: u64) -> Result<f32, String> {
+  let (offset, _) = state
     .playlist
     .audiograph
     .lock()
     .unwrap()
-    .get_node_by_id(id)
-    .ok_or_else(|| format!("no node with id {}", id))?
-    .start_offset;
+    .placement(id)
+    .ok_or_else(|| format!("no node with id {}", id))?;
 
   Ok(offset_to_beat(state, offset))
 }
@@ -315,9 +326,9 @@ fn node_beat(state: &daw::InnerState, id: u64) -> Result<f32, String> {
 #[derive(serde::Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct PlacedNode {
-  id: u64,
+  pub(crate) id: u64,
   // beats from the start of the playlist, after snapping
-  start_beat: f32,
+  pub(crate) start_beat: f32,
 }
 
 fn add_audiograph_node(

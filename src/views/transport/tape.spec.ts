@@ -25,6 +25,8 @@ const transport = (t: Partial<PlaylistTransport> = {}): PlaylistTransport => ({
   loopEnabled: true,
   songEndMs: 0,
   beatsPerBar: 4,
+  patternId: null,
+  patternLengthMs: 0,
   ...t,
 })
 
@@ -51,6 +53,11 @@ describe('positionAt', () => {
   it('follows the run from where it started', () => {
     const t = transport({ playing: true, startTimeMs: 10_000, startOffsetMs: 2_000 })
     expect(positionAt(t, 11_500)).toBe(3_500)
+  })
+
+  it("stays still while a pattern plays on its own", () => {
+    const t = transport({ playing: true, startTimeMs: 10_000, positionMs: 2_000, patternId: 0 })
+    expect(positionAt(t, 11_500)).toBe(2_000)
   })
 
   it('jumps back to the start at the loop end', () => {

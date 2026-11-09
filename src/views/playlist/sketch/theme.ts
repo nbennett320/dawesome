@@ -36,6 +36,14 @@ export const theme = {
   // the dot on a clip whose settings were changed, like an amber LED
   modified: [245, 158, 11] as RGB, // amber-500
 
+  // pattern clips (from the Sequencer): amber, like its keys' LEDs, with a
+  // cell for each lit step
+  patternClip: [255, 251, 235] as RGB, // amber-50
+  patternLabel: [254, 243, 199] as RGB, // amber-100
+  patternBorder: [251, 191, 36] as RGB, // amber-400
+  patternHit: [217, 119, 6] as RGB, // amber-600
+  patternBeat: [253, 230, 138] as RGB, // amber-200
+
   // selected clips, and the box dragged out to select them
   selectedClip: [240, 249, 255] as RGB, // sky-50
   selectedLabel: [224, 242, 254] as RGB, // sky-100

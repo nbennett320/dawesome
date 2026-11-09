@@ -6,6 +6,7 @@ mod event_dispatch;
 mod project;
 mod recent;
 mod mixer_commands;
+mod sequencer_commands;
 mod bind_functions;
 
 use std::env;
@@ -56,6 +57,7 @@ fn init_tauri() {
   use project::{save_project, load_project, new_project};
   use recent::{add_recent_project, remove_recent_project};
   use mixer_commands::*;
+  use sequencer_commands::*;
 
   // read before the menu is built, which lists them
   let recent_projects = recent::RecentProjects::load();
@@ -120,7 +122,22 @@ fn init_tauri() {
       get_mixer_levels,
       get_playlist_max_length,
       init_playlist_workspace,
-      toggle_record_input
+      toggle_record_input,
+      get_sequencer,
+      add_sequencer_row,
+      remove_sequencer_row,
+      set_sequencer_row_volume,
+      set_sequencer_row_muted,
+      preview_sequencer_row,
+      add_pattern,
+      duplicate_pattern,
+      remove_pattern,
+      rename_pattern,
+      set_pattern_bars,
+      set_pattern_step,
+      t_play_pattern,
+      t_toggle_pattern,
+      add_pattern_clip
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
