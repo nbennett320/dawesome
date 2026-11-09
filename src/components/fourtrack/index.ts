@@ -1,4 +1,10 @@
 // skeuomorphic controls modelled on a cassette four-track, in dawesome's
-// colours. the stylesheet is imported once, from global.scss
-export * from './controls'
+// colours. the stylesheet (fourtrack.scss) is imported once, from index.tsx
+export * from './AnalogButton'
+export * from './Knob'
+export * from './Led'
+export * from './LevelMeter'
+export * from './MasterFader'
+export * from './MuteSolo'
+export * from './TapeCounter'
 export * from './icons'

@@ -1,5 +1,5 @@
 // the playlist's colours, as [r, g, b]. they match the four-track controls
-// (components/fourtrack/fourtrack.css): Tailwind slate, with sky accents
+// (components/fourtrack/fourtrack.scss): Tailwind slate, with sky accents
 
 type RGB = [number, number, number]
 

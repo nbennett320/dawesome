@@ -1,0 +1,561 @@
+// Four-Track UI: controls modelled on a 90s cassette four-track, kept
+// minimal: flat light plastic, shallow keys, soft displays, in dawesome's
+// cool greys (Tailwind slate) with sky accents.
+// All classes are prefixed `ft-`. Imported once, from index.tsx
+//
+// colours are CSS custom properties, so a wrapper can re-theme them at
+// runtime. SCSS variables are for values only used here
+
+// shadows are slate-900 at a low opacity
+$shadow: #0f172a;
+
+:root {
+  // text
+  --ft-ink: #334155; // slate-700
+  --ft-ink-soft: #64748b; // slate-500
+  --ft-ink-faint: #94a3b8; // slate-400
+  // knob pointers, the fader cap's line, latched keys
+  --ft-accent: #0ea5e9; // sky-500
+  --ft-focus: #38bdf8; // sky-400
+
+  // plastic
+  --ft-panel: #f1f5f9; // slate-100
+  --ft-line: #e2e8f0; // slate-200
+  --ft-line-strong: #cbd5e1; // slate-300
+  --ft-cap-top: #ffffff;
+  --ft-cap-bottom: #f4f7fa;
+  --ft-cap-down: #eef2f6;
+
+  // displays: readouts, the counter
+  --ft-display: #e8eef4;
+  --ft-display-text: #475569; // slate-600
+
+  // the slot a fader or meter sits in
+  --ft-slot: #d5dde6;
+
+  --ft-font: system-ui, sans-serif;
+  --ft-font-label: system-ui, sans-serif;
+  --ft-font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+@mixin focus-ring($offset: 3px) {
+  outline: 2px solid var(--ft-focus);
+  outline-offset: $offset;
+}
+
+// ---------- Surfaces ----------
+
+.ft-panel {
+  color: var(--ft-ink);
+  background: var(--ft-panel);
+}
+
+// a shallow recess that keys sit in
+.ft-tray {
+  background: #e7ecf2;
+  box-shadow: inset 0 1px 2px rgba($shadow, .07);
+}
+
+.ft-strip {
+  background: #fff;
+  border-radius: 5px;
+  box-shadow: 0 0 0 1px var(--ft-line);
+}
+
+.ft-label {
+  font-family: var(--ft-font-label);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ft-ink-faint);
+  user-select: none;
+}
+
+.ft-readout {
+  font-family: var(--ft-font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--ft-display);
+  color: var(--ft-display-text);
+  box-shadow: inset 0 1px 1px rgba($shadow, .06);
+
+  &:focus {
+    @include focus-ring(1px);
+    background: #fff;
+  }
+}
+
+// a readout that can be typed into
+input.ft-readout {
+  width: 100%;
+}
+
+.ft-lcd {
+  font-family: var(--ft-font-mono);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .04em;
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: var(--ft-display);
+  color: var(--ft-display-text);
+  box-shadow: inset 0 1px 1px rgba($shadow, .06);
+}
+
+// a paper label stuck on the strip, for its name
+.ft-scribble {
+  border-radius: 2px;
+  color: var(--ft-ink);
+  border-bottom: 1px solid var(--ft-line);
+}
+
+// ---------- AnalogButton ----------
+
+.ft-btn {
+  // how far the key sits above the panel
+  --ft-depth: 2px;
+
+  appearance: none;
+  border: 0;
+  padding: 0;
+  margin: 0 0 var(--ft-depth);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 64px;
+  height: 56px;
+  border-radius: 6px;
+  color: var(--ft-ink-soft);
+  font-family: var(--ft-font-label);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  user-select: none;
+  background: linear-gradient(180deg, var(--ft-cap-top), var(--ft-cap-bottom));
+  box-shadow:
+    0 0 0 1px var(--ft-line-strong),
+    0 var(--ft-depth) 0 var(--ft-line-strong),
+    0 calc(var(--ft-depth) + 1px) 3px rgba($shadow, .08);
+  transition: transform .06s ease, box-shadow .06s ease, background .06s ease, color .06s;
+  -webkit-tap-highlight-color: transparent;
+
+  &:hover:not(:disabled) {
+    color: var(--ft-ink);
+  }
+
+  &:active:not(:disabled),
+  &[aria-pressed="true"] {
+    transform: translateY(var(--ft-depth));
+    background: var(--ft-cap-down);
+    box-shadow: 0 0 0 1px var(--ft-line-strong), inset 0 1px 2px rgba($shadow, .1);
+  }
+
+  // a latched key is lit, so it reads as on at a glance
+  &[aria-pressed="true"] {
+    color: var(--ft-accent);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+
+  &:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+  }
+
+  &__icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+
+    > svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+  }
+
+  &--lg {
+    --ft-depth: 3px;
+    width: 84px;
+    height: 72px;
+    border-radius: 8px;
+
+    .ft-btn__icon { width: 28px; height: 28px; }
+  }
+
+  &--sm {
+    width: 44px;
+    height: 34px;
+    border-radius: 5px;
+
+    .ft-btn__icon { width: 18px; height: 18px; }
+  }
+
+  &--xs {
+    width: 32px;
+    height: 26px;
+    border-radius: 4px;
+
+    .ft-btn__icon { width: 14px; height: 14px; }
+  }
+
+  // small enough for the tab bar
+  &--tab {
+    width: 26px;
+    height: 20px;
+    border-radius: 3px;
+
+    .ft-btn__icon { width: 14px; height: 14px; }
+  }
+
+  // text caps (MUTE, SOLO)
+  &--key {
+    width: 58px;
+    height: 40px;
+    border-radius: 4px;
+
+    &.ft-btn--sm {
+      width: auto;
+      min-width: 32px;
+      height: 22px;
+      padding: 0 6px;
+      font-size: 10px;
+      letter-spacing: .08em;
+    }
+
+    &.ft-btn--xs {
+      width: auto;
+      min-width: 26px;
+      height: 20px;
+      padding: 0 5px;
+      font-size: 9px;
+      letter-spacing: .06em;
+    }
+  }
+
+  // a key that warns, e.g. "Sure?"
+  &--danger,
+  &--danger[aria-pressed="true"],
+  &--danger:hover:not(:disabled) {
+    color: #dc2626; // red-600
+  }
+}
+
+// the record key's dot
+.ft-icon-rec {
+  color: #ef4444; // red-500
+}
+
+// ---------- LED ----------
+
+// each colour: its lit colour and glow, and a pale unlit tint
+$led-colors: (
+  "red": (#ef4444, rgba(239, 68, 68, .45), #e9d5d5),
+  "amber": (#f59e0b, rgba(245, 158, 11, .45), #ece3cf),
+  "lime": (#84cc16, rgba(132, 204, 22, .45), #dfe7cf),
+  "blue": (#0ea5e9, rgba(14, 165, 233, .45), #d6e3ee),
+);
+
+.ft-led {
+  display: block;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--led-off);
+  box-shadow: inset 0 0 0 1px rgba($shadow, .08);
+  transition: background .08s, box-shadow .08s, opacity .08s;
+
+  @each $name, $c in $led-colors {
+    &--#{$name} {
+      --led: #{nth($c, 1)};
+      --led-glow: #{nth($c, 2)};
+      --led-off: #{nth($c, 3)};
+    }
+  }
+
+  &[data-state="on"],
+  &[data-state="blink"] {
+    background: var(--led);
+    box-shadow: 0 0 4px 1px var(--led-glow);
+  }
+
+  &[data-state="dim"] {
+    background: var(--led);
+    opacity: .4;
+  }
+
+  &[data-state="blink"] {
+    animation: ft-blink 1s steps(1, end) infinite;
+
+    @media (prefers-reduced-motion: reduce) {
+      animation: none;
+    }
+  }
+}
+
+@keyframes ft-blink {
+  50% { opacity: .2; }
+}
+
+// ---------- Knob ----------
+
+.ft-knob {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+  box-shadow: 0 1px 3px rgba($shadow, .15), 0 0 0 1px var(--ft-line-strong);
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+
+  // the grip: fine ridges, barely there
+  &__rot {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: repeating-conic-gradient(#e2e8f0 0deg 7deg, #f1f5f9 7deg 14deg);
+  }
+
+  &__cap {
+    position: absolute;
+    inset: 16%;
+    border-radius: 50%;
+    background: linear-gradient(180deg, #ffffff, #f1f5f9);
+    box-shadow: 0 0 0 1px var(--ft-line), 0 1px 2px rgba($shadow, .12);
+  }
+
+  // a line from the centre to the edge
+  &__ptr {
+    position: absolute;
+    left: calc(50% - 1px);
+    top: 8%;
+    width: 2px;
+    height: 34%;
+    border-radius: 1px;
+    background: var(--ft-accent);
+  }
+}
+
+// ---------- Faders ----------
+
+@mixin slot {
+  background: var(--ft-slot);
+  box-shadow: inset 0 1px 1px rgba($shadow, .12);
+}
+
+@mixin fader-cap {
+  background: linear-gradient(180deg, #ffffff, #f1f5f9);
+  box-shadow: 0 0 0 1px var(--ft-line-strong), 0 1px 3px rgba($shadow, .15);
+
+  // a line across its middle
+  &::after {
+    content: "";
+    position: absolute;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--ft-accent);
+  }
+}
+
+// the mixer's faders (views/mixer/Fader): the slot the cap rides in
+.ft-fader-slot {
+  @include slot;
+  border-radius: 3px;
+}
+
+// and the cap, with a few grip ridges
+$ridge: rgba($shadow, .07);
+
+.ft-fader-cap {
+  @include fader-cap;
+  border-radius: 3px;
+  background:
+    linear-gradient(
+      180deg,
+      transparent 0 20%, $ridge 20% 24%, transparent 24% 32%, $ridge 32% 36%,
+      transparent 36% 64%, $ridge 64% 68%, transparent 68% 76%, $ridge 76% 80%,
+      transparent 80%
+    ),
+    linear-gradient(180deg, #ffffff, #f1f5f9);
+
+  &::after {
+    left: 3px;
+    right: 3px;
+    top: calc(50% - 1px);
+  }
+}
+
+// the stand-alone MasterFader
+.ft-fader {
+  position: relative;
+  width: 84px;
+  flex: none;
+
+  &__slot {
+    @include slot;
+    position: absolute;
+    left: 47px;
+    top: 14px;
+    bottom: 14px;
+    width: 8px;
+    border-radius: 4px;
+  }
+
+  &__tick {
+    position: absolute;
+    left: 0;
+    width: 22px;
+    text-align: right;
+    line-height: 14px;
+    font-family: var(--ft-font-label);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--ft-ink-faint);
+  }
+
+  &__line {
+    position: absolute;
+    left: 27px;
+    width: 12px;
+    height: 1px;
+    background: var(--ft-line-strong);
+  }
+
+  &__input {
+    position: absolute;
+    left: 24px;
+    top: 0;
+    width: 56px;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    opacity: 0;
+    cursor: grab;
+    writing-mode: vertical-lr;
+    direction: rtl;
+
+    &:active { cursor: grabbing; }
+  }
+
+  &__cap {
+    @include fader-cap;
+    position: absolute;
+    left: 31px;
+    width: 40px;
+    height: 48px;
+    pointer-events: none;
+    border-radius: 4px;
+
+    &::after {
+      left: 4px;
+      right: 4px;
+      top: 23px;
+    }
+  }
+
+  &__input:focus-visible ~ &__cap {
+    @include focus-ring;
+  }
+}
+
+// ---------- Mute / Solo ----------
+
+.ft-mutesolo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+
+  &--row {
+    flex-direction: row;
+    justify-content: center;
+    gap: 6px;
+  }
+
+  &__key {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+}
+
+// ---------- Meters ----------
+
+// LevelMeter: a row of LEDs
+.ft-meter {
+  display: flex;
+  gap: 8px;
+
+  &__cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    width: 18px;
+
+    .ft-label {
+      font-size: 9px;
+      letter-spacing: 0;
+    }
+  }
+}
+
+// the mixer's bar meter (views/mixer/Meter), split into LED segments
+.ft-meter-glass {
+  @include slot;
+  border-radius: 2px;
+
+  &__segments {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(0deg, transparent 0 3px, rgba(255, 255, 255, .7) 3px 4px);
+  }
+}
+
+// ---------- Tape counter ----------
+
+.ft-counter {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 4px;
+  background: var(--ft-display);
+  box-shadow: inset 0 1px 1px rgba($shadow, .06);
+
+  &__digit {
+    width: 14px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 2px;
+    background: #fff;
+    box-shadow: 0 0 0 1px var(--ft-line);
+    font-family: var(--ft-font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ft-display-text);
+  }
+}
