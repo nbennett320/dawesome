@@ -1,7 +1,7 @@
 use std::sync::atomic::{Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{SystemTime};
+use std::time::{Instant, SystemTime};
 use tauri;
 
 use crate::daw::{InnerState};
@@ -75,18 +75,26 @@ pub fn get_playlist_start_time(
 // convert the engine's monotonic start time into wall clock ms
 // (since the unix epoch), which the frontend can compare to Date.now()
 fn get_start_time_ms(state: &daw::InnerState) -> Result<f64, String> {
-  let elapsed = state
+  let started = state
     .playlist
     .started_time
     .lock()
     .unwrap()
-    .ok_or("playlist has not been started")?
-    .elapsed();
+    .ok_or("playlist has not been started")?;
+  let now = Instant::now();
   // UNIX_EPOCH is the epoch on every platform, including windows
-  let now = SystemTime::now()
+  let wall = SystemTime::now()
     .duration_since(SystemTime::UNIX_EPOCH)
-    .map_err(|e| e.to_string())?;
-  Ok((now - elapsed).as_secs_f64() * 1000.)
+    .map_err(|e| e.to_string())?
+    .as_secs_f64() * 1000.;
+
+  // the start time is when the run's first frame is heard, which is just
+  // after it starts (by the output's latency)
+  Ok(if started >= now {
+    wall + started.duration_since(now).as_secs_f64() * 1000.
+  } else {
+    wall - now.duration_since(started).as_secs_f64() * 1000.
+  })
 }
 
 // everything the frontend needs to draw the playback cursor in sync with
@@ -253,8 +261,11 @@ pub fn enumerate_directory(dir_path: String) -> Result<(
 }
 
 pub fn preview_sample(path: String) {
+  // the first sound opens the output, which takes a moment
   thread::spawn(move || {
-    futures::executor::block_on(daw::play_sample(&path));
+    if let Err(e) = daw::play_sample(&path) {
+      println!("could not preview sample: {}", e);
+    }
   });
 }
 
@@ -608,16 +619,7 @@ pub fn t_preview_node(
     .source();
 
   thread::spawn(move || {
-    let played = rodio::OutputStream::try_default()
-      .map_err(|e| e.to_string())
-      .and_then(|(_stream, handle)| {
-        let sink = rodio::Sink::try_new(&handle).map_err(|e| e.to_string())?;
-        sink.append(source);
-        sink.sleep_until_end();
-        Ok(())
-      });
-
-    if let Err(e) = played {
+    if let Err(e) = daw::engine().and_then(|engine| engine.preview(source)) {
       println!("could not preview clip {}: {}", id, e);
     }
   });
@@ -845,6 +847,22 @@ pub fn toggle_record_input(
 mod tests {
   use super::*;
   use std::time::{Duration, Instant};
+
+  #[test]
+  fn test_start_time_can_be_just_ahead() {
+    let state = daw::InnerState::default();
+    let wall = |t: SystemTime| t.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs_f64() * 1000.;
+
+    // a run that's heard 20ms from now
+    *state.playlist.started_time.lock().unwrap() = Some(Instant::now() + Duration::from_millis(20));
+    let ahead = get_start_time_ms(&state).unwrap() - wall(SystemTime::now());
+    assert!(ahead > 15. && ahead <= 20., "{}ms ahead", ahead);
+
+    // and one heard 1.5s ago
+    *state.playlist.started_time.lock().unwrap() = Some(Instant::now() - Duration::from_millis(1_500));
+    let ago = wall(SystemTime::now()) - get_start_time_ms(&state).unwrap();
+    assert!(ago >= 1_500. && ago < 1_505., "{}ms ago", ago);
+  }
 
   #[test]
   fn test_beat_to_offset() {

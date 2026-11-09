@@ -11,17 +11,10 @@ use std::sync::{
   mpsc,
   Arc, 
 };
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{Ordering};
 use std::thread;
-use std::time::{
-  Duration,
-  Instant,
-};
-use rodio::{
-  Decoder, 
-  OutputStream, 
-  Sink,
-};
+use std::time::{Duration};
+use rodio::{Decoder, Source};
 use tauri;
 
 
@@ -91,25 +84,13 @@ lazy_static! {
 //   });
 // }
 
-/**
-Play a single sound sample for its entire length
-- Compiled only on Windows and MacOS systems,
-for use with ALSA and CoreAudio
-*/
-#[cfg(not(target_os = "linux"))]
-pub async fn play_sample(path: &str) {
-  let path = String::from(path);
-  thread::spawn(move || {
-    // read and decode audio file, and append to a sound sink
-    let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-    let sink = Sink::try_new(&stream_handle).unwrap();
-    let file = BufReader::new(File::open(path).unwrap());
-    let source = Decoder::new(file).unwrap();
+// play a sample file once, straight to the output
+pub fn play_sample(path: &str) -> Result<(), String> {
+  let file = File::open(path).map_err(|e| format!("could not open '{}': {}", path, e))?;
+  let source = Decoder::new(BufReader::new(file))
+    .map_err(|e| format!("could not decode '{}': {}", path, e))?;
 
-    sink.append(source);
-    sink.play();
-    sink.sleep_until_end();
-  });
+  daw_core::engine()?.preview(source.convert_samples::<f32>())
 }
 
 // length of one beat at the playlist's tempo
@@ -162,6 +143,19 @@ fn set_beat_counters(state: &state::InnerState, offset: Duration, interval: Dura
   state.playlist.current_beat.store((total % numerator as u64) as u16, Ordering::SeqCst);
 }
 
+// how far ahead of the engine each slice is sent: enough for building it, and
+// for the scheduler's thread to wake up late. on top of this, two of the
+// device's buffers, which the engine renders a whole one at a time
+const SCHEDULE_AHEAD: Duration = Duration::from_millis(50);
+
+// play the run's mode (the playlist, or a pattern on its own) from the
+// playhead, until it's stopped or replaced
+//
+// the audio engine's output is the clock: a run starts on whatever frame the
+// engine is at when it gets the run's first slice, and every later slice's
+// sounds are sent to it a little early, each tagged with the frame it starts
+// on. this thread only decides what plays in each slice (a beat), and keeps
+// the beat counters in step with what's heard
 pub fn run_playlist(
   state_ref: &Arc<state::InnerState>,
   ready: mpsc::Sender<Result<(), String>>,
@@ -178,32 +172,13 @@ pub fn run_playlist(
   println!("TEMPO INTERVAL {:?}", tempo_interval);
 
   thread::spawn(move || {
-    // output stream for the whole run
-    let (_stream, stream_handle) = match OutputStream::try_default() {
-      Ok(s) => s,
+    let engine = match daw_core::engine() {
+      Ok(engine) => engine,
       Err(e) => {
-        let _ = ready.send(Err(format!("could not open audio output: {}", e)));
+        let _ = ready.send(Err(e));
         return;
       }
     };
-
-    // the master bus: every beat's clips are added to it, and it plays through
-    // the master strip and limiter. it's kept going with silence until playback stops
-    // (rodio's mixer ends as soon as it has nothing to play)
-    let sample_rate = state.playlist.audiograph.lock().unwrap().sample_rate();
-    let (bus, bus_out) = rodio::dynamic_mixer::mixer::<f32>(2, sample_rate);
-    bus.add(rodio::source::Zero::<f32>::new(2, sample_rate));
-
-    let stop = Arc::new(AtomicBool::new(false));
-    let master = state.playlist.mixer.master_strip(bus_out);
-    if let Err(e) = stream_handle.play_raw(daw_core::FadeOnStop::new(daw_core::SoftLimit::new(master), stop.clone())) {
-      let _ = ready.send(Err(format!("could not play the master bus: {}", e)));
-      return;
-    }
-    // stop the previous run's bus, if it's still going
-    if let Some(previous) = state.playlist.bus_stop.lock().unwrap().replace(stop.clone()) {
-      previous.store(true, Ordering::SeqCst);
-    }
 
     // the run plays from the playhead, or a pattern from its start
     let start = match mode {
@@ -211,18 +186,60 @@ pub fn run_playlist(
       state::PlayMode::Pattern(_) => Duration::ZERO,
     };
 
-    // every tick is scheduled relative to the start time, so time spent
-    // building each slice doesn't accumulate into drift
-    // the frontend cursor uses the same start time, so the two stay aligned
-    // the start time is set before flagging the playlist as playing, so
-    // anything that sees `playing == true` also sees this run's start time
-    let started = Instant::now();
-    *state.playlist.started_time.lock().unwrap() = Some(started);
+    // the sounds of the slice `dur` long, `at` into the run, as voices
+    let slice_voices = |at: Duration, dur: Duration, on_beat: bool, resume: bool| {
+      let audiograph_ref = state.playlist.audiograph.lock().unwrap();
+      println!("tick: {}ms", audiograph_ref.current_offset.unwrap_or_default().as_millis());
+
+      let metronome = on_beat && state.metronome_enabled.load(Ordering::SeqCst);
+      let sounds = match mode {
+        state::PlayMode::Playlist => audiograph_ref.run_sounds(dur, metronome, resume),
+        state::PlayMode::Pattern(id) => audiograph_ref.pattern_sounds(id, dur, metronome, resume),
+      };
+
+      sounds
+        .into_iter()
+        .map(|(delay, source, route)| engine.boxed_voice(source, Some(run), engine.frames_in(at + delay), route))
+        .collect::<Vec<_>>()
+    };
+
     {
       let mut audiograph_ref = state.playlist.audiograph.lock().unwrap();
       audiograph_ref.init();
       audiograph_ref.set_current_offset(Some(start));
     }
+
+    // a run from between beats plays the part beat up to the next one first,
+    // so every later slice (and metronome tick) stays on the beat
+    let lead = state::until_next_beat(start, tempo_interval);
+    let mut slice = if lead.is_zero() { tempo_interval } else { lead };
+    let first = slice_voices(Duration::ZERO, slice, lead.is_zero(), true);
+
+    // the run starts with its first slice, so nothing in it can arrive late
+    let anchor = match engine
+      .start_run(run, state.playlist.mixer.master(), first)
+      .and_then(|_| engine.wait_for_anchor(run, Duration::from_secs(2)))
+    {
+      Ok(anchor) => anchor,
+      Err(e) => {
+        let _ = engine.stop_run(run);
+        let _ = ready.send(Err(e));
+        return;
+      }
+    };
+
+    // stopped before it got going: the stop has already been dealt with
+    if state.playlist.run_id.load(Ordering::SeqCst) != run {
+      let _ = engine.stop_run(run);
+      let _ = ready.send(Ok(()));
+      return;
+    }
+
+    // the start time is when the run's first frame is heard, so the playhead
+    // (and the frontend cursor, which uses the same time) follows what's
+    // heard. it's set before flagging the playlist as playing, so anything
+    // that sees `playing == true` also sees this run's start time
+    *state.playlist.started_time.lock().unwrap() = Some(anchor.heard);
     // the counters follow the playlist, which a pattern doesn't move
     let counts_beats = mode == state::PlayMode::Playlist;
     if counts_beats { set_beat_counters(&state, start, tempo_interval); }
@@ -234,40 +251,26 @@ pub fn run_playlist(
     let current = || {
       state.playlist.run_id.load(Ordering::SeqCst) == run && state.playlist.playing()
     };
+    // the engine's frame `at` into the run, and when it's sent ahead / heard
+    let frame_at = |at: Duration| anchor.frame + engine.frames_in(at);
+    let send_by = |at: Duration| {
+      let ahead = engine.frames_in(SCHEDULE_AHEAD) + 2 * engine.buffer_frames();
+      frame_at(at).saturating_sub(ahead)
+    };
+    let heard_at = |at: Duration| frame_at(at) + engine.frames_in(engine.latency());
 
-    // a run from between beats plays the part beat up to the next one first,
-    // so every later slice (and metronome tick) stays on the beat
-    let lead = state::until_next_beat(start, tempo_interval);
-    let mut slice = if lead.is_zero() { tempo_interval } else { lead };
-    let mut on_beat = lead.is_zero();
-    let mut resume = true;
-    let mut next_tick = started;
+    // where the current slice starts in the run
+    let mut slice_at = Duration::ZERO;
 
     loop {
-      // schedule this slice of the audio graph to be played
-      {
-        let audiograph_ref = state.playlist.audiograph.lock().unwrap();
-        println!("tick: {}ms", audiograph_ref.current_offset.unwrap_or_default().as_millis());
+      let next_at = slice_at + slice;
 
-        let metronome = on_beat && state.metronome_enabled.load(Ordering::SeqCst);
-        match mode {
-          state::PlayMode::Playlist =>
-            audiograph_ref.run_for(&stream_handle, &bus, slice, metronome, resume),
-          state::PlayMode::Pattern(id) =>
-            audiograph_ref.run_pattern_for(&stream_handle, &bus, id, slice, metronome, resume),
-        }
-      } // release the audiograph while sleeping so commands aren't blocked
-
-      // sleep until the start of the next slice
-      next_tick += slice;
-      thread::sleep(next_tick.saturating_duration_since(Instant::now()));
-
-      // stopped, paused or replaced while sleeping: leave the shared state to
-      // whoever did that
-      if !current() { break; }
+      // wake up a little before the engine gets to the next slice. stopped,
+      // paused or replaced meanwhile: leave the shared state to whoever did that
+      if !engine.wait_for_frame(send_by(next_at), &current) || !current() { break; }
 
       // move on, jumping back to the start at the loop's end (looping is read
-      // each slice, so toggling it applies right away)
+      // each slice, so toggling it applies from the next one)
       // a pattern always loops, at its length now (it can be changed while
       // it plays). a pattern deleted while playing ends the run
       let loop_len = match mode {
@@ -281,26 +284,35 @@ pub fn run_playlist(
           }
         },
       };
-      let next = {
-        let mut audiograph_ref = state.playlist.audiograph.lock().unwrap();
-        let next = state::advance(audiograph_ref.current_offset.unwrap_or_default(), slice, loop_len);
-        audiograph_ref.set_current_offset(Some(next));
-        next
-      };
-      if counts_beats { set_beat_counters(&state, next, tempo_interval); }
+      let current_offset = state.playlist.audiograph.lock().unwrap().current_offset.unwrap_or_default();
+      let next = state::advance(current_offset, slice, loop_len);
 
       // without looping, the tape runs out at the end of the song: stop
-      // there, once the last clip has played out
+      // there, once the last clip has been heard
       if loop_len.is_none() && counts_beats {
         if let Some(end) = song_end(&state) {
           if next >= end {
-            println!("reached the end of the song");
-            end_run(&state);
-            set_playhead(&state, end);
+            if engine.wait_for_frame(heard_at(next_at), &current) && current() {
+              println!("reached the end of the song");
+              end_run(&state);
+              set_playhead(&state, end);
+            }
             break;
           }
         }
       }
+
+      // send the next slice
+      state.playlist.audiograph.lock().unwrap().set_current_offset(Some(next));
+      slice = tempo_interval;
+      let voices = slice_voices(next_at, slice, true, false);
+      if let Err(e) = engine.play(voices) {
+        println!("could not schedule the next beat: {}", e);
+      }
+
+      // and move the counters on once it's heard
+      if !engine.wait_for_frame(heard_at(next_at), &current) || !current() { break; }
+      if counts_beats { set_beat_counters(&state, next, tempo_interval); }
 
       println!(
         "current beat: {}, total beats played: {}, looping: {}",
@@ -309,14 +321,12 @@ pub fn run_playlist(
         loop_len.is_some(),
       );
 
-      slice = tempo_interval;
-      on_beat = true;
-      resume = false;
+      slice_at = next_at;
     }
 
-    // pausing already stopped the bus. this covers anything else that ends
-    // the run
-    stop.store(true, Ordering::SeqCst);
+    // stopping (or pausing) has already stopped the run in the engine. this
+    // covers anything else that ends it. a newer run isn't affected
+    let _ = engine.stop_run(run);
   });
 
   println!("continuing");
@@ -325,7 +335,7 @@ pub fn run_playlist(
 // end the current run, if any, leaving the playhead where it is
 fn end_run(state: &state::InnerState) {
   // tell the run's thread it's done, even before it's flagged as playing
-  state.playlist.run_id.fetch_add(1, Ordering::SeqCst);
+  let run = state.playlist.run_id.fetch_add(1, Ordering::SeqCst);
 
   // set playlist state to paused
   state
@@ -333,11 +343,13 @@ fn end_run(state: &state::InnerState) {
     .set_playing(false);
 
   // fade out what's playing now, rather than at the next beat
-  if let Some(stop) = state.playlist.bus_stop.lock().unwrap().take() {
-    stop.store(true, Ordering::SeqCst);
+  if let Some(engine) = daw_core::engine_if_open() {
+    if let Err(e) = engine.stop_run(run) {
+      println!("could not stop playback: {}", e);
+    }
   }
 
-  // pause the audiograph, clearing all start times
+  // pause the audiograph
   let mut audiograph_ref = state.playlist.audiograph.lock().unwrap();
   audiograph_ref.pause();
 }

@@ -62,6 +62,14 @@ fn init_tauri() {
   // read before the menu is built, which lists them
   let recent_projects = recent::RecentProjects::load();
 
+  // open the audio output now, so the first play or preview doesn't wait
+  // for it. if it can't be opened, playing tries again
+  std::thread::spawn(|| {
+    if let Err(e) = daw::engine() {
+      println!("could not open the audio output: {}", e);
+    }
+  });
+
   tauri::Builder::default()
     .setup(app::window::setup)
     .menu(app::window::build_menu(&recent_projects))

@@ -73,16 +73,7 @@ pub fn preview_sequencer_row(state: daw::TState<'_>, row_id: u64) -> Result<(), 
     .source();
 
   thread::spawn(move || {
-    let played = rodio::OutputStream::try_default()
-      .map_err(|e| e.to_string())
-      .and_then(|(_stream, handle)| {
-        let sink = rodio::Sink::try_new(&handle).map_err(|e| e.to_string())?;
-        sink.append(source);
-        sink.sleep_until_end();
-        Ok(())
-      });
-
-    if let Err(e) = played {
+    if let Err(e) = daw::engine().and_then(|engine| engine.preview(source)) {
       println!("could not preview sequencer row {}: {}", row_id, e);
     }
   });

@@ -81,8 +81,6 @@ pub struct Playlist {
   pub sequencer: Arc<Mutex<daw::Sequencer>>,
   // what the current (or last) run plays. set before each run starts
   pub mode: Mutex<PlayMode>,
-  // set to stop the current run's master bus (see daw::run_playlist)
-  pub bus_stop: Mutex<Option<Arc<AtomicBool>>>,
   pub ui: Arc<Mutex<PlaylistUI>>,
 }
 
@@ -120,7 +118,6 @@ impl Playlist {
       mixer,
       sequencer,
       mode: Mutex::new(PlayMode::Playlist),
-      bus_stop: Mutex::new(None),
       ui: Arc::new(Mutex::from(PlaylistUI::new())),
     }
   }
