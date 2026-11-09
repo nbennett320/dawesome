@@ -1,6 +1,7 @@
 import React from 'react'
 import Playlist from './playlist/Playlist'
 import SamplePreview from './sample-preview/SamplePreview'
+import Mixer from './mixer/Mixer'
 import { View } from '../types/ui'
 
 // the component a tab shows for its view
@@ -10,6 +11,8 @@ export const matchViewComponent = (view: View): JSX.Element => {
       return <Playlist />
     case View.SamplePreview:
       return <SamplePreview />
+    case View.Mixer:
+      return <Mixer />
     default:
       // eslint-disable-next-line no-console
       console.error("Tab does not have a matching component: ", view)

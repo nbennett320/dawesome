@@ -124,22 +124,24 @@ const PlaylistCanvas = () => {
     return () => observer.disconnect()
   }, [])
 
-  const handleItemDrop = (pw: PlaylistWindow) => {
+  // stable across renders: the p5 wrapper rebuilds every clip when any of
+  // its props change, including these handlers
+  const handleItemDrop = React.useCallback((pw: PlaylistWindow) => {
     setPlaylistWindow(pw)
-  }
+  }, [])
 
-  const handleNodeRightClick = async (id: number) => {
-    dispatch(removeFromPlaylist(id)) 
-  }
+  const handleNodeRightClick = React.useCallback((id: number) => {
+    dispatch(removeFromPlaylist(id))
+  }, [dispatch])
 
-  const handleNodeDoubleClick = (id: number) => {
+  const handleNodeDoubleClick = React.useCallback((id: number) => {
     dispatch(inspectClip(id))
-  }
+  }, [dispatch])
 
   // a clip already in the playlist was dragged and dropped. the renderer
   // works out the beat (accounting for zoom, pan, and where the clip was
   // grabbed) and the track from the mouse position
-  const handleNodeMove = (
+  const handleNodeMove = React.useCallback((
     item: PlaylistItem,
     dropBeat: number,
     trackNumber: number,
@@ -152,15 +154,17 @@ const PlaylistCanvas = () => {
       // keep the vertical offset the clip was first drawn with
       item.pixelOffset,
     ))
-  }
+  }, [dispatch])
 
   return (
     <div 
       ref={ref}
-      className='w-full h-full'
-      style={{ minHeight: '100vh' }}
+      // fills the pane's body exactly, so the canvas is the visible height and
+      // the tracks scroll inside it
+      className='absolute inset-0 overflow-hidden'
     >
-      {ref.current && <div>
+      {/* only once the box has been measured (see fit) */}
+      {ref.current && !!width && !!height && <div>
         <ReactP5Wrapper
           sketch={playlistRenderer.sketch}
           style={{ height: '100%' }}
@@ -184,4 +188,6 @@ const PlaylistCanvas = () => {
   )
 }
 
-export default PlaylistCanvas
+// memo: it takes no props, so pane focus and tab changes above it don't
+// re-render it (and rebuild every clip)
+export default React.memo(PlaylistCanvas)

@@ -13,7 +13,7 @@ use std::sync::{
   Arc, 
   Mutex,
 };
-use std::sync::atomic::{Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{
   Duration,
@@ -167,6 +167,24 @@ pub fn run_playlist(
       }
     };
 
+    // the master bus: every beat's clips are added to it, and it plays through
+    // the master strip and limiter. it's kept going with silence until playback stops
+    // (rodio's mixer ends as soon as it has nothing to play)
+    let sample_rate = state.playlist.audiograph.lock().unwrap().sample_rate();
+    let (bus, bus_out) = rodio::dynamic_mixer::mixer::<f32>(2, sample_rate);
+    bus.add(rodio::source::Zero::<f32>::new(2, sample_rate));
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let master = state.playlist.mixer.master_strip(bus_out);
+    if let Err(e) = stream_handle.play_raw(daw_core::FadeOnStop::new(daw_core::SoftLimit::new(master), stop.clone())) {
+      let _ = ready.send(Err(format!("could not play the master bus: {}", e)));
+      return;
+    }
+    // stop the previous run's bus, if it's still going
+    if let Some(previous) = state.playlist.bus_stop.lock().unwrap().replace(stop.clone()) {
+      previous.store(true, Ordering::SeqCst);
+    }
+
     // every tick is scheduled relative to the start time, so time spent
     // building each slice doesn't accumulate into drift
     // the frontend cursor uses the same start time, so the two stay aligned
@@ -187,7 +205,7 @@ pub fn run_playlist(
         let audiograph_ref = state.playlist.audiograph.lock().unwrap();
         println!("tick: {}ms", audiograph_ref.current_offset.unwrap_or_default().as_millis());
 
-        audiograph_ref.run_for(&stream_handle, tempo_interval, state.metronome_enabled.load(Ordering::SeqCst));
+        audiograph_ref.run_for(&stream_handle, &bus, tempo_interval, state.metronome_enabled.load(Ordering::SeqCst));
       } // release the audiograph while sleeping so commands aren't blocked
 
       // sleep until the start of the next beat
@@ -251,6 +269,10 @@ pub fn run_playlist(
         break;
       }
     }
+
+    // pausing already stopped the bus. this covers anything else that ends
+    // the run
+    stop.store(true, Ordering::SeqCst);
   });
 
   println!("continuing");
@@ -273,6 +295,11 @@ pub fn pause_playlist(state: &state::InnerState) {
   state
     .playlist
     .set_playing(false);
+
+  // fade out what's playing now, rather than at the next beat
+  if let Some(stop) = state.playlist.bus_stop.lock().unwrap().take() {
+    stop.store(true, Ordering::SeqCst);
+  }
 
   // pause the audiograph, clearing all start times
   let mut audiograph_ref = state.playlist.audiograph.lock().unwrap();

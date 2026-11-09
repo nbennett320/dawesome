@@ -489,12 +489,13 @@ pub struct AudioGraph<'a> {
   pub running: bool,
   pub started_time: Option<Instant>,
   pub current_offset: Option<Duration>,
-  controller: Arc<DynamicMixerController<f32>>,
-  mixer: Arc<Mutex<DynamicMixer<f32>>>,
   sample_rate: u32,
   tempo: f32,
   max_beats: u64,
   next_id: u64,
+  // every clip plays through its track's strip (shared with the playlist
+  // state, so the mixer's controls don't need the graph's lock)
+  pub mixer: Arc<daw::Mixer>,
   _phantom: PhantomData<&'a str>,
 }
 
@@ -504,19 +505,16 @@ impl AudioGraph<'static> {
     tempo: f32,
     max_beats: u64,
   ) -> Self {
-    let (controller, mixer) = rodio::dynamic_mixer::mixer(2, sample_rate);
-
     AudioGraph {
       nodes: Vec::<AudioNode>::new(),
       running: false,
       started_time: None,
       current_offset: Some(Duration::ZERO),
-      controller,
-      mixer: Arc::new(Mutex::from(mixer)),
       sample_rate,
       tempo,
       max_beats,
       next_id: 0,
+      mixer: Arc::new(daw::Mixer::default()),
       _phantom: PhantomData,
     }
   }
@@ -555,10 +553,18 @@ impl AudioGraph<'static> {
     });
   }
 
-  // run graph and schedule nodes to be played
-  // n milliseconds in advance
-  // play the next `dur` of the graph on an already open output stream
-  pub fn run_for(&self, stream: &OutputStreamHandle, dur: Duration, metronome_enabled: bool) {
+  // schedule the next `dur` of the graph on this run's master bus
+  // - stream: the run's output, which the metronome plays on directly so the
+  //   mixer doesn't change it
+  // - bus: the master bus (see daw::run_playlist), which every clip plays
+  //   through
+  pub fn run_for(
+    &self,
+    stream: &OutputStreamHandle,
+    bus: &DynamicMixerController<f32>,
+    dur: Duration,
+    metronome_enabled: bool,
+  ) {
     if self.nodes.len() == 0 {
       println!("Tried to run audio graph. No nodes in graph!");
       return;
@@ -566,11 +572,14 @@ impl AudioGraph<'static> {
 
     if !self.running { return; }
 
-    let (_controller, mixer) = self.buffer_slice(dur, metronome_enabled).unwrap();
-
-    if let Err(e) = stream.play_raw(mixer) {
-      println!("could not play slice: {}", e);
+    if metronome_enabled {
+      if let Err(e) = stream.play_raw(daw::METRONOME_TICK_SOURCE.convert_samples()) {
+        println!("could not play metronome: {}", e);
+      }
     }
+
+    let (_controller, mixer) = self.buffer_slice(dur).unwrap();
+    bus.add(mixer);
   }
 
   pub fn buffer_graph(&self) -> Option<(Arc<DynamicMixerController<f32>>, DynamicMixer<f32>)> {
@@ -600,7 +609,7 @@ impl AudioGraph<'static> {
       let delay: Duration = *start_offset.lock().unwrap();
       println!("delay: {}ms",delay.as_millis());
 
-      let source = node.source().delay(*start_offset.lock().unwrap());
+      let source = self.mixer.track_strip(node.track_number, node.source()).delay(*start_offset.lock().unwrap());
       controller.add(source);
     }
 
@@ -619,16 +628,13 @@ impl AudioGraph<'static> {
       node.start_offset >= window_start && node.start_offset < window_end)
   }
 
-  pub fn buffer_slice(&self, dur: Duration, metronome_enabled: bool) -> Option<(Arc<DynamicMixerController<f32>>, DynamicMixer<f32>)> {
+  // the clips that start in the next `dur`, each through its track's strip
+  // (the metronome isn't included, see run_for)
+  pub fn buffer_slice(&self, dur: Duration) -> Option<(Arc<DynamicMixerController<f32>>, DynamicMixer<f32>)> {
     let (controller, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, self.sample_rate);
     let silence = rodio::source::Zero::<f32>::new(2, self.sample_rate).take_duration(dur);
 
     controller.add(silence);
-    
-    // todo: add conditional for metronome state
-    if metronome_enabled {
-      controller.add(daw::METRONOME_TICK_SOURCE.convert_samples());
-    }
     
     let window_start = self.current_offset.unwrap_or(Duration::ZERO);
     println!("current offset: {}", window_start.as_millis());
@@ -637,7 +643,7 @@ impl AudioGraph<'static> {
     for node in self.nodes_in_window(window_start, dur) {
       let delay_offset = node.start_offset - window_start;
       println!("added node: {} (delay offset: {}ms)", node.sample_path, delay_offset.as_millis());
-      let source = node.source().delay(delay_offset);
+      let source = self.mixer.track_strip(node.track_number, node.source()).delay(delay_offset);
       controller.add(source);
     }
 
@@ -670,7 +676,7 @@ impl AudioGraph<'static> {
     for node in window_nodes {
       let delay_offset = node.start_offset - window_start;
       println!("added node: {} (delay offset: {}ms)", node.sample_path, delay_offset.as_millis());
-      let source = node.source().delay(delay_offset);
+      let source = self.mixer.track_strip(node.track_number, node.source()).delay(delay_offset);
       controller.add(source);
     }
 
@@ -1094,7 +1100,8 @@ mod tests {
     let runtime = Duration::from_secs(1);
     let now = Instant::now();
 
-    audiograph.run_for(&stream_handle, runtime, true);
+    let (bus, _bus_out) = rodio::dynamic_mixer::mixer::<f32>(2, sample_rate);
+    audiograph.run_for(&stream_handle, &bus, runtime, true);
     thread::sleep(runtime);
 
     let now_elapsed = now.elapsed();
@@ -1191,7 +1198,7 @@ mod tests {
     
     let runtime = Duration::from_secs(1);
 
-    let (_controller, mixer) = audiograph.buffer_slice(runtime, true).unwrap();
+    let (_controller, mixer) = audiograph.buffer_slice(runtime).unwrap();
 
     let mut nonzero_samples = Vec::<f32>::new();
     mixer.for_each(|x| {
@@ -1207,7 +1214,9 @@ mod tests {
       }
     });
 
-    assert_eq!(node_samples.len() * 4, nonzero_samples.len());
+    // (this was * 4 while the slice also held a metronome tick, which is the
+    // same sample. the metronome now plays outside the mixer, see run_for)
+    assert_eq!(node_samples.len() * 2, nonzero_samples.len());
   }
 
   #[test]
@@ -1372,7 +1381,7 @@ mod tests {
     let energy = |offsets_ms: &[u64]| -> f64 {
       let audiograph = graph_with_ticks(offsets_ms);
       let (_controller, mixer) = audiograph
-        .buffer_slice(audiograph.beat_interval(), false)
+        .buffer_slice(audiograph.beat_interval())
         .unwrap();
       mixer.map(|x| x.abs() as f64).sum()
     };

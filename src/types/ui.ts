@@ -2,12 +2,15 @@ export enum View {
   Playlist,
   // inspect a clip from the playlist and adjust how it plays
   SamplePreview,
+  // every track's volume, pan, mute and solo, and the master
+  Mixer,
 }
 
 // the label a view's tab gets when it's opened
 export const viewLabels: Record<View, string> = {
   [View.Playlist]: 'Playlist',
   [View.SamplePreview]: 'Sample',
+  [View.Mixer]: 'Mixer',
 }
 
 // how a split pane lays out its children, named like react-split-pane:

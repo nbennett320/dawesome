@@ -56,6 +56,43 @@ export const staticDefaults = {
   },
 }
 
+// the top of a track, in playlist y. matches PlaylistTrack's layout
+const trackTop = (trackNumber: number): number =>
+  staticDefaults.trackHeight * trackNumber + trackNumber * .3 + staticDefaults.timelineHeight
+
+// room below the last track: dropping a clip there puts it on a new track
+const NEW_TRACK_AREA_HEIGHT = staticDefaults.trackHeight / 2
+
+// the vertical scrollbar, drawn over the right edge of the tracks
+const SCROLLBAR = {
+  width: 6,
+  // from the right edge, where a press grabs the scrollbar
+  hitWidth: 14,
+  // gap between the thumb and the canvas's right edge
+  margin: 3,
+  minThumbHeight: 24,
+}
+
+// dragging a clip near the top or bottom of the tracks scrolls them
+const AUTO_SCROLL = {
+  // how far from the edge it starts, in pixels
+  zone: 32,
+  // pixels per frame, at the very edge
+  maxSpeed: 12,
+}
+
+// a wheel event's delta in lines (a mouse wheel on some systems), in pixels
+const WHEEL_LINE_PIXELS = 16
+// how much zoom one pixel of ⌘+wheel gives, before limiting to
+// staticDefaults.zoomSensitivity per event
+const WHEEL_ZOOM_PER_PIXEL = 0.01
+
+// WebKit (the macOS webview) reports trackpad pinches as gesture events,
+// not ⌘+wheel. not in the DOM typings
+interface GestureEvent extends UIEvent {
+  scale: number
+}
+
 // mirrors PlaylistTransport in engine/src/event_dispatch.rs
 export interface PlaylistTransport {
   startTimeMs: number
@@ -142,7 +179,14 @@ export class Renderer extends RendererBase {
 
   currentScale = 1
   transformX = 0
-  transformY = 0
+  // how far the tracks are scrolled down, in pixels. the timeline stays at
+  // the top. zoom only stretches x, so this isn't scaled
+  scrollY = 0
+  // while the scrollbar's thumb is dragged: how far below the thumb's top
+  // it's held, in pixels
+  scrollbarGrab: number | null = null
+  // the p5 instance drawing, for the mouse position
+  #p: P5CanvasInstance<CanvasProps> | null = null
   
   isMouseDown = false
   isMouseDragged = false
@@ -155,6 +199,10 @@ export class Renderer extends RendererBase {
 
   playlistTracks: Array<PlaylistTrack> = []
   playlistObjects: Array<PlaylistObject> = []
+
+  // counts updateWithProps calls, so a slow rebuild can't replace the
+  // clips a newer one built
+  #rebuildGeneration = 0
 
   clipDrag: ClipDrag | null = null
   sampleDrag: SampleDrag | null = null
@@ -245,15 +293,24 @@ export class Renderer extends RendererBase {
 
   // the clip under the mouse, if any (the last one drawn is on top)
   clipUnderMouse = (): PlaylistObject | null => {
+    // clips scrolled up under the timeline, or under the scrollbar, are hidden
+    const p = this.#p
+    if(p && (p.mouseY < staticDefaults.timelineHeight || this.overScrollbar(p.mouseX, p.mouseY))) {
+      return null
+    }
+
     const hovered = this.playlistObjects.filter(item => item.mouseOver())
 
     return hovered.length ? hovered[hovered.length - 1] : null
   }
 
-  // the track at a y position on the canvas, clamped to the first/last track
+  // the track at a y position in playlist y, clamped to the first track.
+  // the area below the last track (and anything under it) is a new track,
+  // numbered trackCount, which the engine creates when a clip lands on it
   trackAt = (y: number): number => {
     const tracks = this.playlistTracks
     if(!tracks.length) return -1
+    if(y >= this.newTrackAreaTop()) return this.trackCount
 
     const track = tracks.find(t => t.minHeight <= y && y <= t.maxHeight)
     if(track) return track.trackNumber
@@ -281,7 +338,7 @@ export class Renderer extends RendererBase {
     return {
       beat,
       snappedBeat: this.snapBeat(beat),
-      trackNumber: this.trackAt(mouseY),
+      trackNumber: this.trackAt(this.screenToPlaylistY(mouseY)),
     }
   }
 
@@ -424,14 +481,17 @@ export class Renderer extends RendererBase {
 
     // phantom: where the clip will land (after snapping, when snap is on)
     const track = this.playlistTracks.find(t => t.trackNumber === target.trackNumber)
-    if(track) {
+    // a new track (see trackAt) starts where the area below the last one does
+    let phantomTop: number | null = track ? track.minHeight : null
+    if(target.trackNumber === this.trackCount) phantomTop = trackTop(this.trackCount)
+    if(phantomTop !== null) {
       const ctx = p.drawingContext as CanvasRenderingContext2D
       p.push()
       ctx.setLineDash([4, 3])
       p.strokeWeight(1)
       p.stroke(14, 165, 233)
       p.fill(125, 211, 252, 255*.25)
-      p.rect(this.beatToX(target.snappedBeat), track.minHeight, width, height, 3)
+      p.rect(this.beatToX(target.snappedBeat), phantomTop, width, height, 3)
       ctx.setLineDash([])
       p.pop()
     }
@@ -440,7 +500,7 @@ export class Renderer extends RendererBase {
     p.push()
     p.translate(
       this.screenToPlaylistX(drag.mouseX) - drag.grabX - left,
-      drag.mouseY - drag.grabY - top,
+      this.screenToPlaylistY(drag.mouseY) - drag.grabY - top,
     )
     drag.item.render()
     p.pop()
@@ -455,6 +515,144 @@ export class Renderer extends RendererBase {
   // convert an x position on the canvas (e.g. the mouse) to playlist x
   screenToPlaylistX = (screenX: number): number =>
     (screenX - this.transformX) / this.currentScale
+
+  // convert a y position on the canvas (e.g. the mouse) to playlist y, which
+  // tracks and clips are laid out in (see PlaylistTrack)
+  screenToPlaylistY = (screenY: number): number => screenY + this.scrollY
+
+  // the top of the area below the last track, for dropping onto a new track
+  newTrackAreaTop = (): number => trackTop(this.trackCount)
+
+  // the bottom of everything that scrolls, in playlist y
+  contentHeight = (): number => this.newTrackAreaTop() + NEW_TRACK_AREA_HEIGHT
+
+  // the furthest the tracks can scroll: 0 when they all fit
+  maxScrollY = (): number => Math.max(0, this.contentHeight() - this.height)
+
+  // scroll the tracks, kept in range
+  scrollTo = (y: number) => {
+    // `|| 0` also catches NaN, which would break every clip's hit-test
+    this.scrollY = Math.min(Math.max(y, 0), this.maxScrollY()) || 0
+  }
+
+  // the vertical scrollbar, in canvas pixels. null when every track fits
+  scrollbar = () => {
+    const max = this.maxScrollY()
+    if(max <= 0) return null
+
+    const top = staticDefaults.timelineHeight
+    const trackLength = this.height - top
+    // the share of the tracks that's visible
+    const visible = trackLength / (this.contentHeight() - top)
+    const thumbHeight = Math.min(trackLength, Math.max(SCROLLBAR.minThumbHeight, trackLength * visible))
+    const thumbTop = top + (trackLength - thumbHeight) * (this.scrollY / max)
+
+    return { top, trackLength, thumbTop, thumbHeight, max }
+  }
+
+  // whether a point on the canvas is over the scrollbar (when it's shown)
+  overScrollbar = (x: number, y: number): boolean => {
+    const bar = this.scrollbar()
+    return !!bar && x >= this.width - SCROLLBAR.hitWidth && x <= this.width && y >= bar.top
+  }
+
+  // while the thumb is dragged, keep it under the mouse
+  #followScrollbarDrag = (p: P5CanvasInstance<CanvasProps>) => {
+    const bar = this.scrollbar()
+    if(this.scrollbarGrab === null || !bar) return
+
+    const room = bar.trackLength - bar.thumbHeight
+    if(room > 0) this.scrollTo((p.mouseY - this.scrollbarGrab - bar.top) / room * bar.max)
+  }
+
+  // dragging a clip (or a sample from the sidebar) near the top or bottom of
+  // the tracks scrolls them, faster closer to the edge
+  #autoScroll = (p: P5CanvasInstance<CanvasProps>) => {
+    let y: number | null = null
+    if(this.clipDrag?.active) y = p.mouseY
+    else if(this.sampleDrag) y = this.sampleDrag.y
+    if(y === null) return
+
+    const { zone, maxSpeed } = AUTO_SCROLL
+    const top = staticDefaults.timelineHeight
+    const depth = (into: number) => Math.min(1, Math.max(0, into / zone))
+
+    if(y < top + zone) this.scrollTo(this.scrollY - maxSpeed * depth(top + zone - y))
+    else if(y > this.height - zone) this.scrollTo(this.scrollY + maxSpeed * depth(y - (this.height - zone)))
+  }
+
+  // the area below the last track, with a plus: drop a clip here for a new
+  // track. highlighted while a dragged clip would land there
+  #drawNewTrackArea = (p: P5CanvasInstance<CanvasProps>, canvas: p5.Renderer) => {
+    // in canvas pixels, matching the tracks' translate in draw
+    const top = this.newTrackAreaTop() - this.scrollY + 1
+    if(top > this.height) return
+
+    const drag = this.draggedClip(p, canvas)
+    const targeted = !!drag
+      && this.dropTarget(drag.mouseX, drag.mouseY, drag.grabX).trackNumber === this.trackCount
+
+    const h = NEW_TRACK_AREA_HEIGHT
+    // centred in what's visible, so it doesn't stretch with zoom or scroll away
+    const cx = this.width / 2
+    const cy = top + h / 2
+    const radius = 10
+    const arm = 5
+
+    p.push()
+    if(targeted) {
+      p.noStroke()
+      p.fill(125, 211, 252, 64)
+      p.rect(0, top, this.width, h)
+      p.stroke(14, 165, 233)
+    } else {
+      p.stroke(170)
+    }
+
+    p.strokeWeight(1.5)
+    p.noFill()
+    p.circle(cx, cy, radius * 2)
+    p.line(cx - arm, cy, cx + arm, cy)
+    p.line(cx, cy - arm, cx, cy + arm)
+
+    if(targeted) {
+      p.noStroke()
+      p.fill(14, 165, 233)
+      p.textSize(11)
+      p.textAlign(p.LEFT, p.CENTER)
+      p.text('New track', cx + radius + 6, cy)
+    }
+    p.pop()
+  }
+
+  #drawScrollbar = (p: P5CanvasInstance<CanvasProps>) => {
+    const bar = this.scrollbar()
+    if(!bar) return
+
+    const active = this.scrollbarGrab !== null || this.overScrollbar(p.mouseX, p.mouseY)
+    const { width, margin } = SCROLLBAR
+
+    p.push()
+    p.noStroke()
+    p.fill(0, 0, 0, active ? 115 : 64)
+    p.rect(this.width - width - margin, bar.thumbTop + 2, width, bar.thumbHeight - 4, width / 2)
+    p.pop()
+  }
+
+  // zoom the timeline by `factor`, keeping the point at canvas x `aroundX`
+  // in place. never zooms out past the whole playlist
+  #zoomBy = (factor: number, aroundX: number) => {
+    if(!Number.isFinite(factor) || factor <= 0) return
+
+    const scale = Math.max(1, this.currentScale * factor)
+    const applied = scale / this.currentScale
+    this.currentScale = scale
+    this.transformX = aroundX - (aroundX - this.transformX) * applied
+
+    this.playlistObjects.forEach(obj => {
+      obj.currentScale = this.currentScale
+    })
+  }
 
   beatToX = (beat: number): number =>
     beat / this.beatsDisplayed * this.width
@@ -473,16 +671,16 @@ export class Renderer extends RendererBase {
   #handleRightClick = (ev: MouseEvent, p: P5CanvasInstance<CanvasProps>) => {
     console.log("handled right click", ev)
 
-    this.playlistObjects.forEach(item => {
-      if(item.mouseOver()) {
-        const { mouseX, mouseY } = p
-        item.onRightClick(ev, {
-          mouseX,
-          mouseY,
-          target: item,
-        })
-      }
-    })
+    // the clip on top, as for clicks (not one hidden under the timeline)
+    const item = this.clipUnderMouse()
+    if(item) {
+      const { mouseX, mouseY } = p
+      item.onRightClick(ev, {
+        mouseX,
+        mouseY,
+        target: item,
+      })
+    }
   }
 
   // p5 sketch function
@@ -495,6 +693,8 @@ export class Renderer extends RendererBase {
       mousePressedX,
       mousePressedY,
     } = this
+    this.#p = p
+
     p.setup = () => {
       const { width, height, trackCount } = this
 
@@ -511,6 +711,15 @@ export class Renderer extends RendererBase {
       // handle mouse press, and pick up a clip if one was pressed on
       canvas.mousePressed((ev: MouseEvent) => {
         if(ev.button === 0) {
+          // the scrollbar: grab the thumb, or jump to where the track was pressed
+          const bar = this.scrollbar()
+          if(bar && this.overScrollbar(p.mouseX, p.mouseY)) {
+            const onThumb = p.mouseY >= bar.thumbTop && p.mouseY <= bar.thumbTop + bar.thumbHeight
+            this.scrollbarGrab = onThumb ? p.mouseY - bar.thumbTop : bar.thumbHeight / 2
+            this.#followScrollbarDrag(p)
+            return
+          }
+
           mousePressedX = p.mouseX
           mousePressedY = p.mouseY
           this.isMouseDown = true
@@ -521,7 +730,7 @@ export class Renderer extends RendererBase {
             this.clipDrag = {
               item,
               grabX: this.screenToPlaylistX(p.mouseX) - left,
-              grabY: p.mouseY - top,
+              grabY: this.screenToPlaylistY(p.mouseY) - top,
               active: false,
             }
             this.syncSnapSetting()
@@ -534,6 +743,7 @@ export class Renderer extends RendererBase {
       // listeners run before window listeners), so a drag still in progress
       // here was released outside the canvas and is cancelled
       p.mouseReleased = () => {
+        this.scrollbarGrab = null
         mousePressedX = null
         mousePressedY = null
         this.isMouseDown = false
@@ -541,43 +751,34 @@ export class Renderer extends RendererBase {
         this.clipDrag = null
       }
 
-      // handle zoom event
+      // the wheel or a two-finger swipe scrolls: up/down through the tracks,
+      // left/right (or shift+wheel) along the timeline. ⌘+wheel zooms
       canvas.mouseWheel((ev: WheelEvent) => {
-        let scaleFactor = null
-        if(ev?.deltaY < 0) {
-          // zoom in
-          scaleFactor = 1 + staticDefaults.zoomSensitivity
-        } else if(ev?.deltaY > 0) {
-          // zoom out
-          scaleFactor = 1 - staticDefaults.zoomSensitivity
-        } else {
-          scaleFactor = 1
+        ev.preventDefault()
+
+        let unit = 1
+        if(ev.deltaMode === WheelEvent.DOM_DELTA_LINE) unit = WHEEL_LINE_PIXELS
+        else if(ev.deltaMode === WheelEvent.DOM_DELTA_PAGE) unit = this.height
+
+        let dx = ev.deltaX * unit
+        let dy = ev.deltaY * unit
+
+        if(ev.metaKey || ev.ctrlKey) {
+          const { zoomSensitivity } = staticDefaults
+          const factor = Math.exp(-dy * WHEEL_ZOOM_PER_PIXEL)
+          this.#zoomBy(Math.min(1 + zoomSensitivity, Math.max(1 - zoomSensitivity, factor)), p.mouseX)
+          return
         }
 
-        // limit scaling
-        if(this.currentScale * scaleFactor < 1) return
-
-        if(
-          ev?.deltaY > 0 &&
-          this.currentScale * scaleFactor - 1 < staticDefaults.zoomSensitivity
-        ) {
-          // handle fp rounding error
-          scaleFactor = 1
-          this.currentScale = 1
+        // a mouse wheel with shift held (some systems already swap these)
+        if(ev.shiftKey && dx === 0) {
+          dx = dy
+          dy = 0
         }
 
-        this.currentScale *= scaleFactor
-
-        // zoom around the mouse
-        this.transformX = p.mouseX - (p.mouseX * scaleFactor) + (this.transformX * scaleFactor)
-        this.transformY = p.mouseY - (p.mouseY * scaleFactor) + (this.transformY * scaleFactor)
-
-        // scall all playlist items
-        this.playlistObjects.forEach(obj => {
-          obj.currentScale = this.currentScale
-        })
-
-        console.log("currentScale: ", this.currentScale)
+        // kept in range when drawn
+        this.transformX -= dx
+        this.scrollTo(this.scrollY + dy)
       })
 
       // drop a dragged clip where the phantom shows
@@ -595,6 +796,7 @@ export class Renderer extends RendererBase {
         this.isMouseDown = false
         this.isMouseDragged = false
         this.clipDrag = null
+        this.scrollbarGrab = null
       })
 
       // handle mouse drag
@@ -609,7 +811,7 @@ export class Renderer extends RendererBase {
               this.clipDrag.active = true
             } else {
               this.transformX -= (p.mouseX - ev.offsetX)
-              this.transformY -= (p.mouseY - ev.offsetY)
+              this.scrollTo(this.scrollY + (p.mouseY - ev.offsetY))
             }
           }
         }
@@ -624,6 +826,20 @@ export class Renderer extends RendererBase {
       this.canvasEl?.addEventListener('contextmenu', (e) => {
         e.preventDefault()
         this.#handleRightClick(e, p)
+      })
+
+      // a trackpad pinch zooms (WebKit). preventing the default also stops
+      // it zooming the whole window
+      let pinchScale = 1
+      this.canvasEl?.addEventListener('gesturestart', (e) => {
+        e.preventDefault()
+        pinchScale = 1
+      })
+      this.canvasEl?.addEventListener('gesturechange', (e) => {
+        e.preventDefault()
+        const { scale } = e as GestureEvent
+        this.#zoomBy(scale / pinchScale, p.mouseX)
+        pinchScale = scale
       })
 
       // double clicking a clip inspects it in the Sample tab
@@ -665,8 +881,11 @@ export class Renderer extends RendererBase {
         return
       }
 
-      this.height = props.height
-      this.width = props.width
+      // the canvas's box can be unmeasured for a moment (e.g. while a split
+      // pane remounts the playlist). keep the last good size: an undefined
+      // width would turn the pan offset into NaN in draw
+      if(props.height > 0) this.height = props.height
+      if(props.width > 0) this.width = props.width
       this.maxPlaylistBeats = props.maxPlaylistBeats
       this.trackCount = props.trackCount
       this.tempo = props.tempo
@@ -693,66 +912,65 @@ export class Renderer extends RendererBase {
       
       p.resizeCanvas(width, height)
 
-      const newPlaylistObjects: Array<PlaylistObject> = []
-      const newPlaylistTracks: Array<PlaylistTrack> = []
+      // the clips are rebuilt once every clip's data has arrived. until then
+      // the current clips stay, so a click while rebuilding still finds them
+      this.#rebuildGeneration += 1
+      const generation = this.#rebuildGeneration
+      const built = canvas
 
-      props.playlistObjects.forEach(async (item) => {
-        if(!canvas) return
-
-        // const soundData = await fetchWaveformData(item.id)
-        const { wf: soundData, dur: duration } = await fetchNodeData(item.id)
-        const p5PlaylistObject = new PlaylistObject(
-          p,
-          canvas,
-          this,
-          {
+      const buildClip = async (item: PlaylistItem): Promise<PlaylistObject | null> => {
+        try {
+          const { wf: soundData, dur: duration } = await fetchNodeData(item.id)
+          const clip = new PlaylistObject(p, built, this, {
             currentScale,
             soundData,
             duration,
-            timelineWidth: width, 
+            timelineWidth: width,
             timelineHeight: staticDefaults.timelineHeight,
             trackNumber: item.trackNumber,
             trackHeight: staticDefaults.trackHeight,
             playlistItem: item,
-          }
-        )
-        this.#applyClipOverride(p5PlaylistObject)
+          })
+          this.#applyClipOverride(clip)
+          return clip
+        } catch(e) {
+          console.error('could not load clip', item.id, e)
+          return null
+        }
+      }
 
-        newPlaylistObjects.push(p5PlaylistObject)
-      })
+      Promise.all(props.playlistObjects.map(buildClip)).then(clips => {
+        // a newer update started while these loaded, it has the final say
+        if(generation !== this.#rebuildGeneration) return
 
-      for(let i = 0; i < trackCount; i++) {
-        if(!canvas) return
+        // in the playlist's order, not the order the data arrived in
+        const newPlaylistObjects = clips.filter((c): c is PlaylistObject => c !== null)
+        // zoom may have changed while loading
+        newPlaylistObjects.forEach(obj => { obj.currentScale = this.currentScale })
 
-        const track = new PlaylistTrack(
-          p,
-          canvas,
-          this,
-          {
-            currentScale,
+        const newPlaylistTracks: Array<PlaylistTrack> = []
+        for(let i = 0; i < trackCount; i++) {
+          newPlaylistTracks.push(new PlaylistTrack(p, built, this, {
+            currentScale: this.currentScale,
             trackCount,
             timelineWidth: width,
             timelineHeight: staticDefaults.timelineHeight,
             trackNumber: i,
             trackHeight: staticDefaults.trackHeight,
             playlistObjects: newPlaylistObjects,
-          }
-        )
+          }))
+        }
 
-        newPlaylistTracks.push(track)
-      }
-
-      this.playlistObjects = newPlaylistObjects
-      this.playlistTracks = newPlaylistTracks
-
-      console.log("objects to be rendered: ", this.playlistObjects, this.playlistTracks)
+        this.playlistObjects = newPlaylistObjects
+        this.playlistTracks = newPlaylistTracks
+      })
     }
 
     // render p5 canvas
     p.draw = () => {
       if(!canvas) return
 
-      const { width, height, trackCount, currentScale, beatsDisplayed } = this
+      const { width, trackCount, currentScale, beatsDisplayed } = this
 
       const timeline = new Timeline(
         p,
@@ -781,14 +999,19 @@ export class Renderer extends RendererBase {
       p.fill(255, 255, 255)
 
       this.transformX = p.constrain(this.transformX, width * (1 - currentScale), 0)
-      this.transformY = p.constrain(this.transformY, height * (1 - currentScale), 0)
+      // NaN never recovers through constrain, and breaks every clip's
+      // hit-test (see screenToPlaylistX), so start over from no pan
+      if(!Number.isFinite(this.transformX)) this.transformX = 0
 
+      this.#followScrollbarDrag(p)
+      this.#autoScroll(p)
+      // kept in range: the canvas or the track count may have changed size
+      this.scrollTo(this.scrollY)
+
+      // the tracks, scrolled
       p.push()
-      p.translate(this.transformX, 1)
+      p.translate(this.transformX, 1 - this.scrollY)
       p.scale(currentScale, 1)
-      
-      timeline.render()
-      cursor.render()
 
       // render vertical grid lines
       const gridStroke = .2 * (1 - currentScale) > 0 ? .2 * (1 - currentScale) : .4
@@ -804,12 +1027,26 @@ export class Renderer extends RendererBase {
         track.render()
       })
 
-      // render the clip being dragged on top of everything else
+      // render the clip being dragged on top of the other clips
       this.drawClipDrag(p, canvas)
       
       p.pop()
 
-      if(this.clipDrag?.active || this.sampleDrag) {
+      this.#drawNewTrackArea(p, canvas)
+
+      // the timeline and playhead stay at the top, over the scrolled tracks
+      p.push()
+      p.translate(this.transformX, 1)
+      p.scale(currentScale, 1)
+      timeline.render()
+      cursor.render()
+      p.pop()
+
+      this.#drawScrollbar(p)
+
+      if(this.scrollbarGrab !== null || this.overScrollbar(p.mouseX, p.mouseY)) {
+        p.cursor(p.ARROW)
+      } else if(this.clipDrag?.active || this.sampleDrag) {
         p.cursor('grabbing')
       } else if(this.clipUnderMouse()) {
         p.cursor(p.HAND)
@@ -822,7 +1059,7 @@ export class Renderer extends RendererBase {
         // top-right, below the timeline: the bottom of the canvas can be
         // hidden behind the bottom of the playlist pane
         const debugWinWidth = 220
-        const debugWinHeight = 130
+        const debugWinHeight = 143
         const debugWinTop = staticDefaults.timelineHeight + 10
         p.noStroke()
         p.fill(255,187,153,255*.6)
@@ -853,6 +1090,7 @@ export class Renderer extends RendererBase {
             `nodeCount: ${nodeCount}`,
             `trackCount: ${this.trackCount}`,
             `playing: ${this.playing}`,
+            `scroll: ${Math.round(this.scrollY)} / ${Math.round(this.maxScrollY())}`,
             `sample drag: ${this.#sampleDragStatus()}`,
           ].join('\n'),
           p.width - debugWinWidth + 6,

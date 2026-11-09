@@ -17,9 +17,13 @@ const App = () => {
     listeners.devicePreferences(devicePreferences, dispatch)
   }, [devicePreferences])
 
-  // File menu: new, open, open recent, save, save as
+  // File menu: new, open, open recent, save, save as. Window menu: open tabs
   React.useEffect(() => {
-    const listening = [listeners.projectMenu(dispatch), listeners.recentProjectMenu(dispatch)]
+    const listening = [
+      listeners.projectMenu(dispatch),
+      listeners.recentProjectMenu(dispatch),
+      listeners.viewMenu(dispatch),
+    ]
     return () => { listening.forEach(l => l.then(stop => stop())) }
   }, [dispatch])
 

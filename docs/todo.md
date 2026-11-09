@@ -1,0 +1,25 @@
+
+11-08-2026
+---
+- Mixer
+    - Panning bar to left right dial 
+    - Lows mids highs: dial (collapsible by height)
+    - Effects toggle
+        - When engaged a list of enabled effects pops out to the right 
+- Preview
+    - Gain and Panning to Dials
+- Beat counter: rotary dial - odometer style
+    - https://github.hubspot.com/odometer/docs/welcome/
+- Transport controls: always visible or in a tab? Maybe a tiny one at the very top or something 
+    - Tab: transport
+        - Cassette wheels
+        - Play, pause, stop, record
+        - Fast forward, rewind
+        - Bounce?
+        - Master pitch?
+- Playlist
+    - Cmd + R -> Repeat (paste duplicate node after another)
+- Shoetcuts 
+    - Shift mode -> selection mode 
+        - Ex, 2 Shift + J = Join
+        - Shift + drag = secect lasso

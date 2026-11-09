@@ -5,6 +5,7 @@ mod util;
 mod event_dispatch;
 mod project;
 mod recent;
+mod mixer_commands;
 mod bind_functions;
 
 use std::env;
@@ -54,6 +55,7 @@ fn init_tauri() {
   use event_dispatch::*;
   use project::{save_project, load_project, new_project};
   use recent::{add_recent_project, remove_recent_project};
+  use mixer_commands::*;
 
   // read before the menu is built, which lists them
   let recent_projects = recent::RecentProjects::load();
@@ -101,6 +103,15 @@ fn init_tauri() {
       new_project,
       add_recent_project,
       remove_recent_project,
+      get_mixer,
+      set_track_volume,
+      set_track_pan,
+      set_track_mute,
+      set_track_solo,
+      set_track_name,
+      set_master_volume,
+      reset_mixer,
+      get_mixer_levels,
       get_playlist_max_length,
       init_playlist_workspace,
       toggle_record_input

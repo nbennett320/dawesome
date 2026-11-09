@@ -1,4 +1,4 @@
-import { createSlice, Dispatch } from '@reduxjs/toolkit'
+import { createSlice, Dispatch, PayloadAction } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api'
 import { RootState } from 'state/store'
 import { PlaylistItem, PlaylistItemPixelOffset } from '../../types/playlist'
@@ -160,6 +160,9 @@ export const playlistSlice = createSlice({
     setPlaylistUI: (state, action) => {
       state.ui = action.payload
     },
+    setTrackCount: (state, action: PayloadAction<number>) => {
+      state.ui.trackCount = action.payload
+    },
     setSnapEnabled: (state, action) => {
       state.snapEnabled = action.payload
     },
@@ -290,6 +293,19 @@ export const {
   removePlaylistItem
 } = playlistSlice.actions
 
+// the engine has as many tracks as the highest one with a clip on it (and
+// at least its default number). ask it after clips are added, moved or
+// removed
+export const refreshTrackCount = () => async (dispatch: Dispatch) => {
+  try {
+    const [, , , trackCount] = await invoke<[number, number, number, number]>('get_playlist_data', {})
+    dispatch(playlistSlice.actions.setTrackCount(trackCount))
+  } catch(e) {
+    // eslint-disable-next-line no-console
+    console.error('could not get the track count:', e)
+  }
+}
+
 // dropBeat: where the clip was dropped, in beats from the playlist start
 // (see Renderer.screenXToBeat, which accounts for zoom and pan)
 export const addToPlaylist = (
@@ -318,6 +334,9 @@ export const addToPlaylist = (
       yOffset: dropY,
     },
   } as PlaylistItem))
+
+  // a clip dropped below the last track made a new one
+  await refreshTrackCount()(dispatch)
 }
 
 export const moveNodeInPlaylist = (
@@ -348,6 +367,9 @@ export const moveNodeInPlaylist = (
       yOffset: dropY,
     },
   } as PlaylistItem))
+
+  // moved below the last track (a new track), or off the last track
+  await refreshTrackCount()(dispatch)
 }
 
 export const removeFromPlaylist = (id: number) => async (dispatch: Dispatch) => {
@@ -358,7 +380,11 @@ export const removeFromPlaylist = (id: number) => async (dispatch: Dispatch) => 
   dispatch(removePlaylistItem({
     id
   }))
+
+  // the last track's only clip was removed
+  await refreshTrackCount()(dispatch)
 }
+
 
 export const selectPlaylistItems = (state: RootState) => state.playlist.playlistItems
 // end playlist item methods
