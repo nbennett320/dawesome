@@ -1,4 +1,6 @@
-import { groupLanding, keepExisting, lassoRect, lassoSelection, rectsTouch, toggleSelected } from './selection'
+import {
+  groupLanding, keepExisting, lassoRect, lassoSelection, rectsTouch, toggleSelected, ShiftPress, lassoFrom, shiftClick, startsLasso,
+} from './selection'
 
 const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height })
 
@@ -97,5 +99,47 @@ describe('groupLanding', () => {
 
   it('lands nothing without the grabbed clip', () => {
     expect(groupLanding(placed, 9, 0, 0, 16, 4)).toEqual([])
+  })
+})
+
+describe('a shift press', () => {
+  const clips = [
+    { id: 1, box: { left: 0, top: 24, width: 100, height: 100 } },
+    { id: 2, box: { left: 300, top: 124, width: 100, height: 100 } },
+  ]
+  // pressed in the middle of clip 1
+  const onClip: ShiftPress = { screen: { x: 50, y: 60 }, point: { x: 50, y: 60 }, clipId: 1 }
+  const onEmpty: ShiftPress = { screen: { x: 200, y: 60 }, point: { x: 200, y: 60 }, clipId: null }
+
+  it('is a click until the mouse has moved past the drag distance', () => {
+    expect(startsLasso(onClip, { x: 50, y: 60 }, 10)).toBe(false)
+    expect(startsLasso(onClip, { x: 59, y: 60 }, 10)).toBe(false)
+    expect(startsLasso(onClip, { x: 50, y: 70 }, 10)).toBe(false)
+    expect(startsLasso(onClip, { x: 61, y: 60 }, 10)).toBe(true)
+    expect(startsLasso(onClip, { x: 42, y: 52 }, 10)).toBe(true)
+  })
+
+  it('let go without moving, toggles the clip under it', () => {
+    expect([...shiftClick(onClip, new Set())]).toEqual([1])
+    expect([...shiftClick(onClip, new Set([1, 2]))]).toEqual([2])
+    // on empty space nothing changes
+    expect([...shiftClick(onEmpty, new Set([2]))]).toEqual([2])
+  })
+
+  it('dragged from a clip, draws a box that takes that clip in', () => {
+    const lasso = lassoFrom(onClip, new Set())
+    expect(lasso.start).toEqual({ x: 50, y: 60 })
+    // the box hasn't reached anything else yet
+    expect([...lassoSelection({ ...lasso, end: { x: 62, y: 60 } }, clips)]).toEqual([1])
+    // and once it has
+    expect([...lassoSelection({ ...lasso, end: { x: 320, y: 130 } }, clips)].sort()).toEqual([1, 2])
+  })
+
+  it('adds to what was selected', () => {
+    const lasso = lassoFrom(onEmpty, new Set([1]))
+    expect([...lassoSelection({ ...lasso, end: { x: 320, y: 130 } }, clips)].sort()).toEqual([1, 2])
+    // and never takes a clip out, even one the press was on
+    const fromSelected = lassoFrom(onClip, new Set([1]))
+    expect([...lassoSelection({ ...fromSelected, end: { x: 70, y: 60 } }, clips)]).toEqual([1])
   })
 })

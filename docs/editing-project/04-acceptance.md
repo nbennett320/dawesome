@@ -57,6 +57,8 @@ Milestone tags (M1–M14) say when an item becomes checkable.
 
 ## D. Space (M5)
 
+Key handling is covered by `src/util/keys.spec.ts` ("the transport key"): Space toggles once per press, is kept from focused buttons on the way down and up, and is left alone in every kind of text field.
+
 - [ ] D1 [M] Space starts playback; Space again pauses, and the playhead stays where it stopped.
 - [ ] D2 [M] With the Sequencer focused and a pattern selected, Space loops that pattern, as the Play/Pause key does.
 - [ ] D3 [M] Space works with the Mixer, Transport or Sample tab focused.
@@ -66,6 +68,8 @@ Milestone tags (M1–M14) say when an item becomes checkable.
 - [ ] D7 [M] During a recording, Space stops playback and the take appears on its track.
 
 ## E. Lasso and selection (M6, M8, M10)
+
+The press logic for E1, E2 and E4 is covered by `src/views/playlist/sketch/selection.spec.ts` ("a shift press").
 
 - [ ] E1 [M] Shift+drag starting on a clip draws a selection box once the mouse has moved 10 px, and that clip is selected.
 - [ ] E2 [M] Shift+click on a clip without moving toggles it, as before.

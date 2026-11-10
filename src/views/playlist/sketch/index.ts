@@ -20,7 +20,9 @@ import {
 import { theme } from './theme'
 import { PlaylistTransport } from '../../../types/transport'
 import { positionAt } from '../../transport/tape'
-import { Lasso, groupLanding, keepExisting, lassoRect, lassoSelection, toggleSelected } from './selection'
+import {
+  Lasso, ShiftPress, groupLanding, keepExisting, lassoFrom, lassoRect, lassoSelection, shiftClick, startsLasso,
+} from './selection'
 import { PlaceableItem as DragItem, dragItemKey } from '../../../state/sampleDrag'
 import { Pattern, SequencerState, patternSeconds } from '../../../types/sequencer'
 import { decodeLevels } from '../../../util/waveform'
@@ -269,6 +271,9 @@ export class Renderer extends RendererBase {
   selectedIds: Set<number> = new Set()
   // the box being dragged out with shift held, if any
   lasso: Lasso | null = null
+  // a press with shift held that hasn't moved far enough to be a box yet:
+  // let go where it is, it's a click (see #endShiftPress)
+  #shiftPress: ShiftPress | null = null
   // whether the press was on empty track space (not a clip, the ruler or
   // the scrollbar), so a click there without dragging clears the selection
   #pressedOnEmpty = false
@@ -436,6 +441,13 @@ export class Renderer extends RendererBase {
     this.wake()
   }
 
+  // select just these clips (the ones an undo or redo changed). ones that
+  // aren't in the playlist yet are kept once they are (see keepExisting)
+  select = (ids: number[]) => {
+    this.selectedIds = new Set(ids)
+    this.wake()
+  }
+
   // the selected clips' ids, clearing the selection (to delete them). none
   // while clips are being dragged or a box drawn
   takeSelection = (): number[] => {
@@ -451,10 +463,25 @@ export class Renderer extends RendererBase {
     y: this.screenToPlaylistY(p.mouseY),
   })
 
-  // start a selection box where the mouse was pressed
-  #startLasso = (p: P5CanvasInstance<CanvasProps>) => {
-    const start = this.#mousePoint(p)
-    this.lasso = { start, end: start, base: new Set(this.selectedIds) }
+  // a shift press becomes a selection box once the mouse has moved far
+  // enough from it, wherever it started: on empty space or on a clip. run
+  // every frame, as the mouse may be outside the canvas by then
+  #followShiftPress = (p: P5CanvasInstance<CanvasProps>) => {
+    const press = this.#shiftPress
+    if(!press || this.lasso) return
+    if(!startsLasso(press, { x: p.mouseX, y: p.mouseY }, staticDefaults.mouseDragDetectionThreshold)) return
+
+    this.lasso = lassoFrom(press, this.selectedIds)
+    this.#shiftPress = null
+  }
+
+  // a shift press was let go. one that never became a box was a click:
+  // on a clip, it adds the clip to the selection, or takes it out
+  #endShiftPress = () => {
+    const press = this.#shiftPress
+    if(!press) return
+    this.#shiftPress = null
+    this.selectedIds = shiftClick(press, this.selectedIds)
   }
 
   // stretch the box to the mouse, and select what it touches. run every
@@ -519,6 +546,7 @@ export class Renderer extends RendererBase {
       || this.clipDrag !== null
       || this.sampleDrag !== null
       || this.lasso !== null
+      || this.#shiftPress !== null
       || this.seekDragging
       || this.scrollbarGrab !== null
   }
@@ -1062,10 +1090,14 @@ export class Renderer extends RendererBase {
           const item = this.clipUnderMouse()
 
           // shift+click a clip adds it to the selection, or takes it out.
-          // shift+drag on empty space draws a box to select clips with
+          // shift+drag draws a box to select clips with, wherever it starts
+          // (which it is isn't known until the mouse moves or lets go)
           if(ev.shiftKey) {
-            if(item) this.selectedIds = toggleSelected(this.selectedIds, item.playlistItem.id)
-            else this.#startLasso(p)
+            this.#shiftPress = {
+              screen: { x: p.mouseX, y: p.mouseY },
+              point: this.#mousePoint(p),
+              clipId: item ? item.playlistItem.id : null,
+            }
             return
           }
 
@@ -1099,6 +1131,7 @@ export class Renderer extends RendererBase {
       // here was released outside the canvas and is cancelled
       p.mouseReleased = () => {
         this.#endSeek()
+        this.#endShiftPress()
         this.lasso = null
         this.#pressedOnEmpty = false
         this.scrollbarGrab = null
@@ -1158,6 +1191,7 @@ export class Renderer extends RendererBase {
         // a click on empty space (not a pan) clears the selection
         if(this.#pressedOnEmpty && !this.isMouseDragged) this.clearSelection()
         this.#pressedOnEmpty = false
+        this.#endShiftPress()
         this.lasso = null
 
         mousePressedX = null
@@ -1189,6 +1223,7 @@ export class Renderer extends RendererBase {
       // Esc clears the selection (and drops a box being drawn)
       p.keyPressed = () => {
         if(p.keyCode !== p.ESCAPE) return
+        this.#shiftPress = null
         this.lasso = null
         this.clearSelection()
         this.wake()
@@ -1430,6 +1465,7 @@ export class Renderer extends RendererBase {
       this.#autoScroll(p)
       // kept in range: the canvas or the track count may have changed size
       this.scrollTo(this.scrollY)
+      this.#followShiftPress(p)
       this.#followLasso(p)
 
       // the tracks, scrolled

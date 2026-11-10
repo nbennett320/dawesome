@@ -69,3 +69,10 @@ Added below as they happen, newest last. Each says what I chose, why, and what t
 - **A dropped sample's position is worked out after its file has been decoded,** so a tempo change during a slow decode cannot put it on the wrong beat.
 - **The tempo is also locked for the short time after a recording stops while its takes are being placed,** not only while recording.
 - **Verifier pass for M2:** no blockers; six should-fix items (typing a tempo while playing could throw playback to the start; the Sequencer's step light went stale; the tempo lock ended before takes were placed; an error could be returned after the tempo had already changed; the field could show a stale value; decisions were not logged) and seven minor ones. All fixed, except that the field's focus behaviour in the real window is unverified.
+
+### M5 — Space, and M6 — Lasso over a clip
+
+- **Space is handled once, on the window, before anything else sees the key,** and the key is swallowed on the way down and on the way up. A focused button would otherwise be "clicked" by Space (on key-up in some browser engines), which is how Space after clicking Stop would have pressed Stop again. Text fields and drop-down lists are left alone.
+- **Shift+Space, Option+Space and the system's Cmd/Ctrl+Space do nothing in the app.**
+- **A Shift-press is now decided on release or after 10 px of movement,** not at the moment of the press. So a Shift+click toggles its clip when the mouse comes up, not when it goes down.
+- **I committed M5 and M6 before their verifier report came back.** The first verifier run died on a rate limit and the second was still running; the undo work (M3) shares two files with M5, and I did not want to hold it up. Whatever the verifier finds goes in as a follow-up commit, recorded below.
