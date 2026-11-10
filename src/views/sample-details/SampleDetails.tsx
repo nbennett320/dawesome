@@ -1,5 +1,5 @@
 import React from 'react'
-import { invoke } from '@tauri-apps/api'
+import { invoke } from '@tauri-apps/api/core'
 import { useAppDispatch } from '../../hooks/redux'
 import SampleDetailsCanvas from './SampleDetailsCanvas'
 import styles from './styles.module.scss'

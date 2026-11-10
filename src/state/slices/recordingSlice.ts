@@ -1,5 +1,5 @@
 import { createSlice, Dispatch, PayloadAction } from '@reduxjs/toolkit'
-import { invoke } from '@tauri-apps/api'
+import { invoke } from '@tauri-apps/api/core'
 import type { RootState } from '../store'
 import { InputChoice, RecordSetup } from '../../types/audio'
 import { LoadedProject, Recorded } from '../../types/project'

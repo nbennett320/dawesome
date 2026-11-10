@@ -1,5 +1,5 @@
 import React from 'react'
-import { invoke } from '@tauri-apps/api'
+import { invoke } from '@tauri-apps/api/core'
 import { dbToPosition, gainToDb, MIN_DB, MixerLevels } from '../../types/mixer'
 
 // the meters' parts the hook draws into (see Meter.tsx)

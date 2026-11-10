@@ -107,7 +107,7 @@ pub fn recordings_dir_for(project_path: &Path) -> PathBuf {
 // where unsaved projects' takes go, e.g.
 // ~/Library/Application Support/dawesome/unsaved
 fn unsaved_root() -> Option<PathBuf> {
-  tauri::api::path::data_dir().map(|dir| dir.join("dawesome").join("unsaved"))
+  dirs::data_dir().map(|dir| dir.join("dawesome").join("unsaved"))
 }
 
 // a take's date, month first as in its name: 11092026

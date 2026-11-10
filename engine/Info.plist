@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
   <key>NSMicrophoneUsageDescription</key>
-  <string>dawesome records from your microphone or audio interface.</string>
+  <string>Dawesome records from your microphone or audio interface.</string>
 </dict>
 </plist>

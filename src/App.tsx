@@ -24,10 +24,10 @@ const App = () => {
 
   // show the project's name in the window's title bar
   React.useEffect(() => {
-    const title = `${projectName(projectPath) ?? 'Untitled'} — dawesome`
+    const title = `${projectName(projectPath) ?? 'Untitled'} — Dawesome`
     // loaded when needed, since it expects to run inside the app's window
     import('@tauri-apps/api/window')
-      .then(({ appWindow }) => appWindow.setTitle(title))
+      .then(({ getCurrentWindow }) => getCurrentWindow().setTitle(title))
       // eslint-disable-next-line no-console
       .catch(e => console.error('could not set the window title:', e))
   }, [projectPath])

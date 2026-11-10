@@ -2,8 +2,11 @@ use std;
 use std::error::{Error};
 use serde::{Serialize};
 use tauri::{
-  self, 
-  Manager
+  self,
+  menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu},
+  AppHandle,
+  Emitter,
+  Manager,
 };
 use crate::recent::{self, RecentProjects};
 
@@ -16,91 +19,90 @@ struct EventPayload {
 pub fn setup(
   app: &mut tauri::App<>
 ) -> Result<(), Box<dyn Error>> {
-  let window = app.get_window("main").unwrap();
-  let window_cp = window.clone();
-
-  window.on_menu_event(move |event| {
-    match event.menu_item_id() {
-      "quit" => {
-        std::process::exit(0);
-      }
-      // the frontend asks where to open or save, then calls the engine's
-      // project commands
-      "new" | "open" | "save" | "save-as" => {
-        window_cp.app_handle().emit_all("menu-project", EventPayload {
-          data: event.menu_item_id().into()
-        }).unwrap();
-      }
-      recent::CLEAR_ID => {
-        let recent = window_cp.state::<RecentProjects>();
-        if let Err(e) = recent.update(&window_cp, |list| list.clear()) {
-          println!("could not clear recent projects: {}", e);
-        }
-      }
-      // a recent project's row: the frontend opens it, like File › Open
-      id if recent::slot_index(id).is_some() => {
-        let recent = window_cp.state::<RecentProjects>();
-        if let Some(path) = recent::slot_index(id).and_then(|i| recent.path_at(i)) {
-          window_cp.app_handle().emit_all("menu-open-recent", EventPayload {
-            data: path
-          }).unwrap();
-        }
-      }
-      // Window menu: the frontend opens the tab, e.g. "view-mixer" → "mixer"
-      id if id.starts_with("view-") => {
-        window_cp.app_handle().emit_all("menu-open-view", EventPayload {
-          data: id.trim_start_matches("view-").into()
-        }).unwrap();
-      }
-      _ => {}
-    }
-  });
+  let menu = build_menu(app.handle())?;
+  app.set_menu(menu)?;
+  app.on_menu_event(on_menu_event);
   Ok(())
 }
 
+fn on_menu_event(app: &AppHandle, event: MenuEvent) {
+  match event.id().as_ref() {
+    "quit" => {
+      std::process::exit(0);
+    }
+    // the frontend asks where to open or save, then calls the engine's
+    // project commands
+    id @ ("new" | "open" | "save" | "save-as") => {
+      app.emit("menu-project", EventPayload {
+        data: id.into()
+      }).unwrap();
+    }
+    recent::CLEAR_ID => {
+      let recent = app.state::<RecentProjects>();
+      if let Err(e) = recent.update(|list| list.clear()) {
+        println!("could not clear recent projects: {}", e);
+      }
+    }
+    // a recent project's row: the frontend opens it, like File › Open
+    id if recent::slot_index(id).is_some() => {
+      let recent = app.state::<RecentProjects>();
+      if let Some(path) = recent::slot_index(id).and_then(|i| recent.path_at(i)) {
+        app.emit("menu-open-recent", EventPayload {
+          data: path
+        }).unwrap();
+      }
+    }
+    // Window menu: the frontend opens the tab, e.g. "view-mixer" → "mixer"
+    id if id.starts_with("view-") => {
+      app.emit("menu-open-view", EventPayload {
+        data: id.trim_start_matches("view-").into()
+      }).unwrap();
+    }
+    _ => {}
+  }
+}
+
 // build the containing window menus
-pub fn build_menu(recent: &RecentProjects) -> tauri::Menu {
+pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+  let item = |id: &str, text: &str, accelerator: Option<&str>| {
+    MenuItem::with_id(app, id, text, true, accelerator)
+  };
+
   // define main menu
-  let quit_menu = tauri::CustomMenuItem::new("quit".to_string(), "Quit");
-  let main_submenu = tauri::Submenu::new("Dawesome".to_string(), tauri::Menu::new()
-    .add_item(quit_menu));
+  let main_submenu = Submenu::with_items(app, "Dawesome", true, &[
+    &item("quit", "Quit", None)?,
+  ])?;
 
   // define file menu
-  let new_menu = tauri::CustomMenuItem::new("new".to_string(), "New Project")
-    .accelerator("CmdOrCtrl+N");
-  let open_menu = tauri::CustomMenuItem::new("open".to_string(), "Open…")
-    .accelerator("CmdOrCtrl+O");
-  let save_menu = tauri::CustomMenuItem::new("save".to_string(), "Save")
-    .accelerator("CmdOrCtrl+S");
-  let save_as_menu = tauri::CustomMenuItem::new("save-as".to_string(), "Save As…")
-    .accelerator("CmdOrCtrl+Shift+S");
-  let file_submenu = tauri::Submenu::new("File", tauri::Menu::new()
-    .add_item(new_menu)
-    .add_item(open_menu)
-    .add_submenu(recent.submenu())
-    .add_native_item(tauri::MenuItem::Separator)
-    .add_item(save_menu)
-    .add_item(save_as_menu));
-  
+  let recent = app.state::<RecentProjects>();
+  let file_submenu = Submenu::with_items(app, "File", true, &[
+    &item("new", "New Project", Some("CmdOrCtrl+N"))?,
+    &item("open", "Open…", Some("CmdOrCtrl+O"))?,
+    &recent.submenu(app)?,
+    &PredefinedMenuItem::separator(app)?,
+    &item("save", "Save", Some("CmdOrCtrl+S"))?,
+    &item("save-as", "Save As…", Some("CmdOrCtrl+Shift+S"))?,
+  ])?;
+
   // define window menu: opens (or selects) a tab. the frontend knows the
   // views by these names (see src/events/window.ts)
-  let window_submenu = tauri::Submenu::new("Window", tauri::Menu::new()
-    .add_item(tauri::CustomMenuItem::new("view-playlist".to_string(), "Playlist"))
-    .add_item(tauri::CustomMenuItem::new("view-sample".to_string(), "Sample"))
-    .add_item(tauri::CustomMenuItem::new("view-mixer".to_string(), "Mixer")
-      .accelerator("CmdOrCtrl+Shift+M"))
-    .add_item(tauri::CustomMenuItem::new("view-transport".to_string(), "Transport"))
-    .add_item(tauri::CustomMenuItem::new("view-sequencer".to_string(), "Sequencer")
-      .accelerator("CmdOrCtrl+Shift+E")));
+  let window_submenu = Submenu::with_items(app, "Window", true, &[
+    &item("view-playlist", "Playlist", None)?,
+    &item("view-sample", "Sample", None)?,
+    &item("view-mixer", "Mixer", Some("CmdOrCtrl+Shift+M"))?,
+    &item("view-transport", "Transport", None)?,
+    &item("view-sequencer", "Sequencer", Some("CmdOrCtrl+Shift+E"))?,
+  ])?;
 
   // define preference menu: opens tabs, like the Window menu
-  let audio_menu = tauri::CustomMenuItem::new("view-audio".to_string(), "Audio Settings…");
-  let preference_submenu = tauri::Submenu::new("Preferences", tauri::Menu::new()
-    .add_item(audio_menu));
-  
-  tauri::Menu::new()
-    .add_submenu(main_submenu)
-    .add_submenu(file_submenu)
-    .add_submenu(window_submenu)
-    .add_submenu(preference_submenu)
+  let preference_submenu = Submenu::with_items(app, "Preferences", true, &[
+    &item("view-audio", "Audio Settings…", None)?,
+  ])?;
+
+  Menu::with_items(app, &[
+    &main_submenu,
+    &file_submenu,
+    &window_submenu,
+    &preference_submenu,
+  ])
 }

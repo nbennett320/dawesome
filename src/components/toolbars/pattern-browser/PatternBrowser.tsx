@@ -1,5 +1,5 @@
 import React from 'react'
-import { ask } from '@tauri-apps/api/dialog'
+import { ask } from '@tauri-apps/plugin-dialog'
 import { useAppDispatch, useAppSelector } from '../../../hooks/redux'
 import {
   addPatternFolder,

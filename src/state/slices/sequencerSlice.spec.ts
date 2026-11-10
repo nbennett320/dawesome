@@ -3,7 +3,7 @@ import { reduceLoadedProject, setPlaying } from './playlistSlice'
 import { LoadedProject } from '../../types/project'
 import { SequencerState } from '../../types/sequencer'
 
-jest.mock('@tauri-apps/api', () => ({ invoke: jest.fn() }))
+jest.mock('@tauri-apps/api/core', () => ({ invoke: jest.fn() }))
 
 const sequencer: SequencerState = {
   rows: [{ id: 0, path: '/drums/kick.wav', volume: 1, muted: false }],

@@ -5,7 +5,7 @@ import {
   SketchProps,
   Sketch,
 } from 'react-p5-wrapper'
-import { invoke } from '@tauri-apps/api'
+import { invoke } from '@tauri-apps/api/core'
 import Timeline from './Timeline'
 import Cursor from './Cursor'
 import PlaylistTrack from './PlaylistTrack'

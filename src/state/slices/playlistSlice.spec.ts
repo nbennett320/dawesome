@@ -2,7 +2,7 @@ import reducer, { reduceLoadedProject, playlistSlice } from './playlistSlice'
 import { LoadedProject } from '../../types/project'
 import { defaultClipSettings } from '../../types/clip'
 
-jest.mock('@tauri-apps/api', () => ({ invoke: jest.fn() }))
+jest.mock('@tauri-apps/api/core', () => ({ invoke: jest.fn() }))
 
 const loaded: LoadedProject = {
   tempo: 90,
