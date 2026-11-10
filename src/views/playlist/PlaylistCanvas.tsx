@@ -18,6 +18,7 @@ import {
   selectPlaylistUI,
   selectTransportRevision,
   setClipWindows,
+  splitClips,
   stretchClips,
 } from '../../state/slices/playlistSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
@@ -59,7 +60,22 @@ const ClipMenuHost = ({ opener }: { opener: React.MutableRefObject<((m: OpenMenu
   if(!menu || !item) return null
 
   const { patternId } = item
+  // "Split at playhead" is there for a clip the playhead is inside. chosen
+  // on one of the selected clips, it splits every selected clip there
+  const canSplit = playlistRenderer.splitBeatAtPlayhead(item.id) !== null
+  const splitAtPlayhead = () => {
+    // where the playhead is now, which while playing isn't where it was
+    // when the menu opened
+    const beat = playlistRenderer.splitBeatAtPlayhead(item.id)
+    if(beat === null) return
+    const selected = playlistRenderer.selectedIds
+    dispatch(splitClips(selected.has(item.id) ? [item.id, ...[...selected].filter(id => id !== item.id)] : [item.id], beat))
+  }
   const items = [
+    ...(!canSplit ? [] : [{
+      label: 'Split at playhead',
+      onSelect: splitAtPlayhead,
+    }]),
     ...(patternId === undefined ? [] : [{
       label: 'Explode into tracks',
       shortcut: '⇧E',
@@ -172,6 +188,7 @@ const PlaylistCanvas = () => {
       if(changed) playlistRenderer.setClipOverrides(selectClipOverrides(store.getState()))
       // trimmed clips show the part of their sample or pattern they play
       playlistRenderer.setClipWindows(playlist.clipWindows)
+      playlistRenderer.setTool(playlist.tool)
       // pattern clips draw their pattern as it's edited
       playlistRenderer.setSequencer(store.getState().sequencer)
     }
@@ -314,6 +331,12 @@ const PlaylistCanvas = () => {
     [dispatch],
   )
 
+  // clips were clicked with the Cut tool: cut them all, as one step to undo
+  const handleClipsCut = React.useCallback(
+    (ids: number[], beat: number) => dispatch(splitClips(ids, beat)),
+    [dispatch],
+  )
+
   return (
     <div 
       ref={ref}
@@ -347,6 +370,7 @@ const PlaylistCanvas = () => {
           onSeek={handleSeek}
           onClipsTrim={handleClipsTrim}
           onClipsStretch={handleClipsStretch}
+          onClipsCut={handleClipsCut}
         />
       </div>}
       <ClipMenuHost opener={openMenu} />

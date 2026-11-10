@@ -392,6 +392,24 @@ mod tests {
   }
 
   #[test]
+  fn test_a_cut_lands_where_it_is_asked_for_whatever_the_snap_setting() {
+    // "Split at playhead" cuts where the playhead is, and the Cut tool has
+    // done its own snapping: the engine doesn't snap a cut
+    let (state, sample, pattern) = clips();
+    state.playlist.audiograph.lock().unwrap().move_node(pattern, Duration::from_millis(1_500), 1).unwrap();
+    assert!(state.playlist.ui.lock().unwrap().snap_enabled);
+
+    let changed = split(&state, &[sample, pattern], 4.0537).unwrap();
+    assert_eq!((changed.clips.len(), changed.pattern_clips.len()), (2, 2));
+    assert!((changed.clips[1].start_beat - 4.0537).abs() < 1e-5);
+    assert!((changed.pattern_clips[1].start_beat - 4.0537).abs() < 1e-5);
+    // the pattern clip started on beat 3: 4.2148 steps in
+    assert!((changed.pattern_clips[1].window.unwrap().start - 4.2148).abs() < 1e-6);
+    // and both halves still play the pattern
+    assert_eq!(changed.pattern_clips[0].pattern_id, changed.pattern_clips[1].pattern_id);
+  }
+
+  #[test]
   fn test_a_cut_that_cuts_nothing_is_no_step() {
     let (state, sample, pattern) = clips();
     let before = saved(&state);

@@ -5,7 +5,6 @@ import StopButton from './StopButton'
 import MetronomeButton from './MetronomeButton'
 import CountInButton from './CountInButton'
 import LoopButton from './LoopButton'
-import SnapButton from './SnapButton'
 
 // the transport keys, in the Transport tab's order, then the toggles, each
 // set in a recessed tray
@@ -20,7 +19,6 @@ const ButtonArea = () => (
       <MetronomeButton />
       <CountInButton />
       <LoopButton />
-      <SnapButton />
     </div>
   </div>
 )

@@ -142,3 +142,17 @@ Added below as they happen, newest last. Each says what I chose, why, and what t
 - **Two M7 choices that are departures from the spec's wording, not clarifications:** snapping uses where the edge is, where §8.4 says "the cursor" (the two are at most 6 px apart); and triangles are left out on clips narrower than 28 px, where §8.8 has no exception.
 - **M8 had no blockers. Fixed:** a very quick Shift+drag on an edge toggled the clip instead of stretching it; the rule that pattern clips are skipped is now a tested function; engine tests added for stretching a trimmed clip and for the fades after a stretch.
 - **Acceptance wording:** F3 says "to bar 2 … leaves a 2-bar clip", which only reads consistently as "to the end of bar 2". The engine test now trims to both (one bar and two bars). F10's test trims two seconds in, not one.
+
+### M9 — Playlist tray, tools, Cut
+
+- **The razor cursor shipped without your approval.** The spec says you approve it first (Q93a); you were away, so I had it drawn from a description: a double-edged blade stood on end, white with a slate outline, with a thin sky line down its middle that marks where the cut lands. It is `public/cursors/razor.svg`, and the same shape is the Cut key's icon. Replace it freely. I could not check that the macOS webview shows an SVG cursor at all; if it does not, you get the crosshair.
+- **The tray, its two icons and the cursor file were built by a Sonnet agent from a brief;** the Cut tool's maths and the canvas work are mine.
+- **The tool keys have tooltips ("Select (S)", "Cut (C)") and no visible text,** like the topbar's other keys.
+- **In the Cut tool, pressing a clip and dragging does nothing:** it neither cuts (spec) nor pans. Dragging empty space pans.
+- **The dashed cut line is drawn on every clip the click would cut,** not only the one under the mouse, so with a selection you can see what will be cut.
+- **Double-clicking a clip in the Cut tool does not open it in the Sample tab.** Two clicks are two cuts (the second is refused, being on the new edge). The spec lists double-click only under the Select tool.
+- **A click cuts only if the mouse is still on the clip that was pressed.**
+- **"Split at playhead" on a clip in a selection splits every selected clip the playhead is inside.** That is the rule the spec gives for the context menu in M10; I applied it now so the item does not change behaviour later.
+- **The engine does not snap a cut.** The canvas does the snapping (grid, playhead, Option), and "Split at playhead" is unsnapped by definition.
+- **The Snap key in the tray is the topbar's own key, moved,** with its drop-down.
+- **Not verified:** H1 to H5, H8, H9, H11 to H14 need the running app, including whether the tray's height leaves the canvas correctly sized.

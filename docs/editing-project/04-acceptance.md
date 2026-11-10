@@ -113,19 +113,19 @@ The press logic for E1, E2 and E4 is covered by `src/views/playlist/sketch/selec
 ## H. Playlist tray, tools, Cut (M9)
 
 - [ ] H1 [M] A tray above the ruler holds the Select and Cut keys, then the Snap key and snap-value drop-down. The topbar no longer shows the snap controls and still shows Metronome, Count-in and Loop.
-- [ ] H2 [M] C lights the Cut key and S lights the Select key, with the Playlist focused. Cmd+S still saves. Neither key does anything while typing or with another view focused.
-- [ ] H3 [M] After a cut the tool is still Cut. Escape clears the selection and the tool is still Cut. After relaunch the tool is Select.
-- [ ] H4 [M] In the Cut tool the cursor is the razor blade over the Playlist, and a dashed sky line on the hovered clip follows the snapped mouse position.
-- [ ] H5 [M] Clicking an unselected clip at beat 3 cuts it at beat 3 into two clips.
-- [ ] H6 [E] The two halves of a cut, played back, produce exactly the frames of the uncut clip, at pitch −7, 0 and +5, for 44.1 kHz and 48 kHz files.
-- [ ] H7 [E] After a cut, the left half has the fade-in and no fade-out; the right half has the fade-out and no fade-in; both have the original gain, pan and pitch.
-- [ ] H8 [M] Clicking a clip that is part of a selection cuts every selected clip crossing that position, and no unselected clip.
+- [ ] H2 [M] C lights the Cut key and S lights the Select key, with the Playlist focused. Cmd+S still saves. Neither key does anything while typing or with another view focused. (The key rule is covered by `keys.spec.ts`, `toolKey`.)
+- [ ] H3 [M] After a cut the tool is still Cut. Escape clears the selection and the tool is still Cut. After relaunch the tool is Select. (The tool going back to Select on Open and New is covered by `playlistSlice.spec.ts`.)
+- [ ] H4 [M] In the Cut tool the cursor is the razor blade over the Playlist, and a dashed sky line on the hovered clip follows the snapped mouse position. (If the razor does not show, the crosshair is the fallback; tell me which you see.)
+- [ ] H5 [M] Clicking an unselected clip at beat 3 cuts it at beat 3 into two clips. (Engine side covered by `clip_commands::tests::test_cutting_a_selection_is_one_step`.)
+- [x] H6 [E] The two halves of a cut, played back, produce exactly the frames of the uncut clip, at pitch −7, 0 and +5, for 44.1 kHz and 48 kHz files. — `audiograph::tests::test_a_cut_clip_plays_exactly_what_the_whole_clip_did` (from eight playhead positions, and cut into four), `test_a_cut_clip_keeps_its_fades_exactly`, `test_a_clip_whose_sample_starts_before_the_playlist_is_cut_exactly`, `clip_reader::tests::test_two_parts_are_the_whole_frame_for_frame`
+- [x] H7 [E] After a cut, the left half has the fade-in and no fade-out; the right half has the fade-out and no fade-in; both have the original gain, pan and pitch. — `audiograph::tests::test_the_halves_of_a_cut`, `clip_commands::tests::test_cutting_a_selection_is_one_step`
+- [ ] H8 [M] Clicking a clip that is part of a selection cuts every selected clip crossing that position, and no unselected clip. (Covered by `cut.spec.ts`, `cutTargets`.)
 - [ ] H9 [M] Pressing on a clip, moving 20 px, and releasing makes no cut. Dragging empty space pans.
-- [ ] H10 [U] A click within 10 ms of a clip's edge makes no cut and shows no line.
-- [ ] H11 [M] With Option held the cut lands exactly at the mouse. Stopped, with the mouse nearer the playhead than either grid line, it lands on the playhead.
-- [ ] H12 [M] "Split at playhead" appears in the menu of a clip the playhead crosses, splits it there, and is absent for a clip it does not cross.
-- [ ] H13 [M] A cut is one undo step; undo gives back one clip with the original id selected.
-- [ ] H14 [M] The Cut tool cuts pattern clips; both halves stay linked to the pattern.
+- [x] H10 [U] A click within 10 ms of a clip's edge makes no cut and shows no line. — `cut.spec.ts` ("is nowhere within 10ms of either edge, so no cut is made and no line shown")
+- [ ] H11 [M] With Option held the cut lands exactly at the mouse. Stopped, with the mouse nearer the playhead than either grid line, it lands on the playhead. (Covered by `cut.spec.ts`, `cutPoint`.)
+- [ ] H12 [M] "Split at playhead" appears in the menu of a clip the playhead crosses, splits it there, and is absent for a clip it does not cross. (The engine cutting at an unsnapped beat is covered by `clip_commands::tests::test_a_cut_lands_where_it_is_asked_for_whatever_the_snap_setting`.)
+- [ ] H13 [M] A cut is one undo step; undo gives back one clip with the original id selected. (Engine side covered by `test_cutting_a_selection_is_one_step`.)
+- [ ] H14 [M] The Cut tool cuts pattern clips; both halves stay linked to the pattern. (Covered by `audiograph::tests::test_a_cut_pattern_clip_plays_exactly_what_the_whole_clip_did` and the test for H12.)
 
 ## I. Clipboard and Repeat (M10)
 

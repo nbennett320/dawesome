@@ -1,3 +1,5 @@
+import { PlaylistTool } from '../types/playlist'
+
 // whether a key press is going into something the user types in (a text
 // box, a number field, an editable element), so app shortcuts leave it alone
 export const isTypingTarget = (target: EventTarget | null): boolean => {
@@ -77,4 +79,17 @@ export const listenForTransportKey = (
     target.removeEventListener('keydown', onKey, true)
     target.removeEventListener('keyup', onKey, true)
   }
+}
+
+// S (select) or C (cut) with no modifier. matched by the character typed,
+// ignoring case, so Caps Lock makes no difference; Cmd+S and Cmd+C keep
+// their meanings
+export const toolKey = (
+  ev: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'metaKey' | 'ctrlKey' | 'altKey'>,
+): PlaylistTool | null => {
+  if(ev.shiftKey || ev.metaKey || ev.ctrlKey || ev.altKey) return null
+  const key = ev.key.toLowerCase()
+  if(key === 's') return 'select'
+  if(key === 'c') return 'cut'
+  return null
 }
