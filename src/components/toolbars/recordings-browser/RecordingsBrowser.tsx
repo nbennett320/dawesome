@@ -60,7 +60,8 @@ const TakeRow = ({ take, use, selected, depth, showFolder, onPreview, onMenu }: 
   }
 
   const onKeyDown = (ev: React.KeyboardEvent) => {
-    if(ev.key !== 'Enter' && ev.key !== ' ') return
+    // (space plays and pauses, see App)
+    if(ev.key !== 'Enter') return
     ev.preventDefault()
     onPreview(take)
   }

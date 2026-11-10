@@ -23,3 +23,32 @@ export const isExplodeKey = (
   ev: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'metaKey' | 'ctrlKey' | 'altKey'>,
 ): boolean =>
   ev.key.toLowerCase() === 'e' && ev.shiftKey && !ev.metaKey && !ev.ctrlKey && !ev.altKey
+
+// Space with no modifier: the transport's key (⌘ and ⌃ Space belong to the
+// system)
+export const isTransportKey = (
+  ev: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'metaKey' | 'ctrlKey' | 'altKey'>,
+): boolean =>
+  ev.key === ' ' && !ev.shiftKey && !ev.metaKey && !ev.ctrlKey && !ev.altKey
+
+type TransportKeyEvent = Pick<
+  KeyboardEvent,
+  'type' | 'key' | 'shiftKey' | 'metaKey' | 'ctrlKey' | 'altKey' | 'repeat' | 'target'
+  | 'preventDefault' | 'stopPropagation'
+>
+
+// what Space does, anywhere in the window: play or pause (`onToggle`), once
+// per press. the key is kept from whatever has the keyboard (a focused
+// button would be clicked by it, on the way down or up), except something
+// that takes typing, which gets its space as usual
+//
+// for `keydown` and `keyup`, listened to on the window as the event goes
+// down (capture), so it runs before any control's own handler
+export const transportKeyHandler = (onToggle: () => void) => (ev: TransportKeyEvent): void => {
+  if(!isTransportKey(ev) || isTypingTarget(ev.target)) return
+
+  ev.preventDefault()
+  ev.stopPropagation()
+  // held down, it toggles once
+  if(ev.type === 'keydown' && !ev.repeat) onToggle()
+}

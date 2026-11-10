@@ -83,8 +83,8 @@ const SequencerRow = ({ row, pattern, beatsPerBar, playingStep, paint, onStep }:
           if(p && p.on !== lit) onStep(row.id, step, p.on)
         }}
         onKeyDown={ev => {
-          // keyboard: space and enter press the key, as on any button
-          if(ev.key === ' ' || ev.key === 'Enter') {
+          // keyboard: enter presses the key (space plays and pauses, see App)
+          if(ev.key === 'Enter') {
             ev.preventDefault()
             onStep(row.id, step, !lit)
           }

@@ -7,6 +7,8 @@ import { listeners } from './events/window'
 import { projectName, selectProjectPath } from './state/slices/projectSlice'
 import ProjectNotice from './components/ProjectNotice'
 import DragGhost from './components/DragGhost'
+import { togglePlayHere } from './state/slices/sequencerSlice'
+import { transportKeyHandler } from './util/keys'
 
 const App = () => {
   const dispatch = useAppDispatch()
@@ -20,6 +22,18 @@ const App = () => {
       listeners.viewMenu(dispatch),
     ]
     return () => { listening.forEach(l => l.then(stop => stop())) }
+  }, [dispatch])
+
+  // Space plays or pauses, as the topbar's Play key does, whatever has the
+  // keyboard (except something that takes typing)
+  React.useEffect(() => {
+    const onKey = transportKeyHandler(() => { dispatch(togglePlayHere()) })
+    window.addEventListener('keydown', onKey, true)
+    window.addEventListener('keyup', onKey, true)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('keyup', onKey, true)
+    }
   }, [dispatch])
 
   // show the project's name in the window's title bar
