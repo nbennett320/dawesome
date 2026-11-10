@@ -237,9 +237,15 @@ export class Renderer extends RendererBase {
   playlistTracks: Array<PlaylistTrack> = []
   playlistObjects: Array<PlaylistObject> = []
 
-  // counts updateWithProps calls, so a slow rebuild can't replace the
-  // clips a newer one built
+  // counts rebuilds, so a slow one can't replace the clips a newer one built
   #rebuildGeneration = 0
+  // the playlist's items the clips were last built from. the clips are only
+  // rebuilt when these change (or the number of tracks does), not when the
+  // playlist is seeked, resized, or its tempo changes
+  #builtItems: PlaylistItem[] | null = null
+  // waveforms being fetched for new clips, so a rebuild that starts before
+  // another's finished doesn't ask the engine for the same one again
+  #fetching = new Map<number, ReturnType<typeof fetchNodeData>>()
 
   clipDrag: ClipDrag | null = null
   sampleDrag: SampleDrag | null = null
@@ -892,6 +898,8 @@ export class Renderer extends RendererBase {
 
   // p5 sketch function
   sketch: Sketch<CanvasProps> = (p: P5CanvasInstance<CanvasProps>) => {
+    // a new p5 instance (the playlist was remounted) builds its own clips
+    this.#builtItems = null
     // size, zoom, and pan are read from `this` (not copied into locals), so
     // the components that convert between screen and playlist coordinates
     // see the same values the sketch draws with
@@ -1132,6 +1140,7 @@ export class Renderer extends RendererBase {
       if(props.height > 0) this.height = props.height
       if(props.width > 0) this.width = props.width
       this.maxPlaylistBeats = props.maxPlaylistBeats
+      const tracksChanged = props.trackCount !== this.trackCount
       this.trackCount = props.trackCount
       this.tempo = props.tempo
       this.beatsDisplayed = props.beatsDisplayed
@@ -1151,13 +1160,20 @@ export class Renderer extends RendererBase {
         this.syncTransport()
       }
 
-      if(props.playing !== this.playing) {
-        // save on resources if only `playing` prop changed
-        this.playing = props.playing
-        return
+      this.playing = props.playing
+
+      // the canvas follows the playlist's box. clips work out where they are
+      // from the canvas's size as they're drawn, but the track lines are as
+      // wide as the timeline was when they were built
+      if(p.width !== width || p.height !== height) {
+        p.resizeCanvas(width, height)
+        this.playlistTracks.forEach(track => { track.timelineWidth = width })
       }
-      
-      p.resizeCanvas(width, height)
+
+      // the clips only need building again when they (or the tracks) change.
+      // tempo, zoom, and size are read from the renderer as they're drawn
+      if(props.playlistObjects === this.#builtItems && !tracksChanged) return
+      this.#builtItems = props.playlistObjects
 
       // the clips are rebuilt once every clip's data has arrived. until then
       // the current clips stay, so a click while rebuilding still finds them
@@ -1165,13 +1181,32 @@ export class Renderer extends RendererBase {
       const generation = this.#rebuildGeneration
       const built = canvas
 
+      // clips already in the playlist keep the waveform they were built with,
+      // so only new clips ask the engine for theirs. (ids are never reused,
+      // and their length follows their settings, see #applyClipOverride)
+      const current = new Map(this.playlistObjects.map(clip => [clip.playlistItem.id, clip]))
+
+      // a clip's waveform and length (seconds)
+      const clipData = async (item: PlaylistItem) => {
+        // a pattern clip has no sample: it draws its pattern, and is as long
+        // as the pattern is (see PlaylistObject)
+        if(item.patternId !== undefined) {
+          return { wf: new Float32Array(0), dur: this.patternSecondsOf(item.patternId) }
+        }
+        const known = current.get(item.id)
+        if(known) return { wf: known.soundData, dur: known.duration }
+
+        let fetching = this.#fetching.get(item.id)
+        if(!fetching) {
+          fetching = fetchNodeData(item.id).finally(() => this.#fetching.delete(item.id))
+          this.#fetching.set(item.id, fetching)
+        }
+        return fetching
+      }
+
       const buildClip = async (item: PlaylistItem): Promise<PlaylistObject | null> => {
         try {
-          // a pattern clip has no sample: it draws its pattern, and is as
-          // long as the pattern is (see PlaylistObject)
-          const { wf: soundData, dur: duration } = item.patternId === undefined
-            ? await fetchNodeData(item.id)
-            : { wf: new Float32Array(0), dur: this.patternSecondsOf(item.patternId) }
+          const { wf: soundData, dur: duration } = await clipData(item)
           const clip = new PlaylistObject(p, built, this, {
             currentScale,
             soundData,
@@ -1204,7 +1239,8 @@ export class Renderer extends RendererBase {
           newPlaylistTracks.push(new PlaylistTrack(p, built, this, {
             currentScale: this.currentScale,
             trackCount,
-            timelineWidth: width,
+            // the canvas may have been resized while loading
+            timelineWidth: this.width,
             timelineHeight: staticDefaults.timelineHeight,
             trackNumber: i,
             trackHeight: staticDefaults.trackHeight,

@@ -6,6 +6,19 @@ import { PlaylistItemPixelOffset } from '../../../types/playlist'
 import { theme } from './theme'
 import { Peaks, buildPeaks, peakRange } from './peaks'
 
+// each waveform's levels, summarised for drawing a pixel column at a time.
+// built the first time a waveform is drawn, and kept with its levels, which
+// a clip keeps when it's rebuilt (see Renderer.updateWithProps)
+const peaksCache = new WeakMap<Float32Array, Peaks>()
+const peaksOf = (levels: Float32Array): Peaks => {
+  let peaks = peaksCache.get(levels)
+  if(!peaks) {
+    peaks = buildPeaks(levels)
+    peaksCache.set(levels, peaks)
+  }
+  return peaks
+}
+
 interface Props extends PlaylistComponentProps {
   // id: number
   soundData: Float32Array
@@ -58,9 +71,6 @@ class Waveform extends PlaylistComponent {
   // the clip is as wide as its duration on the timeline
   #getWidth = () => (this.renderer as Renderer).secondsToWidth(this.duration)
 
-  // the levels, summarised for drawing a pixel column at a time. built the
-  // first time the clip is drawn
-  #peaks: Peaks | null = null
 
   boundingBox = () => ({
     minHeight: this.minHeight,
@@ -125,8 +135,7 @@ class Waveform extends PlaylistComponent {
     p.push()
     if(count / (width * scaleX) >= 1) {
       // a point or more to each column
-      if(!this.#peaks) this.#peaks = buildPeaks(this.soundData)
-      const peaks = this.#peaks
+      const peaks = peaksOf(this.soundData)
       // a column, in playlist x
       const columnWidth = 1 / scaleX
 

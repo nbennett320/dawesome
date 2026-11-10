@@ -236,8 +236,8 @@ const PlaylistCanvas = () => {
     return () => observer.disconnect()
   }, [])
 
-  // stable across renders: the p5 wrapper rebuilds every clip when any of
-  // its props change, including these handlers
+  // stable across renders, so the p5 wrapper isn't sent new props (and the
+  // renderer doesn't look for changes) every time this re-renders
   const handleItemDrop = React.useCallback((pw: PlaylistWindow) => {
     setPlaylistWindow(pw)
   }, [])
@@ -323,5 +323,5 @@ const PlaylistCanvas = () => {
 }
 
 // memo: it takes no props, so pane focus and tab changes above it don't
-// re-render it (and rebuild every clip)
+// re-render it
 export default React.memo(PlaylistCanvas)
