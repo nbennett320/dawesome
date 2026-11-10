@@ -530,6 +530,11 @@ lazy_static! {
   });
 }
 
+// the rate of the output that's open, without opening one
+pub fn open_engine_rate() -> Option<u32> {
+  OUTPUTS.lock().unwrap().open.as_ref().map(|output| output.engine.sample_rate())
+}
+
 pub fn engine() -> Result<Arc<Engine>, String> {
   let mut outputs = OUTPUTS.lock().unwrap();
   if let Some(output) = outputs.open.as_ref() { return Ok(output.engine.clone()); }

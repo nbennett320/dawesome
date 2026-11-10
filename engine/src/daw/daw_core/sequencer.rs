@@ -351,6 +351,29 @@ impl Sequencer {
     Ok(new_id)
   }
 
+  // a new pattern made from others (see join.rs): any number of steps
+  // long, with these steps lit, straight after the pattern `after` and in
+  // its folder. returns its id
+  pub fn add_pattern_after(
+    &mut self,
+    after: u64,
+    name: String,
+    length: u32,
+    steps: BTreeMap<u64, BTreeSet<u32>>,
+  ) -> Result<u64, String> {
+    let idx = self.patterns.iter().position(|p| p.id == after)
+      .ok_or_else(|| format!("no pattern with id {}", after))?;
+    if length == 0 {
+      return Err("a pattern needs some steps".into());
+    }
+    let id = self.next_pattern_id;
+    self.next_pattern_id += 1;
+
+    let folder = self.patterns[idx].folder;
+    self.patterns.insert(idx + 1, Pattern { id, name: Some(name), length, steps, folder });
+    Ok(id)
+  }
+
   pub fn remove_pattern(&mut self, id: u64) -> Result<(), String> {
     let idx = self.patterns.iter().position(|p| p.id == id)
       .ok_or_else(|| format!("no pattern with id {}", id))?;

@@ -20,6 +20,8 @@ pub struct InnerState {
   // what's been done to the project, to undo and redo. locked on its own,
   // never while another of the project's locks is held
   pub history: Mutex<crate::history::History>,
+  // the clips last copied or cut (see clipboard.rs)
+  pub clipboard: Mutex<crate::clipboard::Clipboard>,
 }
 
 impl InnerState {
@@ -35,6 +37,7 @@ impl InnerState {
       project: Mutex::new(Default::default()),
       recorder: Mutex::new(Default::default()),
       history: Mutex::new(Default::default()),
+      clipboard: Mutex::new(Default::default()),
     }
   }
 

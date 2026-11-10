@@ -433,6 +433,11 @@ impl AudioNode {
     daw::ClipReader::new(self.pcm.clone(), &self.settings, rate, fades, lead, end)
   }
 
+  // the sample file's own rate
+  pub fn sample_rate(&self) -> u32 {
+    self.sample_rate
+  }
+
   // the sample's length, before any speed change
   pub fn sample_duration(&self) -> Duration {
     self.duration
@@ -1092,6 +1097,14 @@ impl AudioGraph<'static> {
     let id = self.next_id;
     self.add_pattern_node_with_id(PatternNode::new(id, pattern_id, start_offset, track_number));
     Ok(id)
+  }
+
+  // add a copy of a pattern clip, with a new id, which is returned
+  pub fn insert_pattern_node(&mut self, mut node: PatternNode) -> u64 {
+    let id = self.next_id;
+    node.id = id;
+    self.add_pattern_node_with_id(node);
+    id
   }
 
   // add a pattern clip with a known id (from a project)

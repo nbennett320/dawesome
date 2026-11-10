@@ -386,6 +386,14 @@ fn explode_each(state: &daw::InnerState, ids: &[u64], touched: &mut Vec<u64>) ->
   Ok(Exploded { removed, clips, sequencer, mixer })
 }
 
+// (for other modules' tests)
+#[cfg(test)]
+pub(crate) fn remove_pattern_for_tests(state: &daw::InnerState, pattern_id: u64) {
+  // without its clips going with it, as the clipboard's copies don't
+  state.playlist.sequencer.lock().unwrap().remove_pattern(pattern_id).unwrap();
+  state.playlist.audiograph.lock().unwrap().remove_pattern_nodes_of(pattern_id);
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;

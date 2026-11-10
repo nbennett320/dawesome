@@ -367,8 +367,10 @@ pub fn apply(
   project_dir: Option<&Path>,
 ) -> LoadedProject {
   daw::stop_playlist(state);
-  // another project's changes can't be undone in this one
+  // another project's changes can't be undone in this one, nor its clips
+  // pasted into it
   state.history.lock().unwrap().clear();
+  state.clipboard.lock().unwrap().clear();
 
   // the samples are decoded before taking any locks: it takes a while, and
   // playback (and the playhead, polled from the UI) needs the graph's
@@ -614,27 +616,37 @@ pub fn save_project_to(
   }
   let name = project_files::project_name(&target).unwrap_or_else(|| project_files::UNTITLED.into());
 
-  // where the project's takes are now, and whether they stay there too
-  let from = {
+  // where the project's takes are now, and whether they stay there too.
+  // and its written-out clips (Deep copy, Join), which only a saved project
+  // has, and which the project it's saved from always keeps
+  let (takes, clips) = {
     let location = state.project.lock().unwrap();
-    match (&location.path, &location.session) {
+    let takes = match (&location.path, &location.session) {
       (Some(path), _) => Some((recordings_dir_for(path), true)),
       (None, Some(session)) => Some((session.clone(), false)),
       (None, None) => None,
-    }
+    };
+    (takes, location.path.as_deref().map(|path| (project_files::clips_dir_for(path), true)))
   };
-  let to = recordings_dir_for(&target);
+  let folders = [
+    (takes, recordings_dir_for(&target)),
+    (clips, project_files::clips_dir_for(&target)),
+  ];
 
   let mut moved_clips = Vec::new();
   let mut sequencer = None;
   let mut problems = Vec::new();
 
-  if let Some((from, copy)) = from.filter(|(from, _)| from.is_dir() && !project_files::same_dir(from, &to)) {
-    // the whole folder comes over, folders and unused takes too, so the
-    // recordings browser shows the same after saving. (before taking the
-    // locks: copying takes a while, and the clips' sounds are already loaded)
+  for (from, to) in folders {
+    let (from, copy) = match from.filter(|(from, _)| from.is_dir() && !project_files::same_dir(from, &to)) {
+      Some(from) => from,
+      None => continue,
+    };
+    // the whole folder comes over, folders and unused files too, so the
+    // sidebar shows the same after saving. (before taking the locks:
+    // copying takes a while, and the clips' sounds are already loaded)
     let (relocated, errors) = project_files::relocate_takes(&from, &to, &name, copy);
-    problems = errors;
+    problems.extend(errors);
 
     let mut audiograph = state.playlist.audiograph.lock().unwrap();
     let mut seq = state.playlist.sequencer.lock().unwrap();
@@ -652,7 +664,7 @@ pub fn save_project_to(
     }
     drop(seq);
     drop(audiograph);
-    // clips and rows that undoing would put back follow their takes too
+    // clips and rows that undoing would put back follow their files too
     state.history.lock().unwrap().move_paths(&moved);
   }
 

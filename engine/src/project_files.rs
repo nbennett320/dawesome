@@ -20,6 +20,8 @@ use std::path::{Path, PathBuf};
 
 pub const PROJECT_EXTENSION: &str = "dawesome";
 pub const RECORDINGS_FOLDER: &str = "recordings";
+// where clips written out by Deep copy and Join go, next to the recordings
+pub const CLIPS_FOLDER: &str = "clips";
 // what takes are called before the project has a name
 pub const UNTITLED: &str = "untitled";
 
@@ -102,6 +104,51 @@ pub fn project_name(project_path: &Path) -> Option<String> {
 // a project's recordings folder, next to its file
 pub fn recordings_dir_for(project_path: &Path) -> PathBuf {
   project_path.parent().unwrap_or_else(|| Path::new("")).join(RECORDINGS_FOLDER)
+}
+
+// a project's folder of written-out clips, next to its file
+pub fn clips_dir_for(project_path: &Path) -> PathBuf {
+  project_path.parent().unwrap_or_else(|| Path::new("")).join(CLIPS_FOLDER)
+}
+
+// a name fit for a file, from a sample's or a pattern's: nothing that could
+// be a folder or isn't allowed in a file name, and never empty
+pub fn file_stem_from(name: &str) -> String {
+  let clean: String = name.trim()
+    .chars()
+    .map(|c| if c.is_control() || "/\\:*?\"<>|".contains(c) { '_' } else { c })
+    .collect();
+  let clean = clean.trim_matches(|c: char| c == '.' || c.is_whitespace()).to_string();
+  if clean.is_empty() { "clip".into() } else { clean }
+}
+
+// a name without the "_copy_3" (for `tag` "copy") a written-out clip's file
+// has on its end, so a copy of a copy is numbered on from it rather than
+// growing a second ending
+pub fn without_number(stem: &str, tag: &str) -> String {
+  let lower = stem.to_lowercase();
+  let ending = format!("_{}_", tag);
+  match lower.rfind(&ending) {
+    Some(at) if at > 0 && lower.len() > at + ending.len()
+      && lower[at + ending.len()..].chars().all(|c| c.is_ascii_digit()) => stem[..at].to_string(),
+    _ => stem.to_string(),
+  }
+}
+
+// the next free "<stem>_<tag>_<n>.wav" in `dir`, numbered from 1. names are
+// compared without regard to case, against every file anywhere in `dir`
+// and against `taken` (lower case: names given out already and not written
+// yet), so no file is ever written over
+pub fn numbered_path(dir: &Path, stem: &str, tag: &str, taken: &std::collections::HashSet<String>) -> PathBuf {
+  let used = names_in_tree(dir);
+  (1..)
+    .map(|n| format!("{}_{}_{}.wav", stem, tag, n))
+    .find(|name| {
+      let lower = name.to_lowercase();
+      !used.contains(&lower) && !taken.contains(&lower) && !dir.join(name).exists()
+    })
+    .map(|name| dir.join(name))
+    .expect("a free number")
 }
 
 // where unsaved projects' takes go, e.g.
