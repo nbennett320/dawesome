@@ -22,7 +22,7 @@ const PATTERN_TAIL: Duration = Duration::from_millis(10);
 // the rate written at when no output is open and there's no sample to go by
 const FALLBACK_RATE: u32 = 44_100;
 // what a sample is written as, so that it's read back as near as can be.
-// the files are read back as 16-bit (see later.md), by multiplying by 32767
+// the files are read back as 16-bit, by multiplying by 32767
 // and dropping the fraction, which on its own can land two 16-bit steps
 // from the sample that was written, and a step lower each time a copy is
 // copied. written a hair louder (0.0003 dB) and half a step further from
@@ -630,8 +630,6 @@ mod tests {
     let _ = std::fs::remove_dir_all(&dir);
   }
 
-  // (run by hand, after docs/editing-project/perf/make_500_clips.py:
-  // `DAWESOME_PERF_PROJECT=<the path it prints> cargo test five_hundred_clip_project -- --ignored --nocapture`)
   #[test]
   #[ignore = "needs the generated project"]
   fn test_the_five_hundred_clip_project_opens() {
