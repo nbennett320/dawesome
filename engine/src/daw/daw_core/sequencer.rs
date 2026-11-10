@@ -197,6 +197,11 @@ impl Sequencer {
     any
   }
 
+  // whether any row plays a file at or under `path`
+  pub fn plays_under(&self, path: &std::path::Path) -> bool {
+    self.rows.iter().any(|row| std::path::Path::new(&row.path).starts_with(path))
+  }
+
   // whether another sequencer holds the same rows, patterns and folders
   // (for the history, to tell whether an edit changed anything)
   pub fn same_as(&self, other: &Sequencer) -> bool {

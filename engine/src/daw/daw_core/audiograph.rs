@@ -252,6 +252,25 @@ lazy_static! {
     Mutex::new(std::collections::HashMap::new());
 }
 
+// sample files moved: the sounds decoded from them are known by where they
+// are now, so a new clip of a moved file shares the sound its clips already
+// play, and whatever file turns up where it was is read afresh
+// - to: a path's new place, if it has one
+pub fn decoded_moved(to: &dyn Fn(&str) -> Option<String>) {
+  let mut known = DECODED.lock().unwrap();
+  let moved: Vec<(String, String)> = known.keys()
+    .filter_map(|path| to(path).map(|new| (path.clone(), new)))
+    .collect();
+  for (from, new) in moved {
+    if let Some((_, pcm, duration, waveform)) = known.remove(&from) {
+      // (as the file is now: a move may have changed when it says it was changed)
+      if let Some(stamp) = file_stamp(&new) {
+        known.insert(new, (stamp, pcm, duration, waveform));
+      }
+    }
+  }
+}
+
 // a sample file's sound, length and waveform: as already decoded for
 // another clip, if the file hasn't changed since, or decoded now
 fn decoded(sample_path: &str) -> Result<Decoded, String> {
@@ -431,6 +450,11 @@ impl AudioNode {
       },
     );
     daw::ClipReader::new(self.pcm.clone(), &self.settings, rate, fades, lead, end)
+  }
+
+  // whether two clips play the very same decoded sound (not two copies)
+  pub fn shares_sound_with(&self, other: &AudioNode) -> bool {
+    Arc::ptr_eq(&self.pcm, &other.pcm)
   }
 
   // the sample file's own rate
@@ -1339,9 +1363,10 @@ impl AudioGraph<'static> {
       .map(|pattern| pattern.length)
       .ok_or_else(|| format!("no pattern with id {}", node.pattern_id))?;
     let (from, to) = node.span(length);
-    let step = steps_time(1., beat);
-    if step.is_zero() { return Ok(None); }
-    let cut = from + (at.as_secs_f64() - node.start_offset.as_secs_f64()) / step.as_secs_f64();
+    // (a step's length in seconds, not rounded to a whole nanosecond)
+    let step = beat.as_secs_f64() / daw::STEPS_PER_BEAT as f64;
+    if !(step > 0.) { return Ok(None); }
+    let cut = from + (at.as_secs_f64() - node.start_offset.as_secs_f64()) / step;
     // (without the rounding noise, so a cut on a step is on it)
     let cut = (cut * 1e6).round() / 1e6;
     if cut < from + MIN_PATTERN_CLIP || cut + MIN_PATTERN_CLIP > to { return Ok(None); }

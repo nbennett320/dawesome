@@ -118,7 +118,9 @@ pub fn file_stem_from(name: &str) -> String {
     .chars()
     .map(|c| if c.is_control() || "/\\:*?\"<>|".contains(c) { '_' } else { c })
     .collect();
-  let clean = clean.trim_matches(|c: char| c == '.' || c.is_whitespace()).to_string();
+  // (short enough that "_copy_12.wav" still fits in a file name)
+  let clean: String = clean.trim_matches(|c: char| c == '.' || c.is_whitespace()).chars().take(120).collect();
+  let clean = clean.trim_end().to_string();
   if clean.is_empty() { "clip".into() } else { clean }
 }
 
@@ -126,7 +128,9 @@ pub fn file_stem_from(name: &str) -> String {
 // has on its end, so a copy of a copy is numbered on from it rather than
 // growing a second ending
 pub fn without_number(stem: &str, tag: &str) -> String {
-  let lower = stem.to_lowercase();
+  // (only the tag's own letters are lowered, so a place found in `lower` is
+  // the same place in `stem`, whatever letters the name has)
+  let lower = stem.to_ascii_lowercase();
   let ending = format!("_{}_", tag);
   match lower.rfind(&ending) {
     Some(at) if at > 0 && lower.len() > at + ending.len()

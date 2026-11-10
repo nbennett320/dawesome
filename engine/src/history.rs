@@ -260,6 +260,19 @@ impl History {
     }
   }
 
+  // whether anything that undo or redo could put back plays a file at or
+  // under `path`: a clip, or a sequencer row
+  pub fn uses(&self, path: &std::path::Path) -> bool {
+    let plays = |placed: &Option<Placed>| matches!(
+      placed,
+      Some(Placed { clip: ClipSnap::Sample(node), .. }) if std::path::Path::new(node.sample_path()).starts_with(path)
+    );
+    self.undo.iter().chain(self.redo.iter()).any(|step| {
+      step.clips.values().any(|(before, after)| plays(before) || plays(after))
+        || step.sequencer.as_ref().map_or(false, |(before, after)| before.plays_under(path) || after.plays_under(path))
+    })
+  }
+
   // the same, for files that moved from one path to another
   // - moved: (from, to) paths
   pub fn move_paths(&mut self, moved: &[(String, String)]) {

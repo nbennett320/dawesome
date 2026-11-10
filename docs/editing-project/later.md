@@ -37,7 +37,6 @@ Things worth fixing that this project does not touch unless a design answer brin
 
 ## Found while building M3 (2026-11-10)
 
-- **A recording can be deleted while the undo history still holds a clip of it** (`in_use`, `engine/src/audio_commands.rs`, looks only at the clips and Sequencer rows that exist now). Undo then restores a clip whose file is in the Trash.
 - **Undo pressed while a dropped sample is still loading undoes the edit before the drop** (`add_clip`, `engine/src/event_dispatch.rs`, records its step only after the file is decoded).
 - **The Edit menu's Undo and Redo items are never dimmed.** The engine already returns `canUndo` and `canRedo` with every undo and redo.
 - **`set_playlist_time_signature` records no undo step.** Nothing in the UI calls it.
@@ -53,3 +52,11 @@ Things worth fixing that this project does not touch unless a design answer brin
 - **`set_clip_windows` and `split_clips` check ids before changing anything, but not that every pattern clip's pattern still exists.** A pattern's clips are removed with it, so that should not happen.
 - **Pressing an edge reads the mouse position p5 last saw,** which is one event old (`edgeUnderMouse`, `src/views/playlist/sketch/index.ts`). A press with no mouse movement before it could judge the zone from the wrong place. The lasso reads the event itself.
 - **Starting a second edge drag before the engine has answered the first** (a few milliseconds) measures the clip from where it was before the first trim.
+
+## Found while building M11 to M13 (2026-11-10)
+
+- **A crash while a copy or a join is being written leaves a hidden `.<name>.part` file in `clips/`** (`write_wav`, `engine/src/bounce.rs`). It is harmless and is not cleaned up.
+- **A clip file whose name looks like a take's (`<project>_<date>_<n>.wav`) is renamed like a take on Save As** (`relocate_takes`, `engine/src/project_files.rs`). Deep copy and Join never make such names.
+- **A paste from the empty-space menu is not held to the track limit a move is** (`paste`, `engine/src/clipboard.rs`).
+- **The folder helpers in `engine/src/project_files.rs` say "recording" in their refusals;** the Clips page swaps the word in the finished sentence (`Library::worded`, `engine/src/audio_commands.rs`), which also changes a quoted file name that contains it. Passing the noun in would be cleaner.
+- **The fps readout has no switch:** it is `debugMode` in `staticDefaults`, `src/views/playlist/sketch/index.ts`.

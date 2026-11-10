@@ -2,6 +2,48 @@
 
 You went to sleep on 2026-11-10 and told me to work through the night with full autonomy, to assume my own recommendation for any new question, and to report the decisions in the morning. This file is that report. Every entry is something you can reverse.
 
+## Where things stand
+
+*Written at the end of the build, 2026-11-10. Updated as the last verifier passes come in.*
+
+**All 14 milestones in `03-plan.md` are built and committed** on `playlist-enhancements`, each followed by an independent verifier pass whose findings were fixed. Both test suites pass at the last commit, and lint and typecheck are at their baselines.
+
+**Nothing has been checked in the running app.** I could not see the window (the one screenshot I took came back black), so every item marked `[M]` in `04-acceptance.md` is still open: 107 of them. The engine and the logic behind the gestures are tested; how any of it looks and feels is not. Expect to find things.
+
+**What is proved by tests** (every `[E]` and `[U]` item in `04-acceptance.md` is ticked, with the test named):
+
+- A whole clip sounds exactly as it did before this project (bit for bit, for WAV files, at the pitches where the old path was right).
+- A clip cut in two, or in four, plays exactly the frames the uncut clip did, from any playhead position, at pitches −7, 0 and +5, with 44.1 and 48 kHz files, fades included.
+- A deep copy plays back within one 16-bit step of the clip it was made from, and a one-minute clip is written in 0.17 s.
+- Joining the halves of a cut gives back the original and writes no file; a bounced join equals the sum of its clips within one 16-bit step.
+- Undo and redo return the project to exactly what it was, for every undoable command, and never touch a file.
+- Engine edits on a 500-clip project take under 0.2 ms.
+
+**Check these first**, because they are the likeliest to be wrong and I had no way to test them:
+
+1. **Cmd+R must not reload the window** (acceptance I12), in `pnpm dev` and in a release build.
+2. **Cmd+Z, Cmd+C, Cmd+X, Cmd+V, Cmd+A reach the app once each**, with the Playlist focused, and act on text in a rename field (B2, B10, I1, I9, E5). I could not find out whether macOS delivers these as menu commands, key presses or both, so the app listens for all of them and drops duplicates.
+3. **Edit › Cut, Copy and Paste chosen with the mouse** while a clip is selected. They may be greyed out (see M10 below).
+4. **The tray**: that the canvas fills the space under it, and the snap drop-down works there (H1).
+5. **Trim a clip you have just dropped in** (F1). This was broken until a verifier caught it.
+6. **The razor cursor** in the Cut tool (H4): an SVG cursor may not show in the macOS webview; the fallback is a crosshair.
+7. **Letting go of a trimmed or stretched edge**: the clip should not flicker or jump (F5, F12).
+8. **Frame rate with 500 clips** (O1): `python3 docs/editing-project/perf/make_500_clips.py` writes a test project.
+
+**Things I did that you did not ask for or have not seen**, each explained below:
+
+- Answers F22 to H3 were my recommendations (you said you had not read them).
+- The razor cursor and the Clips rail icon shipped without your approval, which the spec required.
+- Every sample file is now decoded into memory once (about ten times an MP3's size).
+- MP3 and OGG clips now play slightly shorter than before, because the old converter drifted.
+- The tempo field applies half a second after typing stops, not on each keystroke.
+- Deep-copied files are written very slightly off their true values (0.0003 dB louder, and half a 16-bit step further from zero), so that they play back as the nearest 16-bit value.
+- The clip clipboard lives in the engine, not the frontend as planned.
+
+**Who wrote what.** After you asked for a model hierarchy, well-specified pieces went to Sonnet agents from written briefs (the project-file format and types for clip windows, the Sample tab's trim view, the tray and tool keys, the clipboard keys and menus, the Deep copy and Join frontend, the Clips page). I designed everything, wrote the engine audio code, the canvas gestures and the trim, stretch and cut maths, and reviewed each agent's diff before committing. Verifiers ran on Opus. Two agent pieces had a mistake a verifier or I caught afterwards (the snap drop-down left in the topbar; a clip's waveform not refreshing after a deep copy).
+
+**Out-of-scope things noticed along the way** are in `later.md`. The lessons are in `lessons.md`.
+
 ## Answers you gave without reading
 
 You said you had not read the questions since F21. These answers were therefore my recommendations, not your considered choices. They are all in `01b-follow-ups.md`:
@@ -89,7 +131,7 @@ Added below as they happen, newest last. Each says what I chose, why, and what t
 - **Undo and redo are ignored while the mouse is held down** (spec F8), and wait for any fader or clip-setting value still on its way to the engine.
 - **Cmd+Z can arrive twice, from the Edit menu's shortcut and from the key press in the window.** Which route macOS uses is one of the things I could not check in the running app, so both are handled and a second arrival within 150 ms is dropped. If only one route turns out to be live, the other can be removed.
 - **Cmd+Z works while a drop-down list has the keyboard.** Space treats a drop-down as "typing" (so Space opens it), but a drop-down has no text to undo, and it keeps the keyboard after you pick from it, so undo would have looked dead after changing Snap. Alternative: treat it as typing for undo too.
-- **A recording's file can be sent to the Trash while the undo history still remembers a clip of it.** Delete a clip of a take, then delete the take in the Recordings page: that is allowed, because no clip uses the file any more. Undoing the clip's deletion then brings back a clip whose file is in the Trash; it still plays until the project is closed, and is left out the next time the project is opened. Alternative: refuse to delete a file the history still refers to, which would mean "this file is in use" for a file no visible clip uses. Noted in `later.md`.
+- **A file cannot be sent to the Trash while undo or redo could still bring back a clip that plays it.** I first left this allowed (no visible clip uses the file); the Clips page made it dangerous, because a new deep copy could then take the trashed file's name and an undone clip would quietly play the wrong audio after reopening. So the Recordings and Clips pages now say the project still uses the file until the history has moved on (New or Open clears it). This changes the Recordings page's behaviour slightly. Alternative: allow it, as before.
 - **The Edit menu's Undo and Redo are always enabled.** The engine reports whether there is anything to undo or redo, but nothing dims the items; the spec does not ask for it.
 - **Verifier pass for M3 (follow-up commit "undo fixes"):** no blockers. Fixed: the history is cleared again at the end of opening a project, so a fader moved while the samples were loading cannot be "undone" into the new project; Cmd+Z with a drop-down focused (above); an undo that overlaps a sample still loading can no longer leave something to redo after the new clip arrives; a press whose release went missing (a context menu took it) no longer blocks undo until the next click; deleting with the same clip listed twice; tests added for files being left alone by undo and redo, for moving a pattern folder, for placing a pattern, and the group-move test now runs the real command.
 - **Not fixed, logged:** a sample dropped and then Cmd+Z pressed before it has finished loading undoes the edit before it, because the drop is not in the history until the file has been read.
@@ -179,7 +221,7 @@ Added below as they happen, newest last. Each says what I chose, why, and what t
 
 ### M11 — Deep copy
 
-- **A copy's file is written 0.0003 dB louder than the clip it came from.** The app plays every file back as 16-bit (an old limit, in `later.md`), and the library that reads a 32-bit float file turns it into 16-bit by multiplying by 32767 and dropping the fraction. On its own that can land two 16-bit steps from the sample that was written, which would miss the spec's "within one 16-bit step". Written a hair louder (×32768/32767), what is read back is always within one step. The file is otherwise full 32-bit float. Alternative: change how the app reads float files, which would change how every existing recording sounds by up to two steps.
+- **A copy's file is written very slightly off its true values, on purpose.** The app plays every file back as 16-bit (an old limit, in `later.md`), and the library that reads a 32-bit float file turns it into 16-bit by multiplying by 32767 and dropping the fraction. On its own that can land two 16-bit steps from the sample that was written, which would miss the spec's "within one 16-bit step", and a copy of a copy would creep a step lower each time. So each sample is written 0.0003 dB louder and half a 16-bit step further from zero; read back, that gives the nearest 16-bit value to the true sample (within half a step, a whole step only at full scale), and a copy of a copy reads back unchanged. The verifier checked every possible value. The cost: if the app ever plays float files at full precision, these files carry an offset about 96 dB down. Alternative: change how the app reads float files, which would change how every existing recording sounds by up to two steps.
 - **A copy is the clip as it sounds when the playlist is played from its start.** The exact number of frames a trimmed clip plays can differ by one depending on where playback began; the file takes the count from a run that starts at beat 1.
 - **A copy of a copy is numbered on from it:** deep-copying `kick_copy_1.wav` gives `kick_copy_2.wav`, not `kick_copy_1_copy_1.wav`. The spec says `<source name>_copy_<n>`; I read "source name" as the name without an earlier copy's number. Alternative: keep growing the name.
 - **Numbers are checked against every file anywhere in `clips/`, in its folders too,** without regard to case, so a file moved into a folder on the Clips page still keeps its number taken.
@@ -218,5 +260,13 @@ Added below as they happen, newest last. Each says what I chose, why, and what t
 - **Before the project has been saved, the Clips page is empty** and says "No clips yet. Deep copy or join clips to make some." A project that has never been saved has no `clips/` folder.
 - **The page refreshes after a Deep copy, a Join, opening a project and Save As.** It shares the Recordings page's refresh signal.
 - **A folder dragged from one of the two pages cannot be dropped on the other.**
-- **The page was built by a Sonnet agent from a brief.** I added: folder drags staying within their own page, the refresh after Save As (which the Recordings page was also missing), and the folder helpers' refusals saying "clip" instead of "recording" on the Clips page.
+- **The page was built by a Sonnet agent from a brief.** I added: folder drags staying within their own page, and the folder helpers' refusals saying "clip" instead of "recording" on the Clips page.
 - **Not verified:** everything in section L needs the running app.
+- **Verifier pass for M12 (commit "deep copy, join and clips page fixes"):** no blockers. Fixed: deleting a file the undo history still needs (above, under M3); a renamed or moved file's decoded audio is now known by its new place, so a new clip of it shares the audio instead of loading a second copy. Left as it is: on the Clips page a refusal that quotes a file name containing the word "recording" shows it as "clip" (the wording is swapped in the whole sentence).
+
+### Verifier pass for M11 and M13 (same commit)
+
+- **No blockers; the arithmetic held.** The verifier checked every possible sample value through the write-and-read-back path.
+- **Fixed:** two writes going at once (a second Deep copy or Join started while the first was still writing) could choose the same file name, and one could overwrite or delete the other's file. Writes now happen one at a time, and a finished file is given its name in a way that cannot replace an existing file. A file name with certain non-English letters could crash the engine while a copy was being named. Pattern clips sitting exactly on beats were refused a join as "off the grid" at many tempos (90, 97, 110, 140, 150 bpm, from about bar 13 on), because a step's length had been rounded to a whole nanosecond. A deep copy held up playback while it rendered; it now renders without blocking the audio. A clip trimmed, moved or changed while its file is being written is left alone, with a message, instead of having the change silently replaced. The wait cursor no longer ends early when two writes overlap. Very long names are shortened so the file can be written.
+- **Changed after the verifier measured it:** how samples are written (see "A copy's file is written very slightly off" under M11).
+- **Not done:** a hidden `.part` file left in `clips/` by a crash mid-write is not cleaned up (it is reused or ignored).

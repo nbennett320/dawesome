@@ -1220,10 +1220,6 @@ export const saveProject = (path: string, somewhereNew: boolean) => async (
 
   const saved = await invoke<SavedProject>('save_project', { path, somewhereNew })
   dispatch(playlistSlice.actions.reduceMovedClips(saved.movedClips))
-  // saved somewhere new, the project's recordings and clips folders are
-  // new too: the sidebar lists them again
-  // eslint-disable-next-line @typescript-eslint/no-use-before-define
-  if(somewhereNew) await tookNewFiles(dispatch)
   return saved
 }
 

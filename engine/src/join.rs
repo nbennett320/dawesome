@@ -125,6 +125,7 @@ fn join_samples(state: &daw::InnerState, clips: Vec<daw::AudioNode>, rate: Optio
 
   // written out as one file
   let dir = bounce::clips_dir(state)?;
+  let _writing = bounce::writing();
   let rate = rate.unwrap_or_else(|| clips[0].sample_rate());
   let frame = |at: Duration| daw::run_frame(at.as_nanos() as i128, rate);
   let starts = frame(clips[0].start_offset);
@@ -139,7 +140,7 @@ fn join_samples(state: &daw::InnerState, clips: Vec<daw::AudioNode>, rate: Optio
   }
   for sample in mixed.iter_mut() { *sample = sample.clamp(-1., 1.); }
   if mixed.is_empty() {
-    return Err("There's nothing to join: the clips play nothing.".into());
+    return Err("Join needs clips that play something.".into());
   }
 
   let name = {
@@ -152,8 +153,10 @@ fn join_samples(state: &daw::InnerState, clips: Vec<daw::AudioNode>, rate: Optio
   let swapped = daw::AudioNode::new(first, path.to_string_lossy().into_owned(), Duration::ZERO, 0)
     .and_then(|mut node| history::clip_edit(state, &ids, None, || {
       let mut audiograph = state.playlist.audiograph.lock().unwrap();
-      if let Some(gone) = ids.iter().find(|&&id| audiograph.placement(id).is_none()) {
-        return Err(format!("no node with id {}", gone));
+      // a clip removed or changed while the file was being written: the
+      // file isn't what the clips play any more, and nothing changes
+      if !clips.iter().all(|clip| bounce::unchanged(&audiograph, clip.id, &history::ClipSnap::Sample(clip.clone()))) {
+        return Err(bounce::CHANGED_MEANWHILE.into());
       }
       let (start, track) = audiograph.placement(first).expect("a clip that was just found");
       node.start_offset = start;
@@ -212,8 +215,10 @@ fn join_patterns(state: &daw::InnerState, clips: Vec<daw::PatternNode>) -> Resul
     // the graph is locked before the sequencer, as everywhere
     let mut audiograph = state.playlist.audiograph.lock().unwrap();
     let beat = audiograph.beat_interval();
-    let step = beat / daw::STEPS_PER_BEAT;
-    if step.is_zero() { return Err("there's no tempo to join at".into()); }
+    // a step's length, in seconds (not rounded to a whole nanosecond: over
+    // a few bars that would add up to more than "on the grid" allows)
+    let step = beat.as_secs_f64() / daw::STEPS_PER_BEAT as f64;
+    if !(step > 0.) { return Err("there's no tempo to join at".into()); }
     if let Some(gone) = ids.iter().find(|&&id| audiograph.get_pattern_node_by_id(id).is_none()) {
       return Err(format!("no node with id {}", gone));
     }
@@ -244,7 +249,7 @@ fn join_patterns(state: &daw::InnerState, clips: Vec<daw::PatternNode>) -> Resul
       let (from, to) = clip.span(pattern.length);
       // where its steps go in the new pattern: it has to start a whole
       // number of steps after the first clip, on a step of its own pattern
-      let after = (clip.start_offset - clips[0].start_offset).as_secs_f64() / step.as_secs_f64();
+      let after = (clip.start_offset - clips[0].start_offset).as_secs_f64() / step;
       let (at, from_step) = whole(after).zip(whole(from)).ok_or(SAME_GRID)?;
 
       for (row, lit) in &pattern.steps {
@@ -673,6 +678,42 @@ mod tests {
     let right = crate::clip_commands::split(&state, &[third], 17.125).unwrap().pattern_clips[1].id;
     let fourth = pattern_clip(&state, a, 24.125);
     assert_eq!(join(&state, &[right, fourth], None).unwrap_err(), SAME_GRID);
+  }
+
+  #[test]
+  fn test_pattern_clips_on_the_beat_are_on_the_grid_at_any_tempo() {
+    // (tempos whose beats aren't a whole number of nanoseconds, far enough
+    // into the playlist for a rounded step to have drifted)
+    for tempo in [90., 97., 110., 140., 150., 61.3] {
+      let state = Arc::new(daw::InnerState::default());
+      state.playlist.audiograph.lock().unwrap().set_tempo(tempo);
+      let (_, _, a, b) = two_patterns(&state);
+      let (first, second) = (pattern_clip(&state, a, 4.), pattern_clip(&state, b, 244.));
+      let joined = join(&state, &[first, second], None);
+      assert!(joined.is_ok(), "at {}bpm: {:?}", tempo, joined.err());
+      // sixty bars and one more: 61 in all
+      let sequencer = joined.unwrap().sequencer.unwrap();
+      assert_eq!(sequencer.patterns.iter().map(|p| p.length).max(), Some(61 * 16), "at {}bpm", tempo);
+    }
+  }
+
+  #[test]
+  fn test_a_join_that_cant_be_written_changes_nothing() {
+    let (state, dir) = saved_project("fails");
+    let one = noise_wav(&dir, "one.wav", 44_100, 4_410, 1.);
+    let a = add_clip(&state, one.clone(), 0, Some(0.)).unwrap().id;
+    let b = add_clip(&state, one, 0, Some(2.)).unwrap().id;
+    state.history.lock().unwrap().clear();
+    let before = project::capture(&state, Some(&dir));
+    // something in the way of the file being written
+    std::fs::create_dir_all(dir.join("clips").join(".one_join_1.wav.part").join("in the way")).unwrap();
+
+    let failed = join(&state, &[a, b], Some(44_100)).unwrap_err();
+    assert!(failed.contains("one_join_1.wav"), "{}", failed);
+    assert_eq!(project::capture(&state, Some(&dir)), before);
+    assert_eq!(steps(&state), 0);
+    assert!(!dir.join("clips").join("one_join_1.wav").exists());
+    let _ = std::fs::remove_dir_all(&dir);
   }
 
   #[test]

@@ -47,9 +47,12 @@ const playlistRenderer = new Renderer()
 
 // the wait cursor, for a slow write. the body too, as the mouse may be
 // over the menu or the rest of the window, not the canvas
+// (counted: with two writes going, the first to finish doesn't end the wait)
+let busyCount = 0
 const setBusy = (busy: boolean) => {
-  playlistRenderer.setBusy(busy)
-  document.body.style.cursor = busy ? 'wait' : ''
+  busyCount = Math.max(0, busyCount + (busy ? 1 : -1))
+  playlistRenderer.setBusy(busyCount > 0)
+  document.body.style.cursor = busyCount > 0 ? 'wait' : ''
 }
 
 // a right-click menu: where it opens, relative to the playlist's box. on a

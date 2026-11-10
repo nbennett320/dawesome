@@ -328,15 +328,19 @@ fn repoint(state: &daw::InnerState, from: &Path, to: &Path) -> (Vec<crate::proje
   drop(audiograph);
   // clips and rows that undoing would put back follow the file too
   state.history.lock().unwrap().repoint(&|path| moved_path(path, from, to));
+  // and so does the sound decoded from it, for clips made of it from now on
+  daw::decoded_moved(&|path| moved_path(path, from, to));
 
   (moved_clips, sequencer)
 }
 
-// whether any clip or sequencer row plays `path` (a take, or anything in a
-// folder)
+// whether the project uses `path` (a take, or anything in a folder): a
+// clip or a sequencer row plays it, or one that undo or redo could bring
+// back does
 fn in_use(state: &daw::InnerState, path: &Path) -> bool {
   state.playlist.audiograph.lock().unwrap().nodes.iter().any(|node| Path::new(node.sample_path()).starts_with(path))
     || state.playlist.sequencer.lock().unwrap().rows().iter().any(|row| Path::new(&row.path).starts_with(path))
+    || state.history.lock().unwrap().uses(path)
 }
 
 // rename a take (it stays in its folder), keeping the clips and sequencer
@@ -594,6 +598,51 @@ mod tests {
     let take = dir.join("song").join("recordings").join("song_11092026_0.wav").to_string_lossy().into_owned();
     let error = delete_recording(&state, &take, Library::Clips).unwrap_err();
     assert!(error.contains("clips"), "{}", error);
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_a_file_that_undo_could_bring_back_is_in_use() {
+    let (state, dir, _, clip) = project_with_a_clip_file("clips-history");
+    // a second clip of the file, dropped in and then deleted (which can be
+    // undone), and the first taken away without a trace
+    let added = crate::event_dispatch::add_clip(&state, clip.clone(), 2, Some(4.)).unwrap().id;
+    crate::event_dispatch::remove_clips(&state, &[added]).unwrap();
+    let first = state.playlist.audiograph.lock().unwrap().nodes.iter()
+      .find(|node| node.sample_path() == clip).unwrap().id;
+    state.playlist.audiograph.lock().unwrap().remove_node(first).unwrap();
+    assert!(!clip_paths(&state).contains(&clip));
+
+    // nothing on the playlist plays it, but undo would
+    assert!(in_use(&state, Path::new(&clip)));
+    assert!(delete_recording(&state, &clip, Library::Clips).is_err());
+    assert!(in_use(&state, &dir.join("song").join("clips")));
+    assert!(Path::new(&clip).is_file());
+    // once that can't be undone any more, it isn't
+    state.history.lock().unwrap().clear();
+    assert!(!in_use(&state, Path::new(&clip)));
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_a_new_clip_of_a_renamed_file_shares_its_sound() {
+    let (state, dir, _, clip) = project_with_a_clip_file("clips-cache");
+    let renamed = rename_recording(&state, &clip, "mix", Library::Clips).unwrap();
+    let mut audiograph = state.playlist.audiograph.lock().unwrap();
+    let old = audiograph.nodes.iter().find(|node| node.sample_path() == renamed.path).unwrap().id;
+    let new = audiograph.construct_and_add_node(renamed.path.clone(), std::time::Duration::from_secs(2), 2).unwrap();
+    let (old, new) = (audiograph.get_node_by_id(old).unwrap().clone(), audiograph.get_node_by_id(new).unwrap().clone());
+    assert_eq!(old.sample_path(), renamed.path);
+    assert!(old.shares_sound_with(&new));
+    drop(audiograph);
+
+    // and another file put where it was is read as what it is
+    std::fs::copy("assets/assets_66-bd-01.wav", &clip).unwrap();
+    let other = state.playlist.audiograph.lock().unwrap()
+      .construct_and_add_node(clip.clone(), std::time::Duration::from_secs(4), 3).unwrap();
+    let other = state.playlist.audiograph.lock().unwrap().get_node_by_id(other).unwrap().clone();
+    assert!(!other.shares_sound_with(&old));
+    assert_ne!(other.sample_duration(), old.sample_duration());
     let _ = std::fs::remove_dir_all(&dir);
   }
 
