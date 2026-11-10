@@ -1,6 +1,6 @@
 import React from 'react'
-import { invoke } from '@tauri-apps/api'
-import { ask } from '@tauri-apps/api/dialog'
+import { invoke } from '@tauri-apps/api/core'
+import { ask } from '@tauri-apps/plugin-dialog'
 import { useAppDispatch, useAppSelector } from '../../../hooks/redux'
 import { playlistSlice, selectPlaylistItems } from '../../../state/slices/playlistSlice'
 import { setProjectNotice } from '../../../state/slices/projectSlice'

@@ -1,5 +1,5 @@
 import { createSlice, Dispatch, PayloadAction } from '@reduxjs/toolkit'
-import { invoke } from '@tauri-apps/api'
+import { invoke } from '@tauri-apps/api/core'
 import type { RootState } from '../store'
 import { Pattern, SequencerState, withStep } from '../../types/sequencer'
 import { PlaylistTransport } from '../../types/transport'

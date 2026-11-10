@@ -1,13 +1,12 @@
 // recently opened or saved projects, shown under File › Open Recent
 //
-// the list is saved in the user's config folder so it survives restarts.
-// Tauri 1.0-rc.6 can rename and disable menu items but not add or remove
-// them, so the menu gets one row per recent project when the app starts.
-// projects opened or saved later move to the top of those rows straight away,
-// and the menu grows to fit them at the next launch
+// the list is saved in the user's config folder so it survives restarts,
+// and the submenu is rebuilt whenever it changes
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use tauri::menu::{MenuItem, PredefinedMenuItem, Submenu};
+use tauri::{AppHandle, Wry};
 
 // the most projects listed
 pub const MAX_RECENT: usize = 8;
@@ -27,7 +26,7 @@ pub fn slot_index(id: &str) -> Option<usize> {
 
 // where the list is saved, e.g. ~/Library/Application Support/dawesome
 fn default_file() -> Option<PathBuf> {
-  tauri::api::path::config_dir().map(|dir| dir.join("dawesome").join("recent-projects.json"))
+  dirs::config_dir().map(|dir| dir.join("dawesome").join("recent-projects.json"))
 }
 
 // the list of recent project paths, newest first
@@ -103,12 +102,12 @@ impl RecentList {
   }
 }
 
-// the recent list, the file it's saved in, and how many rows the menu has
+// the recent list, the file it's saved in, and the submenu that shows it
 pub struct RecentProjects {
   file: Option<PathBuf>,
-  // fixed when the menu is built
-  slots: usize,
   pub list: Mutex<RecentList>,
+  // set when the menu is built
+  submenu: Mutex<Option<Submenu<Wry>>>,
 }
 
 impl RecentProjects {
@@ -119,9 +118,8 @@ impl RecentProjects {
 
     RecentProjects {
       file,
-      // at least one row, to say there are no recent projects
-      slots: list.paths.len().max(1),
       list: Mutex::new(list),
+      submenu: Mutex::new(None),
     }
   }
 
@@ -131,11 +129,7 @@ impl RecentProjects {
   }
 
   // change the list, save it, and show it in the menu
-  pub fn update<R: tauri::Runtime>(
-    &self,
-    window: &tauri::Window<R>,
-    change: impl FnOnce(&mut RecentList),
-  ) -> Result<(), String> {
+  pub fn update(&self, change: impl FnOnce(&mut RecentList)) -> Result<(), String> {
     let mut list = self.list.lock().unwrap();
     change(&mut list);
 
@@ -145,67 +139,54 @@ impl RecentProjects {
       }
     }
 
-    self.show(window, &list)
-  }
-
-  fn show<R: tauri::Runtime>(&self, window: &tauri::Window<R>, list: &RecentList) -> Result<(), String> {
-    let menu = window.menu_handle();
-    let titles = list.titles();
-
-    for i in 0..self.slots {
-      let item = menu.get_item(&slot_id(i));
-      let (title, enabled) = match titles.get(i) {
-        Some(title) => (title.as_str(), true),
-        None if i == 0 => ("No Recent Projects", false),
-        None => ("", false),
-      };
-      item.set_title(title).map_err(|e| e.to_string())?;
-      item.set_enabled(enabled).map_err(|e| e.to_string())?;
+    match self.submenu.lock().unwrap().as_ref() {
+      Some(submenu) => fill(submenu, &list).map_err(|e| e.to_string()),
+      None => Ok(()),
     }
-
-    menu.get_item(CLEAR_ID).set_enabled(!list.paths.is_empty()).map_err(|e| e.to_string())
   }
 
   // the Open Recent submenu, with a row for each project in the list
-  pub fn submenu(&self) -> tauri::Submenu {
-    let list = self.list.lock().unwrap();
-    let titles = list.titles();
-    let mut menu = tauri::Menu::new();
-
-    for i in 0..self.slots {
-      menu = menu.add_item(match titles.get(i) {
-        Some(title) => tauri::CustomMenuItem::new(slot_id(i), title),
-        None => tauri::CustomMenuItem::new(slot_id(i), "No Recent Projects").disabled(),
-      });
-    }
-
-    let clear = tauri::CustomMenuItem::new(CLEAR_ID.to_string(), "Clear Recent");
-    menu = menu
-      .add_native_item(tauri::MenuItem::Separator)
-      .add_item(if list.paths.is_empty() { clear.disabled() } else { clear });
-
-    tauri::Submenu::new("Open Recent", menu)
+  pub fn submenu(&self, app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
+    let submenu = Submenu::new(app, "Open Recent", true)?;
+    fill(&submenu, &self.list.lock().unwrap())?;
+    *self.submenu.lock().unwrap() = Some(submenu.clone());
+    Ok(submenu)
   }
+}
+
+// replace the submenu's rows with the list's
+fn fill(submenu: &Submenu<Wry>, list: &RecentList) -> tauri::Result<()> {
+  let app = submenu.app_handle();
+  while submenu.remove_at(0)?.is_some() {}
+
+  let titles = list.titles();
+  if titles.is_empty() {
+    submenu.append(&MenuItem::new(app, "No Recent Projects", false, None::<&str>)?)?;
+  }
+  for (i, title) in titles.iter().enumerate() {
+    submenu.append(&MenuItem::with_id(app, slot_id(i), title, true, None::<&str>)?)?;
+  }
+
+  submenu.append(&PredefinedMenuItem::separator(app)?)?;
+  submenu.append(&MenuItem::with_id(app, CLEAR_ID, "Clear Recent", !titles.is_empty(), None::<&str>)?)
 }
 
 // note a project that was just opened or saved
 #[tauri::command]
 pub fn add_recent_project(
-  window: tauri::Window,
   recent: tauri::State<'_, RecentProjects>,
   path: String,
 ) -> Result<(), String> {
-  recent.update(&window, |list| list.add(&path))
+  recent.update(|list| list.add(&path))
 }
 
 // forget a project, e.g. one that couldn't be opened
 #[tauri::command]
 pub fn remove_recent_project(
-  window: tauri::Window,
   recent: tauri::State<'_, RecentProjects>,
   path: String,
 ) -> Result<(), String> {
-  recent.update(&window, |list| list.remove(&path))
+  recent.update(|list| list.remove(&path))
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 import React from 'react'
 import { ReactP5Wrapper } from 'react-p5-wrapper'
-import { invoke } from '@tauri-apps/api'
+import { invoke } from '@tauri-apps/api/core'
 import { useDrop } from 'react-dnd'
 import { 
   addToPlaylist,

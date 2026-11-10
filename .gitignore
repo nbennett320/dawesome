@@ -30,3 +30,6 @@ yarn-error.log*
 # vscode
 .vscode
 
+
+# tauri 2 generates these on build
+/engine/gen

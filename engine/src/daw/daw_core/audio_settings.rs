@@ -26,7 +26,7 @@ pub struct AudioSettings {
 
 // where the settings are saved, e.g. ~/Library/Application Support/dawesome
 pub fn default_file() -> Option<PathBuf> {
-  tauri::api::path::config_dir().map(|dir| dir.join("dawesome").join("audio-settings.json"))
+  dirs::config_dir().map(|dir| dir.join("dawesome").join("audio-settings.json"))
 }
 
 impl AudioSettings {

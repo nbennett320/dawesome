@@ -1,5 +1,5 @@
 import { configureStore } from '@reduxjs/toolkit'
-import { invoke } from '@tauri-apps/api'
+import { invoke } from '@tauri-apps/api/core'
 import playlistReducer, { reduceLoadedProject } from './playlistSlice'
 import mixerReducer, {
   clearPendingMixerSends,
@@ -17,7 +17,7 @@ import mixerReducer, {
 import { defaultChannelSettings, MixerSettings } from '../../types/mixer'
 import { LoadedProject } from '../../types/project'
 
-jest.mock('@tauri-apps/api', () => ({ invoke: jest.fn() }))
+jest.mock('@tauri-apps/api/core', () => ({ invoke: jest.fn() }))
 
 const mockInvoke = invoke as jest.Mock
 

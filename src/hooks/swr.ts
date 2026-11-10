@@ -1,6 +1,6 @@
 import React from 'react'
 import useSwr from 'swr'
-import { invoke } from '@tauri-apps/api'
+import { invoke } from '@tauri-apps/api/core'
 
 interface TResult extends Record<string, unknown> {
   data?: Record<string, unknown>

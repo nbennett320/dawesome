@@ -1,5 +1,5 @@
 import React from 'react'
-import { invoke } from '@tauri-apps/api'
+import { invoke } from '@tauri-apps/api/core'
 import { initPlaylist } from '../../state/slices/playlistSlice'
 import { useAppDispatch } from '../../hooks/redux'
 import PlaylistCanvas from './PlaylistCanvas'

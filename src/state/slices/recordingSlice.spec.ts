@@ -1,5 +1,5 @@
 import { configureStore } from '@reduxjs/toolkit'
-import { invoke } from '@tauri-apps/api'
+import { invoke } from '@tauri-apps/api/core'
 import playlistReducer, { reduceLoadedProject } from './playlistSlice'
 import projectReducer from './projectSlice'
 import recordingReducer, {
@@ -7,11 +7,11 @@ import recordingReducer, {
 } from './recordingSlice'
 import { LoadedClip, LoadedProject, Recorded } from '../../types/project'
 
-jest.mock('@tauri-apps/api', () => ({ invoke: jest.fn() }))
+jest.mock('@tauri-apps/api/core', () => ({ invoke: jest.fn() }))
 // the notices go through the project slice, which uses these
-jest.mock('@tauri-apps/api/dialog', () => ({ ask: jest.fn(), open: jest.fn(), save: jest.fn() }))
+jest.mock('@tauri-apps/plugin-dialog', () => ({ ask: jest.fn(), open: jest.fn(), save: jest.fn() }))
 jest.mock('@tauri-apps/api/path', () => ({ dirname: jest.fn(), documentDir: jest.fn(), join: jest.fn() }))
-jest.mock('@tauri-apps/api/fs', () => ({ readDir: jest.fn() }))
+jest.mock('@tauri-apps/plugin-fs', () => ({ readDir: jest.fn() }))
 
 const mockInvoke = invoke as jest.Mock
 

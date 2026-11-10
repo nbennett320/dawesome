@@ -75,8 +75,9 @@ fn init_tauri() {
   });
 
   tauri::Builder::default()
+    .plugin(tauri_plugin_dialog::init())
+    .plugin(tauri_plugin_fs::init())
     .setup(app::window::setup)
-    .menu(app::window::build_menu(&recent_projects))
     .manage(Arc::new(daw::InnerState::default()))
     .manage(recent_projects)
     .invoke_handler(tauri::generate_handler![

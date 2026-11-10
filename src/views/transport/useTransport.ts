@@ -1,5 +1,5 @@
 import React from 'react'
-import { invoke } from '@tauri-apps/api'
+import { invoke } from '@tauri-apps/api/core'
 import { useAppSelector } from '../../hooks/redux'
 import {
   selectLoopEnabled,

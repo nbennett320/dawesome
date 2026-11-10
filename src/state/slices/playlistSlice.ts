@@ -1,5 +1,5 @@
 import { createSlice, Dispatch, PayloadAction } from '@reduxjs/toolkit'
-import { invoke } from '@tauri-apps/api'
+import { invoke } from '@tauri-apps/api/core'
 import { RootState } from 'state/store'
 import { PlaylistItem, PlaylistItemPixelOffset } from '../../types/playlist'
 import { View } from '../../types/ui'

@@ -1,7 +1,7 @@
 import { configureStore } from '@reduxjs/toolkit'
-import { invoke } from '@tauri-apps/api'
-import { ask, open, save } from '@tauri-apps/api/dialog'
-import { readDir } from '@tauri-apps/api/fs'
+import { invoke } from '@tauri-apps/api/core'
+import { ask, open, save } from '@tauri-apps/plugin-dialog'
+import { readDir } from '@tauri-apps/plugin-fs'
 import { dirname, documentDir, join } from '@tauri-apps/api/path'
 import playlistReducer, { playlistSlice } from './playlistSlice'
 import projectReducer, {
@@ -9,10 +9,10 @@ import projectReducer, {
 } from './projectSlice'
 import { LoadedProject, SavedProject } from '../../types/project'
 
-jest.mock('@tauri-apps/api', () => ({ invoke: jest.fn() }))
-jest.mock('@tauri-apps/api/dialog', () => ({ ask: jest.fn(), open: jest.fn(), save: jest.fn() }))
+jest.mock('@tauri-apps/api/core', () => ({ invoke: jest.fn() }))
+jest.mock('@tauri-apps/plugin-dialog', () => ({ ask: jest.fn(), open: jest.fn(), save: jest.fn() }))
 jest.mock('@tauri-apps/api/path', () => ({ dirname: jest.fn(), documentDir: jest.fn(), join: jest.fn() }))
-jest.mock('@tauri-apps/api/fs', () => ({ readDir: jest.fn() }))
+jest.mock('@tauri-apps/plugin-fs', () => ({ readDir: jest.fn() }))
 
 const mockInvoke = invoke as jest.Mock
 const mockAsk = ask as jest.Mock
