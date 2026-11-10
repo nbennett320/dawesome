@@ -18,6 +18,7 @@ mod bounce;
 mod join;
 mod mixdown;
 mod mixdown_file;
+mod mixdown_commands;
 mod bind_functions;
 
 use std::env;
@@ -74,6 +75,7 @@ fn init_tauri() {
   use clipboard::*;
   use bounce::*;
   use join::*;
+  use mixdown_commands::*;
   use history_commands::{undo, redo};
 
   // read before the menu is built, which lists them
@@ -93,6 +95,7 @@ fn init_tauri() {
     .setup(app::window::setup)
     .manage(Arc::new(daw::InnerState::default()))
     .manage(recent_projects)
+    .manage(Arc::new(mixdown_commands::Mixdowns::default()))
     .invoke_handler(tauri::generate_handler![
       get_playlist_playing,
       t_toggle_playlist,
@@ -201,7 +204,12 @@ fn init_tauri() {
       repeat_clips,
       clipboard_count,
       deep_copy_clips,
-      join_clips
+      join_clips,
+      mixdown_defaults,
+      start_mixdown,
+      mixdown_status,
+      cancel_mixdown,
+      reveal_file
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
