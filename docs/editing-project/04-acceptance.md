@@ -79,24 +79,24 @@ The press logic for E1, E2 and E4 is covered by `src/views/playlist/sketch/selec
 
 ## F. Trim (M7)
 
-- [ ] F1 [M] Within 6 px inside either edge of a clip the cursor becomes the horizontal-resize cursor and a 2 px sky bar appears on that edge.
-- [ ] F2 [M] On a clip 12 px wide, the middle third still moves it.
-- [ ] F3 [E] Dragging the right edge of a 4-bar clip to bar 2 with Snap on leaves a 2-bar clip whose last rendered frame is the same source sample that played at bar 2 before.
-- [ ] F4 [E] Dragging the left edge of that clip from bar 1 to bar 2 leaves a clip starting at bar 2 whose first rendered frame is the source sample that played at bar 2 before.
+- [ ] F1 [M] Within 6 px inside either edge of a clip the cursor becomes the horizontal-resize cursor and a 2 px sky bar appears on that edge. (Zone widths covered by `edges.spec.ts`.)
+- [ ] F2 [M] On a clip 12 px wide, the middle third still moves it. (Covered by `edges.spec.ts`.)
+- [x] F3 [E] Dragging the right edge of a 4-bar clip to bar 2 with Snap on leaves a 2-bar clip whose last rendered frame is the same source sample that played at bar 2 before. — `audiograph::tests::test_trimming_to_a_bar_line_keeps_the_sound_either_side_of_it`
+- [x] F4 [E] Dragging the left edge of that clip from bar 1 to bar 2 leaves a clip starting at bar 2 whose first rendered frame is the source sample that played at bar 2 before. — the same test
 - [ ] F5 [M] While dragging, the clip resizes live and the waveform under the mouse does not slide.
-- [ ] F6 [M] The right edge cannot be dragged past the end of the audio, and the left edge cannot be dragged before its start or before bar 1.
-- [ ] F7 [U] A clip cannot be made shorter than 10 ms; a pattern clip not shorter than one sixteenth-note step.
-- [ ] F8 [M] With Option held the edge follows the mouse exactly; released, it snaps again.
-- [ ] F9 [M] Stopped, with the playhead at beat 2.3 and the mouse at beat 2.35, the edge lands on the playhead. With the mouse at beat 2.9 it lands on beat 3. While playing, the playhead is not a snap point.
-- [ ] F10 [E] A clip with a 100 ms fade-in, trimmed 1 second in from the left, fades in over the first 100 ms after its new start.
-- [ ] F11 [M] With three clips selected, dragging one's right edge left by one beat shortens all three by one beat; one that reaches its minimum stops while the others continue.
+- [ ] F6 [M] The right edge cannot be dragged past the end of the audio, and the left edge cannot be dragged before its start or before bar 1. (Limits covered by `edges.spec.ts`.)
+- [x] F7 [U] A clip cannot be made shorter than 10 ms; a pattern clip not shorter than one sixteenth-note step. — `edges.spec.ts` ("never makes a clip shorter than it can be"); the engine's own backstop: `audiograph::tests::test_trim_limits`, `test_a_pattern_clip_plays_the_hits_in_its_window`
+- [ ] F8 [M] With Option held the edge follows the mouse exactly; released, it snaps again. (Snap bypass covered by `edges.spec.ts`.)
+- [ ] F9 [M] Stopped, with the playhead at beat 2.3 and the mouse at beat 2.35, the edge lands on the playhead. With the mouse at beat 2.9 it lands on beat 3. While playing, the playhead is not a snap point. (The rule is covered by `edges.spec.ts` with these numbers.)
+- [x] F10 [E] A clip with a 100 ms fade-in, trimmed 1 second in from the left, fades in over the first 100 ms after its new start. — `audiograph::tests::test_trimming_to_a_bar_line_keeps_the_sound_either_side_of_it`, `clip_reader::tests::test_fades_are_measured_from_the_window`
+- [ ] F11 [M] With three clips selected, dragging one's right edge left by one beat shortens all three by one beat; one that reaches its minimum stops while the others continue. (Covered by `edges.spec.ts`.)
 - [ ] F12 [M] Escape during the drag restores the clip. Releasing outside the canvas applies the trim.
 - [ ] F13 [M] A trimmed edge shows a small inward triangle in the label band; an untrimmed edge does not. A trimmed clip does not gain the amber dot.
 - [ ] F14 [M] The Sample tab shows the whole file with the played part highlighted, the rest dimmed, and the fade handles inside the highlight. Reset leaves the trim alone.
-- [ ] F15 [M] A trimmed pattern clip shows only the steps in its window and plays only the hits that start inside it.
-- [ ] F16 [M] Trimming is one undo step, including a multi-clip trim.
+- [ ] F15 [M] A trimmed pattern clip shows only the steps in its window and plays only the hits that start inside it. (Playing covered by `audiograph::tests::test_a_pattern_clip_plays_the_hits_in_its_window`.)
+- [ ] F16 [M] Trimming is one undo step, including a multi-clip trim. (Engine side covered by `clip_commands::tests::test_trimming_clips_of_both_kinds_is_one_step`.)
 - [ ] F17 [M] Trimming a clip while it is sounding changes nothing audible until the clip next starts.
-- [ ] F18 [M] In the Cut tool, edges cannot be dragged.
+- [ ] F18 [M] In the Cut tool, edges cannot be dragged. (Arrives with the Cut tool in M9.)
 
 ## G. Stretch (M8)
 

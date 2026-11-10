@@ -107,3 +107,16 @@ Added below as they happen, newest last. Each says what I chose, why, and what t
 - **Trimming never moves the sound.** The engine command takes "which part of the file" and works out the clip's new start itself, so a trimmed start cannot drift from where the audio was.
 - **When a trim would make a clip shorter than 10 ms (or one step), the engine moves the end later, not the start earlier.** The canvas already stops the edge being dragged; this is the engine's own backstop for bad input.
 - **A clip's fades are shortened to fit when it is trimmed or cut, and stay shortened if it is opened out again** (spec Q61). Undo brings them back.
+
+### M7 — Trim by dragging a clip's edge
+
+- **An edge has to be dragged 10 pixels before it trims,** the same distance that turns a press on a clip into a move. Without that, a plain click on an edge with Snap on would have snapped the edge to the nearest grid line. Alternative: trim from the first pixel and accept that.
+- **The edge keeps its distance from the mouse.** If you press 4 pixels inside the edge, the edge stays 4 pixels from the mouse while you drag, so it does not jump when the drag starts. Snapping applies to where the edge is, not where the mouse is.
+- **While several clips are trimmed together, the bar is drawn on every clip's edge,** not only the grabbed one.
+- **Trimmed-edge triangles are left out on a clip narrower than 28 pixels,** where they would cover the label.
+- **A hit on a pattern clip's last, partly shown step is drawn cut off at the clip's edge.** A pattern clip trimmed between two steps shows the part of the step it covers.
+- **After you let go, the clip stays as you dragged it until the engine's answer is drawn,** so it does not flick back for a frame. If the engine refuses the trim, the clip goes back.
+- **Pressing an edge with Shift held still starts a lasso (or toggles the clip) for now.** Shift+edge becomes "stretch" in M8.
+- **In the Sample tab, the beat ruler counts from where the clip starts,** not from the start of the file, since beat 1 of the clip is where it sits in the playlist. The ticks carry on across the dimmed parts at the same spacing. Alternative: count from the file's start.
+- **The Sample tab piece (the dimmed whole-file waveform) was written by a Sonnet agent from a brief** and reviewed by me; the canvas work and the trim maths are mine.
+- **Not verified:** everything here that is a gesture (F1, F2, F5, F6, F8, F9, F11–F17) needs the running app. The maths behind them is unit-tested in `edges.spec.ts`; the drawing is not testable without the app.

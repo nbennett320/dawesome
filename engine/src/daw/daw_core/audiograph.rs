@@ -2549,6 +2549,52 @@ mod tests {
   }
 
   #[test]
+  fn test_trimming_to_a_bar_line_keeps_the_sound_either_side_of_it() {
+    // four bars of sound from bar 1, at 120bpm: eight seconds
+    let rate = 44_100;
+    let path = noise_wav("bars", rate, 1, rate * 8);
+    let mut graph = AudioGraph::new(rate, 120., 256);
+    let id = graph.construct_and_add_node(path, Duration::ZERO, 0).unwrap();
+    let total = Duration::from_secs(9);
+    let whole = play(&mut graph, rate, Duration::ZERO, total);
+    // bar 2 starts two seconds in
+    let bar_2 = rate as usize * 2 * 2;
+
+    // the right edge dragged back to bar 2: a one bar clip, whose last
+    // frame is what played just before bar 2, and nothing after it
+    graph.set_window(id, Duration::ZERO, Some(ms(2_000))).unwrap();
+    assert_eq!(graph.get_node_by_id(id).unwrap().duration(), ms(2_000));
+    let right = play(&mut graph, rate, Duration::ZERO, total);
+    assert_eq!(differences(&right[..bar_2], &whole[..bar_2]), 0);
+    assert!(right[bar_2 - 2] != 0. && right[bar_2 - 2] == whole[bar_2 - 2]);
+    assert!(right[bar_2..].iter().all(|&sample| sample == 0.));
+
+    // the left edge dragged from bar 1 to bar 2 instead: the clip starts on
+    // bar 2, with what played at bar 2 before
+    graph.set_window(id, ms(2_000), None).unwrap();
+    assert_eq!(graph.get_node_by_id(id).unwrap().start_offset, ms(2_000));
+    let left = play(&mut graph, rate, Duration::ZERO, total);
+    assert!(left[..bar_2].iter().all(|&sample| sample == 0.));
+    assert_eq!(differences(&left[bar_2..], &whole[bar_2..]), 0);
+    assert!(left[bar_2] != 0. || left[bar_2 + 2] != 0.);
+
+    // with a 100ms fade in, the clip fades in over the 100ms after its new
+    // start: silent at it, half way up 50ms on, and all there by 100ms
+    graph.get_mut_node_by_id(id).unwrap().set_settings(daw::ClipSettings { attack_ms: 100., ..Default::default() });
+    let faded = play(&mut graph, rate, Duration::ZERO, total);
+    let after = |ms: usize| bar_2 + rate as usize * ms / 1_000 * 2;
+    assert_eq!(faded[bar_2], 0.);
+    // (averaged over a few milliseconds of noise either side)
+    let level = |samples: &[f32], at: usize| -> f32 {
+      samples[at - 200..at + 200].iter().map(|sample| sample.abs()).sum()
+    };
+    let half = level(&faded, after(50)) / level(&whole, after(50));
+    assert!((half - 0.5).abs() < 0.02, "half way up the fade the level is {}", half);
+    assert_eq!(differences(&faded[after(101)..], &whole[after(101)..]), 0);
+    assert!(differences(&faded[bar_2..after(99)], &whole[bar_2..after(99)]) > 1_000);
+  }
+
+  #[test]
   fn test_trim_limits() {
     let path = noise_wav("limits", 44_100, 1, 44_100);
     let (mut graph, id) = graph_with_clip(&path, 0.);

@@ -17,11 +17,12 @@ import {
   selectPlaylistTempo,
   selectPlaylistUI,
   selectTransportRevision,
+  setClipWindows,
 } from '../../state/slices/playlistSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
 import type { RootState } from '../../state/store'
 import { PlaylistWindow, PlaylistItem } from '../../types/playlist'
-import { Renderer } from './sketch'
+import { Renderer, WindowEdit } from './sketch'
 import { isPlaceable, onSampleDrag } from '../../state/sampleDrag'
 import { OWN_DRAG_PREVIEW } from '../../components/DragGhost'
 import { selectFocusedView } from '../../state/slices/windowSlice'
@@ -158,6 +159,7 @@ const PlaylistCanvas = () => {
       const changed = !last
         || playlist.clipSettings !== last.clipSettings
         || playlist.clipSampleDurations !== last.clipSampleDurations
+        || playlist.clipWindows !== last.clipWindows
       // a project was opened or started: back to its first bars
       const opened = !!last && playlist.viewRevision !== last.viewRevision
       // an undo or redo changed some clips, which it selects
@@ -167,6 +169,8 @@ const PlaylistCanvas = () => {
       if(opened) playlistRenderer.resetView()
       if(travelled) playlistRenderer.select(playlist.travelled.ids)
       if(changed) playlistRenderer.setClipOverrides(selectClipOverrides(store.getState()))
+      // trimmed clips show the part of their sample or pattern they play
+      playlistRenderer.setClipWindows(playlist.clipWindows)
       // pattern clips draw their pattern as it's edited
       playlistRenderer.setSequencer(store.getState().sequencer)
     }
@@ -295,6 +299,12 @@ const PlaylistCanvas = () => {
     dispatch(moveNodesInPlaylist(ids, anchorId, dropBeat, trackNumber))
   }, [dispatch])
 
+  // clips' edges were dragged: trim them all, as one step to undo
+  const handleClipsTrim = React.useCallback(
+    (edits: WindowEdit[]) => dispatch(setClipWindows(edits)),
+    [dispatch],
+  )
+
   return (
     <div 
       ref={ref}
@@ -326,6 +336,7 @@ const PlaylistCanvas = () => {
           transportRevision={transportRevision}
           loopEnabled={loopEnabled}
           onSeek={handleSeek}
+          onClipsTrim={handleClipsTrim}
         />
       </div>}
       <ClipMenuHost opener={openMenu} />

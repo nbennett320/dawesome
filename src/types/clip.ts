@@ -46,6 +46,11 @@ export interface ClipOverride {
   playedDuration?: number
   // whether any setting differs from the default
   modified: boolean
+  // the sample's length in seconds, before any change of speed (unknown
+  // until it has loaded), and how much faster than that the clip plays:
+  // what the playlist needs to trim the clip, and to draw it trimmed
+  sampleDuration?: number
+  rate?: number
 }
 
 export const defaultClipSettings: ClipSettings = {

@@ -5,6 +5,7 @@ import {
   resetClipSettings,
   selectClipSampleDuration,
   selectClipSettings,
+  selectClipWindow,
   selectInspectedClip,
   selectPlaylistTempo,
   updateClipSettings,
@@ -18,7 +19,7 @@ import {
   defaultClipSettings,
   isDefaultClipSettings,
   playbackRate,
-  playedDuration,
+  windowedDuration,
 } from '../../types/clip'
 import ClipWaveform, { WaveformData } from './ClipWaveform'
 import SettingControl from './SettingControl'
@@ -84,6 +85,7 @@ const SamplePreview = () => {
   const clip = useAppSelector(selectInspectedClip)
   const tempo = useAppSelector(selectPlaylistTempo)
   const settings = useAppSelector(selectClipSettings(clip?.id))
+  const clipWindow = useAppSelector(selectClipWindow(clip?.id))
   const sampleDuration = useAppSelector(selectClipSampleDuration(clip?.id))
   const waveform = useClipWaveform(clip?.id)
   const trackName = useAppSelector(selectTrackName(clip?.trackNumber ?? 0))
@@ -97,7 +99,7 @@ const SamplePreview = () => {
   }
 
   const name = clip.path.split(/[\\/]/).pop() ?? clip.path
-  const played = sampleDuration === undefined ? null : playedDuration(settings, sampleDuration)
+  const played = sampleDuration === undefined ? null : windowedDuration(settings, sampleDuration, clipWindow)
   const waveformData: WaveformData | null = waveform?.state === 'ready' && sampleDuration !== undefined
     ? { levels: waveform.levels, duration: sampleDuration }
     : null
@@ -162,6 +164,7 @@ const SamplePreview = () => {
             data={waveformData}
             settings={settings}
             tempo={tempo}
+            window={clipWindow}
             onEnvelopeChange={update}
           />
         )}

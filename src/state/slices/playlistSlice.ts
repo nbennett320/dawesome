@@ -11,6 +11,7 @@ import {
   clampClipSettings,
   defaultClipSettings,
   isDefaultClipSettings,
+  playbackRate,
   windowedDuration,
 } from '../../types/clip'
 import {
@@ -796,6 +797,8 @@ export const selectClipOverrides = (state: RootState): Record<number, ClipOverri
         ? undefined
         : windowedDuration(settings, sampleSeconds, clipWindows[id]),
       modified: !isDefaultClipSettings(settings),
+      sampleDuration: sampleSeconds,
+      rate: playbackRate(settings),
     }
   })
 
