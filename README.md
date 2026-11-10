@@ -1,5 +1,7 @@
 # 🎹 Dawsome
 
+[![CI](https://github.com/nbennett320/dawesome/actions/workflows/ci.yaml/badge.svg)](https://github.com/nbennett320/dawesome/actions/workflows/ci.yaml)
+
 An awesome, libre, and cross-platform DAW 
 (and extremely early work in progress) 
 built with Rust, Tauri, React, and Typescript.
