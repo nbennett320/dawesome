@@ -497,6 +497,44 @@ mod tests {
   }
 
   #[test]
+  fn test_a_copy_changes_no_other_clip_of_the_file() {
+    let (state, dir) = saved_project("others");
+    let path = noise_wav(&dir, "shared.wav", 44_100, 2, 22_050);
+    let (a, b) = (add_clip(&state, path.clone(), 0, Some(0.)).unwrap().id, add_clip(&state, path.clone(), 1, Some(3.)).unwrap().id);
+    change_clip_settings(&state, a, daw::ClipSettings { pitch: 4., gain_db: -8., ..Default::default() }, None).unwrap();
+    let other = node(&state, b);
+    let sound = render_sample(&other, 48_000);
+    let bytes = std::fs::read(&path).unwrap();
+
+    deep_copy(&state, &[a], Some(48_000)).unwrap();
+    let after = node(&state, b);
+    assert_eq!(after.sample_path(), path);
+    assert!(after.same_clip(&other) && after.start_offset == other.start_offset);
+    assert!(render_sample(&after, 48_000) == sound);
+    // nor the file they both played
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  // (run by hand, after docs/editing-project/perf/make_500_clips.py:
+  // `DAWESOME_PERF_PROJECT=<the path it prints> cargo test five_hundred_clip_project -- --ignored --nocapture`)
+  #[test]
+  #[ignore = "needs the generated project"]
+  fn test_the_five_hundred_clip_project_opens() {
+    let path = match std::env::var("DAWESOME_PERF_PROJECT") {
+      Ok(path) => PathBuf::from(path),
+      Err(_) => return,
+    };
+    let state = daw::InnerState::default();
+    let started = Instant::now();
+    let loaded = project::load_from(&state, &path).unwrap();
+    println!("opened in {:?}", started.elapsed());
+    assert!(loaded.missing.is_empty(), "{:?}", loaded.missing);
+    assert_eq!((loaded.clips.len(), loaded.pattern_clips.len()), (400, 100));
+    assert_eq!(loaded.clips.iter().filter(|clip| clip.info.window.is_some()).count(), 100);
+  }
+
+  #[test]
   fn test_with_no_output_open_a_copy_is_at_its_samples_rate() {
     let (state, dir) = saved_project("no-device");
     let path = noise_wav(&dir, "high.wav", 96_000, 1, 9_600);

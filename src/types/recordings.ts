@@ -18,6 +18,10 @@ export interface RecordingFile {
   modifiedMs: number | null
 }
 
+// which of the project's folders of audio a sidebar page shows. mirrors
+// Library in engine/src/audio_commands.rs
+export type Library = 'recordings' | 'clips'
+
 // what's in the recordings folder (see t_list_recordings)
 export interface RecordingsListing {
   // newest first

@@ -199,8 +199,8 @@ The press logic for E1, E2 and E4 is covered by `src/views/playlist/sketch/selec
 
 ## O. Performance and look (M14)
 
-- [ ] O1 [M] With the 500-clip test project, the frame-rate readout stays at 50 or above during an edge drag, a cut hover and a lasso.
-- [ ] O2 [E] Batched add, delete, set-window and split on a 500-clip project each return within 50 ms.
+- [ ] O1 [M] With the 500-clip test project, the frame-rate readout stays at 50 or above during an edge drag, a cut hover and a lasso. (Make the project with `python3 docs/editing-project/perf/make_500_clips.py`; it prints where it put it. The script says how to turn the fps readout on.)
+- [x] O2 [E] Batched add, delete, set-window and split on a 500-clip project each return within 50 ms. — `clip_commands::tests::test_edits_are_quick_with_five_hundred_clips` (run by hand in a release build on 2026-11-10: the slowest of twelve edits took 0.16 ms)
 - [ ] O3 [M] No existing control, menu or colour looks different from before, apart from the snap controls' new place.
 
 ---
@@ -209,17 +209,17 @@ The press logic for E1, E2 and E4 is covered by `src/views/playlist/sketch/selec
 
 Each of these is a failure whenever it is observed, at any milestone.
 
-- [ ] X1 [E] Editing one clip (trim, stretch, cut, settings, deep copy) changes what another clip plays. (Trim, cut and settings proved by `audiograph::tests::test_changing_a_clip_changes_no_other_clip_of_the_sample`; a stretch is a change of the Pitch setting, which that test makes; deep copy to be proved in M11.)
-- [ ] X2 [E] A deep copy or join writes a file anywhere outside the project's folder.
-- [ ] X3 [E] A deep copy or join overwrites an existing file.
+- [x] X1 [E] Editing one clip (trim, stretch, cut, settings, deep copy) changes what another clip plays. (Trim, cut and settings proved by `audiograph::tests::test_changing_a_clip_changes_no_other_clip_of_the_sample`; a stretch is a change of the Pitch setting, which that test makes; deep copy: `bounce::tests::test_a_copy_changes_no_other_clip_of_the_file`.)
+- [x] X2 [E] A deep copy or join writes a file anywhere outside the project's folder. — `bounce::tests::test_copies_are_numbered_and_never_written_over_another_file` (every file is inside `clips/`), `join::tests::test_other_sample_clips_are_written_out_as_one_file`; an unsaved project is refused: `bounce::tests::test_an_unsaved_project_is_refused`
+- [x] X3 [E] A deep copy or join overwrites an existing file. — `bounce::tests::test_copies_are_numbered_and_never_written_over_another_file`
 - [x] X4 [E] Undo, redo, deep copy or join deletes or moves an audio file. (Undo and redo proved by `history::tests::test_undo_and_redo_leave_files_alone`; deep copy and join: `bounce::tests::test_a_copy_plays_what_the_clip_did` and `join::tests::test_other_sample_clips_are_written_out_as_one_file` check the old files are still there and that undo leaves the new one.)
 - [ ] X5 [M] Space starts or stops playback while typing in a text field, the tempo field, a rename field, search or a drop-down list.
 - [ ] X6 [M] C, S, Shift+J, Cmd+C, Cmd+X, Cmd+V, Cmd+R or Cmd+A changes the project while typing in a text field.
 - [ ] X7 [M] Cmd+R reloads the app window.
-- [ ] X8 [E] A failed deep copy or join leaves a clip pointing at a missing or partly written file.
+- [x] X8 [E] A failed deep copy or join leaves a clip pointing at a missing or partly written file. — `bounce::tests::test_if_one_file_cant_be_written_nothing_changes`
 - [x] X9 [E] An older-format project is rewritten or changed merely by opening it. — `project::tests::test_an_older_file_loads_whole_and_is_left_alone`
 - [x] X10 [E] A project with a trimmed clip is written with a version lower than 3 (which would let an older build open it and play the clip untrimmed). — `project::tests::test_the_version_follows_what_a_project_uses`
 - [x] X11 [E] A whole, unedited clip sounds different from how it sounded before this project, beyond one 16-bit step. — `clip_reader::tests::test_a_whole_clip_is_read_as_it_always_was`
-- [ ] X12 [E] A paste, repeat or multi-clip cut applies to only some of its clips after a failure (each is all or nothing).
+- [x] X12 [E] A paste, repeat or multi-clip cut applies to only some of its clips after a failure (each is all or nothing). — `clipboard::tests::test_a_paste_past_the_end_pastes_nothing`, `test_a_repeat_past_the_end_repeats_nothing`, `test_cutting_takes_the_clips_out_and_leaves_the_rest`, `clip_commands::tests::test_a_cut_that_cuts_nothing_is_no_step`, `test_trimming_is_all_or_nothing`
 - [ ] X13 [M] A trim, cut or stretch moves a clip the user did not select or grab.
 - [ ] X14 [M] `docs/todo.md` appears in any commit from this project.

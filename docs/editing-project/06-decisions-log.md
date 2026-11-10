@@ -210,3 +210,13 @@ Added below as they happen, newest last. Each says what I chose, why, and what t
 - **Engine edits with 500 clips take well under a millisecond each** (trim, cut, stretch, move, a 50-clip paste, repeat and delete, undo, redo, and building the whole project after an undo: the slowest was 0.16 ms; the limit is 50 ms). Measured in a release build by `clip_commands::tests::test_edits_are_quick_with_five_hundred_clips`, which is marked to be run by hand.
 - **The canvas no longer draws clips that are off screen.** With hundreds of clips most are, and each one cost a card, a label and a waveform pass per frame.
 - **Frame rate itself is not measured.** That needs the running app (acceptance O); the debug overlay in the playlist shows fps.
+
+### M12 — Clips sidebar page
+
+- **The Clips page is the Recordings page itself, given a different folder,** not a copy of it. One component and one set of engine commands serve both; each command takes which folder it is for. So the two pages cannot drift apart.
+- **The rail icon shipped without your approval** (the spec says you approve it, F28; you were away). It is a clip card with a label band and a zig-zag waveform, in the same line style as the others (`src/components/icons/ClipsIcon.tsx`). Replace it freely.
+- **Before the project has been saved, the Clips page is empty** and says "No clips yet. Deep copy or join clips to make some." A project that has never been saved has no `clips/` folder.
+- **The page refreshes after a Deep copy, a Join, opening a project and Save As.** It shares the Recordings page's refresh signal.
+- **A folder dragged from one of the two pages cannot be dropped on the other.**
+- **The page was built by a Sonnet agent from a brief.** I added: folder drags staying within their own page, the refresh after Save As (which the Recordings page was also missing), and the folder helpers' refusals saying "clip" instead of "recording" on the Clips page.
+- **Not verified:** everything in section L needs the running app.

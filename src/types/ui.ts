@@ -56,4 +56,6 @@ export enum SidebarPage {
   Patterns = 'patterns',
   // the project's recorded takes
   Recordings = 'recordings',
+  // files the app wrote out itself: Deep copy's and Join's
+  Clips = 'clips',
 }

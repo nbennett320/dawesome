@@ -948,6 +948,13 @@ const notifyError = async (dispatch: Dispatch, message: string) => {
   dispatch(setProjectNotice({ kind: 'error', message }))
 }
 
+// the Clips page lists its folder again: deep copy and join wrote files there.
+// loaded when needed: the recording slice imports this one
+const tookNewFiles = async (dispatch: Dispatch) => {
+  const { takesChanged } = await import('./recordingSlice')
+  dispatch(takesChanged())
+}
+
 // mirrors NEEDS_SAVING in engine/src/bounce.rs: what the engine says when a
 // file has to be written and the project has never been saved
 export const NEEDS_SAVING = 'The project has to be saved first, so its clips have somewhere to go.'
@@ -1024,6 +1031,7 @@ export const deepCopyClips = (ids: number[], setBusy: (busy: boolean) => void = 
   if(!changed) return null
 
   dispatch(playlistSlice.actions.reduceChangedClips(changed))
+  await tookNewFiles(dispatch)
   await refreshTrackCount()(dispatch)
   return changed
 }
@@ -1048,6 +1056,7 @@ export const joinClips = (ids: number[], setBusy: (busy: boolean) => void = () =
     const { setSequencer } = await import('./sequencerSlice')
     dispatch(setSequencer(joined.sequencer))
   }
+  await tookNewFiles(dispatch)
   const kept = [...joined.clips, ...joined.patternClips].map(clip => clip.id)
   if(kept.length) dispatch(playlistSlice.actions.selectClips(kept))
   await refreshTrackCount()(dispatch)
@@ -1211,6 +1220,10 @@ export const saveProject = (path: string, somewhereNew: boolean) => async (
 
   const saved = await invoke<SavedProject>('save_project', { path, somewhereNew })
   dispatch(playlistSlice.actions.reduceMovedClips(saved.movedClips))
+  // saved somewhere new, the project's recordings and clips folders are
+  // new too: the sidebar lists them again
+  // eslint-disable-next-line @typescript-eslint/no-use-before-define
+  if(somewhereNew) await tookNewFiles(dispatch)
   return saved
 }
 

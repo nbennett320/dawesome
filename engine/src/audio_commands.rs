@@ -200,23 +200,69 @@ pub fn collect_recording(state: daw::TState<'_>) -> crate::recording::Recorded {
   crate::recording::collect(&state)
 }
 
-// the project's takes (newest first) and folders, for the sidebar's
-// recordings browser. an unsaved project that hasn't recorded anything has
-// none
+// which of the project's folders of audio a sidebar page shows
+#[derive(serde::Deserialize, Debug, Clone, Copy, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum Library { #[default] Recordings, Clips }
+
+impl Library {
+  // what the library's files are called, in the sentences shown to the user
+  fn noun(self) -> &'static str {
+    match self { Library::Recordings => "recording", Library::Clips => "clip" }
+  }
+
+  fn nouns(self) -> &'static str {
+    match self { Library::Recordings => "recordings", Library::Clips => "clips" }
+  }
+
+  // a refusal from the folder helpers in project_files.rs, which speak of
+  // recordings, in this library's words
+  fn worded<T>(self, result: Result<T, String>) -> Result<T, String> {
+    match self {
+      Library::Recordings => result,
+      Library::Clips => result.map_err(|e| e.replace("recording", "clip")),
+    }
+  }
+}
+
+// the library's folder, if it's there. an unsaved project that hasn't
+// recorded anything has no recordings, and has never had any clips
+fn existing_dir(state: &daw::InnerState, library: Library) -> Option<PathBuf> {
+  let location = state.project.lock().unwrap();
+  match library {
+    Library::Recordings => location.existing_recordings_dir(),
+    Library::Clips => location.path.as_deref()
+      .map(crate::project_files::clips_dir_for)
+      .filter(|dir| dir.is_dir()),
+  }
+}
+
+// the project's takes (newest first) or clips, and folders, for the sidebar's
+// browsers
 #[tauri::command(async)]
-pub fn t_list_recordings(state: daw::TState<'_>) -> crate::project_files::RecordingsListing {
-  let dir = state.project.lock().unwrap().existing_recordings_dir();
+pub fn t_list_recordings(state: daw::TState<'_>, library: Option<Library>) -> crate::project_files::RecordingsListing {
+  let dir = existing_dir(&state, library.unwrap_or_default());
   dir.map(|dir| crate::project_files::list_recordings(&dir)).unwrap_or_default()
 }
 
-// the recordings folder, for changing what's in it, as long as nothing's
-// being recorded into it
-// - make: make the folder for an unsaved project that hasn't recorded yet
-fn recordings_dir_to_change(state: &daw::InnerState, make: bool) -> Result<PathBuf, String> {
-  if crate::recording::is_busy(state) {
+// the library's folder, for changing what's in it. recordings wait until
+// nothing's being recorded into the folder
+// - make: make the folder for a project that hasn't got one yet (recordings
+//   can be made for an unsaved project, clips only for a saved one)
+fn dir_to_change(state: &daw::InnerState, library: Library, make: bool) -> Result<PathBuf, String> {
+  if library == Library::Recordings && crate::recording::is_busy(state) {
     return Err("wait for the recording to finish".into());
   }
   let mut location = state.project.lock().unwrap();
+  if library == Library::Clips {
+    let dir = location.path.as_deref().map(crate::project_files::clips_dir_for)
+      .ok_or_else(|| "the project has no clips yet".to_string())?;
+    if !dir.is_dir() {
+      if !make { return Err("the project has no clips yet".into()); }
+      std::fs::create_dir_all(&dir).map_err(|e| format!("could not make the clips folder: {}", e))?;
+    }
+    return Ok(dir);
+  }
   match location.existing_recordings_dir() {
     Some(dir) => Ok(dir),
     None if make => location.recordings_dir(),
@@ -296,14 +342,14 @@ fn in_use(state: &daw::InnerState, path: &Path) -> bool {
 // rename a take (it stays in its folder), keeping the clips and sequencer
 // rows that play it
 #[tauri::command]
-pub fn t_rename_recording(state: daw::TState<'_>, path: String, name: String) -> Result<MovedRecording, String> {
-  rename_recording(&state, &path, &name)
+pub fn t_rename_recording(state: daw::TState<'_>, path: String, name: String, library: Option<Library>) -> Result<MovedRecording, String> {
+  rename_recording(&state, &path, &name, library.unwrap_or_default())
 }
 
-fn rename_recording(state: &daw::InnerState, path: &str, name: &str) -> Result<MovedRecording, String> {
-  let dir = recordings_dir_to_change(state, false)?;
+fn rename_recording(state: &daw::InnerState, path: &str, name: &str, library: Library) -> Result<MovedRecording, String> {
+  let dir = dir_to_change(state, library, false)?;
   let from = PathBuf::from(path);
-  let to = crate::project_files::rename_take(&from, &dir, name)?;
+  let to = library.worded(crate::project_files::rename_take(&from, &dir, name))?;
   let path = to.to_string_lossy().into_owned();
   Ok(moved(state, &from, &to, path))
 }
@@ -311,17 +357,17 @@ fn rename_recording(state: &daw::InnerState, path: &str, name: &str) -> Result<M
 // move a take into a folder (relative to the recordings folder, "" for the
 // top), keeping the clips and sequencer rows that play it
 #[tauri::command]
-pub fn t_move_recording(state: daw::TState<'_>, path: String, to_folder: String) -> Result<MovedRecording, String> {
-  move_recording(&state, &path, &to_folder)
+pub fn t_move_recording(state: daw::TState<'_>, path: String, to_folder: String, library: Option<Library>) -> Result<MovedRecording, String> {
+  move_recording(&state, &path, &to_folder, library.unwrap_or_default())
 }
 
-fn move_recording(state: &daw::InnerState, path: &str, to_folder: &str) -> Result<MovedRecording, String> {
-  let dir = recordings_dir_to_change(state, false)?;
+fn move_recording(state: &daw::InnerState, path: &str, to_folder: &str, library: Library) -> Result<MovedRecording, String> {
+  let dir = dir_to_change(state, library, false)?;
   let from = PathBuf::from(path);
   if !from.is_file() {
-    return Err("that isn't one of the project's recordings".into());
+    return Err(format!("that isn't one of the project's {}", library.nouns()));
   }
-  let to = crate::project_files::move_into(&dir, &from, to_folder)?;
+  let to = library.worded(crate::project_files::move_into(&dir, &from, to_folder))?;
   let path = to.to_string_lossy().into_owned();
   Ok(moved(state, &from, &to, path))
 }
@@ -329,17 +375,17 @@ fn move_recording(state: &daw::InnerState, path: &str, to_folder: &str) -> Resul
 // move one folder into another (both relative to the recordings folder),
 // with everything in it
 #[tauri::command]
-pub fn t_move_recording_folder(state: daw::TState<'_>, folder: String, to_folder: String) -> Result<MovedRecording, String> {
-  move_recording_folder(&state, &folder, &to_folder)
+pub fn t_move_recording_folder(state: daw::TState<'_>, folder: String, to_folder: String, library: Option<Library>) -> Result<MovedRecording, String> {
+  move_recording_folder(&state, &folder, &to_folder, library.unwrap_or_default())
 }
 
-fn move_recording_folder(state: &daw::InnerState, folder: &str, to_folder: &str) -> Result<MovedRecording, String> {
-  let dir = recordings_dir_to_change(state, false)?;
+fn move_recording_folder(state: &daw::InnerState, folder: &str, to_folder: &str, library: Library) -> Result<MovedRecording, String> {
+  let dir = dir_to_change(state, library, false)?;
   if folder.is_empty() {
-    return Err("the recordings folder itself can't be moved".into());
+    return Err(format!("the {} folder itself can't be moved", library.nouns()));
   }
-  let from = crate::project_files::folder_in(&dir, folder)?;
-  let to = crate::project_files::move_into(&dir, &from, to_folder)?;
+  let from = library.worded(crate::project_files::folder_in(&dir, folder))?;
+  let to = library.worded(crate::project_files::move_into(&dir, &from, to_folder))?;
   let path = crate::project_files::relative(&dir, &to);
   Ok(moved(state, &from, &to, path))
 }
@@ -347,49 +393,58 @@ fn move_recording_folder(state: &daw::InnerState, folder: &str, to_folder: &str)
 // a new, empty folder inside `parent` (relative to the recordings folder,
 // "" for the top). returns its path, relative
 #[tauri::command]
-pub fn t_create_recording_folder(state: daw::TState<'_>, parent: String, name: String) -> Result<String, String> {
-  let dir = recordings_dir_to_change(&state, true)?;
-  crate::project_files::create_folder(&dir, &parent, &name)
+pub fn t_create_recording_folder(state: daw::TState<'_>, parent: String, name: String, library: Option<Library>) -> Result<String, String> {
+  let library = library.unwrap_or_default();
+  let dir = dir_to_change(&state, library, true)?;
+  library.worded(crate::project_files::create_folder(&dir, &parent, &name))
 }
 
 // rename a folder, keeping the clips and sequencer rows that play what's in it
 #[tauri::command]
-pub fn t_rename_recording_folder(state: daw::TState<'_>, folder: String, name: String) -> Result<MovedRecording, String> {
-  rename_recording_folder(&state, &folder, &name)
+pub fn t_rename_recording_folder(state: daw::TState<'_>, folder: String, name: String, library: Option<Library>) -> Result<MovedRecording, String> {
+  rename_recording_folder(&state, &folder, &name, library.unwrap_or_default())
 }
 
-fn rename_recording_folder(state: &daw::InnerState, folder: &str, name: &str) -> Result<MovedRecording, String> {
-  let dir = recordings_dir_to_change(state, false)?;
-  let (from, to) = crate::project_files::rename_folder(&dir, folder, name)?;
+fn rename_recording_folder(state: &daw::InnerState, folder: &str, name: &str, library: Library) -> Result<MovedRecording, String> {
+  let dir = dir_to_change(state, library, false)?;
+  let (from, to) = library.worded(crate::project_files::rename_folder(&dir, folder, name))?;
   let path = crate::project_files::relative(&dir, &to);
   Ok(moved(state, &from, &to, path))
 }
 
-// move a take the project doesn't use to the trash
+// move a take or clip the project doesn't use to the trash
 #[tauri::command]
-pub fn t_delete_recording(state: daw::TState<'_>, path: String) -> Result<(), String> {
-  let dir = recordings_dir_to_change(&state, false)?;
-  let file = Path::new(&path);
+pub fn t_delete_recording(state: daw::TState<'_>, path: String, library: Option<Library>) -> Result<(), String> {
+  delete_recording(&state, &path, library.unwrap_or_default())
+}
+
+fn delete_recording(state: &daw::InnerState, path: &str, library: Library) -> Result<(), String> {
+  let dir = dir_to_change(state, library, false)?;
+  let file = Path::new(path);
   if !file.is_file() || !crate::project_files::is_inside(file, &dir) {
-    return Err("that isn't one of the project's recordings".into());
+    return Err(format!("that isn't one of the project's {}", library.nouns()));
   }
-  if in_use(&state, file) {
-    return Err("the project still uses this recording".into());
+  if in_use(state, file) {
+    return Err(format!("the project still uses this {}", library.noun()));
   }
-  trash::delete(file).map_err(|e| format!("could not move the recording to the trash: {}", e))
+  trash::delete(file).map_err(|e| format!("could not move the {} to the trash: {}", library.noun(), e))
 }
 
 // move a folder, and everything in it, to the trash. refused while the
 // project uses any take in it
 #[tauri::command]
-pub fn t_delete_recording_folder(state: daw::TState<'_>, folder: String) -> Result<(), String> {
-  let dir = recordings_dir_to_change(&state, false)?;
+pub fn t_delete_recording_folder(state: daw::TState<'_>, folder: String, library: Option<Library>) -> Result<(), String> {
+  delete_recording_folder(&state, &folder, library.unwrap_or_default())
+}
+
+fn delete_recording_folder(state: &daw::InnerState, folder: &str, library: Library) -> Result<(), String> {
+  let dir = dir_to_change(state, library, false)?;
   if folder.is_empty() {
-    return Err("the recordings folder itself can't be deleted".into());
+    return Err(format!("the {} folder itself can't be deleted", library.nouns()));
   }
-  let path = crate::project_files::folder_in(&dir, &folder)?;
-  if in_use(&state, &path) {
-    return Err("the project still uses recordings in this folder".into());
+  let path = library.worded(crate::project_files::folder_in(&dir, folder))?;
+  if in_use(state, &path) {
+    return Err(format!("the project still uses {} in this folder", library.nouns()));
   }
   trash::delete(&path).map_err(|e| format!("could not move the folder to the trash: {}", e))
 }
@@ -434,7 +489,7 @@ mod tests {
   #[test]
   fn test_a_moved_take_is_found_when_the_project_is_opened_again() {
     let (state, dir, file, take) = saved_project("reopen-moved");
-    let moved = move_recording(&state, &take, "Vocals").unwrap();
+    let moved = move_recording(&state, &take, "Vocals", Library::Recordings).unwrap();
 
     let (loaded, _) = reopen(&file);
     assert!(loaded.missing.is_empty(), "{:?}", loaded.missing);
@@ -446,11 +501,11 @@ mod tests {
   #[test]
   fn test_renamed_takes_and_folders_are_found_when_the_project_is_opened_again() {
     let (state, dir, file, take) = saved_project("reopen-renamed");
-    let renamed = rename_recording(&state, &take, "lead").unwrap();
-    move_recording(&state, &renamed.path, "Vocals").unwrap();
-    rename_recording_folder(&state, "Vocals", "Lead vocals").unwrap();
+    let renamed = rename_recording(&state, &take, "lead", Library::Recordings).unwrap();
+    move_recording(&state, &renamed.path, "Vocals", Library::Recordings).unwrap();
+    rename_recording_folder(&state, "Vocals", "Lead vocals", Library::Recordings).unwrap();
     std::fs::create_dir_all(dir.join("song").join("recordings").join("Old")).unwrap();
-    let last = move_recording_folder(&state, "Lead vocals", "Old").unwrap();
+    let last = move_recording_folder(&state, "Lead vocals", "Old", Library::Recordings).unwrap();
     assert_eq!(last.path, "Old/Lead vocals");
 
     let (loaded, _) = reopen(&file);
@@ -467,10 +522,99 @@ mod tests {
     // a change made after saving, and not saved
     state.playlist.audiograph.lock().unwrap()
       .construct_and_add_node(daw::METRONOME_TICK_PATH.to_string(), std::time::Duration::ZERO, 1).unwrap();
-    move_recording(&state, &take, "Vocals").unwrap();
+    move_recording(&state, &take, "Vocals", Library::Recordings).unwrap();
 
     let (loaded, _) = reopen(&file);
     assert_eq!(loaded.clips.len(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  // a saved project with a clip file in clips/ used by a clip on the playlist
+  fn project_with_a_clip_file(name: &str) -> (daw::InnerState, PathBuf, PathBuf, String) {
+    let (state, dir, file, _) = saved_project(name);
+    let clips = dir.join("song").join("clips");
+    std::fs::create_dir_all(&clips).unwrap();
+    let clip = clips.join("song_join_0.wav").to_string_lossy().into_owned();
+    std::fs::copy(daw::METRONOME_TICK_PATH, &clip).unwrap();
+    state.playlist.audiograph.lock().unwrap()
+      .construct_and_add_node(clip.clone(), std::time::Duration::ZERO, 1).unwrap();
+    (state, dir, file, clip)
+  }
+
+  fn clip_paths(state: &daw::InnerState) -> Vec<String> {
+    state.playlist.audiograph.lock().unwrap().nodes.iter().map(|n| n.sample_path().to_string()).collect()
+  }
+
+  #[test]
+  fn test_the_clips_library_lists_clips_and_not_recordings() {
+    let (state, dir, _, clip) = project_with_a_clip_file("clips-list");
+    let clips = crate::project_files::list_recordings(&existing_dir(&state, Library::Clips).unwrap());
+    assert_eq!(clips.takes.len(), 1);
+    assert_eq!(clips.takes[0].path, clip);
+    let recordings = crate::project_files::list_recordings(&existing_dir(&state, Library::Recordings).unwrap());
+    assert!(recordings.takes.iter().all(|take| take.path != clip));
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_a_renamed_clip_file_is_followed_by_its_clip() {
+    let (state, dir, _, clip) = project_with_a_clip_file("clips-rename");
+    let renamed = rename_recording(&state, &clip, "mix", Library::Clips).unwrap();
+    assert!(renamed.path.ends_with("clips/mix.wav"), "{}", renamed.path);
+    assert_eq!(renamed.moved_clips.len(), 1);
+    assert_eq!(renamed.moved_clips[0].path, renamed.path);
+    assert!(clip_paths(&state).contains(&renamed.path));
+    assert!(!clip_paths(&state).contains(&clip));
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_a_clip_file_moved_into_a_new_folder_is_followed_by_its_clip() {
+    let (state, dir, _, clip) = project_with_a_clip_file("clips-move");
+    let dir_clips = dir.join("song").join("clips");
+    let made = dir_to_change(&state, Library::Clips, true).unwrap();
+    assert_eq!(made, dir_clips);
+    crate::project_files::create_folder(&made, "", "Joins").unwrap();
+    let moved = move_recording(&state, &clip, "Joins", Library::Clips).unwrap();
+    assert!(moved.path.ends_with("clips/Joins/song_join_0.wav"), "{}", moved.path);
+    assert_eq!(moved.moved_clips.len(), 1);
+    assert!(clip_paths(&state).contains(&moved.path));
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_a_clip_file_in_use_is_not_deleted() {
+    let (state, dir, _, clip) = project_with_a_clip_file("clips-delete");
+    let error = delete_recording(&state, &clip, Library::Clips).unwrap_err();
+    assert!(error.contains("clip"), "{}", error);
+    assert!(Path::new(&clip).is_file());
+    let error = delete_recording_folder(&state, "", Library::Clips).unwrap_err();
+    assert!(error.contains("clips"), "{}", error);
+    // a take isn't a clip file
+    let take = dir.join("song").join("recordings").join("song_11092026_0.wav").to_string_lossy().into_owned();
+    let error = delete_recording(&state, &take, Library::Clips).unwrap_err();
+    assert!(error.contains("clips"), "{}", error);
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_clips_of_a_project_that_was_never_saved() {
+    let state = daw::InnerState::default();
+    assert_eq!(existing_dir(&state, Library::Clips), None);
+    let error = rename_recording(&state, "/nowhere/a.wav", "b", Library::Clips).unwrap_err();
+    assert_eq!(error, "the project has no clips yet");
+    assert_eq!(dir_to_change(&state, Library::Clips, true).unwrap_err(), "the project has no clips yet");
+    assert_eq!(delete_recording(&state, "/nowhere/a.wav", Library::Clips).unwrap_err(), "the project has no clips yet");
+  }
+
+  #[test]
+  fn test_recordings_are_the_default_library() {
+    assert_eq!(Library::default(), Library::Recordings);
+    let (state, dir, _, take) = saved_project("library-default");
+    let renamed = rename_recording(&state, &take, "lead", Library::default()).unwrap();
+    assert!(renamed.path.ends_with("recordings/lead.wav"), "{}", renamed.path);
+    let error = delete_recording_folder(&state, "", Library::Recordings).unwrap_err();
+    assert_eq!(error, "the recordings folder itself can't be deleted");
     let _ = std::fs::remove_dir_all(&dir);
   }
 

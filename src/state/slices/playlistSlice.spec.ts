@@ -765,6 +765,28 @@ describe('deep copy and join', () => {
     expect(state.playlistItems.find((i: { id: number }) => i.id === 7)?.path).toBe('/project/7.wav')
   })
 
+  it('tells the Clips page to list again after a deep copy, not after a failed one', async () => {
+    mockInvoke.mockImplementation(answers({ deep_copy_clips: { clips: [clip()], patternClips: [] } }))
+    const done = await run((d, g) => deepCopyClips([7])(d, g as never))
+    expect(actions(done.dispatch)).toContainEqual({ type: 'recordingSlice/takesChanged', payload: undefined })
+
+    mockInvoke.mockReset()
+    mockInvoke.mockRejectedValue('disk full')
+    const failed = await run((d, g) => deepCopyClips([7])(d, g as never))
+    expect(actions(failed.dispatch).some(a => a.type === 'recordingSlice/takesChanged')).toBe(false)
+  })
+
+  it('tells the Clips page to list again after a join, not after a failed one', async () => {
+    mockInvoke.mockImplementation(answers({ join_clips: joined() }))
+    const done = await run((d, g) => joinClips([7, 9])(d, g as never))
+    expect(actions(done.dispatch)).toContainEqual({ type: 'recordingSlice/takesChanged', payload: undefined })
+
+    mockInvoke.mockReset()
+    mockInvoke.mockRejectedValue('disk full')
+    const failed = await run((d, g) => joinClips([7, 9])(d, g as never))
+    expect(actions(failed.dispatch).some(a => a.type === 'recordingSlice/takesChanged')).toBe(false)
+  })
+
   it('deep copies nothing for no clips', async () => {
     await run((d, g) => deepCopyClips([])(d, g as never))
     expect(mockInvoke).not.toHaveBeenCalled()
