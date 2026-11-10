@@ -181,9 +181,13 @@ const PlaylistCanvas = () => {
       const opened = !!last && playlist.viewRevision !== last.viewRevision
       // an undo or redo changed some clips, which it selects
       const travelled = !!last && playlist.travelled !== last.travelled
+      // the snap setting, which edges and cuts land by
+      const snapped = !!last
+        && (playlist.snapEnabled !== last.snapEnabled || playlist.snapNote !== last.snapNote)
       last = playlist
 
       if(opened) playlistRenderer.resetView()
+      if(snapped) playlistRenderer.syncSnapSetting()
       if(travelled) playlistRenderer.select(playlist.travelled.ids)
       if(changed) playlistRenderer.setClipOverrides(selectClipOverrides(store.getState()))
       // trimmed clips show the part of their sample or pattern they play

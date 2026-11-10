@@ -5,11 +5,13 @@ import { selectTool, setTool } from '../../state/slices/playlistSlice'
 import { selectFocusedView } from '../../state/slices/windowSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
 import { View } from '../../types/ui'
-import { isTypingTarget, toolKey } from '../../util/keys'
+import { isTextTarget, toolKey } from '../../util/keys'
 import CutToolIcon from '../../components/icons/CutToolIcon'
 import SelectToolIcon from '../../components/icons/SelectToolIcon'
 import LatchKey from '../../components/topbar/LatchKey'
 import SnapButton from '../../components/topbar/SnapButton'
+import SnapInput from '../../components/topbar/SnapInput'
+import { gestureActive } from '../../state/gesture'
 
 // the strip above the ruler: the mouse tools, then snap
 const PlaylistTray = () => {
@@ -22,8 +24,12 @@ const PlaylistTray = () => {
   React.useEffect(() => {
     const onKeyDown = (ev: KeyboardEvent) => {
       const next = toolKey(ev)
-      if(!next || ev.repeat || isTypingTarget(ev.target)) return
+      // (a drop-down takes no letters, and the snap one, just here, keeps
+      // the keyboard after a pick: the keys still work then)
+      if(!next || ev.repeat || isTextTarget(ev.target)) return
       if(selectFocusedView(store.getState()) !== View.Playlist) return
+      // not in the middle of a drag, which belongs to the tool it began in
+      if(gestureActive()) return
 
       ev.preventDefault()
       dispatch(setTool(next))
@@ -44,6 +50,9 @@ const PlaylistTray = () => {
         </LatchKey>
         <div className='w-3' />
         <SnapButton />
+        <div className='self-center'>
+          <SnapInput />
+        </div>
       </div>
     </div>
   )

@@ -618,7 +618,8 @@ export class Renderer extends RendererBase {
   #followAlt = (ev: KeyboardEvent) => {
     if(this.#altHeld === ev.altKey) return
     this.#altHeld = ev.altKey
-    if(this.edgeDrag) this.wake()
+    // (the Cut tool's line moves too)
+    if(this.edgeDrag || this.tool === 'cut') this.wake()
   }
 
   // what an edge being dragged, or a cut, snaps to just now
@@ -1990,7 +1991,8 @@ export class Renderer extends RendererBase {
       const hover = overTracks && this.tool === 'select' ? this.edgeUnderMouse() : null
       this.#hoverEdge = hover ? { id: hover.item.playlistItem.id, edge: hover.edge } : null
       // and with the Cut tool, where a click would cut
-      this.#cutHover = overTracks && this.tool === 'cut' ? this.#cutAt(p) : null
+      // (not with shift held, when a click selects rather than cuts)
+      this.#cutHover = overTracks && this.tool === 'cut' && !p.keyIsDown(p.SHIFT) ? this.#cutAt(p) : null
 
       // the tracks, scrolled
       p.push()

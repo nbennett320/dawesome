@@ -154,5 +154,6 @@ Added below as they happen, newest last. Each says what I chose, why, and what t
 - **A click cuts only if the mouse is still on the clip that was pressed.**
 - **"Split at playhead" on a clip in a selection splits every selected clip the playhead is inside.** That is the rule the spec gives for the context menu in M10; I applied it now so the item does not change behaviour later.
 - **The engine does not snap a cut.** The canvas does the snapping (grid, playhead, Option), and "Split at playhead" is unsnapped by definition.
-- **The Snap key in the tray is the topbar's own key, moved,** with its drop-down.
+- **The Snap key and the snap-value drop-down in the tray are the topbar's own, moved.**
 - **Not verified:** H1 to H5, H8, H9, H11 to H14 need the running app, including whether the tray's height leaves the canvas correctly sized.
+- **Verifier pass for M9 (follow-up commit "tray fixes"):** one blocker. The snap-value drop-down had been left in the topbar: my brief to the agent that built the tray wrongly said the Snap key brought the drop-down with it, and I did not catch it in review. It is in the tray now. Also fixed: the dashed cut line kept using the old snap setting after Snap was changed, until the next click; pressing C or S in the middle of dragging a clip turned the drag into a pan (the keys now wait until the mouse is let go); C and S work while the snap drop-down still has the keyboard; the line follows Option being pressed and is hidden while Shift is held.

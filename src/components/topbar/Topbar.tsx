@@ -2,7 +2,6 @@ import React from 'react'
 import TopbarBase from './TopbarBase'
 import ButtonArea from './ButtonArea'
 import TempoInput from './TempoInput'
-import SnapInput from './SnapInput'
 import TransportCounter from './TransportCounter'
 import styles from './styles.module.scss'
 import { useAppDispatch, useAppSelector } from '../../hooks/redux'
@@ -31,7 +30,6 @@ const Topbar = () => {
         <ButtonArea />
         <div className='flex flex-row items-center gap-4'>
           <TempoInput />
-          <SnapInput />
         </div>
         <TransportCounter />
       </div>
