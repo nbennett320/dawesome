@@ -17,6 +17,9 @@ pub struct InnerState {
   pub project: Mutex<crate::project_files::ProjectLocation>,
   // the armed tracks, and the recording in progress
   pub recorder: Mutex<crate::recording::Recorder>,
+  // what's been done to the project, to undo and redo. locked on its own,
+  // never while another of the project's locks is held
+  pub history: Mutex<crate::history::History>,
 }
 
 impl InnerState {
@@ -31,6 +34,7 @@ impl InnerState {
       playlist: Playlist::default(),
       project: Mutex::new(Default::default()),
       recorder: Mutex::new(Default::default()),
+      history: Mutex::new(Default::default()),
     }
   }
 

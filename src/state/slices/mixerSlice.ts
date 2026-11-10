@@ -9,7 +9,7 @@ import {
   trackLabel,
 } from '../../types/mixer'
 import { LoadedProject } from '../../types/project'
-import { reduceLoadedProject } from './playlistSlice'
+import { reduceLoadedProject, reduceProjectView } from './playlistSlice'
 
 // the Mixer tab's state. the engine owns the mixer and applies changes while
 // playing; this mirrors it so the controls move straight away
@@ -58,6 +58,8 @@ export const mixerSlice = createSlice({
     // a project brings its own mix
     builder.addCase(reduceLoadedProject, (state, action: PayloadAction<LoadedProject>) =>
       (action.payload.mixer ? fromSettings(action.payload.mixer) : state))
+    // and an undo or redo may have changed it
+    builder.addCase(reduceProjectView, (_, action) => fromSettings(action.payload.project.mixer))
   },
 })
 

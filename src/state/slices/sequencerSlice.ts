@@ -16,6 +16,7 @@ import {
   syncPlayingFrom,
   togglePlay,
   setPlaylistTempo,
+  reduceProjectView,
 } from './playlistSlice'
 import { openTab, selectFocusedView } from './windowSlice'
 
@@ -85,6 +86,15 @@ export const sequencerSlice = createSlice({
         state.folders = sequencer?.folders ?? []
         state.selectedPatternId = null
         state.run = null
+        fixSelection(state)
+      })
+      // an undo or redo may have changed the rows and patterns. the selected
+      // pattern stays selected while it's there
+      .addCase(reduceProjectView, (state, action) => {
+        const { sequencer } = action.payload.project
+        state.rows = sequencer.rows
+        state.patterns = sequencer.patterns
+        state.folders = sequencer.folders
         fixSelection(state)
       })
       // nothing plays once the engine has stopped

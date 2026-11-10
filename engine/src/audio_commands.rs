@@ -278,6 +278,10 @@ fn repoint(state: &daw::InnerState, from: &Path, to: &Path) -> (Vec<crate::proje
     .filter_map(|row| moved_path(&row.path, from, to).map(|path| (row.path.clone(), path)))
     .collect();
   let sequencer = if !moved.is_empty() && seq.move_row_samples(&moved) { Some(seq.state()) } else { None };
+  drop(seq);
+  drop(audiograph);
+  // clips and rows that undoing would put back follow the file too
+  state.history.lock().unwrap().repoint(&|path| moved_path(path, from, to));
 
   (moved_clips, sequencer)
 }

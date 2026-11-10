@@ -458,6 +458,24 @@ mod tests {
   }
 
   #[test]
+  fn test_nothing_is_undone_while_recording() {
+    let state = Arc::new(daw::InnerState::default());
+    let id = crate::event_dispatch::add_clip(&state, daw::METRONOME_TICK_PATH.to_string(), 0, Some(2.)).unwrap().id;
+    state.recorder.lock().unwrap().session = Some(session());
+
+    assert_eq!(crate::history::undo(&state).unwrap(), None);
+    assert!(state.playlist.audiograph.lock().unwrap().get_node_by_id(id).is_some());
+
+    // nor while its takes are being put on their tracks
+    let _ = state.recorder.lock().unwrap().begin_finish();
+    assert_eq!(crate::history::undo(&state).unwrap(), None);
+
+    state.recorder.lock().unwrap().end_finish(vec![], vec![]);
+    assert!(crate::history::undo(&state).unwrap().is_some());
+    assert!(state.playlist.audiograph.lock().unwrap().get_node_by_id(id).is_none());
+  }
+
+  #[test]
   fn test_a_count_in_is_a_bar() {
     let state = daw::InnerState::default();
     // off unless it's turned on

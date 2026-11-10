@@ -9,6 +9,7 @@ import ProjectNotice from './components/ProjectNotice'
 import DragGhost from './components/DragGhost'
 import { togglePlayHere } from './state/slices/sequencerSlice'
 import { transportKeyHandler } from './util/keys'
+import { useEditCommands } from './state/useEditCommands'
 
 const App = () => {
   const dispatch = useAppDispatch()
@@ -23,6 +24,9 @@ const App = () => {
     ]
     return () => { listening.forEach(l => l.then(stop => stop())) }
   }, [dispatch])
+
+  // Edit menu: undo and redo
+  useEditCommands()
 
   // Space plays or pauses, as the topbar's Play key does, whatever has the
   // keyboard (except something that takes typing)

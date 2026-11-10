@@ -5,7 +5,7 @@ use std::time::{Instant, SystemTime};
 use tauri;
 
 use crate::daw::{InnerState};
-use crate::{app, daw, util, STATE};
+use crate::{app, daw, history, util, STATE};
 
 pub fn toggle_playlist(state: &Arc<daw::InnerState>) {
   if state.playlist.playing() {
@@ -405,11 +405,22 @@ pub fn t_add_audiograph_node(
   track_number: u32,
   drop_beat: Option<f32>,
 ) -> Result<PlacedNode, String> {
+  add_clip(state.inner(), sample_path, track_number, drop_beat)
+}
+
+// add a clip of a sample where it was dropped, snapped by the snap setting.
+// one step to undo
+pub(crate) fn add_clip(
+  state: &daw::InnerState,
+  sample_path: String,
+  track_number: u32,
+  drop_beat: Option<f32>,
+) -> Result<PlacedNode, String> {
   let snap_enabled = state.playlist.ui.lock().unwrap().snap_enabled;
 
-  let id = add_audiograph_node_at(
-    state.inner(), sample_path, track_number, |state| beat_to_offset(state, drop_beat), snap_enabled)?;
-  let start_beat = node_beat(state.inner(), id)?;
+  let id = history::clip_edit(state, &[], None, || add_audiograph_node_at(
+    state, sample_path, track_number, |state| beat_to_offset(state, drop_beat), snap_enabled), |&id| vec![id])?;
+  let start_beat = node_beat(state, id)?;
 
   Ok(PlacedNode { id, start_beat })
 }
@@ -421,13 +432,24 @@ pub fn move_audiograph_node(
   track_number: u32,
   drop_beat: Option<f32>,
 ) -> Result<f32, String> {
-  let start_offset = beat_to_offset(state.inner(), drop_beat);
+  move_clip(state.inner(), id, track_number, drop_beat)
+}
+
+// move a clip to where it was dropped, snapped by the snap setting. returns
+// where it is now, in beats. one step to undo
+pub(crate) fn move_clip(
+  state: &daw::InnerState,
+  id: u64,
+  track_number: u32,
+  drop_beat: Option<f32>,
+) -> Result<f32, String> {
+  let start_offset = beat_to_offset(state, drop_beat);
 
   println!("moved sample with id: {}, with offset of: {}ms", id, start_offset.as_millis());
 
   // returns where the frontend should draw the node (in beats), after snapping
-  move_audiograph_node_to(state.inner(), id, track_number, start_offset)?;
-  node_beat(state.inner(), id)
+  history::clip_edit(state, &[id], None, || move_audiograph_node_to(state, id, track_number, start_offset), |_| vec![])?;
+  node_beat(state, id)
 }
 
 fn move_audiograph_node_to(
@@ -488,7 +510,10 @@ pub fn move_audiograph_nodes(
   drop_beat: f32,
   track_number: u32,
 ) -> Result<Vec<MovedNode>, String> {
-  move_audiograph_nodes_to(state.inner(), &ids, anchor_id, drop_beat, track_number)
+  history::clip_edit(
+    state.inner(), &ids, None,
+    || move_audiograph_nodes_to(state.inner(), &ids, anchor_id, drop_beat, track_number),
+    |_| vec![])
 }
 
 fn move_audiograph_nodes_to(
@@ -527,14 +552,31 @@ pub fn remove_audiograph_node(
   state: daw::TState<'_>,
   id: u64,
 ) -> Result<(), String> {
-  state
-    .playlist
-    .audiograph
-    .lock()
-    .unwrap()
-    .remove_node(id)?;
+  remove_clips(state.inner(), &[id])
+}
 
-  Ok(())
+// take several clips out of the playlist (a selection). all of them, or (if
+// one isn't there) none
+#[tauri::command]
+pub fn remove_audiograph_nodes(
+  state: daw::TState<'_>,
+  ids: Vec<u64>,
+) -> Result<(), String> {
+  remove_clips(state.inner(), &ids)
+}
+
+// take clips of either kind out of the playlist. one step to undo
+pub(crate) fn remove_clips(state: &daw::InnerState, ids: &[u64]) -> Result<(), String> {
+  history::clip_edit(state, ids, None, || {
+    let mut audiograph = state.playlist.audiograph.lock().unwrap();
+    if let Some(missing) = ids.iter().find(|&&id| audiograph.placement(id).is_none()) {
+      return Err(format!("no node with id {}", missing));
+    }
+    for &id in ids {
+      audiograph.remove_node(id)?;
+    }
+    Ok(())
+  }, |_| vec![])
 }
 
 #[tauri::command]
@@ -610,13 +652,25 @@ pub fn get_clip(
 // info is returned with the settings that were kept
 //
 // takes effect the next time the clip starts playing
+// - gesture: the drag (of a knob, or a fade's handle) this change is part
+//   of, if any. the changes of one gesture are undone together
 #[tauri::command]
 pub fn set_clip_settings(
   state: daw::TState<'_>,
   id: u64,
   settings: daw::ClipSettings,
+  gesture: Option<u64>,
 ) -> Result<ClipInfo, String> {
-  set_clip_settings_of(&state, id, settings)
+  change_clip_settings(&state, id, settings, gesture)
+}
+
+pub(crate) fn change_clip_settings(
+  state: &daw::InnerState,
+  id: u64,
+  settings: daw::ClipSettings,
+  gesture: Option<u64>,
+) -> Result<ClipInfo, String> {
+  history::clip_edit(state, &[id], gesture, || set_clip_settings_of(state, id, settings), |_| vec![])
 }
 
 // play a clip on its own, with its settings

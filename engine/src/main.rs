@@ -7,6 +7,8 @@ mod project;
 mod project_files;
 mod recording;
 mod recent;
+mod history;
+mod history_commands;
 mod mixer_commands;
 mod audio_commands;
 mod sequencer_commands;
@@ -62,6 +64,7 @@ fn init_tauri() {
   use mixer_commands::*;
   use audio_commands::*;
   use sequencer_commands::*;
+  use history_commands::{undo, redo};
 
   // read before the menu is built, which lists them
   let recent_projects = recent::RecentProjects::load();
@@ -110,6 +113,9 @@ fn init_tauri() {
       move_audiograph_node,
       move_audiograph_nodes,
       remove_audiograph_node,
+      remove_audiograph_nodes,
+      undo,
+      redo,
       get_node_data,
       get_playlist_sample_offset,
       get_playlist_data,

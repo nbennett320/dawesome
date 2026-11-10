@@ -1,5 +1,8 @@
 import { invoke } from '@tauri-apps/api/core'
-import reducer, { reduceLoadedProject, playlistSlice, setPlaylistTempo, validTempo } from './playlistSlice'
+import reducer, {
+  reduceLoadedProject, playlistSlice, removeManyFromPlaylist, setPlaylistTempo, updateClipSettings, validTempo,
+} from './playlistSlice'
+import { beginGesture, resetGestures } from '../gesture'
 import { LoadedProject } from '../../types/project'
 import { defaultClipSettings } from '../../types/clip'
 
@@ -104,6 +107,59 @@ describe('setPlaylistTempo', () => {
     expect(dispatch).not.toHaveBeenCalled()
     expect(error).toHaveBeenCalled()
     error.mockRestore()
+  })
+})
+
+describe('removeManyFromPlaylist', () => {
+  const mockInvoke = invoke as jest.Mock
+
+  it('removes a selection with one command, so it is undone as one step', async () => {
+    mockInvoke.mockImplementation(async (command: string) =>
+      (command === 'get_playlist_data' ? [16, 256, 8, 4] : undefined))
+    const dispatch = jest.fn()
+
+    await removeManyFromPlaylist([3, 4, 5])(dispatch)
+
+    expect(mockInvoke).toHaveBeenCalledWith('remove_audiograph_nodes', { ids: [3, 4, 5] })
+    expect(mockInvoke.mock.calls.filter(([name]) => name === 'remove_audiograph_node')).toHaveLength(0)
+    const removed = dispatch.mock.calls
+      .map(([action]) => action)
+      .filter(action => action.type === playlistSlice.actions.removePlaylistItem.type)
+      .map(action => action.payload.id)
+    expect(removed).toEqual([3, 4, 5])
+  })
+
+  it('removes none of them when the engine refuses', async () => {
+    mockInvoke.mockRejectedValue('no node with id 4')
+    const dispatch = jest.fn()
+
+    await expect(removeManyFromPlaylist([3, 4])(dispatch)).rejects.toBe('no node with id 4')
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+})
+
+describe('updateClipSettings', () => {
+  const mockInvoke = invoke as jest.Mock
+
+  it('sends the gesture a setting was changed in', async () => {
+    mockInvoke.mockResolvedValue(undefined)
+    let state = reducer(undefined, { type: 'init' })
+    const getState = () => ({ playlist: state }) as never
+    const dispatch = ((action: { type: string }) => { state = reducer(state, action); return action }) as never
+
+    // a knob dragged with the mouse held
+    const gesture = beginGesture()
+    updateClipSettings(11, { gainDb: -6 })(dispatch, getState)
+    expect(mockInvoke).toHaveBeenCalledWith('set_clip_settings', {
+      id: 11, settings: expect.objectContaining({ gainDb: -6 }), gesture,
+    })
+
+    // a key press belongs to no gesture
+    resetGestures()
+    updateClipSettings(12, { pan: 0.5 })(dispatch, getState)
+    expect(mockInvoke).toHaveBeenCalledWith('set_clip_settings', {
+      id: 12, settings: expect.objectContaining({ pan: 0.5 }), gesture: null,
+    })
   })
 })
 

@@ -181,8 +181,9 @@ pub struct AudioNode {
   // the sample's length, before the clip's settings change its speed
   duration: Duration,
   sample_rate: u32,
-  // the waveform, ready to send (see daw::encode_levels)
-  waveform: String,
+  // the waveform, ready to send (see daw::encode_levels). shared, as the
+  // clip is copied whenever it's remembered (see history.rs)
+  waveform: Arc<str>,
   // how the clip is played back
   settings: daw::ClipSettings,
 }
@@ -259,7 +260,7 @@ impl AudioNode {
       buffer: sound_buf,
       duration,
       sample_rate,
-      waveform,
+      waveform: waveform.into(),
       settings: daw::ClipSettings::default(),
     })
   }
@@ -301,6 +302,14 @@ impl AudioNode {
   
   pub fn get_waveform(&self) -> &str {
     &self.waveform
+  }
+
+  // whether another clip plays the same sample the same way on the same
+  // track (wherever it starts)
+  pub fn same_clip(&self, other: &AudioNode) -> bool {
+    self.sample_path == other.sample_path
+      && self.track_number == other.track_number
+      && self.settings == other.settings
   }
 }
 
@@ -1531,7 +1540,7 @@ mod tests {
     let node = AudioNode::new(0, path.to_string(), Duration::ZERO, 0).unwrap();
 
     assert_eq!(dur, node.sample_duration());
-    assert_eq!(&waveform, &node.waveform);
+    assert_eq!(waveform.as_str(), &*node.waveform);
     assert!(preview_sample("does/not/exist.wav").is_err());
   }
 

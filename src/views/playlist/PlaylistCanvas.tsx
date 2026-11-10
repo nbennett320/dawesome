@@ -160,9 +160,12 @@ const PlaylistCanvas = () => {
         || playlist.clipSampleDurations !== last.clipSampleDurations
       // a project was opened or started: back to its first bars
       const opened = !!last && playlist.viewRevision !== last.viewRevision
+      // an undo or redo changed some clips, which it selects
+      const travelled = !!last && playlist.travelled !== last.travelled
       last = playlist
 
       if(opened) playlistRenderer.resetView()
+      if(travelled) playlistRenderer.select(playlist.travelled.ids)
       if(changed) playlistRenderer.setClipOverrides(selectClipOverrides(store.getState()))
       // pattern clips draw their pattern as it's edited
       playlistRenderer.setSequencer(store.getState().sequencer)
@@ -184,6 +187,8 @@ const PlaylistCanvas = () => {
       // Backspace would otherwise navigate back in some webviews
       ev.preventDefault()
       dispatch(removeManyFromPlaylist(ids))
+        // eslint-disable-next-line no-console
+        .catch(e => console.error('could not delete the clips:', e))
     }
 
     // Shift+E explodes the selected pattern clips (sample clips in the

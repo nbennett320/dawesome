@@ -301,6 +301,8 @@ pub fn apply(
   project_dir: Option<&Path>,
 ) -> LoadedProject {
   daw::stop_playlist(state);
+  // another project's changes can't be undone in this one
+  state.history.lock().unwrap().clear();
 
   // the samples are decoded before taking any locks: it takes a while, and
   // playback (and the playhead, polled from the UI) needs the graph's
@@ -565,6 +567,10 @@ pub fn save_project_to(
     if seq.move_row_samples(&moved) {
       sequencer = Some(seq.state());
     }
+    drop(seq);
+    drop(audiograph);
+    // clips and rows that undoing would put back follow their takes too
+    state.history.lock().unwrap().move_paths(&moved);
   }
 
   save_to(state, &target)?;

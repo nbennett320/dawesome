@@ -35,10 +35,19 @@ const viewMenu = (dispatch: AppDispatch) =>
     if(view !== undefined) dispatch(openTab(view))
   })
 
+// the Edit menu's items, by the names the engine sends (see build_menu in
+// engine/src/app/window.rs)
+export type EditCommand = 'undo' | 'redo' | 'repeat' | 'select-all' | 'join'
+
+// resolves to a function that stops listening
+const editMenu = (run: (command: EditCommand) => void) =>
+  listen<{ data: EditCommand }>('menu-edit', ev => run(ev.payload.data))
+
 const listeners = { 
   projectMenu,
   recentProjectMenu,
   viewMenu,
+  editMenu,
 }
 
 export { listeners }

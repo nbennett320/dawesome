@@ -89,3 +89,25 @@ export interface Recorded {
   clips: LoadedClip[]
   problems: string[]
 }
+
+// the project as it is now, after an undo or redo (see project_view in
+// engine/src/history_commands.rs)
+export interface ProjectView {
+  tempo: number
+  clips: LoadedClip[]
+  patternClips: LoadedPatternClip[]
+  mixer: MixerSettings
+  sequencer: SequencerState
+}
+
+// what the engine's undo and redo return
+export interface Travelled {
+  // false when there was nothing to undo or redo, or it can't be done just
+  // now (while recording): nothing changed
+  changed: boolean
+  // the clips it changed or put back, which the playlist selects
+  selected: number[]
+  canUndo: boolean
+  canRedo: boolean
+  project: ProjectView
+}

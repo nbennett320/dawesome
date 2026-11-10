@@ -266,8 +266,9 @@ fn add_pattern_clip_to(
     if ui.snap_enabled { Some(ui.snap_subdivision) } else { None }
   };
 
-  let id = state.playlist.audiograph.lock().unwrap()
-    .add_pattern_node(pattern_id, start_offset, track_number, subdivision)?;
+  // one step to undo
+  let id = crate::history::clip_edit(state, &[], None, || state.playlist.audiograph.lock().unwrap()
+    .add_pattern_node(pattern_id, start_offset, track_number, subdivision), |&id| vec![id])?;
   let start_beat = node_beat(state, id)?;
 
   Ok(PlacedNode { id, start_beat })
