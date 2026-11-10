@@ -156,18 +156,18 @@ The press logic for E1, E2 and E4 is covered by `src/views/playlist/sketch/selec
 ## K. Deep copy (M11)
 
 - [ ] K1 [M] "Deep copy" on a trimmed, pitched clip: the clip stays where it was, its label becomes `<name>_copy_1.wav`, the Sample tab shows Pitch 0 and no fades, and a file of that name exists in `<project>/clips/`.
-- [ ] K2 [E] The copy rendered back has the same number of frames as the original clip rendered, and every sample is within one 16-bit step.
-- [ ] K3 [E] With gain +12 dB on a loud file, the copy equals the original clipped to full scale, within one 16-bit step.
-- [ ] K4 [E] The file is WAV, 32-bit float, stereo, at the engine's rate.
-- [ ] K5 [E] A second deep copy of the same source is named `_copy_2`; an existing `Kick_Copy_1.wav` is not overwritten by `kick_copy_1.wav`.
+- [x] K2 [E] The copy rendered back has the same number of frames as the original clip rendered, and every sample is within one 16-bit step. — `bounce::tests::test_a_copy_plays_what_the_clip_did` (trim, pitch −3, 50 ms fade-in, pan 0.5, gain −6 dB; 44.1 and 48 kHz files on a 48 kHz engine)
+- [x] K3 [E] With gain +12 dB on a loud file, the copy equals the original clipped to full scale, within one 16-bit step. — `bounce::tests::test_a_copy_of_a_clip_too_loud_is_cut_off_at_full_scale`
+- [x] K4 [E] The file is WAV, 32-bit float, stereo, at the engine's rate. — `bounce::tests::test_a_copy_plays_what_the_clip_did`, `test_with_no_output_open_a_copy_is_at_its_samples_rate`
+- [x] K5 [E] A second deep copy of the same source is named `_copy_2`; an existing `Kick_Copy_1.wav` is not overwritten by `kick_copy_1.wav`. — `bounce::tests::test_copies_are_numbered_and_never_written_over_another_file`
 - [ ] K6 [M] In a never-saved project, Deep copy opens the Save dialog; after saving, the copy is made; cancelling leaves the clip unchanged and writes nothing.
-- [ ] K7 [M] Undo puts the clip back on its original file with its trim and pitch; the new file is still in `clips/`. Redo uses that file and no `_copy_2` appears.
-- [ ] K8 [M] Deep copy on three selected clips writes three files and is one undo step.
-- [ ] K9 [E] If the second of three files cannot be written, no clip changes and no new file remains.
+- [ ] K7 [M] Undo puts the clip back on its original file with its trim and pitch; the new file is still in `clips/`. Redo uses that file and no `_copy_2` appears. (Engine side covered by `bounce::tests::test_a_copy_plays_what_the_clip_did`.)
+- [ ] K8 [M] Deep copy on three selected clips writes three files and is one undo step. (Covered by `bounce::tests::test_a_selection_is_one_step`.)
+- [x] K9 [E] If the second of three files cannot be written, no clip changes and no new file remains. — `bounce::tests::test_if_one_file_cant_be_written_nothing_changes`
 - [ ] K10 [M] A failure shows its reason in the notice banner.
-- [ ] K11 [M] Save As to a new folder copies `clips/` there, and the new project's clips play from the copies.
-- [ ] K12 [M] Deep copy on a pattern clip turns it into a sample clip of the same length named `<pattern>_copy_1.wav`; undo turns it back.
-- [ ] K13 [E] A one-minute clip is written in under 2 seconds.
+- [ ] K11 [M] Save As to a new folder copies `clips/` there, and the new project's clips play from the copies. (Covered by `bounce::tests::test_saving_somewhere_new_takes_the_clips_folder_along`.)
+- [ ] K12 [M] Deep copy on a pattern clip turns it into a sample clip of the same length named `<pattern>_copy_1.wav`; undo turns it back. (Covered by `bounce::tests::test_a_pattern_clip_becomes_a_sample_clip_of_what_it_played`.)
+- [x] K13 [E] A one-minute clip is written in under 2 seconds. — `bounce::tests::test_a_minute_is_written_in_under_two_seconds` (run by hand in a release build on 2026-11-10: 0.17 s)
 - [ ] K14 [M] The source file the clip used before is still on disk, unmoved.
 
 ## L. Clips page (M12)
@@ -181,13 +181,13 @@ The press logic for E1, E2 and E4 is covered by `src/views/playlist/sketch/selec
 
 ## M. Join (M13)
 
-- [ ] M1 [E] Cut a clip and join the halves: one clip that renders identically to the original, and no file is written.
-- [ ] M2 [E] Join two different samples with a one-beat gap on one track: one clip of `<first>_join_1.wav` whose render equals the two originals' summed render over the span, within one 16-bit step.
-- [ ] M3 [M] Shift+J with clips on two tracks does nothing and the notice banner says Join needs one track.
-- [ ] M4 [M] Shift+J with a sample clip and a pattern clip selected does nothing and the banner says Join needs one kind of clip.
-- [ ] M5 [E] Join two 1-bar pattern clips with a bar between them: one clip of a new 3-bar pattern named "a + b", whose hits fall at the same times as before; the patterns a and b are unchanged.
+- [x] M1 [E] Cut a clip and join the halves: one clip that renders identically to the original, and no file is written. — `join::tests::test_the_halves_of_a_cut_are_put_back_together_and_nothing_is_written`, `test_halves_that_no_longer_line_up_are_not_healed`
+- [x] M2 [E] Join two different samples with a one-beat gap on one track: one clip of `<first>_join_1.wav` whose render equals the two originals' summed render over the span, within one 16-bit step. — `join::tests::test_other_sample_clips_are_written_out_as_one_file` (a gap and an overlap)
+- [ ] M3 [M] Shift+J with clips on two tracks does nothing and the notice banner says Join needs one track. (The refusals are covered by `join::tests::test_what_join_refuses`.)
+- [ ] M4 [M] Shift+J with a sample clip and a pattern clip selected does nothing and the banner says Join needs one kind of clip. (As M3.)
+- [x] M5 [E] Join two 1-bar pattern clips with a bar between them: one clip of a new 3-bar pattern named "a + b", whose hits fall at the same times as before; the patterns a and b are unchanged. — `join::tests::test_pattern_clips_become_one_clip_of_a_new_pattern`, `test_joined_pattern_clips_keep_their_span_and_merge_where_they_overlap`, `test_joined_names`
 - [ ] M6 [M] The Sequencer shows the 3-bar pattern with none of the 1 / 2 / 4 keys lit.
-- [ ] M7 [M] Pattern clips offset by less than a sixteenth note from each other are not joined, and the banner says why.
+- [ ] M7 [M] Pattern clips offset by less than a sixteenth note from each other are not joined, and the banner says why. (Covered by `join::tests::test_pattern_clips_off_the_grid_are_not_joined`.)
 - [ ] M8 [M] After a join the joined clip is selected. Undo restores the original clips (and removes a new pattern).
 - [ ] M9 [M] Join appears in a clip's menu and the Edit menu, and does the same as Shift+J.
 
@@ -212,7 +212,7 @@ Each of these is a failure whenever it is observed, at any milestone.
 - [ ] X1 [E] Editing one clip (trim, stretch, cut, settings, deep copy) changes what another clip plays. (Trim, cut and settings proved by `audiograph::tests::test_changing_a_clip_changes_no_other_clip_of_the_sample`; a stretch is a change of the Pitch setting, which that test makes; deep copy to be proved in M11.)
 - [ ] X2 [E] A deep copy or join writes a file anywhere outside the project's folder.
 - [ ] X3 [E] A deep copy or join overwrites an existing file.
-- [ ] X4 [E] Undo, redo, deep copy or join deletes or moves an audio file. (Undo and redo proved by `history::tests::test_undo_and_redo_leave_files_alone`; deep copy and join to be proved in M11 and M13.)
+- [x] X4 [E] Undo, redo, deep copy or join deletes or moves an audio file. (Undo and redo proved by `history::tests::test_undo_and_redo_leave_files_alone`; deep copy and join: `bounce::tests::test_a_copy_plays_what_the_clip_did` and `join::tests::test_other_sample_clips_are_written_out_as_one_file` check the old files are still there and that undo leaves the new one.)
 - [ ] X5 [M] Space starts or stops playback while typing in a text field, the tempo field, a rename field, search or a drop-down list.
 - [ ] X6 [M] C, S, Shift+J, Cmd+C, Cmd+X, Cmd+V, Cmd+R or Cmd+A changes the project while typing in a text field.
 - [ ] X7 [M] Cmd+R reloads the app window.

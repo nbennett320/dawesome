@@ -60,6 +60,14 @@ export interface Placed extends ChangedClips {
   leftOut: number
 }
 
+// what a join made: the joined clip is the one in `clips` or `patternClips`,
+// `removed` are the other clips, which are gone, and `sequencer` is set when
+// joining pattern clips made a new pattern
+export interface Joined extends ChangedClips {
+  removed: number[]
+  sequencer: SequencerState | null
+}
+
 // a clip that couldn't be loaded, so it was left out of the playlist
 export interface MissingSample {
   path: string

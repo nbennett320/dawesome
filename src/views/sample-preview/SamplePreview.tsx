@@ -32,7 +32,9 @@ type Loaded =
   | { state: 'ready', levels: Float32Array }
 
 // the inspected clip's waveform levels, from the engine
-const useClipWaveform = (id: number | undefined): Loaded | null => {
+// - path: the file it plays, which a deep copy or a join changes under the
+//   same clip: its waveform is asked for again then
+const useClipWaveform = (id: number | undefined, path: string | undefined): Loaded | null => {
   const [loaded, setLoaded] = React.useState<Loaded | null>(null)
 
   React.useEffect(() => {
@@ -56,7 +58,7 @@ const useClipWaveform = (id: number | undefined): Loaded | null => {
       })
 
     return () => { current = false }
-  }, [id])
+  }, [id, path])
 
   return loaded
 }
@@ -87,7 +89,7 @@ const SamplePreview = () => {
   const settings = useAppSelector(selectClipSettings(clip?.id))
   const clipWindow = useAppSelector(selectClipWindow(clip?.id))
   const sampleDuration = useAppSelector(selectClipSampleDuration(clip?.id))
-  const waveform = useClipWaveform(clip?.id)
+  const waveform = useClipWaveform(clip?.id, clip?.path)
   const trackName = useAppSelector(selectTrackName(clip?.trackNumber ?? 0))
 
   if(!clip) {

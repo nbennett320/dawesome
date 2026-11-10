@@ -491,6 +491,8 @@ pub fn apply(
   // anything changed while the samples were loading (a fader moved, a step
   // lit) was a change to the project that's gone: its history goes too
   state.history.lock().unwrap().clear();
+  // and anything copied meanwhile was the old project's
+  state.clipboard.lock().unwrap().clear();
 
   LoadedProject { settings, clips, missing, mixer, sequencer, pattern_clips, armed: project.armed.clone() }
 }

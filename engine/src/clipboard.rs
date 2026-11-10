@@ -93,13 +93,27 @@ fn place(
   copies: Vec<(ClipSnap, Duration, u32)>,
   what: &str,
 ) -> Result<(Vec<u64>, usize), String> {
-  let end = playlist_end(state, audiograph);
+  // clips of patterns that are gone are left out, wherever they'd land
+  let count = copies.len();
+  let copies: Vec<_> = {
+    let sequencer = audiograph.sequencer.lock().unwrap();
+    copies.into_iter()
+      .filter(|(clip, _, _)| match clip {
+        ClipSnap::Sample(_) => true,
+        ClipSnap::Pattern(node) => sequencer.pattern(node.pattern_id).is_some(),
+      })
+      .collect()
+  };
+  let left_out = count - copies.len();
+
+  // (a clip that lands on the last beat give or take the rounding of its
+  // place is on it)
+  let end = playlist_end(state, audiograph) + Duration::from_micros(1);
   if copies.iter().any(|(_, start, _)| *start > end) {
     return Err(format!("Nothing was {}: a clip {}.", what, PAST_THE_END));
   }
 
   let mut made = Vec::new();
-  let mut left_out = 0;
   for (clip, start, track) in copies {
     match clip {
       ClipSnap::Sample(mut node) => {
@@ -108,10 +122,6 @@ fn place(
         made.push(audiograph.insert_node(node));
       }
       ClipSnap::Pattern(mut node) => {
-        if audiograph.sequencer.lock().unwrap().pattern(node.pattern_id).is_none() {
-          left_out += 1;
-          continue;
-        }
         node.start_offset = start;
         node.track_number = track;
         made.push(audiograph.insert_pattern_node(node));
@@ -131,6 +141,10 @@ pub fn copy_clips(state: daw::TState<'_>, ids: Vec<u64>) -> usize {
 
 pub(crate) fn copy(state: &daw::InnerState, ids: &[u64]) -> usize {
   let audiograph = state.playlist.audiograph.lock().unwrap();
+  // (an id given twice is copied once)
+  let mut ids = ids.to_vec();
+  ids.sort_unstable();
+  ids.dedup();
   let mut clips: Vec<ClipSnap> = ids.iter().filter_map(|&id| snap(&audiograph, id)).collect();
   let mut clipboard = state.clipboard.lock().unwrap();
   if clips.is_empty() { return clipboard.len(); }
@@ -238,11 +252,14 @@ pub fn repeat_clips(state: daw::TState<'_>, ids: Vec<u64>) -> Result<Placed, Str
 
 pub(crate) fn repeat(state: &daw::InnerState, ids: &[u64]) -> Result<Placed, String> {
   if ids.is_empty() { return Ok(Placed::default()); }
+  let mut ids = ids.to_vec();
+  ids.sort_unstable();
+  ids.dedup();
 
   let (made, left_out) = history::clip_edit(state, &[], None, || {
     let mut audiograph = state.playlist.audiograph.lock().unwrap();
     let mut clips = Vec::new();
-    for &id in ids {
+    for &id in &ids {
       clips.push(snap(&audiograph, id).ok_or_else(|| format!("no node with id {}", id))?);
     }
 
@@ -487,6 +504,27 @@ mod tests {
   }
 
   #[test]
+  fn test_a_clip_given_twice_is_copied_once() {
+    let state = state();
+    let a = sample(&state, 0, 2.);
+    assert_eq!(copy(&state, &[a, a]), 1);
+    assert_eq!(repeat(&state, &[a, a]).unwrap().clips.clips.len(), 1);
+  }
+
+  #[test]
+  fn test_the_last_beat_is_still_the_playlist_at_any_tempo() {
+    let state = state();
+    let (a, b) = (sample(&state, 0, 2.), sample(&state, 1, 5.));
+    for tempo in [97., 133.3, 61.7] {
+      crate::event_dispatch::change_tempo(&state, tempo, None).unwrap();
+      copy(&state, &[a, b]);
+      // the second clip lands on beat 256, the last
+      assert!(paste(&state, 253., None).is_ok(), "at {}bpm", tempo);
+      assert!(paste(&state, 253.01, None).is_err(), "at {}bpm", tempo);
+    }
+  }
+
+  #[test]
   fn test_a_clip_of_a_pattern_thats_gone_is_left_out() {
     let state = state();
     let a = sample(&state, 0, 2.);
@@ -494,6 +532,9 @@ mod tests {
     copy(&state, &[a, c]);
     crate::sequencer_commands::remove_pattern_for_tests(&state, pattern);
 
+    // (left out even where it would have landed past the end: the paste
+    // isn't refused for a clip that isn't pasted)
+    assert_eq!(paste(&state, 255.5, None).unwrap().left_out, 1);
     let pasted = paste(&state, 8., None).unwrap();
     assert_eq!(pasted.left_out, 1);
     assert_eq!(pasted.clips.clips.len(), 1);

@@ -171,3 +171,42 @@ Added below as they happen, newest last. Each says what I chose, why, and what t
 - **"Explode into tracks" in the menu now also acts on every selected pattern clip** when the clicked clip is one of the selection, as the spec's rule for the menu says.
 - **The keys and menus were built by a Sonnet agent from a brief; the engine clipboard is mine.**
 - **Not verified:** I1 to I3, I6 to I9, I11 to I14, J1 to J6, E5 need the running app.
+
+- **Verifier pass for M10 (in the commit "deep copy, join, clipboard fixes"):** no blockers. Fixed: right-clicking empty space with nothing copied left a hidden menu that popped up later, at the old spot, as soon as something was copied; clips copied while a project was still loading could be pasted into the new project; Repeat or Select All from the Edit menu ran in the middle of a drag; a paste was refused because of a clip that was going to be left out anyway; a clip landing exactly on the last beat could be refused at some tempos; Cmd+R pressed quickly several times could stack the copies instead of laying them end to end (commands now run one after another); a cut that fails now says so in the banner.
+- **Open, and the verifier's main worry: the Edit menu's own Cut, Copy and Paste items may be greyed out when no text field has the keyboard,** because they are the system's standard items, which macOS enables only when there is text to act on. The keys should still work (the page listens for them directly), but choosing Edit › Copy with the mouse might not copy clips. I left the standard items in place on purpose: replacing them with custom ones risks breaking pasting text into a rename field, which is worse. Check Edit › Copy with a clip selected (acceptance J and B14); if it is greyed, tell me and I will swap the items and handle text fields by hand.
+- **A paste from the empty-space menu can put clips on tracks far below the last one** if the copied clips were many tracks apart; moves are held to one new track at a time, pastes are not.
+- **Only Cmd+R is stopped from reloading.** Shift+Cmd+R and F5 are not handled; on macOS the webview has no reload key of its own beyond the menu's.
+
+### M11 — Deep copy
+
+- **A copy's file is written 0.0003 dB louder than the clip it came from.** The app plays every file back as 16-bit (an old limit, in `later.md`), and the library that reads a 32-bit float file turns it into 16-bit by multiplying by 32767 and dropping the fraction. On its own that can land two 16-bit steps from the sample that was written, which would miss the spec's "within one 16-bit step". Written a hair louder (×32768/32767), what is read back is always within one step. The file is otherwise full 32-bit float. Alternative: change how the app reads float files, which would change how every existing recording sounds by up to two steps.
+- **A copy is the clip as it sounds when the playlist is played from its start.** The exact number of frames a trimmed clip plays can differ by one depending on where playback began; the file takes the count from a run that starts at beat 1.
+- **A copy of a copy is numbered on from it:** deep-copying `kick_copy_1.wav` gives `kick_copy_2.wav`, not `kick_copy_1_copy_1.wav`. The spec says `<source name>_copy_<n>`; I read "source name" as the name without an earlier copy's number. Alternative: keep growing the name.
+- **Numbers are checked against every file anywhere in `clips/`, in its folders too,** without regard to case, so a file moved into a folder on the Clips page still keeps its number taken.
+- **A pattern with no name gives `pattern 3_copy_1.wav`** (the pattern's number), and characters a file name cannot have (`/ \ : * ? " < > |`) become `_`.
+- **A pattern clip's file always has its last 10 ms faded out,** whether or not anything is still ringing there. The spec says "any hit still ringing at the end is faded out over 10 ms".
+- **With no audio output open, a pattern clip is written at 44.1 kHz** (a sample clip at its file's own rate, as the spec says; a pattern has no single file to go by).
+- **Save As copies `clips/` rather than moving it,** so the project it was saved from keeps its files, as recordings already do.
+- **A one-minute clip is written in about 0.17 seconds** in a release build on this Mac (the limit is 2). The test for it is marked to be run by hand: `cargo test --release a_minute_is_written -- --ignored`.
+- **A file whose clip was deleted while the file was being written is removed again,** and nothing changes.
+
+### M13 — Join
+
+- **The joined clip is the earliest of the clips, with its id;** the others are removed.
+- **"Still line up" for sample clips means:** the same file; the same gain, pan and pitch; no fade where two pieces meet; each piece starting in the file where the one before ends; and each sitting on the timeline exactly where a cut left it (to the nanosecond). Anything else is written out as a new file. So two whole clips of the same file placed end to end are bounced, not healed: they are not parts of one clip.
+- **A healed clip takes its fade-in from the first piece and its fade-out from the last.**
+- **In a bounced join, clips that add up to more than full scale are clipped in the file,** like a single Deep copy.
+- **A bounced join's file is named after the earliest clip's file** (`<name>_join_<n>.wav`), numbered like copies.
+- **Pattern clips "on the same sixteenth-note grid" means:** each clip starts a whole number of steps after the first, and starts on a step of its own pattern. A clip that was cut between two steps therefore cannot be joined into a new pattern (it can still be rejoined to its other half).
+- **The new pattern's name lists the pattern of every clip in order, repeats included:** two clips of "verse" give "verse + verse". More than three names give "verse + 3 more".
+- **A joined pattern holds every lit step of the joined clips' parts, muted rows included.** Muting is a property of the Sequencer row, so a muted row stays muted in the new pattern too.
+- **The refusals read:** "Join needs the clips to be on one track.", "Join needs clips of one kind: sample clips, or pattern clips.", "Join needs the pattern clips to sit on the same sixteenth-note grid as the first one.", "Join needs two or more clips."
+- **Frontend for Deep copy and Join (built by a Sonnet agent from a brief):** the menu items, Shift+J, the Edit menu's Join, the Save-dialog-first flow (the engine refuses with a fixed sentence when the project has no file; the app then runs Save and, if that produced a file, asks again once), the wait cursor after half a second, and errors in the banner. Join's "this doesn't apply" refusals are shown in the banner's information style, real failures in its error style.
+- **Found in review of that work:** the canvas kept each clip's waveform by clip id, assuming a clip never changes file. Deep copy and Join break that (same clip, new file), so the canvas and the Sample tab now ask for the waveform again when a clip's file changes.
+- **The Sequencer needed no change for patterns that are not 1, 2 or 4 bars.** Its grid draws one key per step for any length, and the bar keys light only on an exact match, so a 3-bar pattern shows none lit.
+
+### M14 — Performance
+
+- **Engine edits with 500 clips take well under a millisecond each** (trim, cut, stretch, move, a 50-clip paste, repeat and delete, undo, redo, and building the whole project after an undo: the slowest was 0.16 ms; the limit is 50 ms). Measured in a release build by `clip_commands::tests::test_edits_are_quick_with_five_hundred_clips`, which is marked to be run by hand.
+- **The canvas no longer draws clips that are off screen.** With hundreds of clips most are, and each one cost a card, a label and a waveform pass per frame.
+- **Frame rate itself is not measured.** That needs the running app (acceptance O); the debug overlay in the playlist shows fps.

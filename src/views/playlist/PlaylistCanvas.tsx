@@ -6,7 +6,9 @@ import {
   addToPlaylist,
   copyClips,
   cutClips,
+  deepCopyClips,
   inspectClip,
+  joinClips,
   moveNodeInPlaylist,
   moveNodesInPlaylist,
   pasteClips,
@@ -33,7 +35,7 @@ import { isPlaceable, onSampleDrag } from '../../state/sampleDrag'
 import { OWN_DRAG_PREVIEW } from '../../components/DragGhost'
 import { selectFocusedView } from '../../state/slices/windowSlice'
 import { View } from '../../types/ui'
-import { isDeleteKey, isExplodeKey, isTextTarget, isTypingTarget } from '../../util/keys'
+import { isDeleteKey, isExplodeKey, isJoinKey, isTextTarget, isTypingTarget } from '../../util/keys'
 import { editShortcutHandler } from '../../util/shortcuts'
 import {
   ClipCommand, ClipSource, clipCommand, sameCommand, setClipCommandRunner,
@@ -42,6 +44,13 @@ import { explodePatternClips, showPattern } from '../../state/slices/sequencerSl
 import ClipMenu, { ClipMenuItem } from './ClipMenu'
 
 const playlistRenderer = new Renderer()
+
+// the wait cursor, for a slow write. the body too, as the mouse may be
+// over the menu or the rest of the window, not the canvas
+const setBusy = (busy: boolean) => {
+  playlistRenderer.setBusy(busy)
+  document.body.style.cursor = busy ? 'wait' : ''
+}
 
 // a right-click menu: where it opens, relative to the playlist's box. on a
 // clip, or on empty space (at a beat and track, for a paste)
@@ -65,6 +74,13 @@ const ClipMenuHost = ({ opener }: { opener: React.MutableRefObject<((m: OpenMenu
     // eslint-disable-next-line no-param-reassign
     return () => { opener.current = null }
   }, [opener])
+
+  // a menu with nothing to show (its clip has gone, or the clipboard has
+  // emptied) is closed, rather than left to open later
+  const nothing = !!menu && (menu.kind === 'empty' ? clipboardCount === 0 : !item)
+  React.useEffect(() => {
+    if(nothing) setMenu(null)
+  }, [nothing])
 
   if(!menu) return null
 
@@ -142,7 +158,15 @@ const ClipMenuHost = ({ opener }: { opener: React.MutableRefObject<((m: OpenMenu
       label: 'Split at playhead',
       onSelect: splitAtPlayhead,
     }]),
-    // Join (⇧J) and Deep copy go here
+    ...(targets.length < 2 ? [] : [{
+      label: 'Join',
+      shortcut: '⇧J',
+      onSelect: () => { dispatch(joinClips(targets, setBusy)) },
+    }]),
+    {
+      label: 'Deep copy',
+      onSelect: () => { dispatch(deepCopyClips(targets, setBusy)) },
+    },
     'divider',
     {
       label: 'Delete',
@@ -294,11 +318,23 @@ const PlaylistCanvas = () => {
       dispatch(explodePatternClips(ids))
     }
 
+    // Shift+J joins the selected clips
+    const onJoinKey = (ev: KeyboardEvent) => {
+      if(!isJoinKey(ev) || ev.repeat || isTypingTarget(ev.target)) return
+      if(selectFocusedView(store.getState()) !== View.Playlist) return
+      if(playlistRenderer.isDragging()) return
+
+      ev.preventDefault()
+      dispatch(joinClips([...playlistRenderer.selectedIds], setBusy))
+    }
+
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keydown', onExplodeKey)
+    window.addEventListener('keydown', onJoinKey)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keydown', onExplodeKey)
+      window.removeEventListener('keydown', onJoinKey)
     }
   }, [store, dispatch])
 
@@ -308,17 +344,28 @@ const PlaylistCanvas = () => {
   React.useEffect(() => {
     let last: { command: ClipCommand, source: ClipSource, at: number } | null = null
 
+    // one at a time, in the order they were asked for: the next one acts
+    // on what the one before left selected (⌘R pressed three times lays
+    // three copies end to end, however fast)
+    let queue: Promise<unknown> = Promise.resolve()
+
     const run = (command: ClipCommand, source: ClipSource) => {
       const now = Date.now()
       if(sameCommand(last, command, source, now)) return
       last = { command, source, at: now }
+      // not in the middle of a drag, whichever way the command came
+      if(playlistRenderer.isDragging()) return
 
-      clipCommand(command, {
+      // (where the playhead is now, not when its turn comes)
+      const pasteBeat = playlistRenderer.pasteBeat()
+      queue = queue.then(() => clipCommand(command, {
         selected: [...playlistRenderer.selectedIds],
         all: playlistRenderer.playlistObjects.map(o => o.playlistItem.id),
-        pasteBeat: playlistRenderer.pasteBeat(),
+        pasteBeat,
         focused: selectFocusedView(store.getState()) === View.Playlist,
-      }, ids => playlistRenderer.select(ids))(dispatch)
+      }, ids => playlistRenderer.select(ids), setBusy)(dispatch, store.getState))
+        // eslint-disable-next-line no-console
+        .catch(e => console.error(`could not ${command}:`, e))
     }
 
     // (undo and redo are handled in useEditCommands)
@@ -411,9 +458,12 @@ const PlaylistCanvas = () => {
     clientX: number,
     clientY: number,
   ) => {
+    // with nothing to paste there's no menu (and none left waiting to
+    // open once something's copied)
+    if(store.getState().playlist.clipboardCount === 0) return
     const box = ref.current?.getBoundingClientRect()
     if(box) openMenu.current?.({ kind: 'empty', beat, track, x: clientX - box.left, y: clientY - box.top })
-  }, [])
+  }, [store])
 
   // a sample clip opens in the Sample tab, a pattern clip in the Sequencer
   const handleNodeDoubleClick = React.useCallback((id: number) => {

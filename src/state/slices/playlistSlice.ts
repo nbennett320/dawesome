@@ -15,7 +15,7 @@ import {
   windowedDuration,
 } from '../../types/clip'
 import {
-  ChangedClips, LoadedClip, LoadedPatternClip, LoadedProject, MissingSample, MovedClip, Placed, ProjectView, SavedProject,
+  ChangedClips, LoadedClip, LoadedPatternClip, LoadedProject, Joined, MissingSample, MovedClip, Placed, ProjectView, SavedProject,
 } from '../../types/project'
 import { currentGesture } from '../gesture'
 import { Wind } from '../../types/transport'
@@ -266,7 +266,9 @@ export const playlistSlice = createSlice({
         have.startBeat = item.startBeat
         have.trackNumber = item.trackNumber
         have.path = item.path
+        // a deep copy turns a pattern clip into a sample clip: no stale pattern
         if(item.patternId !== undefined) have.patternId = item.patternId
+        else delete have.patternId
       }
 
       clips.forEach(clip => {
@@ -928,8 +930,8 @@ export const cutClips = (ids: number[]) => async (dispatch: Dispatch): Promise<v
     dispatch(playlistSlice.actions.setClipboardCount(count))
     await refreshTrackCount()(dispatch)
   } catch(e) {
-    // eslint-disable-next-line no-console
-    console.error('could not cut the clips:', e)
+    // eslint-disable-next-line @typescript-eslint/no-use-before-define
+    await notifyError(dispatch, `The clips couldn't be cut: ${e}`)
   }
 }
 
@@ -938,6 +940,118 @@ export const cutClips = (ids: number[]) => async (dispatch: Dispatch): Promise<v
 const notify = async (dispatch: Dispatch, message: string) => {
   const { setProjectNotice } = await import('./projectSlice')
   dispatch(setProjectNotice({ kind: 'info', message }))
+}
+
+// tell the user something went wrong, in the notice banner's error style
+const notifyError = async (dispatch: Dispatch, message: string) => {
+  const { setProjectNotice } = await import('./projectSlice')
+  dispatch(setProjectNotice({ kind: 'error', message }))
+}
+
+// mirrors NEEDS_SAVING in engine/src/bounce.rs: what the engine says when a
+// file has to be written and the project has never been saved
+export const NEEDS_SAVING = 'The project has to be saved first, so its clips have somewhere to go.'
+
+// show a wait cursor only if the work is slow, so a quick one shows nothing
+export const withWaitCursor = async <T,>(
+  work: Promise<T>,
+  setBusy: (busy: boolean) => void,
+): Promise<T> => {
+  let busy = false
+  const timer = setTimeout(() => {
+    busy = true
+    setBusy(true)
+  }, 500)
+  try {
+    return await work
+  } finally {
+    clearTimeout(timer)
+    if(busy) setBusy(false)
+  }
+}
+
+// save the project (the Save dialog opens if it never was), and say whether
+// it has a file now: the user may have cancelled
+const saveFirst = async (
+  dispatch: Dispatch,
+  getState: () => RootState,
+): Promise<boolean> => {
+  const { runProjectCommand } = await import('./projectSlice')
+  await runProjectCommand('save')(dispatch, getState)
+  return !!getState().project.path
+}
+
+// run a command that writes files, saving the project first if the engine
+// says it must. null if it failed or the save was cancelled. `report` says
+// what to do with a failure's sentence
+const writingClips = async <T,>(
+  dispatch: Dispatch,
+  getState: () => RootState,
+  setBusy: (busy: boolean) => void,
+  command: string,
+  ids: number[],
+  report: (message: string) => Promise<void>,
+): Promise<T | null> => {
+  const attempt = () => withWaitCursor(invoke<T>(command, { ids }), setBusy)
+  try {
+    return await attempt()
+  } catch(e) {
+    if(String(e) !== NEEDS_SAVING) {
+      await report(String(e))
+      return null
+    }
+  }
+
+  if(!await saveFirst(dispatch, getState)) return null
+  try {
+    return await attempt()
+  } catch(e) {
+    await report(String(e))
+    return null
+  }
+}
+
+// write each clip out as a file of its own, and switch it to that. the clips
+// keep their ids and places. all or nothing; the engine says why if it can't
+export const deepCopyClips = (ids: number[], setBusy: (busy: boolean) => void = () => {}) => async (
+  dispatch: Dispatch,
+  getState: () => RootState,
+): Promise<ChangedClips | null> => {
+  if(!ids.length) return null
+  const changed = await writingClips<ChangedClips>(
+    dispatch, getState, setBusy, 'deep_copy_clips', ids, message => notifyError(dispatch, message),
+  )
+  if(!changed) return null
+
+  dispatch(playlistSlice.actions.reduceChangedClips(changed))
+  await refreshTrackCount()(dispatch)
+  return changed
+}
+
+// join clips into one. the engine refuses, with a sentence starting
+// 'Join needs', a join that doesn't apply: that's information, not a failure
+export const joinClips = (ids: number[], setBusy: (busy: boolean) => void = () => {}) => async (
+  dispatch: Dispatch,
+  getState: () => RootState,
+): Promise<Joined | null> => {
+  if(ids.length < 2) return null
+  const joined = await writingClips<Joined>(
+    dispatch, getState, setBusy, 'join_clips', ids,
+    message => message.startsWith('Join needs') ? notify(dispatch, message) : notifyError(dispatch, message),
+  )
+  if(!joined) return null
+
+  joined.removed.forEach(id => dispatch(playlistSlice.actions.removePlaylistItem({ id })))
+  dispatch(playlistSlice.actions.reduceChangedClips(joined))
+  if(joined.sequencer) {
+    // loaded when needed: the sequencer slice imports this one
+    const { setSequencer } = await import('./sequencerSlice')
+    dispatch(setSequencer(joined.sequencer))
+  }
+  const kept = [...joined.clips, ...joined.patternClips].map(clip => clip.id)
+  if(kept.length) dispatch(playlistSlice.actions.selectClips(kept))
+  await refreshTrackCount()(dispatch)
+  return joined
 }
 
 // show the clips the engine placed, select them, and say if any were left out

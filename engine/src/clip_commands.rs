@@ -409,6 +409,48 @@ mod tests {
     assert_eq!(changed.pattern_clips[0].pattern_id, changed.pattern_clips[1].pattern_id);
   }
 
+  // (run by hand, in a release build: `cargo test --release five_hundred -- --ignored --nocapture`)
+  #[test]
+  #[ignore = "a timing test"]
+  fn test_edits_are_quick_with_five_hundred_clips() {
+    use std::time::Instant;
+    let state = state();
+    state.playlist.ui.lock().unwrap().snap_enabled = false;
+    let ids: Vec<u64> = (0..500)
+      .map(|n| add_clip(&state, KICK.to_string(), n % 10, Some((n / 10) as f32 * 4. + (n % 10) as f32 * 0.25)).unwrap().id)
+      .collect();
+    state.history.lock().unwrap().clear();
+    let limit = Duration::from_millis(50);
+    let mut slowest = Duration::ZERO;
+    let mut timed = |what: &str, run: &mut dyn FnMut()| {
+      let started = Instant::now();
+      run();
+      let took = started.elapsed();
+      println!("{:>28}: {:?}", what, took);
+      assert!(took < limit, "{} took {:?}", what, took);
+      slowest = slowest.max(took);
+    };
+
+    let one = ids[250];
+    timed("trim one clip", &mut || { set_windows(&state, &[edit(one, 0.02, Some(0.1))]).unwrap(); });
+    timed("cut one clip", &mut || { split(&state, &[one], 100.1).unwrap(); });
+    timed("stretch one clip", &mut || { stretch(&state, &[StretchEdit { id: ids[251], pitch: -5., keep: Keep::Start }]).unwrap(); });
+    timed("move one clip", &mut || { crate::event_dispatch::move_clip(&state, ids[252], 3, Some(7.3)).unwrap(); });
+    timed("trim fifty clips", &mut || {
+      let edits: Vec<WindowEdit> = ids[..50].iter().map(|&id| edit(id, 0.01, Some(0.12))).collect();
+      set_windows(&state, &edits).unwrap();
+    });
+    timed("copy fifty clips", &mut || { crate::clipboard::copy(&state, &ids[50..100]); });
+    timed("paste fifty clips", &mut || { crate::clipboard::paste(&state, 210., None).unwrap(); });
+    timed("repeat fifty clips", &mut || { crate::clipboard::repeat(&state, &ids[100..150]).unwrap(); });
+    timed("delete fifty clips", &mut || { crate::event_dispatch::remove_clips(&state, &ids[150..200]).unwrap(); });
+    let state_arc = state.clone();
+    timed("undo", &mut || { history::undo(&state_arc).unwrap(); });
+    timed("the project after an undo", &mut || { crate::history_commands::project_view(&state); });
+    timed("redo", &mut || { history::redo(&state_arc).unwrap(); });
+    println!("{:>28}: {:?}", "slowest", slowest);
+  }
+
   #[test]
   fn test_a_cut_that_cuts_nothing_is_no_step() {
     let (state, sample, pattern) = clips();

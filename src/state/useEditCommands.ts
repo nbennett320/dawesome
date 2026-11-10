@@ -27,6 +27,9 @@ export const useEditCommands = () => {
         case 'repeat':
           if(!typing) runClipCommandFromMenu('repeat')
           break
+        case 'join':
+          if(!typing) runClipCommandFromMenu('join')
+          break
         case 'select-all':
           if(typing) document.execCommand('selectAll')
           else runClipCommandFromMenu('select-all')

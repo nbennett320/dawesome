@@ -24,7 +24,7 @@ describe('clipCommand', () => {
   })
 
   const run = (command: Parameters<typeof clipCommand>[0], t: ClipTarget, select = jest.fn()) =>
-    clipCommand(command, t, select)(jest.fn()).then(() => select)
+    clipCommand(command, t, select)(jest.fn(), jest.fn()).then(() => select)
 
   it('copies the selection', async () => {
     await run('copy', target())
@@ -51,6 +51,34 @@ describe('clipCommand', () => {
     expect(mockInvoke).toHaveBeenCalledWith('repeat_clips', { ids: [3, 4] })
   })
 
+  it('joins two or more selected clips', async () => {
+    mockInvoke.mockImplementation(async (command: string) =>
+      (command === 'join_clips' ? { clips: [], patternClips: [], removed: [], sequencer: null } : [16, 256, 240, 4]))
+    await run('join', target())
+    expect(mockInvoke).toHaveBeenCalledWith('join_clips', { ids: [3, 4] })
+  })
+
+  it('does not join fewer than two clips', async () => {
+    await run('join', target({ selected: [3] }))
+    await run('join', target({ selected: [] }))
+    expect(mockInvoke).not.toHaveBeenCalled()
+  })
+
+  it('deep copies the selection, and passes on the wait cursor', async () => {
+    const setBusy = jest.fn()
+    mockInvoke.mockImplementation(async (command: string) =>
+      (command === 'deep_copy_clips' ? { clips: [], patternClips: [] } : [16, 256, 240, 4]))
+    await clipCommand('deep-copy', target(), jest.fn(), setBusy)(jest.fn(), jest.fn())
+    expect(mockInvoke).toHaveBeenCalledWith('deep_copy_clips', { ids: [3, 4] })
+    // (quick, so the cursor never showed)
+    expect(setBusy).not.toHaveBeenCalled()
+  })
+
+  it('deep copies nothing with nothing selected', async () => {
+    await run('deep-copy', target({ selected: [] }))
+    expect(mockInvoke).not.toHaveBeenCalled()
+  })
+
   it('selects every clip, without asking the engine', async () => {
     const select = await run('select-all', target())
     expect(select).toHaveBeenCalledWith([3, 4, 5])
@@ -71,7 +99,7 @@ describe('clipCommand', () => {
 
   it('does nothing unless the Playlist is focused', async () => {
     const select = jest.fn()
-    await Promise.all((['copy', 'cut', 'paste', 'repeat', 'select-all'] as const)
+    await Promise.all((['copy', 'cut', 'paste', 'repeat', 'select-all', 'join', 'deep-copy'] as const)
       .map(command => run(command, target({ focused: false }), select)))
     expect(mockInvoke).not.toHaveBeenCalled()
     expect(select).not.toHaveBeenCalled()

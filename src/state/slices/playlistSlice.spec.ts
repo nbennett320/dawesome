@@ -1,17 +1,21 @@
 import { invoke } from '@tauri-apps/api/core'
 import reducer, {
-  addToPlaylist, copyClips, cutClips, pasteClips, repeatClips, reduceLoadedProject, playlistSlice, removeManyFromPlaylist, selectClipOverrides, selectClipWindow, setClipWindows,
+  addToPlaylist, copyClips, cutClips, deepCopyClips, joinClips, NEEDS_SAVING, pasteClips, repeatClips, reduceLoadedProject, playlistSlice, removeManyFromPlaylist, selectClipOverrides, selectClipWindow, setClipWindows,
   setPlaylistTempo,
-  splitClips, stretchClips, updateClipSettings, validTempo,
+  splitClips, stretchClips, updateClipSettings, validTempo, withWaitCursor,
 } from './playlistSlice'
 import { beginGesture, resetGestures } from '../gesture'
-import { setProjectNotice } from './projectSlice'
+import { runProjectCommand, setProjectNotice } from './projectSlice'
 import { ChangedClips, LoadedProject, Placed, ProjectView } from '../../types/project'
 import { defaultClipSettings } from '../../types/clip'
 
 jest.mock('@tauri-apps/api/core', () => ({ invoke: jest.fn() }))
 jest.mock('@tauri-apps/plugin-dialog', () => ({ ask: jest.fn(), open: jest.fn(), save: jest.fn() }))
 jest.mock('@tauri-apps/plugin-fs', () => ({ readDir: jest.fn() }))
+jest.mock('./projectSlice', () => {
+  const actual = jest.requireActual('./projectSlice')
+  return { ...actual, runProjectCommand: jest.fn() }
+})
 jest.mock('@tauri-apps/api/path', () => ({ dirname: jest.fn(), documentDir: jest.fn(), join: jest.fn() }))
 
 const loaded: LoadedProject = {
@@ -643,5 +647,261 @@ describe('the clip clipboard', () => {
     const state = reducer(start(), setClipboardCount(3))
     expect(state.clipboardCount).toBe(3)
     expect(reducer(state, reduceLoadedProject(loaded)).clipboardCount).toBe(0)
+  })
+})
+
+describe('withWaitCursor', () => {
+  // this jest has no async timer advance: let the promises settle after each
+  const advance = async (ms: number) => {
+    jest.advanceTimersByTime(ms)
+    await Array.from({ length: 10 }).reduce<Promise<unknown>>(p => p.then(() => undefined), Promise.resolve())
+  }
+  beforeEach(() => jest.useFakeTimers())
+  afterEach(() => jest.useRealTimers())
+
+  it('shows nothing for quick work', async () => {
+    const setBusy = jest.fn()
+    expect(await withWaitCursor(Promise.resolve(5), setBusy)).toBe(5)
+    await advance(600)
+    expect(setBusy).not.toHaveBeenCalled()
+  })
+
+  it('shows the wait once, and clears it, for slow work', async () => {
+    const setBusy = jest.fn()
+    const work = new Promise<number>(resolve => { setTimeout(() => resolve(7), 2000) })
+    const result = withWaitCursor(work, setBusy)
+    await advance(499)
+    expect(setBusy).not.toHaveBeenCalled()
+    await advance(2)
+    expect(setBusy.mock.calls).toEqual([[true]])
+    await advance(2000)
+    expect(await result).toBe(7)
+    expect(setBusy.mock.calls).toEqual([[true], [false]])
+  })
+
+  it('clears the wait when slow work fails, and still rejects', async () => {
+    const setBusy = jest.fn()
+    const work = new Promise<number>((_, reject) => { setTimeout(() => reject(new Error('no')), 1000) })
+    const result = withWaitCursor(work, setBusy)
+    const caught = expect(result).rejects.toThrow('no')
+    await advance(1000)
+    await caught
+    expect(setBusy.mock.calls).toEqual([[true], [false]])
+  })
+
+  it('never shows the wait for quick work that fails', async () => {
+    const setBusy = jest.fn()
+    await expect(withWaitCursor(Promise.reject(new Error('no')), setBusy)).rejects.toThrow('no')
+    await advance(600)
+    expect(setBusy).not.toHaveBeenCalled()
+  })
+})
+
+describe('reduceChangedClips with a deep copy', () => {
+  it('turns a pattern clip into a sample clip of the same id', () => {
+    const base = reducer(undefined, reduceLoadedProject(loaded))
+    const withPattern = reducer(base, playlistSlice.actions.reduceChangedClips({
+      clips: [],
+      patternClips: [{ id: 30, patternId: 2, trackNumber: 1, startBeat: 3, window: null }],
+    }))
+    expect(withPattern.playlistItems.find(i => i.id === 30)?.patternId).toBe(2)
+
+    const state = reducer(withPattern, playlistSlice.actions.reduceChangedClips({
+      clips: [{
+        ...loaded.clips[0], id: 30, path: '/project/recordings/30.wav', trackNumber: 1, startBeat: 3, window: null,
+      }],
+      patternClips: [],
+    }))
+    const item = state.playlistItems.find(i => i.id === 30)
+    expect(state.playlistItems.filter(i => i.id === 30)).toHaveLength(1)
+    expect(item?.patternId).toBeUndefined()
+    expect(item?.path).toBe('/project/recordings/30.wav')
+    expect(state.clipSettings[30]).toEqual(loaded.clips[0].settings)
+    expect(state.clipSampleDurations[30]).toBe(loaded.clips[0].sampleDuration)
+  })
+})
+
+describe('deep copy and join', () => {
+  const mockInvoke = invoke as jest.Mock
+  const mockSave = runProjectCommand as unknown as jest.Mock
+  const clip = (overrides = {}) => ({
+    ...loaded.clips[0], id: 7, path: '/project/7.wav', window: null, ...overrides,
+  })
+  const start = () => reducer(undefined, reduceLoadedProject(loaded))
+  const path = (value: string | null) => ({ project: { path: value } })
+  // runs a thunk against a state whose project is (or isn't) saved
+  const run = async <T,>(thunk: (dispatch: jest.Mock, getState: () => unknown) => Promise<T>, saved = true) => {
+    const dispatch = jest.fn()
+    const result = await thunk(dispatch, () => path(saved ? '/p.dawesome' : null))
+    const state = dispatch.mock.calls.reduce(
+      (s, [action]) => typeof action === 'function' ? s : reducer(s, action),
+      start(),
+    )
+    return { result, state, dispatch }
+  }
+  const actions = (dispatch: jest.Mock) => dispatch.mock.calls.map(([a]) => a).filter(a => typeof a !== 'function')
+  const noticeFrom = (dispatch: jest.Mock) => actions(dispatch).filter(a => a.type === setProjectNotice.type)
+  // the engine's refusals are plain sentences, not Errors
+  const refuse = (message: string) => jest.fn().mockRejectedValue(message)()
+  const answers = (over: Record<string, unknown>) => async (command: string) =>
+    command in over ? over[command] : [16, 256, 240, 4]
+  const joined = (over = {}) => ({
+    clips: [clip({ id: 7, path: '/project/joined.wav' })], patternClips: [], removed: [9], sequencer: null, ...over,
+  })
+
+  beforeEach(() => {
+    mockInvoke.mockReset()
+    mockSave.mockReset()
+    mockSave.mockReturnValue(() => Promise.resolve())
+  })
+
+  it('deep copies clips and shows the new files', async () => {
+    const changed = { clips: [clip()], patternClips: [] }
+    mockInvoke.mockImplementation(answers({ deep_copy_clips: changed }))
+    const { result, state } = await run((d, g) => deepCopyClips([7])(d, g as never))
+
+    expect(mockInvoke).toHaveBeenCalledWith('deep_copy_clips', { ids: [7] })
+    expect(result).toEqual(changed)
+    expect(state.playlistItems.find((i: { id: number }) => i.id === 7)?.path).toBe('/project/7.wav')
+  })
+
+  it('deep copies nothing for no clips', async () => {
+    await run((d, g) => deepCopyClips([])(d, g as never))
+    expect(mockInvoke).not.toHaveBeenCalled()
+  })
+
+  it('saves first when the engine asks, then tries again once', async () => {
+    const changed = { clips: [clip()], patternClips: [] }
+    let calls = 0
+    mockInvoke.mockImplementation(async (command: string) => {
+      if(command !== 'deep_copy_clips') return [16, 256, 240, 4]
+      if(++calls === 1) return refuse(NEEDS_SAVING)
+      return changed
+    })
+    const dispatch = jest.fn()
+    let saved = false
+    mockSave.mockReturnValue(async () => { saved = true })
+    const result = await deepCopyClips([7])(dispatch, () => path(saved ? '/p.dawesome' : null) as never)
+
+    expect(mockSave).toHaveBeenCalledWith('save')
+    expect(calls).toBe(2)
+    expect(result).toEqual(changed)
+    expect(noticeFrom(dispatch)).toEqual([])
+  })
+
+  it('does nothing more when the save is cancelled', async () => {
+    mockInvoke.mockImplementation(async (command: string) => {
+      if(command === 'deep_copy_clips') return refuse(NEEDS_SAVING)
+      return [16, 256, 240, 4]
+    })
+    const { result, state, dispatch } = await run((d, g) => deepCopyClips([7])(d, g as never), false)
+
+    expect(result).toBeNull()
+    expect(mockInvoke.mock.calls.filter(([c]) => c === 'deep_copy_clips')).toHaveLength(1)
+    expect(noticeFrom(dispatch)).toEqual([])
+    expect(actions(dispatch)).toEqual([])
+    expect(state.playlistItems).toHaveLength(2)
+  })
+
+  it('treats a second failure after saving like any other', async () => {
+    mockInvoke.mockImplementation(async (command: string) => {
+      if(command === 'deep_copy_clips') return refuse(NEEDS_SAVING)
+      return [16, 256, 240, 4]
+    })
+    const { result, dispatch } = await run((d, g) => deepCopyClips([7])(d, g as never))
+
+    expect(result).toBeNull()
+    expect(mockInvoke.mock.calls.filter(([c]) => c === 'deep_copy_clips')).toHaveLength(2)
+    expect(noticeFrom(dispatch)).toEqual([setProjectNotice({ kind: 'error', message: NEEDS_SAVING })])
+  })
+
+  it('shows another failure in the error style, and changes nothing', async () => {
+    mockInvoke.mockRejectedValue('disk full')
+    const { result, state, dispatch } = await run((d, g) => deepCopyClips([7])(d, g as never))
+
+    expect(result).toBeNull()
+    expect(noticeFrom(dispatch)).toEqual([setProjectNotice({ kind: 'error', message: 'disk full' })])
+    expect(state.playlistItems).toHaveLength(2)
+  })
+
+  it('joins clips: the others go, the joined clip is selected', async () => {
+    mockInvoke.mockImplementation(answers({ join_clips: joined() }))
+    const { result, state } = await run((d, g) => joinClips([7, 9])(d, g as never))
+
+    expect(mockInvoke).toHaveBeenCalledWith('join_clips', { ids: [7, 9] })
+    expect(result).toEqual(joined())
+    expect(state.playlistItems.map((i: { id: number }) => i.id)).toEqual([7])
+    expect(state.playlistItems[0].path).toBe('/project/joined.wav')
+    expect(state.travelled.ids).toEqual([7])
+  })
+
+  it('sets the sequencer when a join made a pattern', async () => {
+    const sequencer = { patterns: [] }
+    mockInvoke.mockImplementation(answers({
+      join_clips: joined({
+        clips: [], removed: [9], sequencer,
+        patternClips: [{ id: 7, patternId: 3, trackNumber: 2, startBeat: 4.5, window: null }],
+      }),
+    }))
+    const { state, dispatch } = await run((d, g) => joinClips([7, 9])(d, g as never))
+
+    expect(actions(dispatch)).toContainEqual({ type: 'sequencerSlice/setSequencer', payload: sequencer })
+    expect(state.playlistItems.find((i: { id: number }) => i.id === 7)?.patternId).toBe(3)
+    expect(state.travelled.ids).toEqual([7])
+  })
+
+  it('does not set the sequencer when there is no new pattern', async () => {
+    mockInvoke.mockImplementation(answers({ join_clips: joined() }))
+    const { dispatch } = await run((d, g) => joinClips([7, 9])(d, g as never))
+    expect(actions(dispatch).some(a => a.type === 'sequencerSlice/setSequencer')).toBe(false)
+  })
+
+  it('invokes nothing for fewer than two clips', async () => {
+    const { dispatch } = await run((d, g) => joinClips([7])(d, g as never))
+    await run((d, g) => joinClips([])(d, g as never))
+    expect(mockInvoke).not.toHaveBeenCalled()
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+
+  it('saves first, then joins', async () => {
+    let calls = 0
+    mockInvoke.mockImplementation(async (command: string) => {
+      if(command !== 'join_clips') return [16, 256, 240, 4]
+      if(++calls === 1) return refuse(NEEDS_SAVING)
+      return joined()
+    })
+    const { result, state } = await run((d, g) => joinClips([7, 9])(d, g as never))
+
+    expect(mockSave).toHaveBeenCalledWith('save')
+    expect(calls).toBe(2)
+    expect(result).toEqual(joined())
+    expect(state.playlistItems.map((i: { id: number }) => i.id)).toEqual([7])
+  })
+
+  it('leaves the clips alone when the save is cancelled', async () => {
+    mockInvoke.mockImplementation(async (command: string) => {
+      if(command === 'join_clips') return refuse(NEEDS_SAVING)
+      return [16, 256, 240, 4]
+    })
+    const { result, state, dispatch } = await run((d, g) => joinClips([7, 9])(d, g as never), false)
+
+    expect(result).toBeNull()
+    expect(noticeFrom(dispatch)).toEqual([])
+    expect(state.playlistItems).toHaveLength(2)
+  })
+
+  it('says in the info style when a join does not apply', async () => {
+    mockInvoke.mockRejectedValue('Join needs clips on one track.')
+    const { result, state, dispatch } = await run((d, g) => joinClips([7, 9])(d, g as never))
+
+    expect(result).toBeNull()
+    expect(noticeFrom(dispatch)).toEqual([setProjectNotice({ kind: 'info', message: 'Join needs clips on one track.' })])
+    expect(state.playlistItems).toHaveLength(2)
+  })
+
+  it('shows any other join failure in the error style', async () => {
+    mockInvoke.mockRejectedValue('disk full')
+    const { dispatch } = await run((d, g) => joinClips([7, 9])(d, g as never))
+    expect(noticeFrom(dispatch)).toEqual([setProjectNotice({ kind: 'error', message: 'disk full' })])
   })
 })

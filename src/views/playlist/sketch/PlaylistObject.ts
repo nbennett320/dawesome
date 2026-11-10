@@ -335,6 +335,17 @@ class PlaylistObject extends PlaylistComponent<State> {
     const { patternId } = this.playlistItem
     this.syncView()
 
+    // off the canvas (scrolled or zoomed away), there's nothing to draw:
+    // with hundreds of clips most are. worked out from where this draws on
+    // the canvas, so a clip being dragged is found where it's dragged to
+    const ctx = this.p.drawingContext as CanvasRenderingContext2D
+    const { a: scaleX, e: offsetX, d: scaleY, f: offsetY } = ctx.getTransform()
+    const { left, right, top, bottom } = waveform.boundingBox()
+    if(
+      right * scaleX + offsetX < 0 || left * scaleX + offsetX > ctx.canvas.width
+      || bottom * scaleY + offsetY < 0 || top * scaleY + offsetY > ctx.canvas.height
+    ) return
+
     this.drawBoundingBox()
 
     // render waveform, or the pattern
@@ -344,10 +355,9 @@ class PlaylistObject extends PlaylistComponent<State> {
     if((this.renderer as Renderer)?.debugMode) {
       // mouse drop height debug
       const { pixelOffset } = this.playlistItem
-      const { left, width } = waveform.boundingBox()
       this.p.strokeWeight(2)
       this.p.stroke(255,187,153)
-      this.p.line(left, pixelOffset.yOffset, left + width, pixelOffset.yOffset)
+      this.p.line(left, pixelOffset.yOffset, right, pixelOffset.yOffset)
 
     }
   }

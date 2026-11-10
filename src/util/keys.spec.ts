@@ -1,5 +1,5 @@
 import {
-  isDeleteKey, isExplodeKey, isTextTarget, isTransportKey, isTypingTarget, toolKey, transportKeyHandler,
+  isDeleteKey, isExplodeKey, isJoinKey, isTextTarget, isTransportKey, isTypingTarget, toolKey, transportKeyHandler,
 } from './keys'
 
 const el = (html: string) => {
@@ -71,6 +71,24 @@ describe('isExplodeKey', () => {
     expect(isExplodeKey(key('e', { shiftKey: false }))).toBe(false)
     expect(isExplodeKey(key('E', { metaKey: true }))).toBe(false)
     expect(isExplodeKey(key('R'))).toBe(false)
+  })
+})
+
+describe('isJoinKey', () => {
+  const key = (k: string, mods: Partial<KeyboardEvent> = {}) =>
+    ({ key: k, shiftKey: true, metaKey: false, ctrlKey: false, altKey: false, ...mods })
+
+  it('is Shift+J', () => {
+    expect(isJoinKey(key('J'))).toBe(true)
+    expect(isJoinKey(key('j'))).toBe(true)
+  })
+
+  it('is not J without shift, or with another modifier', () => {
+    expect(isJoinKey(key('j', { shiftKey: false }))).toBe(false)
+    expect(isJoinKey(key('J', { metaKey: true }))).toBe(false)
+    expect(isJoinKey(key('J', { ctrlKey: true }))).toBe(false)
+    expect(isJoinKey(key('J', { altKey: true }))).toBe(false)
+    expect(isJoinKey(key('E'))).toBe(false)
   })
 })
 

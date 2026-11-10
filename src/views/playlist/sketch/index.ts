@@ -331,6 +331,12 @@ export class Renderer extends RendererBase {
   clipDrag: ClipDrag | null = null
   sampleDrag: SampleDrag | null = null
   edgeDrag: EdgeDrag | null = null
+  // something slow is being written: the mouse shows the wait cursor
+  busy = false
+  setBusy = (busy: boolean) => {
+    this.busy = busy
+    this.wake()
+  }
   // where the clips being trimmed start and end: while an edge is dragged,
   // and after it's let go until the engine's answer has been drawn, so the
   // clips don't flick back to where they were in between
@@ -553,11 +559,6 @@ export class Renderer extends RendererBase {
   // aren't in the playlist yet are kept once they are (see keepExisting)
   select = (ids: number[]) => {
     this.selectedIds = new Set(ids)
-    this.wake()
-  }
-
-  selectAll = () => {
-    this.selectedIds = new Set(this.playlistObjects.map(o => o.playlistItem.id))
     this.wake()
   }
 
@@ -1893,8 +1894,12 @@ export class Renderer extends RendererBase {
         if(item.patternId !== undefined) {
           return { wf: new Float32Array(0), dur: this.patternSecondsOf(item.patternId) }
         }
+        // (the same clip can come to play another file: a deep copy, a
+        // join, or undoing one. its waveform is asked for again then)
         const known = current.get(item.id)
-        if(known) return { wf: known.soundData, dur: known.duration }
+        if(known && known.playlistItem.path === item.path && known.playlistItem.patternId === undefined) {
+          return { wf: known.soundData, dur: known.duration }
+        }
 
         let fetching = this.#fetching.get(item.id)
         if(!fetching) {
@@ -2069,7 +2074,9 @@ export class Renderer extends RendererBase {
 
       this.#drawScrollbar(p)
 
-      if(this.edgeDrag) {
+      if(this.busy) {
+        p.cursor('wait')
+      } else if(this.edgeDrag) {
         p.cursor('ew-resize')
       } else if(this.lasso) {
         p.cursor(p.CROSS)
