@@ -36,13 +36,16 @@ pub fn get_sequencer(state: daw::TState<'_>) -> daw::SequencerState {
 }
 
 // a row playing the sample at `path`, added at the bottom
-#[tauri::command]
+// (async: off the main thread, as decoding the sample takes a while)
+#[tauri::command(async)]
 pub fn add_sequencer_row(state: daw::TState<'_>, path: String) -> Result<daw::SequencerState, String> {
   add_row(&state, &path)
 }
 
 fn add_row(state: &daw::InnerState, path: &str) -> Result<daw::SequencerState, String> {
-  edit(state, |seq| seq.add_row(path).map(|_| ()))
+  // decoded before taking the sequencer's lock, which playback needs
+  let sample = daw::RowSample::load(path)?;
+  edit(state, |seq| seq.add_loaded_row(path, sample).map(|_| ()))
 }
 
 // take a row out, with its steps in every pattern
