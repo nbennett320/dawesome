@@ -104,7 +104,8 @@ pub struct MixdownOptions {
 // start a mixdown of the song as it is now. anything that stops it before
 // it starts (nothing to mix, no name, a folder that can't be written to) is
 // the error; anything after, the status says
-#[tauri::command]
+// (off the main thread: it writes to the disk)
+#[tauri::command(async)]
 pub fn start_mixdown(state: daw::TState<'_>, mixdowns: MixdownState<'_>, options: MixdownOptions) -> Result<(), String> {
   start(&state, mixdowns.inner(), options, daw::open_engine_rate().unwrap_or(44_100)).map(|_| ())
 }
@@ -120,6 +121,8 @@ fn start(
     let mut phase = mixdowns.phase.lock().unwrap();
     if *phase == Some(Phase::Rendering) { return Err(BUSY.into()); }
     *phase = Some(Phase::Rendering);
+    // (not the last one's)
+    mixdowns.progress.reset();
   }
   mixdowns.cancel.store(false, Ordering::Relaxed);
 
@@ -136,8 +139,13 @@ fn start(
 
   let mixdowns = mixdowns.clone();
   Ok(std::thread::spawn(move || {
-    let rendered = mixdown::render(snapshot, rate, &mut |chunk| file.write(chunk), &mixdowns.progress, &mixdowns.cancel);
-    mixdowns.finished(rendered.and_then(|_| file.finish()));
+    // (a panic is caught, so the job isn't left rendering for good. in a
+    // release build, which aborts on a panic, this never comes into it)
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+      let rendered = mixdown::render(snapshot, rate, &mut |chunk| file.write(chunk), &mixdowns.progress, &mixdowns.cancel);
+      rendered.and_then(|_| file.finish())
+    }));
+    mixdowns.finished(result.unwrap_or_else(|_| Err("Something went wrong in the engine while mixing down".into())));
   }))
 }
 
@@ -237,7 +245,8 @@ mod tests {
     thread.join().unwrap();
     // it may have finished first, on a fast machine: then it's done, else cancelled
     match mixdowns.status() {
-      Status::Cancelled => assert!(std::fs::read_dir(&dir).unwrap().next().is_none()),
+      // (not even the folder it made)
+      Status::Cancelled => assert!(!dir.exists()),
       Status::Done { .. } => {}
       other => panic!("{:?}", other),
     }

@@ -72,6 +72,11 @@ pub struct Progress {
 }
 
 impl Progress {
+  pub fn reset(&self) {
+    self.done.store(0, Ordering::Relaxed);
+    self.total.store(0, Ordering::Relaxed);
+  }
+
   // 0 to 1 (the tail isn't counted: it's short, and its length isn't known
   // until it's rendered)
   pub fn fraction(&self) -> f32 {

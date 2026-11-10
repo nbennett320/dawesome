@@ -46,8 +46,12 @@ impl Format {
 }
 
 pub const NEEDS_NAME: &str = "Give the mixdown a name";
-// the longest name kept, in characters (well inside what a file system takes)
+// the longest name kept, in bytes and in UTF-16 units (what HFS+ and exFAT
+// count): with an extension, inside the 255 any of them take
 const MAX_NAME: usize = 200;
+// WAVs give their length in 32 bits: no more than 4GB of samples
+const WAV_MAX_BYTES: u64 = u32::MAX as u64 - 1024;
+pub const TOO_LONG_FOR_WAV: &str = "The song is too long for a WAV at this bit depth (WAVs stop at 4 GB). Choose a lower bit depth, or MP3";
 
 // a name fit for a file: nothing that could be a folder or isn't allowed in
 // a file name, no leading dots (a hidden file), and without the format's
@@ -62,16 +66,27 @@ pub fn file_stem(name: &str, format: Format) -> Result<String, String> {
     if end.starts_with('.') && end[1..].eq_ignore_ascii_case(ext) { name = stem.trim_end(); }
   }
 
+  let (mut bytes, mut units) = (0, 0);
   let cleaned: String = name.chars()
     .map(|c| if c.is_control() || "/\\:*?\"<>|".contains(c) { '-' } else { c })
-    .take(MAX_NAME)
+    .take_while(|c| {
+      bytes += c.len_utf8();
+      units += c.len_utf16();
+      bytes <= MAX_NAME && units <= MAX_NAME
+    })
     .collect();
-  let cleaned = cleaned.trim().trim_start_matches('.').trim().to_string();
-  if cleaned.is_empty() { Err(NEEDS_NAME.into()) } else { Ok(cleaned) }
+  // (until none are left: ". . ." is all dots and spaces)
+  let mut cleaned = cleaned.as_str();
+  loop {
+    let trimmed = cleaned.trim().trim_start_matches('.');
+    if trimmed == cleaned { break; }
+    cleaned = trimmed;
+  }
+  if cleaned.is_empty() { Err(NEEDS_NAME.into()) } else { Ok(cleaned.to_string()) }
 }
 
 enum Output {
-  Wav { writer: hound::WavWriter<BufWriter<File>>, bits: Bits, seed: u32 },
+  Wav { writer: hound::WavWriter<BufWriter<File>>, bits: Bits, seed: u32, bytes: u64 },
   Mp3 { encoder: Box<Encoder>, file: BufWriter<File>, buffer: Vec<u8> },
 }
 
@@ -82,6 +97,10 @@ pub struct MixdownFile {
   ext: &'static str,
   // None once finished
   output: Option<Output>,
+  // whether `dir` was made for it (it's taken away again if nothing's put in it)
+  made_dir: bool,
+  // whether it was given its name
+  named: bool,
 }
 
 impl MixdownFile {
@@ -89,9 +108,15 @@ impl MixdownFile {
   pub fn create(dir: &Path, name: &str, format: Format, rate: u32) -> Result<MixdownFile, String> {
     let stem = file_stem(name, format)?;
     let ext = format.extension();
+    let made_dir = !dir.is_dir();
     std::fs::create_dir_all(dir).map_err(|e| format!("Couldn't make the folder {}: {}", dir.display(), e))?;
-    let part = dir.join(format!(".{}.{}.part", stem, ext));
-    let file = File::create(&part).map_err(|e| format!("Couldn't write to {}: {}", dir.display(), e))?;
+    // (a short name of its own, so a long name that fits as the file's
+    // can't be too long for this)
+    let part = dir.join(format!(".mixdown-{}.{}.part", std::process::id(), ext));
+    let file = File::create(&part).map_err(|e| {
+      if made_dir { let _ = std::fs::remove_dir(dir); }
+      format!("Couldn't write to {}: {}", dir.display(), e)
+    })?;
     let file = BufWriter::new(file);
 
     let output = match format {
@@ -103,7 +128,7 @@ impl MixdownFile {
         };
         let spec = hound::WavSpec { channels: 2, sample_rate: rate, bits_per_sample, sample_format };
         let writer = hound::WavWriter::new(file, spec).map_err(|e| e.to_string());
-        Output::Wav { writer: writer.map_err(|e| { let _ = std::fs::remove_file(&part); e })?, bits, seed: 0x9e37_79b9 }
+        Output::Wav { writer: writer.map_err(|e| { let _ = std::fs::remove_file(&part); e })?, bits, seed: 0x9e37_79b9, bytes: 0 }
       }
       Format::Mp3 { kbps } => match mp3_encoder(kbps, rate) {
         Ok(encoder) => Output::Mp3 { encoder: Box::new(encoder), file, buffer: Vec::new() },
@@ -114,13 +139,15 @@ impl MixdownFile {
       },
     };
 
-    Ok(MixdownFile { part, dir: dir.to_path_buf(), stem, ext, output: Some(output) })
+    Ok(MixdownFile { part, dir: dir.to_path_buf(), stem, ext, output: Some(output), made_dir, named: false })
   }
 
   // add stereo samples, interleaved
   pub fn write(&mut self, samples: &[f32]) -> Result<(), String> {
     match self.output.as_mut().ok_or("the file is finished")? {
-      Output::Wav { writer, bits, seed } => {
+      Output::Wav { writer, bits, seed, bytes } => {
+        *bytes += samples.len() as u64 * (writer.spec().bits_per_sample / 8) as u64;
+        if !fits_in_wav(*bytes) { return Err(TOO_LONG_FOR_WAV.into()); }
         let result = match bits {
           Bits::Int16 => samples.iter().try_for_each(|&s| writer.write_sample(dithered_16(s, seed))),
           Bits::Int24 => samples.iter().try_for_each(|&s| writer.write_sample((s.clamp(-1., 1.) * 8_388_607.).round() as i32)),
@@ -154,10 +181,19 @@ impl MixdownFile {
       let name = if n == 1 { format!("{}.{}", self.stem, self.ext) } else { format!("{} {}.{}", self.stem, n, self.ext) };
       let path = self.dir.join(name);
       match std::fs::hard_link(&self.part, &path) {
-        Ok(()) => return Ok(path),
+        Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-        Err(e) => return Err(format!("Couldn't name the file {}: {}", path.display(), e)),
+        // some drives (exFAT and FAT USB sticks, some network shares) can't
+        // link: there, a name that's free is taken by a rename instead. (a
+        // file given the name in the moment between could be written over)
+        Err(_) => match std::fs::symlink_metadata(&path) {
+          Ok(_) => continue,
+          Err(_) => std::fs::rename(&self.part, &path)
+            .map_err(|e| format!("Couldn't name the file {}: {}", path.display(), e))?,
+        },
       }
+      self.named = true;
+      return Ok(path);
     }
     Err(format!("There are too many files named {} in {}", self.stem, self.dir.display()))
   }
@@ -169,7 +205,12 @@ impl Drop for MixdownFile {
   fn drop(&mut self) {
     self.output = None;
     let _ = std::fs::remove_file(&self.part);
+    if !self.named && self.made_dir { let _ = std::fs::remove_dir(&self.dir); }
   }
+}
+
+fn fits_in_wav(bytes: u64) -> bool {
+  bytes <= WAV_MAX_BYTES
 }
 
 fn mp3_encoder(kbps: u32, rate: u32) -> Result<Encoder, String> {
@@ -321,8 +362,22 @@ mod tests {
     let mut file = MixdownFile::create(&dir, "song", Format::Mp3 { kbps: 320 }, 48_000).unwrap();
     file.write(&tone(48_000)).unwrap();
     drop(file);
-    assert!(files_in(&dir).is_empty());
+    // the folder it made for it is taken away again
+    assert!(!dir.exists());
+    // but not one that was there
+    std::fs::create_dir_all(&dir).unwrap();
+    drop(MixdownFile::create(&dir, "song", WAV16, 8_000).unwrap());
+    assert!(dir.is_dir() && files_in(&dir).is_empty());
     let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_a_wav_stops_before_4gb() {
+    assert!(fits_in_wav(4_000_000_000));
+    assert!(!fits_in_wav(u32::MAX as u64));
+    // three and a half hours of 32-bit float at 48kHz is over
+    assert!(fits_in_wav(3 * 3600 * 48_000 * 2 * 4));
+    assert!(!fits_in_wav(7 * 1800 * 48_000 * 2 * 4));
   }
 
   #[test]
@@ -340,7 +395,13 @@ mod tests {
     assert_eq!(stem("\u{212A}\u{212A}\u{212A}").unwrap(), "\u{212A}\u{212A}\u{212A}");
     assert_eq!(stem("ü.wav").unwrap(), "ü");
     assert_eq!(stem(&"x".repeat(500)).unwrap().len(), MAX_NAME);
-    for empty in ["", "   ", ".wav", "...", " . "] {
+    // (none of them over 200 bytes, or 200 UTF-16 units)
+    let emoji = stem(&"\u{1F3B5}".repeat(127)).unwrap();
+    assert_eq!((emoji.len(), emoji.encode_utf16().count()), (200, 100));
+    let han = stem(&"\u{66F2}".repeat(100)).unwrap();
+    assert_eq!(han.chars().count(), 66);
+    assert_eq!(stem(". . .song").unwrap(), "song");
+    for empty in ["", "   ", ".wav", "...", " . ", ". . .", " . . . .wav"] {
       assert_eq!(stem(empty).err().unwrap(), NEEDS_NAME, "{:?}", empty);
     }
   }
