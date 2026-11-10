@@ -16,6 +16,7 @@ mod clip_commands;
 mod clipboard;
 mod bounce;
 mod join;
+mod mixdown;
 mod bind_functions;
 
 use std::env;
