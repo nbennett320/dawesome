@@ -175,14 +175,24 @@ pub fn get_playlist_tempo(
   Ok(state.tempo())
 }
 
-// change the tempo (see daw::set_playlist_tempo). refused while recording
+// change the tempo (see daw::set_playlist_tempo), as a step that can be
+// undone. refused while recording
+// - gesture: the visit to the tempo field it's part of, if any
+pub fn change_tempo(state: &Arc<daw::InnerState>, tempo: f32, gesture: Option<u64>) -> Result<f32, String> {
+  let before = state.tempo();
+  let after = daw::set_playlist_tempo(state, tempo)?;
+  history::record(state, history::Step::new().in_gesture(gesture).with_tempo(before, after));
+  Ok(after)
+}
+
 #[tauri::command]
 pub fn set_playlist_tempo(
   state: daw::TState<'_>,
   val: f32,
+  gesture: Option<u64>,
 ) -> Result<f32, String> {
   println!("playlist tempo updated: {}", val);
-  daw::set_playlist_tempo(state.inner(), val)
+  change_tempo(state.inner(), val, gesture)
 }
 
 pub fn toggle_metronome_enabled(

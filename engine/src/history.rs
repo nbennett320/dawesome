@@ -272,8 +272,9 @@ enum Way { Undo, Redo }
 #[derive(Debug, PartialEq)]
 pub struct Applied {
   // the clips it changed or put back (not the ones it took away), for the
-  // frontend to select
-  pub clips: Vec<u64>,
+  // frontend to select. None when the step wasn't about clips (a fader, the
+  // tempo), which leaves the selection as it is
+  pub clips: Option<Vec<u64>>,
 }
 
 // record a change that's just been made
@@ -360,7 +361,7 @@ fn apply(state: &Arc<daw::InnerState>, step: &Step, way: Way) -> Applied {
     state.playlist.mixer.apply(if pick(true) { before } else { after });
   }
 
-  Applied { clips }
+  Applied { clips: if step.clips.is_empty() { None } else { Some(clips) } }
 }
 
 // run something that changes clips, and record it as a step
@@ -427,12 +428,12 @@ mod tests {
     let id = clip(&state, 1, 4.);
     let added = saved(&state);
 
-    assert_eq!(undo(&state).unwrap(), Some(Applied { clips: vec![] }));
+    assert_eq!(undo(&state).unwrap(), Some(Applied { clips: Some(vec![]) }));
     assert_eq!(saved(&state), empty);
     assert_eq!(beat_of(&state, id), None);
 
     // redone, it's the same clip: its id, and it's the one to select
-    assert_eq!(redo(&state).unwrap(), Some(Applied { clips: vec![id] }));
+    assert_eq!(redo(&state).unwrap(), Some(Applied { clips: Some(vec![id]) }));
     assert_eq!(saved(&state), added);
     assert_eq!(beat_of(&state, id), Some(4.));
   }
@@ -446,10 +447,10 @@ mod tests {
     let after = saved(&state);
     assert_ne!(before, after);
 
-    assert_eq!(undo(&state).unwrap(), Some(Applied { clips: vec![id] }));
+    assert_eq!(undo(&state).unwrap(), Some(Applied { clips: Some(vec![id]) }));
     assert_eq!(beat_of(&state, id), Some(2.));
     assert_eq!(saved(&state), before);
-    assert_eq!(redo(&state).unwrap(), Some(Applied { clips: vec![id] }));
+    assert_eq!(redo(&state).unwrap(), Some(Applied { clips: Some(vec![id]) }));
     assert_eq!(saved(&state), after);
   }
 
@@ -497,7 +498,7 @@ mod tests {
 
     // one undo brings all five back, as they were, with their ids
     let applied = undo(&state).unwrap().unwrap();
-    assert_eq!(applied.clips, ids);
+    assert_eq!(applied.clips, Some(ids.clone()));
     assert_eq!(saved(&state), before);
     for &id in &ids {
       assert!(beat_of(&state, id).is_some());
@@ -640,6 +641,167 @@ mod tests {
     state.set_tempo(90.);
     undo(&state).unwrap();
     assert!((beat_of(&state, id).unwrap() - 8.).abs() < 1e-5);
+  }
+
+  #[test]
+  fn test_mixer_changes() {
+    use crate::mixer_commands as mixer;
+    let state = state();
+    // something already set, which every undo has to leave alone
+    mixer::change_track_pan(&state, 0, -0.5, None);
+    mixer::change_track_name(&state, 3, "Bass");
+
+    let changes: Vec<(&str, Box<dyn Fn(&daw::InnerState)>)> = vec![
+      ("volume", Box::new(|s| { mixer::change_track_volume(s, 2, -12., None); })),
+      ("pan", Box::new(|s| { mixer::change_track_pan(s, 2, 0.25, None); })),
+      ("mute", Box::new(|s| mixer::change_track_mute(s, 1, true))),
+      ("solo", Box::new(|s| mixer::change_track_solo(s, 1, true))),
+      ("master", Box::new(|s| { mixer::change_master_volume(s, -3., None); })),
+      ("name", Box::new(|s| { mixer::change_track_name(s, 2, "Drums"); })),
+      ("rename", Box::new(|s| { mixer::change_track_name(s, 3, "Sub"); })),
+      ("unname", Box::new(|s| { mixer::change_track_name(s, 3, ""); })),
+      // a track that has no clips, past the playlist's last
+      ("far track", Box::new(|s| { mixer::change_track_volume(s, 9, -20., None); })),
+      ("reset", Box::new(|s| { mixer::reset(s); })),
+    ];
+
+    for (what, change) in &changes {
+      let had = steps(&state);
+      let before = saved(&state);
+      change(&state);
+      let after = saved(&state);
+      assert_ne!(before, after, "{} changed nothing", what);
+      assert_eq!(steps(&state), had + 1, "{} is one step", what);
+
+      // a mixer step isn't about clips: the selection is left alone
+      assert_eq!(undo(&state).unwrap(), Some(Applied { clips: None }), "{}", what);
+      assert_eq!(saved(&state), before, "{} undone", what);
+      assert_eq!(redo(&state).unwrap(), Some(Applied { clips: None }), "{}", what);
+      assert_eq!(saved(&state), after, "{} redone", what);
+    }
+
+    // and all the way back, to how it started
+    for _ in &changes { undo(&state).unwrap(); }
+    let mix = state.playlist.mixer.changed();
+    assert_eq!(mix.tracks.len(), 2);
+    assert_eq!(mix.tracks[0].settings.pan, -0.5);
+    assert_eq!(mix.tracks[1].name.as_deref(), Some("Bass"));
+  }
+
+  #[test]
+  fn test_undoing_a_solo_lets_the_other_tracks_sound_again() {
+    use rodio::Source;
+    let state = state();
+    let mixer = &state.playlist.mixer;
+    // what comes out of track 0's strip, given a steady signal
+    let level = || {
+      let source = rodio::source::Zero::<f32>::new(2, 44_100).map(|_: f32| 0.5).take(64);
+      let source = rodio::buffer::SamplesBuffer::new(2, 44_100, source.collect::<Vec<f32>>());
+      mixer.track_strip(0, source.convert_samples::<f32>()).last().unwrap().abs()
+    };
+    assert!(level() > 0.);
+
+    crate::mixer_commands::change_track_solo(&state, 1, true);
+    assert_eq!(level(), 0.);
+    undo(&state).unwrap();
+    assert!(level() > 0.);
+    redo(&state).unwrap();
+    assert_eq!(level(), 0.);
+    // undone and redone again, the solo count hasn't drifted
+    undo(&state).unwrap();
+    undo(&state).unwrap();
+    assert!(level() > 0.);
+  }
+
+  #[test]
+  fn test_a_fader_drag_is_one_step() {
+    use crate::mixer_commands as mixer;
+    let state = state();
+    mixer::change_track_volume(&state, 0, -6., None);
+    let before = saved(&state);
+
+    // twenty values on the way from -6 to 0, as one drag sends them
+    for i in 1..=20 {
+      mixer::change_track_volume(&state, 0, -6. + 0.3 * i as f32, Some(7));
+    }
+    assert_eq!(steps(&state), 2);
+    let after = saved(&state);
+    assert_eq!(state.playlist.mixer.track(0).volume_db(), 0.);
+    there_and_back(&state, &before, &after);
+
+    // the next drag is its own step, as is one on another control in between
+    mixer::change_track_volume(&state, 0, -3., Some(8));
+    mixer::change_track_pan(&state, 0, 0.5, Some(8));
+    mixer::change_master_volume(&state, -1., Some(9));
+    assert_eq!(steps(&state), 4);
+    undo(&state).unwrap();
+    undo(&state).unwrap();
+    assert_eq!(saved(&state), after);
+
+    // a drag that ends where it began leaves nothing to undo
+    mixer::change_track_pan(&state, 1, 0.5, Some(10));
+    mixer::change_track_pan(&state, 1, 0., Some(10));
+    assert_eq!(steps(&state), 2);
+  }
+
+  #[test]
+  fn test_tempo_changes() {
+    use crate::event_dispatch::change_tempo;
+    let state = state();
+    let id = clip(&state, 0, 8.);
+    let ms = |id: u64| {
+      let audiograph = state.playlist.audiograph.lock().unwrap();
+      audiograph.get_node_by_id(id).unwrap().start_offset.as_secs_f64() * 1000.
+    };
+    let before = saved(&state);
+    assert_eq!(change_tempo(&state, 90., None), Ok(90.));
+    let after = saved(&state);
+    assert_eq!(steps(&state), 2);
+
+    assert_eq!(undo(&state).unwrap(), Some(Applied { clips: None }));
+    assert_eq!(state.tempo(), 120.);
+    assert_eq!(saved(&state), before);
+    // the clip is on beat 8 at either tempo: 4s in, or 5.33s
+    assert!((ms(id) - 4_000.).abs() < 0.001);
+    redo(&state).unwrap();
+    assert_eq!(saved(&state), after);
+    assert!((ms(id) - 8. * 60_000. / 90.).abs() < 0.01);
+
+    // a refused tempo is no step
+    assert!(change_tempo(&state, 0., None).is_err());
+    assert!(change_tempo(&state, 90., None).is_ok());
+    assert_eq!(steps(&state), 2);
+
+    // a clip moved at one tempo goes back to its beat at another
+    move_clip(&state, id, 0, Some(2.)).unwrap();
+    change_tempo(&state, 150., None).unwrap();
+    undo(&state).unwrap();
+    undo(&state).unwrap();
+    assert_eq!(state.tempo(), 90.);
+    assert!((beat_of(&state, id).unwrap() - 8.).abs() < 1e-5);
+    undo(&state).unwrap();
+    assert_eq!(saved(&state), before);
+  }
+
+  #[test]
+  fn test_a_visit_to_the_tempo_field_is_one_step() {
+    use crate::event_dispatch::change_tempo;
+    let state = state();
+    let before = saved(&state);
+    // 100 typed, then changed to 140, without leaving the field
+    change_tempo(&state, 100., Some(3)).unwrap();
+    change_tempo(&state, 140., Some(3)).unwrap();
+    assert_eq!(steps(&state), 1);
+    undo(&state).unwrap();
+    assert_eq!(saved(&state), before);
+    redo(&state).unwrap();
+    assert_eq!(state.tempo(), 140.);
+
+    // the next visit is another step
+    change_tempo(&state, 80., Some(4)).unwrap();
+    assert_eq!(steps(&state), 2);
+    undo(&state).unwrap();
+    assert_eq!(state.tempo(), 140.);
   }
 
   #[test]

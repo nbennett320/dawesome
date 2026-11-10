@@ -81,11 +81,15 @@ describe('setPlaylistTempo', () => {
 
     expect(await setPlaylistTempo(90)(dispatch)).toBe(true)
 
-    expect(mockInvoke).toHaveBeenCalledWith('set_playlist_tempo', { val: 90 })
+    expect(mockInvoke).toHaveBeenCalledWith('set_playlist_tempo', { val: 90, gesture: null })
     const state = dispatch.mock.calls.reduce((s, [action]) => reducer(s, action), reducer(undefined, { type: 'init' }))
     expect(state.tempo).toBe(90)
     // views that follow the playhead ask the engine again
     expect(state.transportRevision).toBe(1)
+
+    // typed in the tempo field: the visit it was typed in goes with it
+    await setPlaylistTempo(100, 12)(dispatch)
+    expect(mockInvoke).toHaveBeenCalledWith('set_playlist_tempo', { val: 100, gesture: 12 })
   })
 
   it('does not send half a number', async () => {

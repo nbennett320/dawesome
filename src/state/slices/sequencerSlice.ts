@@ -232,8 +232,10 @@ export const syncRun = async (dispatch: Dispatch) => {
 // change the tempo (see setPlaylistTempo). a pattern playing on its own
 // starts over at the new tempo, so the Sequencer's step light follows the
 // new run. resolves to whether the tempo was changed
-export const changeTempo = (tempo: number) => async (dispatch: Dispatch): Promise<boolean> => {
-  const changed = await setPlaylistTempo(tempo)(dispatch)
+export const changeTempo = (tempo: number, gesture: number | null = null) => async (
+  dispatch: Dispatch,
+): Promise<boolean> => {
+  const changed = await setPlaylistTempo(tempo, gesture)(dispatch)
   if(changed) await syncRun(dispatch)
   return changed
 }

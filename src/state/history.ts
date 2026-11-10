@@ -8,6 +8,7 @@ import { gestureActive } from './gesture'
 import {
   dropQueuedClipSettings, flushClipSettings, reduceProjectView, refreshTrackCount,
 } from './slices/playlistSlice'
+import { clearPendingMixerSends, flushMixerSends } from './slices/mixerSlice'
 import { syncRun } from './slices/sequencerSlice'
 
 export type Way = 'undo' | 'redo'
@@ -49,11 +50,12 @@ export const travel = (way: Way, source: Source = 'menu') => (
     try {
       // a setting changed a moment ago may not have reached the engine yet:
       // it has to be there to be undone
-      await flushClipSettings(getState)
+      await Promise.all([flushClipSettings(getState), flushMixerSends()])
       const travelled = await invoke<Travelled>(way, {})
       if(!travelled.changed) return false
 
       dropQueuedClipSettings()
+      clearPendingMixerSends()
       dispatch(reduceProjectView({ project: travelled.project, selected: travelled.selected }))
       // clips may have come back on, or gone from, the bottom tracks
       await refreshTrackCount()(dispatch)

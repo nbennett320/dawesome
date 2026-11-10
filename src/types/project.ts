@@ -105,8 +105,9 @@ export interface Travelled {
   // false when there was nothing to undo or redo, or it can't be done just
   // now (while recording): nothing changed
   changed: boolean
-  // the clips it changed or put back, which the playlist selects
-  selected: number[]
+  // the clips it changed or put back, which the playlist selects. null when
+  // it wasn't about clips (a fader, the tempo): the selection stays
+  selected: number[] | null
   canUndo: boolean
   canRedo: boolean
   project: ProjectView

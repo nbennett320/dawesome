@@ -222,7 +222,7 @@ export const playlistSlice = createSlice({
     // has, and the transport isn't touched
     reduceProjectView: (
       state,
-      action: PayloadAction<{ project: ProjectView, selected: number[] }>,
+      action: PayloadAction<{ project: ProjectView, selected: number[] | null }>,
     ) => {
       const { project, selected } = action.payload
 
@@ -255,7 +255,7 @@ export const playlistSlice = createSlice({
       if(!state.playlistItems.some(item => item.id === state.inspectedClipId)) {
         state.inspectedClipId = null
       }
-      state.travelled = { count: state.travelled.count + 1, ids: selected }
+      if(selected) state.travelled = { count: state.travelled.count + 1, ids: selected }
     },
     setPlaylistUI: (state, action) => {
       state.ui = action.payload
@@ -382,11 +382,15 @@ export const validTempo = (tempo: number): boolean =>
 // carries on from the beat it had got to. a tempo that makes no sense isn't
 // sent, and the engine refuses any while recording. resolves to whether the
 // tempo was changed
-export const setPlaylistTempo = (val: number) => async (dispatch: Dispatch): Promise<boolean> => {
+// - gesture: the visit to the tempo field this is part of, if any. every
+//   tempo typed during one visit is undone as one step
+export const setPlaylistTempo = (val: number, gesture: number | null = null) => async (
+  dispatch: Dispatch,
+): Promise<boolean> => {
   if(!validTempo(val)) return false
 
   try {
-    const tempo = await invoke<number>('set_playlist_tempo', { val })
+    const tempo = await invoke<number>('set_playlist_tempo', { val, gesture })
     dispatch(reduceTempo(tempo))
     // the playhead's time, and the beat's length, have changed
     await syncPlayingFrom(dispatch)

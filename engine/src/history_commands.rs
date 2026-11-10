@@ -65,8 +65,9 @@ pub struct Travelled {
   // false when there was nothing to undo (or redo), or it can't be done just
   // now (while recording): nothing changed
   pub changed: bool,
-  // the clips it changed or put back, which the playlist selects
-  pub selected: Vec<u64>,
+  // the clips it changed or put back, which the playlist selects. None when
+  // it wasn't about clips, and the selection stays
+  pub selected: Option<Vec<u64>>,
   pub can_undo: bool,
   pub can_redo: bool,
   pub project: ProjectView,
@@ -80,7 +81,7 @@ fn travelled(state: &daw::InnerState, applied: Option<history::Applied>) -> Trav
 
   Travelled {
     changed: applied.is_some(),
-    selected: applied.map(|applied| applied.clips).unwrap_or_default(),
+    selected: applied.and_then(|applied| applied.clips),
     can_undo,
     can_redo,
     project: project_view(state),

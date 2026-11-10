@@ -2,6 +2,7 @@ import React from 'react'
 import { selectPlaylistTempo, validTempo } from '../../state/slices/playlistSlice'
 import { changeTempo } from '../../state/slices/sequencerSlice'
 import { selectRecording } from '../../state/slices/recordingSlice'
+import { newGesture } from '../../state/gesture'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
 
 // how long after the last keystroke a typed tempo is taken up. (not on each
@@ -18,6 +19,9 @@ const TempoInput = () => {
   // moment after typing stops, on Enter, or when the field is left
   const [draft, setDraft] = React.useState<string | null>(null)
   const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  // one visit to the field, from getting the keyboard to losing it, is one
+  // step to undo, however many tempos were tried on the way
+  const visit = React.useRef<number | null>(null)
 
   const cancel = () => {
     if(timer.current) clearTimeout(timer.current)
@@ -29,7 +33,7 @@ const TempoInput = () => {
     const typed = parseFloat(value)
     if(!validTempo(typed) || typed === tempo) return
 
-    dispatch(changeTempo(typed)).then(changed => {
+    dispatch(changeTempo(typed, visit.current)).then(changed => {
       // refused: back to the tempo it is
       if(!changed) setDraft(null)
     })
@@ -54,9 +58,13 @@ const TempoInput = () => {
         disabled={recording}
         title={recording ? 'The tempo can\u2019t be changed while recording' : undefined}
         value={draft ?? tempo}
-        onFocus={() => setDraft(String(tempo))}
+        onFocus={() => {
+          visit.current = newGesture()
+          setDraft(String(tempo))
+        }}
         onBlur={e => {
           takeUp(e.currentTarget.value)
+          visit.current = null
           setDraft(null)
         }}
         onKeyDown={e => {

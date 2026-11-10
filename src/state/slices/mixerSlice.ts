@@ -10,6 +10,7 @@ import {
 } from '../../types/mixer'
 import { LoadedProject } from '../../types/project'
 import { reduceLoadedProject, reduceProjectView } from './playlistSlice'
+import { currentGesture } from '../gesture'
 
 // the Mixer tab's state. the engine owns the mixer and applies changes while
 // playing; this mirrors it so the controls move straight away
@@ -114,6 +115,15 @@ const sendLatest = (key: string, send: () => Promise<unknown>) => {
 // mix, so they don't overwrite it
 export const clearPendingMixerSends = () => queued.clear()
 
+// send the values still waiting, now (before an undo: a value has to have
+// reached the engine to be undone)
+export const flushMixerSends = (): Promise<unknown> =>
+  Promise.all(Array.from(queued.entries()).map(([key, send]) => {
+    if(!send) return undefined
+    queued.set(key, null)
+    return send()
+  }))
+
 export const fetchMixer = () => async (dispatch: Dispatch) => {
   const settings = await invoke<MixerSettings>('get_mixer', {})
   dispatch(setMixer(settings))
@@ -121,15 +131,18 @@ export const fetchMixer = () => async (dispatch: Dispatch) => {
 
 export const setTrackVolume = (trackNumber: number, volumeDb: number) => (dispatch: Dispatch) => {
   dispatch(setTrack({ trackNumber, change: { volumeDb } }))
+  // the drag this is part of, which is undone as one step
+  const gesture = currentGesture()
   sendLatest(`volume-${trackNumber}`, () =>
-    invoke<number>('set_track_volume', { trackNumber, volumeDb })
+    invoke<number>('set_track_volume', { trackNumber, volumeDb, gesture })
       .catch(logError(`set the volume of track ${trackNumber + 1}`)))
 }
 
 export const setTrackPan = (trackNumber: number, pan: number) => (dispatch: Dispatch) => {
   dispatch(setTrack({ trackNumber, change: { pan } }))
+  const gesture = currentGesture()
   sendLatest(`pan-${trackNumber}`, () =>
-    invoke<number>('set_track_pan', { trackNumber, pan })
+    invoke<number>('set_track_pan', { trackNumber, pan, gesture })
       .catch(logError(`set the pan of track ${trackNumber + 1}`)))
 }
 
@@ -147,8 +160,9 @@ export const setTrackSolo = (trackNumber: number, solo: boolean) => (dispatch: D
 
 export const setMasterVolume = (volumeDb: number) => (dispatch: Dispatch) => {
   dispatch(setMaster({ volumeDb }))
+  const gesture = currentGesture()
   sendLatest('volume-master', () =>
-    invoke<number>('set_master_volume', { volumeDb })
+    invoke<number>('set_master_volume', { volumeDb, gesture })
       .catch(logError('set the master volume')))
 }
 

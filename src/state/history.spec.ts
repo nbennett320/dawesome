@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { store } from './store'
 import { resetTravel, samePress, travel } from './history'
 import { beginGesture, resetGestures } from './gesture'
+import { setTrackVolume } from './slices/mixerSlice'
 import { Travelled } from '../types/project'
 import { defaultClipSettings } from '../types/clip'
 
@@ -79,6 +80,43 @@ describe('undo and redo', () => {
     expect(mixer.master.volumeDb).toBe(-3)
     expect(sequencer.patterns.map(p => p.name)).toEqual(['verse'])
     expect(sequencer.selectedPatternId).toBe(2)
+  })
+
+  it('leaves the selection alone when the step was not about clips', async () => {
+    // a fader, or the tempo, went back
+    engine({ ...travelled, selected: null })
+    const before = store.getState().playlist.travelled
+
+    expect(await store.dispatch(travel('undo'))).toBe(true)
+    expect(store.getState().playlist.travelled).toBe(before)
+    expect(store.getState().mixer.master.volumeDb).toBe(-3)
+
+    // one that took clips away selects nothing
+    resetTravel()
+    engine({ ...travelled, selected: [] })
+    await store.dispatch(travel('undo'))
+    expect(store.getState().playlist.travelled).toEqual({ count: before.count + 1, ids: [] })
+  })
+
+  it('sends a fader value still waiting before undoing, and none after', async () => {
+    jest.useFakeTimers()
+    engine(travelled)
+    store.dispatch(setTrackVolume(0, -3))
+    store.dispatch(setTrackVolume(0, -9))
+
+    await store.dispatch(travel('undo'))
+
+    const order = mockInvoke.mock.calls
+      .filter(([name]) => name === 'set_track_volume' || name === 'undo')
+      .map(([name, args]) => (name === 'undo' ? name : args.volumeDb))
+    expect(order).toEqual([-3, -9, 'undo'])
+    // the fader shows what the engine went back to
+    expect(store.getState().mixer.tracks[0].volumeDb).toBe(-6)
+
+    jest.runOnlyPendingTimers()
+    jest.runOnlyPendingTimers()
+    expect(calls('set_track_volume')).toBe(2)
+    jest.useRealTimers()
   })
 
   it('changes nothing when there is nothing to undo', async () => {
