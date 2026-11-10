@@ -1,5 +1,9 @@
 import { invoke } from '@tauri-apps/api/core'
-import reducer, { changeTempo, sequencerSlice, selectPattern, setSequencer } from './sequencerSlice'
+import reducer, {
+  changeTempo, sequencerSlice, selectPattern, setPatternStep, setSequencer, setSequencerRowMuted,
+  setSequencerRowVolume,
+} from './sequencerSlice'
+import { beginGesture, resetGestures } from '../gesture'
 import { reduceLoadedProject, setPlaying } from './playlistSlice'
 import { LoadedProject } from '../../types/project'
 import { SequencerState } from '../../types/sequencer'
@@ -101,5 +105,47 @@ describe('changeTempo', () => {
     const dispatch = jest.fn()
     expect(await changeTempo(NaN)(dispatch)).toBe(false)
     expect(mockInvoke).not.toHaveBeenCalled()
+  })
+})
+
+describe('sequencer edits and undo', () => {
+  const mockInvoke = invoke as jest.Mock
+
+  beforeEach(() => {
+    mockInvoke.mockReset()
+    mockInvoke.mockResolvedValue(sequencer)
+    resetGestures()
+  })
+
+  const sent = () => mockInvoke.mock.calls.map(([command, args]) => [command, args.gesture])
+
+  it('sends every step of one stroke, and every value of one knob drag, as one gesture', async () => {
+    const dispatch = jest.fn()
+
+    // the mouse goes down on a step, and is dragged along the row
+    const stroke = beginGesture()
+    await setPatternStep(0, 0, 4, true)(dispatch)
+    await setPatternStep(0, 0, 5, true)(dispatch)
+    await setPatternStep(0, 0, 6, true)(dispatch)
+    // the next press: a volume knob
+    const drag = beginGesture()
+    await setSequencerRowVolume(0, 0.8)(dispatch)
+    await setSequencerRowVolume(0, 0.6)(dispatch)
+
+    expect(stroke).not.toBe(drag)
+    expect(sent()).toEqual([
+      ['set_pattern_step', stroke], ['set_pattern_step', stroke], ['set_pattern_step', stroke],
+      ['set_sequencer_row_volume', drag], ['set_sequencer_row_volume', drag],
+    ])
+  })
+
+  it('sends a step toggled from the keyboard, and a mute, as steps of their own', async () => {
+    const dispatch = jest.fn()
+    await setPatternStep(0, 0, 4, true)(dispatch)
+    // a click is a press too, but a mute is always its own step
+    beginGesture()
+    await setSequencerRowMuted(0, true)(dispatch)
+
+    expect(sent()).toEqual([['set_pattern_step', null], ['set_sequencer_row_muted', undefined]])
   })
 })

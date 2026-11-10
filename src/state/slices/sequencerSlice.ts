@@ -19,6 +19,7 @@ import {
   reduceProjectView,
 } from './playlistSlice'
 import { openTab, selectFocusedView } from './windowSlice'
+import { currentGesture } from '../gesture'
 
 // a pattern playing on its own, and when it started, for the step highlight
 export interface PatternRun {
@@ -145,8 +146,9 @@ export const addSequencerRow = (path: string) => async (dispatch: Dispatch, getS
 export const removeSequencerRow = (rowId: number) =>
   edit('remove the row', 'remove_sequencer_row', { rowId })
 
+// (one drag of the knob is one step to undo: see state/gesture.ts)
 export const setSequencerRowVolume = (rowId: number, volume: number) =>
-  edit("set the row's volume", 'set_sequencer_row_volume', { rowId, volume })
+  edit("set the row's volume", 'set_sequencer_row_volume', { rowId, volume, gesture: currentGesture() })
 
 export const setSequencerRowMuted = (rowId: number, muted: boolean) =>
   edit('mute the row', 'set_sequencer_row_muted', { rowId, muted })
@@ -217,7 +219,9 @@ export const setPatternBars = (patternId: number, bars: number) =>
 export const setPatternStep = (patternId: number, rowId: number, step: number, on: boolean) =>
   (dispatch: Dispatch) => {
     dispatch(reduceStep({ patternId, rowId, step, on }))
-    return edit('change the step', 'set_pattern_step', { patternId, rowId, step, on })(dispatch)
+    // every step painted in one stroke of the mouse is undone together
+    const gesture = currentGesture()
+    return edit('change the step', 'set_pattern_step', { patternId, rowId, step, on, gesture })(dispatch)
   }
 
 // after a transport command: whether the engine plays, and which pattern

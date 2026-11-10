@@ -391,6 +391,38 @@ mod tests {
   }
 
   #[test]
+  fn test_no_undo_or_redo_while_recording() {
+    use crate::history;
+    let state = Arc::new(daw::InnerState::default());
+    let clip = crate::event_dispatch::add_clip(&state, daw::METRONOME_TICK_PATH.to_string(), 0, Some(2.)).unwrap().id;
+    let has_clip = || state.playlist.audiograph.lock().unwrap().get_node_by_id(clip).is_some();
+
+    // while a take is being recorded, nothing is undone, and the step waits
+    state.recorder.lock().unwrap().session = Some(session());
+    assert_eq!(history::undo(&state), Ok(None));
+    assert!(has_clip());
+    assert_eq!(state.history.lock().unwrap().len(), 1);
+
+    // nor while its takes are being put on their tracks
+    state.recorder.lock().unwrap().begin_finish();
+    assert_eq!(history::undo(&state), Ok(None));
+    assert!(has_clip());
+
+    // once it's over, the step is still there to undo
+    state.recorder.lock().unwrap().end_finish(vec![], vec![]);
+    assert!(history::undo(&state).unwrap().is_some());
+    assert!(!has_clip());
+
+    // and redo waits the same way
+    state.recorder.lock().unwrap().session = Some(session());
+    assert_eq!(history::redo(&state), Ok(None));
+    assert!(!has_clip());
+    state.recorder.lock().unwrap().session = None;
+    assert!(history::redo(&state).unwrap().is_some());
+    assert!(has_clip());
+  }
+
+  #[test]
   fn test_a_new_recording_waits_for_the_last_to_finish() {
     let state = Arc::new(daw::InnerState::default());
     state.recorder.lock().unwrap().session = Some(session());

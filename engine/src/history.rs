@@ -385,6 +385,46 @@ pub fn clip_edit<T>(
   Ok(result)
 }
 
+// the parts of the project a Sequencer edit can change, as they are now:
+// the sequencer, the mixer (exploding names tracks) and some clips
+pub struct Picture {
+  clips: Clips,
+  sequencer: daw::Sequencer,
+  mixer: daw::MixerSettings,
+}
+
+// - ids: the clips the edit may change, add or remove
+pub fn picture(state: &daw::InnerState, ids: &[u64]) -> Picture {
+  Picture {
+    clips: clips(state, ids),
+    sequencer: state.playlist.sequencer.lock().unwrap().clone(),
+    mixer: state.playlist.mixer.changed(),
+  }
+}
+
+// record what changed between two pictures as one step
+pub fn record_between(state: &daw::InnerState, gesture: Option<u64>, before: Picture, after: Picture) {
+  record(state, Step::new()
+    .in_gesture(gesture)
+    .with_clips(before.clips, after.clips)
+    .with_sequencer(before.sequencer, after.sequencer)
+    .with_mixer(before.mixer, after.mixer));
+}
+
+// run something that changes the sequencer, and record it as a step
+// - ids: the clips it may remove with it (a deleted pattern's)
+pub fn sequencer_edit<T>(
+  state: &daw::InnerState,
+  ids: &[u64],
+  gesture: Option<u64>,
+  edit: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+  let before = picture(state, ids);
+  let result = edit()?;
+  record_between(state, gesture, before, picture(state, ids));
+  Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
