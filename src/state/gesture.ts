@@ -55,4 +55,10 @@ if(typeof window !== 'undefined') {
   window.addEventListener('pointercancel', endGesture, true)
   // the mouse came up outside the window
   window.addEventListener('blur', endGesture)
+  // a release can go missing (a context menu takes it): the mouse moving
+  // with no button down means the press is over
+  window.addEventListener('contextmenu', endGesture, true)
+  window.addEventListener('pointermove', (ev: PointerEvent) => {
+    if(current !== null && ev.buttons === 0) endGesture()
+  }, true)
 }

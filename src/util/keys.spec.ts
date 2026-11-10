@@ -1,5 +1,5 @@
 import {
-  isDeleteKey, isExplodeKey, isTransportKey, isTypingTarget, transportKeyHandler,
+  isDeleteKey, isExplodeKey, isTextTarget, isTransportKey, isTypingTarget, transportKeyHandler,
 } from './keys'
 
 const el = (html: string) => {
@@ -27,6 +27,18 @@ describe('isTypingTarget', () => {
     expect(isTypingTarget(el('<button></button>'))).toBe(false)
     expect(isTypingTarget(el('<input type="range">'))).toBe(false)
     expect(isTypingTarget(el('<input type="checkbox">'))).toBe(false)
+  })
+})
+
+describe('isTextTarget', () => {
+  it('is a text field, but not a drop-down, a slider or the page', () => {
+    expect(isTextTarget(el('<input type="text">'))).toBe(true)
+    expect(isTextTarget(el('<input type="number">'))).toBe(true)
+    expect(isTextTarget(el('<textarea></textarea>'))).toBe(true)
+    expect(isTextTarget(el('<select></select>'))).toBe(false)
+    expect(isTextTarget(el('<input type="range">'))).toBe(false)
+    expect(isTextTarget(document.body)).toBe(false)
+    expect(isTextTarget(null)).toBe(false)
   })
 })
 

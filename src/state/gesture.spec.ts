@@ -51,4 +51,21 @@ describe('gestures', () => {
     jest.runAllTimers()
     expect(gestureActive()).toBe(false)
   })
+
+  it('ends when the release went missing: a context menu, or the mouse moving with no button down', () => {
+    window.dispatchEvent(new Event('pointerdown'))
+    window.dispatchEvent(new Event('contextmenu'))
+    jest.runAllTimers()
+    expect(gestureActive()).toBe(false)
+
+    const move = (buttons: number) => Object.assign(new Event('pointermove'), { buttons })
+    window.dispatchEvent(new Event('pointerdown'))
+    // still dragging
+    window.dispatchEvent(move(1))
+    jest.runAllTimers()
+    expect(gestureActive()).toBe(true)
+    window.dispatchEvent(move(0))
+    jest.runAllTimers()
+    expect(gestureActive()).toBe(false)
+  })
 })

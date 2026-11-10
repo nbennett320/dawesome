@@ -34,3 +34,10 @@ Things worth fixing that this project does not touch unless a design answer brin
 - **A failed Play/Pause is not caught** (`togglePlay`, `src/state/slices/playlistSlice.ts`): if the engine refuses, the error goes nowhere. Same for the topbar key and Space.
 - **A right-button release during a left-button press ends the press** (`canvas.mouseReleased`, `src/views/playlist/sketch/index.ts`, does not check which button came up).
 - **`src/components/common/base/SelectBase.tsx` looks unused.** If it comes back into use, Space on it would play instead of opening it.
+
+## Found while building M3 (2026-11-10)
+
+- **A recording can be deleted while the undo history still holds a clip of it** (`in_use`, `engine/src/audio_commands.rs`, looks only at the clips and Sequencer rows that exist now). Undo then restores a clip whose file is in the Trash.
+- **Undo pressed while a dropped sample is still loading undoes the edit before the drop** (`add_clip`, `engine/src/event_dispatch.rs`, records its step only after the file is decoded).
+- **The Edit menu's Undo and Redo items are never dimmed.** The engine already returns `canUndo` and `canRedo` with every undo and redo.
+- **`set_playlist_time_signature` records no undo step.** Nothing in the UI calls it.

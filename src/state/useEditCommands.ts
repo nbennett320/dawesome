@@ -1,7 +1,7 @@
 import React from 'react'
 import { useAppDispatch } from '../hooks/redux'
 import { EditCommand, listeners } from '../events/window'
-import { isTypingTarget } from '../util/keys'
+import { isTextTarget } from '../util/keys'
 import { EditShortcut, editShortcutHandler } from '../util/shortcuts'
 import { travel } from './history'
 
@@ -15,7 +15,7 @@ export const useEditCommands = () => {
     // from the menu: the key (if it was a key) never reached the window, so
     // in a text field the command is done to the text here
     const fromMenu = (command: EditCommand) => {
-      const typing = isTypingTarget(document.activeElement)
+      const typing = isTextTarget(document.activeElement)
 
       switch(command) {
         case 'undo':

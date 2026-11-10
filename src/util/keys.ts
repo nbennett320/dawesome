@@ -13,6 +13,11 @@ export const isTypingTarget = (target: EventTarget | null): boolean => {
   return !['button', 'checkbox', 'radio', 'range', 'submit', 'reset', 'color', 'file'].includes(type)
 }
 
+// whether a key press is going into text being typed: as isTypingTarget, but
+// not a drop-down list, which has no text for ⌘Z or ⌘A to act on
+export const isTextTarget = (target: EventTarget | null): boolean =>
+  isTypingTarget(target) && (target as HTMLElement).tagName !== 'SELECT'
+
 // Delete, or Backspace (the delete key on a Mac keyboard), with no modifier
 export const isDeleteKey = (ev: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey'>): boolean =>
   (ev.key === 'Delete' || ev.key === 'Backspace') && !ev.metaKey && !ev.ctrlKey && !ev.altKey

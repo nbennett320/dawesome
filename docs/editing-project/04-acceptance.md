@@ -33,18 +33,18 @@ Milestone tags (M1–M14) say when an item becomes checkable.
 
 ## B. Undo and redo (M3, extended by each later milestone)
 
-- [ ] B1 [E] For every undoable command: apply, undo → the project equals the project before; redo → it equals the project after.
+- [x] B1 [E] For every undoable command: apply, undo → the project equals the project before; redo → it equals the project after. — clips: `history::tests::test_adding_a_clip`, `test_moving_a_clip`, `test_moving_a_selection_is_one_step`, `test_deleting_a_selection_is_one_step`, `test_a_gesture_is_one_step` (clip settings); mixer: `test_mixer_changes`, `test_a_fader_drag_is_one_step`, `test_undoing_a_solo_lets_the_other_tracks_sound_again`; tempo: `test_tempo_changes`; Sequencer: `sequencer_commands::tests::test_every_sequencer_edit_can_be_undone_and_redone`, `test_placing_a_pattern_is_one_step`, `test_exploding_is_one_step`, `test_a_removed_row_and_pattern_come_back_as_themselves`. Extended by each later milestone.
 - [ ] B2 [M] Move a clip, Cmd+Z: it returns and is selected. Shift+Cmd+Z: it moves again.
 - [ ] B3 [M] Delete five selected clips, Cmd+Z once: all five return.
 - [ ] B4 [M] Drag a mixer fader from −6 to 0 in one motion, Cmd+Z once: it is back at −6.
 - [ ] B5 [M] Paint eight Sequencer steps in one stroke, Cmd+Z once: all eight clear.
 - [ ] B6 [M] Type a new tempo and leave the field, Cmd+Z once: the old tempo returns.
-- [ ] B7 [E] After 150 edits, exactly 100 can be undone.
-- [ ] B8 [E] Undo three steps, make one edit: redo does nothing.
+- [x] B7 [E] After 150 edits, exactly 100 can be undone. — `history::tests::test_the_last_hundred_steps_are_kept`
+- [x] B8 [E] Undo three steps, make one edit: redo does nothing. — `history::tests::test_a_new_change_ends_redo`, `test_a_change_made_during_an_undo_ends_redo`
 - [ ] B9 [M] Cmd+Z works with the Mixer or Sequencer focused.
 - [ ] B10 [M] Cmd+Z while typing in a rename field undoes typing and changes nothing in the project.
-- [ ] B11 [E] The history is empty after New Project and after Open, and unchanged by Save.
-- [ ] B12 [E] Undo is refused while a recording is in progress.
+- [x] B11 [E] The history is empty after New Project and after Open, and unchanged by Save. — `history::tests::test_the_history_starts_again_with_a_project`, `test_saving_keeps_the_history`
+- [x] B12 [E] Undo is refused while a recording is in progress. — `recording::tests::test_no_undo_or_redo_while_recording`
 - [ ] B13 [M] Toggling metronome, loop or snap, or arming a track, adds no undo step.
 - [ ] B14 [M] The Edit menu shows Undo, Redo, Cut, Copy, Paste, Repeat, Select All, Join, with plain Undo and Redo labels.
 
@@ -212,7 +212,7 @@ Each of these is a failure whenever it is observed, at any milestone.
 - [ ] X1 [E] Editing one clip (trim, stretch, cut, settings, deep copy) changes what another clip plays.
 - [ ] X2 [E] A deep copy or join writes a file anywhere outside the project's folder.
 - [ ] X3 [E] A deep copy or join overwrites an existing file.
-- [ ] X4 [E] Undo, redo, deep copy or join deletes or moves an audio file.
+- [ ] X4 [E] Undo, redo, deep copy or join deletes or moves an audio file. (Undo and redo proved by `history::tests::test_undo_and_redo_leave_files_alone`; deep copy and join to be proved in M11 and M13.)
 - [ ] X5 [M] Space starts or stops playback while typing in a text field, the tempo field, a rename field, search or a drop-down list.
 - [ ] X6 [M] C, S, Shift+J, Cmd+C, Cmd+X, Cmd+V, Cmd+R or Cmd+A changes the project while typing in a text field.
 - [ ] X7 [M] Cmd+R reloads the app window.

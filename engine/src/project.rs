@@ -406,6 +406,9 @@ pub fn apply(
   }
 
   let mixer = state.playlist.mixer.settings(audiograph.track_count());
+  // anything changed while the samples were loading (a fader moved, a step
+  // lit) was a change to the project that's gone: its history goes too
+  state.history.lock().unwrap().clear();
 
   LoadedProject { settings, clips, missing, mixer, sequencer, pattern_clips, armed: project.armed.clone() }
 }

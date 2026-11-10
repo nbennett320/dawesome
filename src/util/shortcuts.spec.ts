@@ -53,6 +53,17 @@ describe('editShortcutHandler', () => {
     expect(ev.preventDefault).toHaveBeenCalled()
   })
 
+  it('still runs with a drop-down or a button holding the keyboard', () => {
+    // a drop-down keeps the keyboard after a pick, and has no text to undo
+    const run = jest.fn()
+    ;['select', 'button', 'canvas'].forEach(tag => {
+      const ev = press({ target: document.createElement(tag) })
+      editShortcutHandler(run, true)(ev)
+      expect(ev.preventDefault).toHaveBeenCalled()
+    })
+    expect(run).toHaveBeenCalledTimes(3)
+  })
+
   it('leaves the key to a text field, where it undoes typing', () => {
     const run = jest.fn()
     const field = document.createElement('input')

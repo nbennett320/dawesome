@@ -520,9 +520,20 @@ pub fn move_audiograph_nodes(
   drop_beat: f32,
   track_number: u32,
 ) -> Result<Vec<MovedNode>, String> {
+  move_clips(state.inner(), &ids, anchor_id, drop_beat, track_number)
+}
+
+// one step to undo, however many clips
+pub(crate) fn move_clips(
+  state: &daw::InnerState,
+  ids: &[u64],
+  anchor_id: u64,
+  drop_beat: f32,
+  track_number: u32,
+) -> Result<Vec<MovedNode>, String> {
   history::clip_edit(
-    state.inner(), &ids, None,
-    || move_audiograph_nodes_to(state.inner(), &ids, anchor_id, drop_beat, track_number),
+    state, ids, None,
+    || move_audiograph_nodes_to(state, ids, anchor_id, drop_beat, track_number),
     |_| vec![])
 }
 
@@ -577,6 +588,12 @@ pub fn remove_audiograph_nodes(
 
 // take clips of either kind out of the playlist. one step to undo
 pub(crate) fn remove_clips(state: &daw::InnerState, ids: &[u64]) -> Result<(), String> {
+  // (an id given twice is removed once)
+  let mut ids = ids.to_vec();
+  ids.sort_unstable();
+  ids.dedup();
+  let ids = &ids[..];
+
   history::clip_edit(state, ids, None, || {
     let mut audiograph = state.playlist.audiograph.lock().unwrap();
     if let Some(missing) = ids.iter().find(|&&id| audiograph.placement(id).is_none()) {

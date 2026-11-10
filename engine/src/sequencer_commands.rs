@@ -530,6 +530,8 @@ mod tests {
       ("duplicate a pattern", Box::new(|| duplicate_pattern_of(s, pattern).map(|_| ()))),
       ("add a folder", Box::new(|| add_pattern_folder_to(s, "Fills", Some(folder)).map(|_| ()))),
       ("rename a folder", Box::new(|| edit(s, |seq| seq.rename_folder(folder, "Kit")).map(|_| ()))),
+      // (the folder just added, out to the top)
+      ("move a folder", Box::new(|| edit(s, |seq| seq.move_folder(folder + 1, None)).map(|_| ()))),
       ("move a pattern", Box::new(|| edit(s, |seq| seq.move_pattern(pattern, None)).map(|_| ()))),
       ("remove a folder", Box::new(|| remove_pattern_folder_of(s, folder).map(|_| ()))),
       // with its steps in every pattern
@@ -558,6 +560,26 @@ mod tests {
     for _ in &edits { history::undo(&state).unwrap(); }
     assert_eq!(steps(&state), had);
     assert_eq!(saved(&state), start);
+  }
+
+  #[test]
+  fn test_placing_a_pattern_is_one_step() {
+    let (state, _, _, pattern, _, _) = drums();
+    let before = saved(&state);
+    let had = steps(&state);
+
+    let placed = add_pattern_clip_to(&state, pattern, 3, Some(12.)).unwrap();
+    assert_eq!(steps(&state), had + 1);
+    let after = saved(&state);
+    assert_ne!(before, after);
+
+    // undone, the clip is gone and its pattern stays. redone, it's the
+    // same clip again
+    assert_eq!(history::undo(&state).unwrap().unwrap().clips, Some(vec![]));
+    assert_eq!(saved(&state), before);
+    assert!(state.playlist.sequencer.lock().unwrap().pattern(pattern).is_some());
+    assert_eq!(history::redo(&state).unwrap().unwrap().clips, Some(vec![placed.id]));
+    assert_eq!(saved(&state), after);
   }
 
   #[test]

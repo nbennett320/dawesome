@@ -187,12 +187,15 @@ impl Step {
 pub struct History {
   undo: Vec<Step>,
   redo: Vec<Step>,
+  // goes up with every change recorded, and when the history is cleared
+  changes: u64,
 }
 
 impl History {
   pub fn clear(&mut self) {
     self.undo.clear();
     self.redo.clear();
+    self.changes += 1;
   }
 
   pub fn can_undo(&self) -> bool {
@@ -213,6 +216,7 @@ impl History {
     step.tidy();
     if step.is_empty() { return; }
 
+    self.changes += 1;
     self.redo.clear();
     match self.undo.last_mut() {
       Some(top) if step.gesture.is_some() && top.gesture == step.gesture => {
@@ -297,12 +301,13 @@ fn travel(state: &Arc<daw::InnerState>, way: Way) -> Result<Option<Applied>, Str
   // a take is going onto the playlist as it is now
   if crate::recording::is_busy(state) { return Ok(None); }
 
-  let step = {
+  let (step, changes) = {
     let mut history = state.history.lock().unwrap();
-    match way {
+    let step = match way {
       Way::Undo => history.undo.pop(),
       Way::Redo => history.redo.pop(),
-    }
+    };
+    (step, history.changes)
   };
   let step = match step {
     Some(step) => step,
@@ -312,9 +317,14 @@ fn travel(state: &Arc<daw::InnerState>, way: Way) -> Result<Option<Applied>, Str
   let applied = apply(state, &step, way);
 
   let mut history = state.history.lock().unwrap();
-  match way {
-    Way::Undo => history.redo.push(step),
-    Way::Redo => history.undo.push(step),
+  // a change recorded meanwhile (a sample that was still loading when it
+  // was dropped) is the newest thing done: it has ended redo, and this step
+  // can't be gone back to
+  if history.changes == changes {
+    match way {
+      Way::Undo => history.redo.push(step),
+      Way::Redo => history.undo.push(step),
+    }
   }
   Ok(Some(applied))
 }
@@ -502,25 +512,13 @@ mod tests {
     let was = steps(&state);
 
     // the command the playlist uses for a dragged selection
-    let moved = history_of_group_move(&state, &[a, b], a, 10., 2);
+    let moved = crate::event_dispatch::move_clips(&state, &[a, b], a, 10., 2);
     assert!(moved.is_ok());
     assert_eq!(steps(&state), was + 1);
     let after = saved(&state);
 
     there_and_back(&state, &before, &after);
     assert_eq!((beat_of(&state, a), beat_of(&state, b)), (Some(10.), Some(13.)));
-  }
-
-  fn history_of_group_move(
-    state: &daw::InnerState, ids: &[u64], anchor: u64, beat: f32, track: u32,
-  ) -> Result<(), String> {
-    clip_edit(state, ids, None, || {
-      let target = crate::event_dispatch::beat_to_offset(state, Some(beat));
-      let end = crate::event_dispatch::beat_to_offset(state, Some(256.));
-      state.playlist.audiograph.lock().unwrap()
-        .move_nodes(ids, anchor, target, track, end, None::<daw::timing::Note>)
-        .map(|_| ())
-    }, |_| vec![])
   }
 
   #[test]
@@ -669,6 +667,63 @@ mod tests {
     assert_eq!(steps(&state), was);
     assert!(undo(&state).unwrap().is_some());
     assert_eq!(beat_of(&state, id), Some(0.));
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_a_change_made_during_an_undo_ends_redo() {
+    let state = state();
+    let id = clip(&state, 0, 0.);
+    move_clip(&state, id, 0, Some(3.)).unwrap();
+
+    // as travel does, with a change recorded while the step is being applied
+    let (step, changes) = {
+      let mut history = state.history.lock().unwrap();
+      (history.undo.pop().unwrap(), history.changes)
+    };
+    apply(&state, &step, Way::Undo);
+    clip(&state, 1, 8.);
+    assert_ne!(state.history.lock().unwrap().changes, changes);
+
+    // and through the real thing: nothing to redo after a new change
+    undo(&state).unwrap();
+    clip(&state, 2, 4.);
+    assert_eq!(redo(&state).unwrap(), None);
+  }
+
+  #[test]
+  fn test_undo_and_redo_leave_files_alone() {
+    let dir = std::env::temp_dir().join(format!("dawesome-history-files-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    // a take, as a recording leaves it
+    let take = dir.join("take.wav");
+    std::fs::copy(daw::METRONOME_TICK_PATH, &take).unwrap();
+    let bytes = std::fs::read(&take).unwrap();
+    let listing = || {
+      let mut names: Vec<String> = std::fs::read_dir(&dir).unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+      names.sort();
+      names
+    };
+    let files = listing();
+
+    let state = state();
+    let id = add_clip(&state, take.to_string_lossy().into_owned(), 0, Some(1.)).unwrap().id;
+    change_clip_settings(&state, id, daw::ClipSettings { pitch: 3., ..Default::default() }, None).unwrap();
+    move_clip(&state, id, 2, Some(6.)).unwrap();
+    remove_clips(&state, &[id]).unwrap();
+
+    // all the way back, and all the way forward again, twice
+    for _ in 0..2 {
+      while undo(&state).unwrap().is_some() {}
+      assert_eq!(listing(), files);
+      assert_eq!(std::fs::read(&take).unwrap(), bytes);
+      while redo(&state).unwrap().is_some() {}
+      assert_eq!(listing(), files);
+      assert_eq!(std::fs::read(&take).unwrap(), bytes);
+    }
     let _ = std::fs::remove_dir_all(&dir);
   }
 
