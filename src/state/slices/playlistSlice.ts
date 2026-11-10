@@ -47,6 +47,9 @@ export interface PlaylistState {
   snapEnabled: boolean,
   snapNote: SnapNote,
   playlistItems: Array<PlaylistItem>
+  // counts projects opened (or started), so the playlist goes back to how
+  // it opens: its first bars
+  viewRevision: number
   // the clip shown in the Sample tab
   inspectedClipId: number | null
   // how each clip is played back, by clip id, as last loaded from or sent to
@@ -76,12 +79,14 @@ const initialState = {
   snapEnabled: true,
   snapNote: 'QuarterNote',
   playlistItems: [],
+  viewRevision: 0,
   inspectedClipId: null,
   clipSettings: {},
   clipSampleDurations: {},
   ui: {
     maxPlaylistBeats: 16,
-    maxBeatsDisplayed: 16,
+    // the playlist's length: 64 bars
+    maxBeatsDisplayed: 256,
     maxPlaylistDuration: 120*2,
     trackCount: 4,
   },
@@ -231,6 +236,7 @@ export const playlistSlice = createSlice({
       state.snapEnabled = project.snapEnabled
       state.snapNote = project.snapNote
       state.inspectedClipId = null
+      state.viewRevision += 1
 
       state.playlistItems = project.clips.map(clip => ({
         id: clip.id,

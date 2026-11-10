@@ -155,22 +155,25 @@ class PlaylistObject extends PlaylistComponent<State> {
     if(isPattern) colors = { border: theme.patternBorder, card: theme.patternClip, label: theme.patternLabel }
     if(selected) colors = { border: theme.selectedBorder, card: theme.selectedClip, label: theme.selectedLabel }
     const { border } = colors
+    // drawn in screen pixels across (like the label's text), so zoom doesn't
+    // stretch the card's border or its corners
+    const scale = this.currentScale
+    this.p.push()
+    this.p.scale(1 / scale, 1)
     this.p.strokeWeight(selected ? 1.5 : 1)
     this.p.stroke(...border)
     this.p.fill(...colors.card)
-    this.p.rect(left, cardTop, width, cardHeight, 3)
+    this.p.rect(left * scale, cardTop, width * scale, cardHeight, 3)
     this.p.noStroke()
     this.p.fill(...colors.label)
-    this.p.rect(left + .5, cardTop + .5, width - 1, this.labelHeight - inset - .5, 3, 3, 0, 0)
+    this.p.rect(left * scale + .5, cardTop + .5, width * scale - 1, this.labelHeight - inset - .5, 3, 3, 0, 0)
     this.p.strokeWeight(1)
     this.p.stroke(...border)
-    this.p.line(left, top + this.labelHeight, right, top + this.labelHeight)
+    this.p.line(left * scale, top + this.labelHeight, right * scale, top + this.labelHeight)
 
     // render text
     this.p.noStroke()
     this.p.fill(...theme.clipText)
-    this.p.push()
-    this.p.scale(1 / this.currentScale, 1)
     this.p.textFont(theme.font)
     this.p.textSize(11)
     this.p.textAlign(this.p.LEFT, this.p.TOP)

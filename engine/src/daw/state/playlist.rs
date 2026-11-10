@@ -156,15 +156,20 @@ impl Playlist {
     self.total_beats.load(atomic::Ordering::SeqCst)
   }
 
-  // how long the playlist plays before jumping back to the start, or None
-  // when looping is off
-  pub fn loop_len(&self, beat_interval: Duration) -> Option<Duration> {
-    if !self.loop_enabled.load(atomic::Ordering::SeqCst) { return None; }
+}
 
-    let beats = self.max_beats.load(atomic::Ordering::SeqCst);
-    let len = beat_interval * beats as u32;
-    if len.is_zero() { None } else { Some(len) }
-  }
+// where the loop ends: the end of the last clip, on the next bar line (or on
+// it, if it ends on one). with no clips, a few bars in
+// - song_end: where the last clip finishes (zero with no clips)
+pub fn loop_end_after(song_end: Duration, beat_interval: Duration, beats_per_bar: u16) -> Duration {
+  let bar = beat_interval * beats_per_bar.max(1) as u32;
+  if bar.is_zero() { return Duration::ZERO; }
+  if song_end.is_zero() { return bar * daw::state::defaults::EMPTY_LOOP_BARS; }
+
+  // a clip ending a hair past a bar line (float noise) ends on it
+  let end = song_end.saturating_sub(ON_BEAT_TOLERANCE).as_nanos();
+  let bars = (end / bar.as_nanos() + 1) as u32;
+  bar * bars
 }
 
 // positions closer than this to a beat count as on it, so a playhead set from
@@ -234,6 +239,25 @@ mod tests {
     assert_eq!(snap_to_beat(Duration::from_micros(999_600), BEAT), ms(1_000));
     // anywhere else is left alone
     assert_eq!(snap_to_beat(ms(1_250), BEAT), ms(1_250));
+  }
+
+  #[test]
+  fn test_loop_end_after() {
+    // 120bpm, 4/4: a bar is 2s
+    let end = |song_ms: u64| loop_end_after(ms(song_ms), BEAT, 4);
+
+    // no clips: four bars
+    assert_eq!(end(0), ms(8_000));
+    // the last clip ends mid-bar: the next bar line
+    assert_eq!(end(5_000), ms(6_000));
+    assert_eq!(end(100), ms(2_000));
+    // on a bar line (or a hair past it): that line
+    assert_eq!(end(4_000), ms(4_000));
+    assert_eq!(loop_end_after(Duration::from_micros(4_000_400), BEAT, 4), ms(4_000));
+    assert_eq!(end(4_002), ms(6_000));
+    // three beats to the bar
+    assert_eq!(loop_end_after(ms(5_000), BEAT, 3), ms(6_000));
+    assert_eq!(loop_end_after(ms(0), BEAT, 3), ms(6_000));
   }
 
   #[test]

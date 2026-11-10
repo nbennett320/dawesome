@@ -24,6 +24,7 @@ import { Lasso, groupLanding, keepExisting, lassoRect, lassoSelection, toggleSel
 import { PlaceableItem as DragItem, dragItemKey } from '../../../state/sampleDrag'
 import { Pattern, SequencerState, patternSeconds } from '../../../types/sequencer'
 import { decodeLevels } from '../../../util/waveform'
+import { gridSteps, openingScale, visibleBeats } from './grid'
 
 export interface CanvasProps extends SketchProps {
   height: number
@@ -43,6 +44,8 @@ export interface CanvasProps extends SketchProps {
   onNodeDoubleClick: (id: number) => void
   // see PlaylistState.transportRevision
   transportRevision: number
+  // whether the playlist loops (the ruler marks where the loop ends)
+  loopEnabled: boolean
   // move the playhead to a beat (clicking or dragging in the ruler)
   onSeek: (beat: number) => void
 }
@@ -202,11 +205,13 @@ export class Renderer extends RendererBase {
   maxPlaylistBeats: number = staticDefaults.maxPlaylistBeats
   trackCount: number = staticDefaults.trackCount
   tempo: number = staticDefaults.tempo
-  // the full canvas width (at scale 1) spans this many beats
-  beatsDisplayed = 16
+  // the playlist's length in beats: the full canvas width (at scale 1)
+  // spans this many
+  beatsDisplayed = 256
   debugMode: boolean = staticDefaults.debugMode
 
-  currentScale = 1
+  // the playlist opens zoomed in on its first bars (see openingScale)
+  currentScale = openingScale(256)
   transformX = 0
   // how far the tracks are scrolled down, in pixels. the timeline stays at
   // the top. zoom only stretches x, so this isn't scaled
@@ -230,6 +235,7 @@ export class Renderer extends RendererBase {
   // draw the playback cursor
   transport: PlaylistTransport | null = null
   transportRevision: number | null = null
+  loopEnabled: boolean | null = null
   // counts transport fetches, so a slow one can't replace a newer one's
   #transportFetch = 0
   // the beat the ruler is being dragged to, or was just released at (shown
@@ -341,6 +347,18 @@ export class Renderer extends RendererBase {
       const transport = await invoke<PlaylistTransport>('get_playlist_transport', {})
       if(fetch !== this.#transportFetch) return
 
+      // the loop's length changed while playing: the engine takes it up on
+      // its next beat (and counts the playhead from there), so ask again
+      // once it has
+      const before = this.transport
+      if(transport.playing && before && before.loopBeats !== transport.loopBeats) {
+        if(this.#loopSync) clearTimeout(this.#loopSync)
+        this.#loopSync = setTimeout(() => {
+          this.#loopSync = null
+          this.syncTransport()
+        }, transport.beatIntervalMs + 250)
+      }
+
       this.transport = transport
       // a released seek has reached the engine
       if(!this.seekDragging) this.seekBeat = null
@@ -349,6 +367,8 @@ export class Renderer extends RendererBase {
     }
     this.wake()
   }
+
+  #loopSync: ReturnType<typeof setTimeout> | null = null
 
   // the playhead, in beats: following the engine's run while playing, or
   // where the ruler's being dragged to
@@ -382,6 +402,24 @@ export class Renderer extends RendererBase {
       if(!this.seekDragging) this.seekBeat = null
       this.wake()
     }, 1500)
+  }
+
+  // back to how the playlist opens: its first bars, from the top (a project
+  // was opened, or the playlist's length changed)
+  resetView = () => {
+    this.currentScale = openingScale(this.beatsDisplayed)
+    this.transformX = 0
+    this.scrollY = 0
+    this.playlistObjects.forEach(obj => {
+      obj.currentScale = this.currentScale
+    })
+    this.wake()
+  }
+
+  // where the loop ends, in beats, while the playlist loops
+  loopEndBeat = (): number | null => {
+    const t = this.transport
+    return t && t.loopEnabled && t.loopBeats > 0 ? t.loopBeats : null
   }
 
   syncSnapSetting = async () => {
@@ -587,7 +625,11 @@ export class Renderer extends RendererBase {
   // (called on every store update, so only a change wakes the playlist)
   setSequencer = (sequencer: SequencerState) => {
     if(sequencer === this.sequencer) return
+    // a pattern's length changes where its clips (and so the loop) end
+    const lengths = (s: SequencerState) => s.patterns.map(p => `${p.id}:${p.length}`).join()
+    const resized = lengths(sequencer) !== lengths(this.sequencer)
     this.sequencer = sequencer
+    if(resized) this.syncTransport()
     this.wake()
   }
 
@@ -606,7 +648,17 @@ export class Renderer extends RendererBase {
     this.clipOverrides = overrides
     this.playlistObjects.forEach(this.#applyClipOverride)
     this.wake()
+
+    // a clip's length changes where the loop ends. asked once the settings
+    // have reached the engine (they're sent a little behind, see sendSettings)
+    if(this.#overrideSync) clearTimeout(this.#overrideSync)
+    this.#overrideSync = setTimeout(() => {
+      this.#overrideSync = null
+      this.syncTransport()
+    }, 150)
   }
+
+  #overrideSync: ReturnType<typeof setTimeout> | null = null
 
   #applyClipOverride = (obj: PlaylistObject) => {
     const override = this.clipOverrides[obj.playlistItem.id]
@@ -752,11 +804,13 @@ export class Renderer extends RendererBase {
     p.strokeWeight(1)
     p.stroke(...theme.accent)
     p.fill(...theme.accentSoft, 255*.25)
+    // in screen pixels across, so zoom doesn't stretch the outline or its dashes
+    p.scale(1 / this.currentScale, 1)
     this.landings(drag).forEach(({ item, beat, track }) => {
       const laneTop = this.#laneTop(track)
       if(laneTop === null) return
       const { width, height } = item.boundingBox()
-      p.rect(this.beatToX(beat), laneTop + 2, width, height - 4, 3)
+      p.rect(this.beatToX(beat) * this.currentScale, laneTop + 2, width * this.currentScale, height - 4, 3)
     })
     ctx.setLineDash([])
     p.pop()
@@ -1208,8 +1262,13 @@ export class Renderer extends RendererBase {
       this.maxPlaylistBeats = props.maxPlaylistBeats
       const tracksChanged = props.trackCount !== this.trackCount
       this.trackCount = props.trackCount
+      // clips' lengths in beats change with the tempo, so where the loop ends
+      if(props.tempo !== this.tempo) this.syncTransport()
       this.tempo = props.tempo
-      this.beatsDisplayed = props.beatsDisplayed
+      if(props.beatsDisplayed > 0 && props.beatsDisplayed !== this.beatsDisplayed) {
+        this.beatsDisplayed = props.beatsDisplayed
+        this.resetView()
+      }
       const { width, height, trackCount, currentScale } = this
 
       this.onNodeRightClick = props.onNodeRightClick
@@ -1221,8 +1280,13 @@ export class Renderer extends RendererBase {
       // ask the engine where the playhead is when playback starts or stops,
       // or after any other transport command. other prop updates (drops,
       // moves, resizes) don't move it
-      if(props.playing !== this.playing || props.transportRevision !== this.transportRevision) {
+      if(
+        props.playing !== this.playing
+        || props.transportRevision !== this.transportRevision
+        || props.loopEnabled !== this.loopEnabled
+      ) {
         this.transportRevision = props.transportRevision
+        this.loopEnabled = props.loopEnabled
         this.syncTransport()
       }
 
@@ -1239,6 +1303,8 @@ export class Renderer extends RendererBase {
       // the clips only need building again when they (or the tracks) change.
       // tempo, zoom, and size are read from the renderer as they're drawn
       if(props.playlistObjects === this.#builtItems && !tracksChanged) return
+      // the clips changed, so where the loop ends may have too
+      if(this.#builtItems !== null && props.playlistObjects !== this.#builtItems) this.syncTransport()
       this.#builtItems = props.playlistObjects
 
       // the clips are rebuilt once every clip's data has arrived. until then
@@ -1379,10 +1445,14 @@ export class Renderer extends RendererBase {
       }
 
       // render vertical grid lines: one per beat, darker on each bar. 1px
-      // wide whatever the zoom
+      // wide whatever the zoom. zoomed out, beat lines (then bars) thin out
+      // so they don't smear together, and only what's on screen is drawn
       p.strokeWeight(1 / currentScale)
       const gridBottom = trackTop(trackCount)
-      for(let beat = 0; beat < beatsDisplayed; beat++) {
+      const pixelsPerBeat = width * currentScale / beatsDisplayed
+      const { lineEvery } = gridSteps(pixelsPerBeat, theme.beatsPerBar)
+      const [firstBeat, lastBeat] = visibleBeats(pixelsPerBeat, this.transformX, width, beatsDisplayed)
+      for(let beat = Math.ceil(firstBeat / lineEvery) * lineEvery; beat < lastBeat; beat += lineEvery) {
         const x = beat * width / beatsDisplayed
         p.stroke(...(beat % theme.beatsPerBar === 0 ? theme.barLine : theme.beatLine))
         p.line(x, 0, x, gridBottom)

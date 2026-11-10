@@ -67,6 +67,9 @@ struct Session {
   keep_from: Instant,
   // the loop's length, if it was looping (the take ends where it comes round)
   loop_len: Option<Duration>,
+  // where the loop ended when the recording started, looping or not: it
+  // stays there until the recording's over
+  loop_end: Duration,
 }
 
 // what's armed, what's recording, and the clips recorded since the frontend
@@ -130,6 +133,12 @@ pub fn is_busy(state: &daw::InnerState) -> bool {
 
 pub fn is_recording(state: &daw::InnerState) -> bool {
   state.recorder.lock().unwrap().recording()
+}
+
+// where the loop ends while a recording is going: where it did when the
+// recording started
+pub fn loop_len_recording(state: &daw::InnerState) -> Option<Duration> {
+  state.recorder.lock().unwrap().session.as_ref().map(|session| session.loop_end)
 }
 
 // the clips recorded since this was last asked, and what went wrong
@@ -212,12 +221,12 @@ pub fn start(state: &Arc<daw::InnerState>) -> Result<(), String> {
   };
   daw::keep_recording_from(keep_from);
 
-  let interval = daw::beat_interval(state);
   let session = Session {
     tracks: armed.iter().zip(&files).map(|(track, file)| (track.track_number, file.path.clone())).collect(),
     start: *state.playlist.start_offset.lock().unwrap(),
     keep_from,
-    loop_len: state.playlist.loop_len(interval),
+    loop_len: daw::loop_len(state),
+    loop_end: daw::loop_end(state),
   };
   println!("recording {} tracks from {:?}", session.tracks.len(), session.start);
   let mut recorder = state.recorder.lock().unwrap();
@@ -358,7 +367,7 @@ mod tests {
 
   // a stand-in for a recording in progress
   fn session() -> Session {
-    Session { tracks: vec![], start: Duration::ZERO, keep_from: Instant::now(), loop_len: None }
+    Session { tracks: vec![], start: Duration::ZERO, keep_from: Instant::now(), loop_len: None, loop_end: Duration::ZERO }
   }
 
   #[test]
@@ -398,6 +407,33 @@ mod tests {
     assert!(start(&state).unwrap_err().contains("Arm a track"));
     assert!(asked.elapsed() >= Duration::from_millis(45));
     done.join().unwrap();
+  }
+
+  #[test]
+  fn test_the_loop_stays_put_while_recording() {
+    let state = daw::InnerState::default();
+    let ms = |d: Duration| d.as_millis();
+    // four bars with nothing in the playlist
+    assert_eq!(ms(daw::loop_end(&state)), 8_000);
+
+    // (started with looping off: the loop's end is kept all the same)
+    state.playlist.loop_enabled.store(false, std::sync::atomic::Ordering::SeqCst);
+    state.recorder.lock().unwrap().session = Some(Session {
+      loop_len: daw::loop_len(&state),
+      loop_end: daw::loop_end(&state),
+      ..session()
+    });
+    state.playlist.loop_enabled.store(true, std::sync::atomic::Ordering::SeqCst);
+
+    // a clip in bar 6 would move the loop's end, but not under a take
+    state.playlist.audiograph.lock().unwrap()
+      .construct_and_add_node(daw::METRONOME_TICK_PATH.to_string(), Duration::from_millis(10_500), 0)
+      .unwrap();
+    assert_eq!(ms(daw::loop_end(&state)), 8_000);
+
+    // once it's over, the loop reaches the new clip
+    state.recorder.lock().unwrap().session = None;
+    assert_eq!(ms(daw::loop_end(&state)), 12_000);
   }
 
   #[test]

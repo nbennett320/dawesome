@@ -20,3 +20,11 @@ Things worth fixing that this project does not touch unless a design answer brin
 - **Production bundles may not find samples.** Assets are read by working-directory-relative paths and `bundle.resources` is empty (`engine/tauri.conf.json`).
 - **Dead code:** `src/views/sample-details/`, `src/types/documentModel.ts`, `engine/src/lang/` (not compiled), `Track` in `audiograph.rs`, `SoundSource` in `sound_buffer.rs` (its `decoder` calls itself), `buffer.rs`, several unused Tauri commands (`get_playlist_sample_offset`, `get_playlist_max_length`, the time-signature pair), the legacy `pixelOffset` on every clip.
 - **README is stale** (old import path, old command names, `backend/` paths).
+
+## Found while building M1 (2026-11-10)
+
+- **A clip's tail past bar 64 cannot be scrolled into view,** and the loop's end can lie past bar 64 for such a clip (`src/views/playlist/sketch/index.ts`, the pan limit in `p.draw`). The same was true past bar 4 before.
+- **With Loop on, seeking past the loop's end and pressing Play starts from the beginning** (`start_playlist_after`, `engine/src/daw/daw.rs`). The rule is old; with a 64-bar ruler it is easier to run into.
+- **Mouse-wheel zoom is capped at 3.5% per notch** (`staticDefaults.zoomSensitivity`), so zooming from the opening view out to the whole playlist takes about 80 notches.
+- **The loop's bar length comes from the project's time signature, the canvas grid assumes 4 beats to the bar** (`theme.beatsPerBar`). They differ only for a hand-edited project file.
+- **For up to a beat after the loop is shortened behind the playhead, the engine's own playhead reading is wrong** (it is right again once the scheduler wraps). A Pause in that window parks the playhead in the wrong place.

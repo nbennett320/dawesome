@@ -81,6 +81,10 @@ fn get_start_time_ms(state: &daw::InnerState) -> Result<f64, String> {
     .lock()
     .unwrap()
     .ok_or("playlist has not been started")?;
+  Ok(wall_clock_ms(started)?)
+}
+
+fn wall_clock_ms(started: Instant) -> Result<f64, String> {
   let now = Instant::now();
   // UNIX_EPOCH is the epoch on every platform, including windows
   let wall = SystemTime::now()
@@ -134,15 +138,18 @@ pub struct PlaylistTransport {
 
 fn playlist_transport(state: &daw::InnerState) -> PlaylistTransport {
   let beat_interval = daw::beat_interval(state);
-  let start_offset = *state.playlist.start_offset.lock().unwrap();
+  // read as a pair: both move when the loop comes round
+  let (start_offset, started) = daw::run_anchor(state);
+  // (worked out before the struct, whose fields hold other locks as they're read)
+  let loop_beats = daw::offset_beats(daw::loop_end(state), beat_interval).round() as u64;
 
   PlaylistTransport {
     playing: state.playlist.playing(),
-    start_time_ms: get_start_time_ms(state).ok(),
+    start_time_ms: started.and_then(|started| wall_clock_ms(started).ok()),
     start_offset_ms: start_offset.as_secs_f64() * 1000.,
     position_ms: daw::playhead(state).as_secs_f64() * 1000.,
     beat_interval_ms: beat_interval.as_secs_f64() * 1000.,
-    loop_beats: state.playlist.max_beats.load(Ordering::SeqCst),
+    loop_beats,
     beats_displayed: state.playlist.ui.lock().unwrap().max_beats_displayed,
     loop_enabled: state.playlist.loop_enabled.load(Ordering::SeqCst),
     song_end_ms: daw::song_end(state).unwrap_or_default().as_secs_f64() * 1000.,
@@ -848,7 +855,7 @@ mod tests {
   fn test_beat_to_offset() {
     let state = daw::InnerState::default();
 
-    // default: 120bpm, 16 beats displayed
+    // default: 120bpm, a playlist of 256 beats (64 bars)
     let ms = |b: Option<f32>| beat_to_offset(&state, b).as_millis();
     assert_eq!(ms(Some(0.)), 0);
     assert_eq!(ms(Some(1.)), 500);
@@ -858,7 +865,8 @@ mod tests {
 
     // drops outside the playlist are clamped to its start/end
     assert_eq!(ms(Some(-2.)), 0);
-    assert_eq!(ms(Some(40.)), 8_000);
+    assert_eq!(ms(Some(40.)), 20_000);
+    assert_eq!(ms(Some(300.)), 128_000);
 
     // a beat is longer at a slower tempo
     state.set_tempo(60.);
@@ -883,8 +891,9 @@ mod tests {
 
     let t = playlist_transport(&state);
     assert_eq!(t.beat_interval_ms, 500.); // 120bpm
+    // nothing in the playlist: the loop is four bars
     assert_eq!(t.loop_beats, 16);
-    assert_eq!(t.beats_displayed, 16);
+    assert_eq!(t.beats_displayed, 256);
     assert!(t.loop_enabled);
 
     // start time is reported in wall clock ms, 1.5s in the past
@@ -993,10 +1002,52 @@ mod tests {
     // float noise lands on the beat
     assert_eq!(daw::seek_playlist(&state, 3.000_000_1), 3.);
 
-    // kept within the playlist (16 beats)
+    // kept within the playlist (256 beats)
     assert_eq!(daw::seek_playlist(&state, -3.), 0.);
-    assert_eq!(daw::seek_playlist(&state, 40.), 16.);
+    assert_eq!(daw::seek_playlist(&state, 40.), 40.);
+    assert_eq!(daw::seek_playlist(&state, 400.), 256.);
     assert_eq!(daw::seek_playlist(&state, f64::NAN), 0.);
+  }
+
+  #[test]
+  fn test_the_loop_ends_with_the_last_clip() {
+    let state = daw::InnerState::default();
+    let sample = daw::METRONOME_TICK_PATH.to_string();
+    let ms = |d: Duration| d.as_millis();
+
+    // no clips: four bars (8s at 120bpm)
+    assert_eq!(ms(daw::loop_end(&state)), 8_000);
+    assert_eq!(daw::loop_len(&state).map(ms), Some(8_000));
+
+    // a short clip at beat 9 (the start of bar 3) ends in bar 3
+    let id = add_audiograph_node(&state, sample.clone(), 0, beat_to_offset(&state, Some(8.)), true).unwrap();
+    assert_eq!(ms(daw::loop_end(&state)), 6_000);
+    assert_eq!(playlist_transport(&state).loop_beats, 12);
+
+    // moved into bar 60, the loop follows it
+    move_audiograph_node_to(&state, id, 0, beat_to_offset(&state, Some(236.))).unwrap();
+    assert_eq!(node_beat(&state, id).unwrap(), 236.);
+    assert_eq!(playlist_transport(&state).loop_beats, 240);
+
+    // looping off: no loop length, but where it would end is still known
+    state.playlist.loop_enabled.store(false, Ordering::SeqCst);
+    assert_eq!(daw::loop_len(&state), None);
+    assert_eq!(playlist_transport(&state).loop_beats, 240);
+  }
+
+  #[test]
+  fn test_the_playhead_wraps_at_the_last_clip() {
+    let state = daw::InnerState::default();
+    // a clip in bar 2: the loop is two bars (4s)
+    add_audiograph_node(&state, daw::METRONOME_TICK_PATH.to_string(), 0, beat_to_offset(&state, Some(5.)), true).unwrap();
+    assert_eq!(playlist_transport(&state).loop_beats, 8);
+
+    // 5s into a run from the start: 1s into the second pass
+    fake_run(&state, 0, 5_000);
+    assert!((playhead_ms(&state) - 1_000.).abs() < 50.);
+    let t = playlist_transport(&state);
+    assert!((t.position_ms - 1_000.).abs() < 50.);
+    assert_eq!(t.start_offset_ms, 0.);
   }
 
   #[test]
@@ -1133,9 +1184,13 @@ mod tests {
     // c wasn't in the group
     assert_eq!(beat(c), 9.);
 
-    // dragged past the end of the 16 beats displayed: c stops at the end
-    move_audiograph_nodes_to(&state, &[a, c], c, 20., 3).unwrap();
-    assert_eq!((beat(a), beat(c)), (11., 16.));
+    // well past the first four bars
+    move_audiograph_nodes_to(&state, &[a, c], c, 236., 3).unwrap();
+    assert_eq!((beat(a), beat(c)), (231., 236.));
+
+    // dragged past the end of the playlist (256 beats): c stops at the end
+    move_audiograph_nodes_to(&state, &[a, c], c, 300., 3).unwrap();
+    assert_eq!((beat(a), beat(c)), (251., 256.));
 
     // with snap off the grabbed clip lands exactly where it's dropped
     state.playlist.ui.lock().unwrap().snap_enabled = false;

@@ -41,3 +41,19 @@ You said you had not read the questions since F21. These answers were therefore 
 ## Decisions made while building
 
 Added below as they happen, newest last. Each says what I chose, why, and what the alternative was.
+
+### M1 — 64-bar playlist and loop
+
+- **The canvas keeps "zoom 1 = the whole playlist" and opens at zoom 16.** The plan said I would change the beat-to-pixel maths to a 16-beat view; keeping the existing coordinate system and changing only the opening zoom touches far less code. Alternative: redefine zoom 1 as 16 beats and allow zoom below 1.
+- **Clip cards and drop outlines are now drawn in screen pixels across.** They used to be drawn inside the zoom transform, which stretches their left and right borders and corner radius by the zoom factor. At the old default (zoom 1) that was invisible; at the new opening zoom of 16 every clip would have had 16-pixel-wide side borders. The visible effect on existing behaviour: zoomed-in clips no longer get fat side borders. Alternative: none that keeps the opening view looking as it does today.
+- **The loop-end marker** is a 1.5 px line with a small flag pointing back along the loop, in slate-600 (`theme.loopEnd`, the same colour as the ruler's bar numbers). Alternative: the sky accent, which I avoided because the playhead already uses it.
+- **Ruler numbers are still beat numbers** (1, 5, 9 … on bars), as today, thinned to every bar, then every 2, 4, 8 … bars when zoomed out. Alternative: switch to bar numbers.
+- **The playlist is 256 beats, not "64 bars of the project's time signature".** The canvas already assumes 4 beats to the bar for its grid, and the time signature cannot be changed in the UI. Alternative: 64 × the time signature's numerator.
+- **The playhead is re-anchored each time the loop comes round.** The loop's length can now change during playback (move or trim the last clip), and the old "position modulo loop length since the run started" would then show the cursor in the wrong place. Now the engine counts from the last wrap, and the canvas and Transport tab ask the engine again whenever clips change.
+- **If the loop gets shorter than where the playhead already is** (the last clip is deleted behind it), playback jumps to the start at the next beat. Alternative: play on to the old end first.
+- **I could not look at the running app.** I launched it in dev mode; the engine side started without errors, but the screenshot came back black, so nothing on screen has been checked by me. Every `[M]` acceptance item is waiting for you.
+- **Bar lines are never thinned; only ruler numbers are.** On a narrow canvas fully zoomed out, bar lines can be under 8 px apart. The spec says bar lines stay (F4), so they do.
+- **The loop's end is frozen for every recording,** including one started with Loop off and switched on part-way (the verifier caught that my first version froze it only when Loop was on at the start).
+- **The transport still reports one number for the loop** (`loopBeats`); its meaning changed from "always 16" to "where the loop ends". I did not add a field.
+- **Left for later, noted in `later.md`:** the loop's end (and an overhanging clip's tail) can lie past bar 64, where the view cannot scroll; with Loop on, seeking past the loop's end and pressing Play starts from the beginning (the existing rule, more noticeable now); mouse-wheel zoom from the opening view out to all 64 bars takes about 80 notches because wheel zoom is capped at 3.5% per notch (trackpad pinch is not capped).
+- **Verifier pass for M1:** no blockers; two should-fix items (the canvas and Transport tab going out of step with the engine after the loop's length changes during playback, and the marker not following pattern-length or tempo changes) and four minor ones, all fixed before the commit.

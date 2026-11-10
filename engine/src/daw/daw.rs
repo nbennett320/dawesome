@@ -106,17 +106,46 @@ pub fn beat_interval(state: &state::InnerState) -> Duration {
 // where the playhead is now: moving with the current run while playing, or
 // where the next run will start while stopped or paused
 pub fn playhead(state: &state::InnerState) -> Duration {
-  let start = *state.playlist.start_offset.lock().unwrap();
+  let (start, started) = run_anchor(state);
   // a pattern playing on its own leaves the playlist's playhead where it is
   if !state.playlist.playing_playlist() { return start; }
 
-  let started = match *state.playlist.started_time.lock().unwrap() {
+  let started = match started {
     Some(started) => started,
     None => return start,
   };
 
-  let loop_len = state.playlist.loop_len(beat_interval(state));
-  state::timeline_position(start, started.elapsed(), loop_len)
+  state::timeline_position(start, started.elapsed(), loop_len(state))
+}
+
+// where on the timeline the playhead counts from, and when that was heard
+// (None before the first run). read together, as they're moved together each
+// time the loop comes round (see run_playlist)
+pub fn run_anchor(state: &state::InnerState) -> (Duration, Option<std::time::Instant>) {
+  let start = state.playlist.start_offset.lock().unwrap();
+  let started = *state.playlist.started_time.lock().unwrap();
+  (*start, started)
+}
+
+// where the loop ends (whether or not looping is on): at the end of the last
+// clip, on a bar line. while recording, where it was when the recording
+// started, so the loop doesn't move under a take
+pub fn loop_end(state: &state::InnerState) -> Duration {
+  if let Some(frozen) = crate::recording::loop_len_recording(state) { return frozen; }
+
+  let interval = beat_interval(state);
+  let beats_per_bar = state.playlist.time_signature.lock().unwrap().numerator;
+  let end = state.playlist.audiograph.lock().unwrap().end();
+  state::loop_end_after(end, interval, beats_per_bar)
+}
+
+// how long the playlist plays before jumping back to the start, or None when
+// looping is off
+pub fn loop_len(state: &state::InnerState) -> Option<Duration> {
+  if !state.playlist.loop_enabled.load(Ordering::SeqCst) { return None; }
+
+  let len = loop_end(state);
+  if len.is_zero() { None } else { Some(len) }
 }
 
 // how long a pattern plays for at the playlist's tempo, or None if there's no
@@ -297,7 +326,7 @@ pub fn run_playlist(
       // a pattern always loops, at its length now (it can be changed while
       // it plays). a pattern deleted while playing ends the run
       let loop_len = match mode {
-        state::PlayMode::Playlist => state.playlist.loop_len(tempo_interval),
+        state::PlayMode::Playlist => loop_len(&state),
         state::PlayMode::Pattern(id) => match pattern_len(&state, id) {
           Some(len) => Some(len),
           None => {
@@ -337,6 +366,19 @@ pub fn run_playlist(
       // and move the counters on once it's heard
       if !engine.wait_for_frame(heard_at(next_at), &current) || !current() { break; }
       if counts_beats { set_beat_counters(&state, next, tempo_interval); }
+
+      // the playlist came round: the playhead counts from here now, so it
+      // stays right when the loop's length changes (the last clip was moved)
+      // on a later pass
+      // (both moved under the first's lock, and only by the run that's still
+      // playing: a seek that got in first has already moved the playhead)
+      if counts_beats && next < current_offset {
+        let mut start_offset = state.playlist.start_offset.lock().unwrap();
+        if current() {
+          *start_offset = next;
+          *state.playlist.started_time.lock().unwrap() = Some(anchor.heard + next_at);
+        }
+      }
 
       // the loop came round: a recording ends at the loop's end. its takes
       // are put on their tracks off this thread, which mustn't fall behind
@@ -439,7 +481,7 @@ pub fn start_playlist_after(state: &Arc<state::InnerState>, count_in: Duration) 
   // a playhead past the loop's end starts back at the top, so the run (and
   // the frontend cursor) stays inside the loop. without looping, playing
   // from the end of the song starts it again
-  let end = match state.playlist.loop_len(beat_interval(state)) {
+  let end = match loop_len(state) {
     Some(len) => Some(len),
     None => song_end(state),
   };

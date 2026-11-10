@@ -11,6 +11,7 @@ import {
   removeManyFromPlaylist,
   seekPlaylist,
   selectClipOverrides,
+  selectLoopEnabled,
   selectPlaylistItems,
   selectPlaylistPlaying,
   selectPlaylistTempo,
@@ -88,6 +89,7 @@ const PlaylistCanvas = () => {
   const dispatch = useAppDispatch()
   const playing = useAppSelector(selectPlaylistPlaying)
   const transportRevision = useAppSelector(selectTransportRevision)
+  const loopEnabled = useAppSelector(selectLoopEnabled)
   const handleSeek = React.useCallback((beat: number) => { dispatch(seekPlaylist(beat)) }, [dispatch])
   const tempo = useAppSelector(selectPlaylistTempo)
   const playlistTrackBoxRef = React.useRef<HTMLDivElement>(null)
@@ -156,8 +158,11 @@ const PlaylistCanvas = () => {
       const changed = !last
         || playlist.clipSettings !== last.clipSettings
         || playlist.clipSampleDurations !== last.clipSampleDurations
+      // a project was opened or started: back to its first bars
+      const opened = !!last && playlist.viewRevision !== last.viewRevision
       last = playlist
 
+      if(opened) playlistRenderer.resetView()
       if(changed) playlistRenderer.setClipOverrides(selectClipOverrides(store.getState()))
       // pattern clips draw their pattern as it's edited
       playlistRenderer.setSequencer(store.getState().sequencer)
@@ -314,6 +319,7 @@ const PlaylistCanvas = () => {
           onNodesMove={handleNodesMove}
           onNodeDoubleClick={handleNodeDoubleClick}
           transportRevision={transportRevision}
+          loopEnabled={loopEnabled}
           onSeek={handleSeek}
         />
       </div>}

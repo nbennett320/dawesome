@@ -12,16 +12,18 @@ Defaults used in the examples unless stated: 120 bpm, 4/4, Snap on at one beat, 
 
 Milestone tags (M1–M14) say when an item becomes checkable.
 
+**Status convention:** a ticked item names the test that proves it. `[M]` items stay unticked until you have done them by hand; where their logic has a unit test, the item says so. I could not see the running app during the overnight build (screen capture returned a black image), so no `[M]` item has been checked by me.
+
 ---
 
 ## A. Timeline groundwork (M1, M2)
 
-- [ ] A1 [E] A clip can be placed and moved so that it starts at bar 60. A move aimed past the end is clamped to the end of bar 64.
-- [ ] A2 [M] At launch the Playlist shows bars 1 to 4 across its width, as it does today.
-- [ ] A3 [M] Zooming out all the way shows 64 bars. Beat lines disappear before they smear together; bar lines and non-overlapping bar numbers remain.
-- [ ] A4 [E] With Loop on and one clip ending at beat 10, the loop length is 12 beats (3 bars). With no clips it is 16 beats.
+- [x] A1 [E] A clip can be placed and moved so that it starts at bar 60. A move aimed past the end is clamped to the end of bar 64. — `event_dispatch::tests::test_move_a_group_of_nodes`, `test_the_loop_ends_with_the_last_clip`, `test_beat_to_offset`
+- [ ] A2 [M] At launch the Playlist shows bars 1 to 4 across its width, as it does today. (Opening zoom covered by `grid.spec.ts`.)
+- [ ] A3 [M] Zooming out all the way shows 64 bars. Beat lines disappear before they smear together; bar lines and non-overlapping bar numbers remain. (Logic covered by `grid.spec.ts`.)
+- [x] A4 [E] With Loop on and one clip ending at beat 10, the loop length is 12 beats (3 bars). With no clips it is 16 beats. — `state::playlist::tests::test_loop_end_after`, `event_dispatch::tests::test_the_loop_ends_with_the_last_clip`
 - [ ] A5 [M] With Loop on, a marker on the ruler sits at the loop's end and moves when the last clip is moved or trimmed. With Loop off it is not drawn.
-- [ ] A6 [E] During a recording the loop length does not change when clips are added.
+- [x] A6 [E] During a recording the loop length does not change when clips are added. — `recording::tests::test_the_loop_stays_put_while_recording`
 - [ ] A7 [M] After Open and after New Project the view is back on bars 1 to 4.
 - [ ] A8 [E] A clip at beat 8 at 120 bpm is still at beat 8 after the tempo is set to 90, and its first rendered frame is at the frame for beat 8 at 90 bpm.
 - [ ] A9 [M] After changing the tempo, each clip sits on the same grid line as before and plays on that beat, without saving and reloading.

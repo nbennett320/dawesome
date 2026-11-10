@@ -59,6 +59,24 @@ describe('reduceExploded', () => {
   })
 })
 
+describe('the playlist view', () => {
+  it('is 64 bars long', () => {
+    const state = reducer(undefined, { type: 'init' })
+    expect(state.ui.maxBeatsDisplayed).toBe(256)
+  })
+
+  it('goes back to its first bars when a project is opened', () => {
+    let state = reducer(undefined, { type: 'init' })
+    const before = state.viewRevision
+    state = reducer(state, reduceLoadedProject(loaded))
+    expect(state.viewRevision).toBe(before + 1)
+
+    // moving a clip doesn't
+    state = reducer(state, playlistSlice.actions.movePlaylistItems([{ id: 7, startBeat: 1, trackNumber: 0 }]))
+    expect(state.viewRevision).toBe(before + 1)
+  })
+})
+
 describe('reduceLoadedProject', () => {
   it('replaces the playlist with the loaded project', () => {
     const { actions } = playlistSlice
