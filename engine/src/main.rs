@@ -185,7 +185,8 @@ fn init_tauri() {
       add_pattern_clip,
       explode_pattern_clips,
       set_clip_windows,
-      split_clips
+      split_clips,
+      stretch_clips
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

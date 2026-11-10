@@ -1171,6 +1171,24 @@ impl AudioGraph<'static> {
     Ok(())
   }
 
+  // stretch a sample clip, like a tape: its pitch is set, and with it how
+  // fast, and so how long, it plays. one of its edges stays where it is in
+  // the playlist: its start, or (`keep_end`) its end, with the start moving
+  // (no earlier than the playlist's). returns the settings kept
+  pub fn stretch_node(&mut self, id: u64, pitch: f32, keep_end: bool) -> Result<daw::ClipSettings, String> {
+    let node = self.nodes.iter_mut().find(|n| n.id == id)
+      .ok_or_else(|| format!("no sample clip with id {}", id))?;
+    let end = node.start_offset + node.duration();
+
+    let settings = node.set_settings(daw::ClipSettings { pitch, ..node.settings });
+    if keep_end {
+      node.start_offset = end.saturating_sub(node.duration());
+    }
+
+    self.nodes.sort_by(|a, b| a.start_offset.cmp(&b.start_offset));
+    Ok(settings)
+  }
+
   // the same for a pattern clip, in steps of its pattern
   pub fn set_pattern_window(&mut self, id: u64, start: f64, end: Option<f64>) -> Result<(), String> {
     let beat = self.beat_interval();
@@ -2592,6 +2610,38 @@ mod tests {
     assert!((half - 0.5).abs() < 0.02, "half way up the fade the level is {}", half);
     assert_eq!(differences(&faded[after(101)..], &whole[after(101)..]), 0);
     assert!(differences(&faded[bar_2..after(99)], &whole[bar_2..after(99)]) > 1_000);
+  }
+
+  #[test]
+  fn test_a_clip_stretched_to_twice_its_length_plays_twice_as_many_frames() {
+    // two bars of sound from bar 1, at 120bpm: four seconds
+    let rate = 48_000;
+    for file_rate in [44_100, 48_000] {
+      let path = noise_wav(&format!("stretch-{}", file_rate), file_rate, 1, file_rate * 4);
+      let mut graph = AudioGraph::new(44_100, 120., 256);
+      let id = graph.construct_and_add_node(path, Duration::ZERO, 0).unwrap();
+      // the frames it sounds for: up to its last frame that isn't silent
+      let sounding = |graph: &mut AudioGraph<'static>| {
+        let out = play(graph, rate, Duration::ZERO, Duration::from_secs(10));
+        out.chunks(2).rposition(|frame| frame[0] != 0.).unwrap() + 1
+      };
+      let frames = sounding(&mut graph);
+      assert!((frames as i64 - 4 * rate as i64).abs() <= 1, "{} frames", frames);
+
+      // its right edge out to bar 5: twice its length, an octave down
+      let kept = graph.stretch_node(id, -12., false).unwrap();
+      assert_eq!(kept.pitch, -12.);
+      assert_eq!(graph.get_node_by_id(id).unwrap().start_offset, Duration::ZERO);
+      let stretched = sounding(&mut graph);
+      assert!((stretched as i64 - 2 * frames as i64).abs() <= 1, "{} frames, from {}", stretched, frames);
+
+      // and from its end instead: back to its length, ending where it ends
+      // now, on bar 5
+      graph.stretch_node(id, 0., true).unwrap();
+      let node = graph.get_node_by_id(id).unwrap();
+      assert_eq!(node.start_offset, ms(4_000));
+      assert_eq!(node.start_offset + node.duration(), ms(8_000));
+    }
   }
 
   #[test]

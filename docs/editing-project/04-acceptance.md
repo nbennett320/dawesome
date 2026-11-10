@@ -100,13 +100,13 @@ The press logic for E1, E2 and E4 is covered by `src/views/playlist/sketch/selec
 
 ## G. Stretch (M8)
 
-- [ ] G1 [E] Shift+dragging the right edge of a 2-bar clip that starts at bar 1 out to the start of bar 5 (twice its length) sets its Pitch to −12.00 and it renders twice as many frames, within one frame.
-- [ ] G2 [M] Shift+dragging the left edge moves the start to the cursor and leaves the end where it was.
-- [ ] G3 [M] The edge stops when Pitch reaches ±24 semitones.
+- [x] G1 [E] Shift+dragging the right edge of a 2-bar clip that starts at bar 1 out to the start of bar 5 (twice its length) sets its Pitch to −12.00 and it renders twice as many frames, within one frame. — `audiograph::tests::test_a_clip_stretched_to_twice_its_length_plays_twice_as_many_frames` (44.1 and 48 kHz files on a 48 kHz engine), `clip_commands::tests::test_stretching_clips_is_one_step`; the drag-to-pitch maths: `edges.spec.ts` ("turns a length into a pitch, and back")
+- [ ] G2 [M] Shift+dragging the left edge moves the start to the cursor and leaves the end where it was. (Covered by `edges.spec.ts` and `clip_commands::tests::test_stretching_clips_is_one_step`.)
+- [ ] G3 [M] The edge stops when Pitch reaches ±24 semitones. (Covered by `edges.spec.ts`.)
 - [ ] G4 [M] The Sample tab's Pitch shows the new value, the clip has the amber dot, and setting Pitch to 0 restores the unstretched length.
 - [ ] G5 [M] Stretching a trimmed clip squeezes only the trimmed content; no hidden audio is revealed.
 - [ ] G6 [M] Pressing or releasing Shift mid-drag does not change what the drag does.
-- [ ] G7 [M] With several clips selected, all sample clips change by the same ratio; pattern clips do not change.
+- [ ] G7 [M] With several clips selected, all sample clips change by the same ratio; pattern clips do not change. (Covered by `edges.spec.ts`; the engine refuses a pattern clip: `test_stretching_clips_is_one_step`.)
 - [ ] G8 [M] Shift+dragging a pattern clip's edge does nothing.
 - [ ] G9 [M] A Shift+drag starting in an edge zone stretches; starting elsewhere on the clip it draws a lasso; a Shift+click in an edge zone toggles the clip.
 
@@ -209,7 +209,7 @@ The press logic for E1, E2 and E4 is covered by `src/views/playlist/sketch/selec
 
 Each of these is a failure whenever it is observed, at any milestone.
 
-- [ ] X1 [E] Editing one clip (trim, stretch, cut, settings, deep copy) changes what another clip plays. (Trim, cut and settings proved by `audiograph::tests::test_changing_a_clip_changes_no_other_clip_of_the_sample`; stretch and deep copy to be proved in M8 and M11.)
+- [ ] X1 [E] Editing one clip (trim, stretch, cut, settings, deep copy) changes what another clip plays. (Trim, cut and settings proved by `audiograph::tests::test_changing_a_clip_changes_no_other_clip_of_the_sample`; a stretch is a change of the Pitch setting, which that test makes; deep copy to be proved in M11.)
 - [ ] X2 [E] A deep copy or join writes a file anywhere outside the project's folder.
 - [ ] X3 [E] A deep copy or join overwrites an existing file.
 - [ ] X4 [E] Undo, redo, deep copy or join deletes or moves an audio file. (Undo and redo proved by `history::tests::test_undo_and_redo_leave_files_alone`; deep copy and join to be proved in M11 and M13.)

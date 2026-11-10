@@ -841,6 +841,24 @@ export const setClipWindows = (
   }
 }
 
+// stretch sample clips, like tape: each is given the pitch that makes it the
+// length it was dragged to, with its start or its end staying where it is.
+// the engine returns the clips as they are now. null if it refused
+export const stretchClips = (
+  edits: { id: number, pitch: number, keep: 'start' | 'end' }[],
+) => async (dispatch: Dispatch): Promise<ChangedClips | null> => {
+  try {
+    const changed = await invoke<ChangedClips>('stretch_clips', { edits })
+    dispatch(playlistSlice.actions.reduceChangedClips(changed))
+    await refreshTrackCount()(dispatch)
+    return changed
+  } catch(e) {
+    // eslint-disable-next-line no-console
+    console.error('could not stretch the clips:', e)
+    return null
+  }
+}
+
 // cut clips in two at a beat. the second halves are new clips, which the
 // engine returns with the first halves. null if it refused
 export const splitClips = (ids: number[], beat: number) => async (

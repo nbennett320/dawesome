@@ -120,3 +120,13 @@ Added below as they happen, newest last. Each says what I chose, why, and what t
 - **In the Sample tab, the beat ruler counts from where the clip starts,** not from the start of the file, since beat 1 of the clip is where it sits in the playlist. The ticks carry on across the dimmed parts at the same spacing. Alternative: count from the file's start.
 - **The Sample tab piece (the dimmed whole-file waveform) was written by a Sonnet agent from a brief** and reviewed by me; the canvas work and the trim maths are mine.
 - **Not verified:** everything here that is a gesture (F1, F2, F5, F6, F8, F9, F11–F17) needs the running app. The maths behind them is unit-tested in `edges.spec.ts`; the drawing is not testable without the app.
+
+### M8 — Stretch
+
+- **The engine is told the pitch and which edge stays put, not where the clip should start.** For a left-edge stretch it works out the new start itself from where the clip ended, so the end cannot drift. Alternative: send the start beat from the canvas.
+- **A stretch by the left edge stops when the clip's start reaches the start of the playlist,** as well as at two octaves either way and at 10 ms.
+- **Across a selection, "the same ratio" is taken from where the mouse is, not from where the grabbed clip stopped.** If the grabbed clip reaches its limit and you keep dragging, the other clips carry on to theirs. This matches how a multi-clip trim behaves. Alternative: everything stops when the grabbed clip does.
+- **Shift+dragging a pattern clip's edge does nothing at all,** not even a lasso; Shift+clicking it without dragging toggles it, like any Shift+click.
+- **Shift+pressing an edge of a clip that is not selected stretches just that clip and leaves the selection alone.** Shift is the selection key, so it never clears a selection.
+- **The pitch a stretch writes is whatever makes the length exact, not rounded to a semitone,** so the Sample tab can show a value like −7.02. Snapping applies to where the edge lands on the timeline.
+- **Not verified:** the gestures (G2 to G9) need the running app.

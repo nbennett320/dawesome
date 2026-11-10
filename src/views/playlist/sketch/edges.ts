@@ -113,6 +113,70 @@ export const trimAll = (
   return clips.map(clip => ({ id: clip.id, ...trimmed(clip, edge, delta) }))
 }
 
+// ---- stretching: Shift+dragging an edge ----
+
+// how far a clip's pitch can go, in semitones either way, and how much
+// faster or slower than its sample that plays it (clipSettingRanges.pitch)
+export const MAX_PITCH = 24
+export const MAX_RATE = 2 ** (MAX_PITCH / 12)
+
+// the pitch, in semitones, that plays a sample `rate` times as fast
+export const pitchOf = (rate: number): number => 12 * Math.log2(rate)
+
+// a sample clip, as far as stretching goes. in beats of the playlist
+export interface StretchClip {
+  id: number
+  startBeat: number
+  endBeat: number
+  // how much faster than its sample it plays now (see playbackRate)
+  rate: number
+  // the shortest it can be
+  minBeats: number
+}
+
+// a clip stretched to `ratio` times its length, like tape: playing slower
+// and lower to be longer, faster and higher to be shorter. the edge that
+// isn't dragged stays where it is. it stops where its pitch can go no
+// further (two octaves either way), at the shortest a clip can be, and
+// with its start at the playlist's
+export const stretched = (clip: StretchClip, edge: Edge, ratio: number): Span & { rate: number } => {
+  const length = clip.endBeat - clip.startBeat
+  if(!(length > 0)) return { startBeat: clip.startBeat, endBeat: clip.endBeat, rate: clip.rate }
+
+  // its length at its sample's own speed
+  const plain = length * clip.rate
+  const shortest = Math.max(plain / MAX_RATE, clip.minBeats)
+  // (dragged from the left, no further than the playlist's start)
+  const longest = Math.min(plain * MAX_RATE, edge === 'left' ? clip.endBeat : Infinity)
+  const next = clamp(length * ratio, shortest, longest)
+
+  return {
+    startBeat: edge === 'left' ? clip.endBeat - next : clip.startBeat,
+    endBeat: edge === 'left' ? clip.endBeat : clip.startBeat + next,
+    rate: plain / next,
+  }
+}
+
+// every clip of a stretch: the grabbed clip's edge goes to `target` (where
+// the mouse is, after snapping), and each of the others is stretched by as
+// much: the same number of times its own length. each stops at its own
+// limits, wherever the others are
+export const stretchAll = (
+  clips: ReadonlyArray<StretchClip>,
+  grabbedId: number,
+  edge: Edge,
+  target: number,
+): Array<Span & { id: number, rate: number }> => {
+  const grabbed = clips.find(clip => clip.id === grabbedId)
+  const length = grabbed ? grabbed.endBeat - grabbed.startBeat : 0
+  if(!grabbed || !(length > 0)) return []
+
+  // dragged past the other edge, it's as short as it goes
+  const dragged = edge === 'left' ? grabbed.endBeat - target : target - grabbed.startBeat
+  const ratio = Math.max(dragged, 0) / length
+  return clips.map(clip => ({ id: clip.id, ...stretched(clip, edge, ratio) }))
+}
+
 // the part of its source a clip plays once it's trimmed to `span`, as the
 // engine takes it (see set_clip_windows in engine/src/clip_commands.rs)
 // - perBeat: how much of the source goes by in a beat: seconds of the

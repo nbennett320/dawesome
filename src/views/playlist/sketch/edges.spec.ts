@@ -1,6 +1,6 @@
 import {
-  EDGE_ZONE_PX, Snapping, TrimClip, edgeAt, hiddenBeyond, patternSpan, patternTrimClip, sampleTrimClip,
-  snapPoint, trimAll, trimmed, windowOf,
+  EDGE_ZONE_PX, Snapping, StretchClip, TrimClip, edgeAt, hiddenBeyond, patternSpan, patternTrimClip, pitchOf,
+  sampleTrimClip, snapPoint, stretchAll, stretched, trimAll, trimmed, windowOf,
 } from './edges'
 
 describe('edgeAt', () => {
@@ -217,5 +217,91 @@ describe('hiddenBeyond', () => {
     expect(hiddenBeyond({ start: 0.5, end: 1.5 }, 2)).toEqual({ left: true, right: true })
     // a pattern made shorter than the window: nothing is hidden past its end
     expect(hiddenBeyond({ start: 0, end: 24 }, 16)).toEqual({ left: false, right: false })
+  })
+})
+
+describe('stretching', () => {
+  // two bars from bar 1 (beats 0 to 8), at its sample's own speed
+  const bars: StretchClip = { id: 1, startBeat: 0, endBeat: 8, rate: 1, minBeats: 0.02 }
+
+  it('turns a length into a pitch, and back', () => {
+    expect(pitchOf(1)).toBe(0)
+    expect(pitchOf(2)).toBeCloseTo(12, 10)
+    expect(pitchOf(0.5)).toBeCloseTo(-12, 10)
+    expect(pitchOf(2 ** (7 / 12))).toBeCloseTo(7, 10)
+
+    // out to bar 5, twice its length: an octave down
+    const twice = stretched(bars, 'right', 2)
+    expect(twice).toEqual({ startBeat: 0, endBeat: 16, rate: 0.5 })
+    expect(pitchOf(twice.rate)).toBeCloseTo(-12, 10)
+    // and stretched back by half from there, it's where it started
+    const back = stretched({ ...bars, ...twice }, 'right', 0.5)
+    expect(back).toEqual({ startBeat: 0, endBeat: 8, rate: 1 })
+  })
+
+  it('stretches from where a clip is, whatever its pitch already', () => {
+    // a fifth up already, and made a third as long again
+    const fifth = { ...bars, rate: 2 ** (7 / 12) }
+    const longer = stretched(fifth, 'right', 4 / 3)
+    expect(longer.endBeat).toBeCloseTo(32 / 3, 10)
+    expect(longer.rate).toBeCloseTo(fifth.rate * 3 / 4, 10)
+  })
+
+  it('keeps the end where it is when the left edge is dragged', () => {
+    const later = { ...bars, startBeat: 8, endBeat: 16 }
+    expect(stretched(later, 'left', 1.5)).toEqual({ startBeat: 4, endBeat: 16, rate: 2 / 3 })
+    expect(stretched(later, 'left', 0.5)).toEqual({ startBeat: 12, endBeat: 16, rate: 2 })
+  })
+
+  it('stops the edge where the pitch can go no further', () => {
+    // two octaves down: four times as long. two up: a quarter
+    expect(stretched(bars, 'right', 9)).toEqual({ startBeat: 0, endBeat: 32, rate: 0.25 })
+    expect(stretched(bars, 'right', 0.1)).toEqual({ startBeat: 0, endBeat: 2, rate: 4 })
+    // already an octave up, it has an octave left that way and three the other
+    const up = { ...bars, endBeat: 4, rate: 2 }
+    expect(stretched(up, 'right', 0.01).rate).toBe(4)
+    expect(stretched(up, 'right', 100)).toEqual({ startBeat: 0, endBeat: 32, rate: 0.25 })
+    expect(pitchOf(stretched(up, 'right', 100).rate)).toBe(-24)
+  })
+
+  it('stops the left edge at the start of the playlist', () => {
+    const near = { ...bars, startBeat: 2, endBeat: 10 }
+    expect(stretched(near, 'left', 3)).toEqual({ startBeat: 0, endBeat: 10, rate: 0.8 })
+  })
+
+  it('never makes a clip shorter than it can be', () => {
+    // a clip so short that a quarter of it would be under the least
+    const tiny: StretchClip = { id: 2, startBeat: 0, endBeat: 0.05, rate: 1, minBeats: 0.02 }
+    const span = stretched(tiny, 'right', 0.01)
+    expect(span.endBeat).toBeCloseTo(0.02, 10)
+    expect(span.rate).toBeCloseTo(2.5, 10)
+  })
+
+  it('stretches every clip of a selection by as much, each from its own other edge', () => {
+    const second: StretchClip = { id: 2, startBeat: 20, endBeat: 22, rate: 2, minBeats: 0.02 }
+    // the grabbed clip's right edge from beat 8 to beat 12: half as long again
+    expect(stretchAll([bars, second], 1, 'right', 12)).toEqual([
+      { id: 1, startBeat: 0, endBeat: 12, rate: 2 / 3 },
+      { id: 2, startBeat: 20, endBeat: 23, rate: 4 / 3 },
+    ])
+    // and by their left edges: the ends stay
+    const moved = stretchAll([{ ...bars, startBeat: 8, endBeat: 16 }, second], 1, 'left', 12)
+    expect(moved).toEqual([
+      { id: 1, startBeat: 12, endBeat: 16, rate: 2 },
+      { id: 2, startBeat: 21, endBeat: 22, rate: 4 },
+    ])
+  })
+
+  it('stops each clip at its own limit while the others carry on', () => {
+    // one already two octaves down can't get longer; the other can
+    const slow: StretchClip = { id: 2, startBeat: 20, endBeat: 28, rate: 0.25, minBeats: 0.02 }
+    const spans = stretchAll([bars, slow], 1, 'right', 16)
+    expect(spans[0]).toEqual({ id: 1, startBeat: 0, endBeat: 16, rate: 0.5 })
+    expect(spans[1]).toEqual({ id: 2, startBeat: 20, endBeat: 28, rate: 0.25 })
+  })
+
+  it('is as short as it goes when the edge is dragged past the other one', () => {
+    expect(stretchAll([bars], 1, 'right', -3)).toEqual([{ id: 1, startBeat: 0, endBeat: 2, rate: 4 }])
+    expect(stretchAll([bars], 9, 'right', 12)).toEqual([])
   })
 })

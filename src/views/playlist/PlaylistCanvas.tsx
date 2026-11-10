@@ -18,11 +18,12 @@ import {
   selectPlaylistUI,
   selectTransportRevision,
   setClipWindows,
+  stretchClips,
 } from '../../state/slices/playlistSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
 import type { RootState } from '../../state/store'
 import { PlaylistWindow, PlaylistItem } from '../../types/playlist'
-import { Renderer, WindowEdit } from './sketch'
+import { Renderer, StretchEdit, WindowEdit } from './sketch'
 import { isPlaceable, onSampleDrag } from '../../state/sampleDrag'
 import { OWN_DRAG_PREVIEW } from '../../components/DragGhost'
 import { selectFocusedView } from '../../state/slices/windowSlice'
@@ -305,6 +306,12 @@ const PlaylistCanvas = () => {
     [dispatch],
   )
 
+  // and with shift held: stretch them all, as one step to undo
+  const handleClipsStretch = React.useCallback(
+    (edits: StretchEdit[]) => dispatch(stretchClips(edits)),
+    [dispatch],
+  )
+
   return (
     <div 
       ref={ref}
@@ -337,6 +344,7 @@ const PlaylistCanvas = () => {
           loopEnabled={loopEnabled}
           onSeek={handleSeek}
           onClipsTrim={handleClipsTrim}
+          onClipsStretch={handleClipsStretch}
         />
       </div>}
       <ClipMenuHost opener={openMenu} />

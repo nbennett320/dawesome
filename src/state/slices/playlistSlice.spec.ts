@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import reducer, {
   reduceLoadedProject, playlistSlice, removeManyFromPlaylist, selectClipOverrides, selectClipWindow, setClipWindows,
   setPlaylistTempo,
-  splitClips, updateClipSettings, validTempo,
+  splitClips, stretchClips, updateClipSettings, validTempo,
 } from './playlistSlice'
 import { beginGesture, resetGestures } from '../gesture'
 import { ChangedClips, LoadedProject, ProjectView } from '../../types/project'
@@ -389,6 +389,19 @@ describe('trimmed and cut clips', () => {
       expect(mockInvoke).toHaveBeenCalledWith('split_clips', { ids: [7], beat: 5 })
       expect(result).toEqual(changed)
       expect(state.clipWindows[7]).toEqual({ start: 0.5, end: null })
+    })
+
+    it('stretches clips, and shows the pitch and place the engine gave them', async () => {
+      const stretchedClip = clip({ id: 7, startBeat: 3, settings: { ...defaultClipSettings, pitch: -12 } })
+      mockInvoke.mockImplementation(async (command: string) =>
+        (command === 'get_playlist_data' ? [16, 256, 240, 4] : { clips: [stretchedClip], patternClips: [] }))
+      const edits = [{ id: 7, pitch: -12, keep: 'end' as const }]
+      const { result, state } = await run(dispatch => stretchClips(edits)(dispatch))
+
+      expect(mockInvoke).toHaveBeenCalledWith('stretch_clips', { edits })
+      expect(result?.clips[0].settings.pitch).toBe(-12)
+      expect(state.clipSettings[7].pitch).toBe(-12)
+      expect(state.playlistItems.find((item: { id: number }) => item.id === 7).startBeat).toBe(3)
     })
 
     it('gives null when the engine refuses', async () => {

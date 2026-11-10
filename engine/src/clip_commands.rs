@@ -117,6 +117,52 @@ pub(crate) fn split(state: &daw::InnerState, ids: &[u64], beat: f64) -> Result<C
   Ok(changed_clips(state, &touched))
 }
 
+// which edge of a clip stays where it is while it's stretched
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum Keep {
+  Start,
+  End,
+}
+
+// a sample clip to stretch: the pitch that makes it the length it was
+// dragged to, and the edge that wasn't dragged
+#[derive(Deserialize, Debug, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+pub struct StretchEdit {
+  pub id: u64,
+  pub pitch: f32,
+  pub keep: Keep,
+}
+
+// stretch sample clips, like tape: each is given a pitch, which changes
+// how fast and so how long it plays, with one of its edges staying where it
+// is in the playlist (see AudioGraph::stretch_node). the pitch is kept in
+// its range. all the clips are stretched, as one step to undo, or (when an
+// id doesn't name a sample clip) none are
+#[tauri::command]
+pub fn stretch_clips(state: daw::TState<'_>, edits: Vec<StretchEdit>) -> Result<ChangedClips, String> {
+  stretch(&state, &edits)
+}
+
+pub(crate) fn stretch(state: &daw::InnerState, edits: &[StretchEdit]) -> Result<ChangedClips, String> {
+  let ids: Vec<u64> = edits.iter().map(|edit| edit.id).collect();
+
+  history::clip_edit(state, &ids, None, || {
+    let mut audiograph = state.playlist.audiograph.lock().unwrap();
+    if let Some(missing) = ids.iter().find(|&&id| audiograph.get_node_by_id(id).is_none()) {
+      return Err(format!("no sample clip with id {}", missing));
+    }
+
+    for edit in edits {
+      audiograph.stretch_node(edit.id, edit.pitch, edit.keep == Keep::End)?;
+    }
+    Ok(())
+  }, |_| vec![])?;
+
+  Ok(changed_clips(state, &ids))
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -278,6 +324,68 @@ mod tests {
     assert_eq!(redone.clips.unwrap().len(), 4);
     assert_eq!(saved(&state), after);
     assert_eq!(changed_clips(&state, &[right.id]).clips[0], *right);
+  }
+
+  #[test]
+  fn test_stretching_clips_is_one_step() {
+    let (state, sample, pattern) = clips();
+    let other = add_clip(&state, KICK.to_string(), 2, Some(20.)).unwrap().id;
+    change_clip_settings(&state, other, daw::ClipSettings { pitch: 5., gain_db: -6., ..Default::default() }, None).unwrap();
+    state.history.lock().unwrap().clear();
+    let before = saved(&state);
+    let node = |id: u64| state.playlist.audiograph.lock().unwrap().get_node_by_id(id).unwrap().clone();
+    let (was, other_was) = (node(sample), node(other));
+    let ends = |clip: &daw::AudioNode| clip.start_offset + clip.duration();
+
+    // one to twice its length from its start, the other to half its length
+    // (an octave above where it was) from its end
+    let edits = [
+      StretchEdit { id: sample, pitch: -12., keep: Keep::Start },
+      StretchEdit { id: other, pitch: 17., keep: Keep::End },
+    ];
+    let changed = stretch(&state, &edits).unwrap();
+    assert_eq!(steps(&state), 1);
+    assert_eq!(changed.clips.len(), 2);
+    assert_eq!(changed.clips[0].info.settings.pitch, -12.);
+    let after = saved(&state);
+
+    // twice as long, starting where it did
+    assert_eq!(node(sample).start_offset, was.start_offset);
+    assert!(node(sample).duration().abs_diff(was.duration() * 2) < Duration::from_micros(1));
+    // half as long, ending where it did, with its other settings as they were
+    assert!(node(other).duration().abs_diff(other_was.duration() / 2) < Duration::from_micros(1));
+    assert!(ends(&node(other)).abs_diff(ends(&other_was)) < Duration::from_nanos(2));
+    assert!(node(other).start_offset > other_was.start_offset);
+    assert_eq!(node(other).settings().gain_db, -6.);
+    assert!(changed.clips[1].start_beat > 20.);
+
+    assert!(history::undo(&state).unwrap().is_some());
+    assert_eq!(saved(&state), before);
+    assert_eq!(node(other).start_offset, other_was.start_offset);
+    assert!(history::redo(&state).unwrap().is_some());
+    assert_eq!(saved(&state), after);
+
+    // a pitch out of range is kept in it
+    let far = stretch(&state, &[StretchEdit { id: sample, pitch: -90., keep: Keep::Start }]).unwrap();
+    assert_eq!(far.clips[0].info.settings.pitch, -24.);
+    // a pattern clip can't be stretched, and then nothing is
+    let had = (saved(&state), steps(&state));
+    let bad = [StretchEdit { id: other, pitch: 0., keep: Keep::Start }, StretchEdit { id: pattern, pitch: 3., keep: Keep::Start }];
+    assert!(stretch(&state, &bad).is_err());
+    assert_eq!((saved(&state), steps(&state)), had);
+    // the same pitch again is no step
+    stretch(&state, &[StretchEdit { id: sample, pitch: -24., keep: Keep::Start }]).unwrap();
+    assert_eq!(steps(&state), had.1);
+  }
+
+  #[test]
+  fn test_a_clip_stretched_from_its_end_at_the_playlists_start_stays_in_the_playlist() {
+    let state = state();
+    let id = add_clip(&state, KICK.to_string(), 0, Some(0.)).unwrap().id;
+    // four times as long, from its end: its start can't go before beat 0
+    let changed = stretch(&state, &[StretchEdit { id, pitch: -24., keep: Keep::End }]).unwrap();
+    assert_eq!(changed.clips[0].start_beat, 0.);
+    assert_eq!(changed.clips[0].info.settings.pitch, -24.);
   }
 
   #[test]
