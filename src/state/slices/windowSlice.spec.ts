@@ -1,5 +1,6 @@
-import reducer, { pressSidebarPage, setSidebar, WindowState } from './windowSlice'
-import { SidebarPage } from '../../types/ui'
+import reducer, { openTab, pressSidebarPage, setSidebar, WindowState } from './windowSlice'
+import { leaves } from '../paneTree'
+import { SidebarPage, View } from '../../types/ui'
 
 const initial = (): WindowState => reducer(undefined, { type: '@@init' })
 
@@ -28,5 +29,16 @@ describe('pressSidebarPage', () => {
     const state = reducer(closed, pressSidebarPage(SidebarPage.Samples))
     expect(state.sidebar).toBe(true)
     expect(state.sidebarPage).toBe(SidebarPage.Samples)
+  })
+})
+
+describe('openTab', () => {
+  it('opens the Mixdown tab, once, labelled Mixdown', () => {
+    const once = reducer(initial(), openTab(View.Mixdown))
+    const twice = reducer(once, openTab(View.Mixdown))
+    ;[once, twice].forEach(state => {
+      const tabs = leaves(state.windowPane.root).flatMap(pane => pane.tabs ?? [])
+      expect(tabs.filter(tab => tab.component === View.Mixdown)).toEqual([{ label: 'Mixdown', component: View.Mixdown }])
+    })
   })
 })

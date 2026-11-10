@@ -89,6 +89,9 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     &PredefinedMenuItem::separator(app)?,
     &item("save", "Save", Some("CmdOrCtrl+S"))?,
     &item("save-as", "Save As…", Some("CmdOrCtrl+Shift+S"))?,
+    &PredefinedMenuItem::separator(app)?,
+    // opens the Mixdown tab, as the Window menu opens tabs
+    &item("view-mixdown", "Mixdown…", None)?,
   ])?;
 
   // define edit menu. undo, redo, repeat, select all and join are done by

@@ -10,6 +10,8 @@ export enum View {
   Sequencer,
   // which devices the engine plays and records through, and its buffer size
   AudioSettings,
+  // File › Mixdown…: the song to a WAV or MP3 file
+  Mixdown,
 }
 
 // the label a view's tab gets when it's opened
@@ -20,6 +22,7 @@ export const viewLabels: Record<View, string> = {
   [View.Transport]: 'Transport',
   [View.Sequencer]: 'Sequencer',
   [View.AudioSettings]: 'Audio',
+  [View.Mixdown]: 'Mixdown',
 }
 
 // how a split pane lays out its children, named like react-split-pane:

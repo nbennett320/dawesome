@@ -25,9 +25,11 @@ const menuViews: Record<string, View> = {
   sequencer: View.Sequencer,
   // Preferences › Audio Settings…
   audio: View.AudioSettings,
+  // File › Mixdown…
+  mixdown: View.Mixdown,
 }
 
-// the Window and Preferences menus: open a tab, or select it where it's already open.
+// the Window and Preferences menus (and File › Mixdown…): open a tab, or select it where it's already open.
 // resolves to a function that stops listening
 const viewMenu = (dispatch: AppDispatch) =>
   listen<{ data: string }>('menu-open-view', ev => {
