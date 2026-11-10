@@ -190,52 +190,52 @@ const Mixdown = () => {
           </div>
         </Field>
 
-        <Field label='File type' htmlFor='mixdown-type'>
-          <select
-            id='mixdown-type'
-            className='ft-readout text-sm py-1 text-left w-72 max-w-full'
-            value={mixdown.fileType}
-            disabled={disabled}
-            onChange={e => dispatch(setFileType(e.currentTarget.value as FileType))}
-          >
-            <option value='wav'>WAV</option>
-            <option value='mp3'>MP3</option>
-          </select>
-        </Field>
+        <div className='flex gap-4'>
+          <div>
+            <Field label='File type' htmlFor='mixdown-type'>
+              <select
+                id='mixdown-type'
+                className='ft-readout text-sm py-1 text-left w-72 max-w-full'
+                value={mixdown.fileType}
+                disabled={disabled}
+                onChange={e => dispatch(setFileType(e.currentTarget.value as FileType))}
+              >
+                <option value='wav'>WAV</option>
+                <option value='mp3'>MP3</option>
+              </select>
+            </Field>
+          </div>
 
-        {mixdown.fileType === 'wav' ? (
-          <Field label='Bit depth' htmlFor='mixdown-bits'>
-            <select
-              id='mixdown-bits'
-              className='ft-readout text-sm py-1 text-left w-72 max-w-full'
-              value={mixdown.bits}
-              disabled={disabled}
-              onChange={e => dispatch(setBits(e.currentTarget.value as Bits))}
-            >
-              {(Object.keys(BITS_LABELS) as Bits[]).map(bits => (
-                <option key={bits} value={bits}>{BITS_LABELS[bits]}</option>
-              ))}
-            </select>
-          </Field>
-        ) : (
-          <Field label='Bitrate' htmlFor='mixdown-kbps'>
-            <select
-              id='mixdown-kbps'
-              className='ft-readout text-sm py-1 text-left w-72 max-w-full'
-              value={mixdown.kbps}
-              disabled={disabled}
-              onChange={e => dispatch(setKbps(Number(e.currentTarget.value) as Kbps))}
-            >
-              {KBPS.map(kbps => <option key={kbps} value={kbps}>{kbps} kbps</option>)}
-            </select>
-          </Field>
-        )}
-
-        <p className='text-xs text-slate-500 max-w-md'>
-          The whole song, from the start to the end of its last clip, as you hear it now:
-          every track&apos;s fader, pan, mute and solo, and the master. Not the metronome.
-          If the name&apos;s taken, a number is added.
-        </p>
+          <div>
+            {mixdown.fileType === 'wav' ? (
+              <Field label='Bit depth' htmlFor='mixdown-bits'>
+                <select
+                  id='mixdown-bits'
+                  className='ft-readout text-sm py-1 text-left w-72 max-w-full'
+                  value={mixdown.bits}
+                  disabled={disabled}
+                  onChange={e => dispatch(setBits(e.currentTarget.value as Bits))}
+                >
+                  {(Object.keys(BITS_LABELS) as Bits[]).map(bits => (
+                    <option key={bits} value={bits}>{BITS_LABELS[bits]}</option>
+                  ))}
+                </select>
+              </Field>
+            ) : (
+              <Field label='Bitrate' htmlFor='mixdown-kbps'>
+                <select
+                  id='mixdown-kbps'
+                  className='ft-readout text-sm py-1 text-left w-72 max-w-full'
+                  value={mixdown.kbps}
+                  disabled={disabled}
+                  onChange={e => dispatch(setKbps(Number(e.currentTarget.value) as Kbps))}
+                >
+                  {KBPS.map(kbps => <option key={kbps} value={kbps}>{kbps} kbps</option>)}
+                </select>
+              </Field>
+            )}
+          </div>
+        </div>
 
         <div>
           <Button type='submit' disabled={disabled || !name.trim()}>
