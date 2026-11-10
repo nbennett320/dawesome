@@ -15,13 +15,22 @@ interface Props {
   // where the menu opens, relative to the playlist's box
   x: number
   y: number
-  items: ClipMenuItem[]
+  // 'divider' is a line between groups of items
+  items: Array<ClipMenuItem | 'divider'>
   onClose: () => void
 }
 
 // a clip's right-click menu. closes on a choice, a click anywhere else,
 // Escape, scrolling, or the window losing focus
-const ClipMenu = ({ x, y, items, onClose }: Props) => {
+const ClipMenu = ({ x, y, items: given, onClose }: Props) => {
+  // no divider first, last, or twice in a row, so lists can be built naively
+  const items: Props['items'] = []
+  given.forEach(item => {
+    if(item === 'divider' && (!items.length || items[items.length - 1] === 'divider')) return
+    items.push(item)
+  })
+  if(items[items.length - 1] === 'divider') items.pop()
+
   const ref = React.useRef<HTMLDivElement>(null)
   // kept inside the playlist's box, once it's been measured
   const [shift, setShift] = React.useState({ x: 0, y: 0 })
@@ -66,7 +75,10 @@ const ClipMenu = ({ x, y, items, onClose }: Props) => {
       style={{ left: x + shift.x, top: y + shift.y }}
       onContextMenu={e => e.preventDefault()}
     >
-      {items.map(item => (
+      {items.map((item, i) => (item === 'divider' ? (
+        // eslint-disable-next-line react/no-array-index-key
+        <div key={`divider-${i}`} role='separator' className='my-1 border-t border-slate-200' />
+      ) : (
         <button
           key={item.label}
           type='button'
@@ -86,7 +98,7 @@ const ClipMenu = ({ x, y, items, onClose }: Props) => {
           <span>{item.label}</span>
           {item.shortcut && <span className='text-slate-400 font-mono'>{item.shortcut}</span>}
         </button>
-      ))}
+      )))}
     </div>
   )
 }

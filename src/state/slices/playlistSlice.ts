@@ -15,7 +15,7 @@ import {
   windowedDuration,
 } from '../../types/clip'
 import {
-  ChangedClips, LoadedClip, LoadedPatternClip, LoadedProject, MissingSample, MovedClip, ProjectView, SavedProject,
+  ChangedClips, LoadedClip, LoadedPatternClip, LoadedProject, MissingSample, MovedClip, Placed, ProjectView, SavedProject,
 } from '../../types/project'
 import { currentGesture } from '../gesture'
 import { Wind } from '../../types/transport'
@@ -57,9 +57,11 @@ export interface PlaylistState {
   // counts projects opened (or started), so the playlist goes back to how
   // it opens: its first bars
   viewRevision: number
-  // the clips an undo or redo changed, for the playlist to select. the
-  // count goes up each time, so the same clips can be selected again
+  // the clips an undo or redo changed, or a paste made, for the playlist to
+  // select. the count goes up each time, so the same clips can be selected again
   travelled: { count: number, ids: number[] }
+  // how many clips the engine's clipboard holds: whether there's anything to paste
+  clipboardCount: number
   // the clip shown in the Sample tab
   inspectedClipId: number | null
   // how each clip is played back, by clip id, as last loaded from or sent to
@@ -96,6 +98,7 @@ const initialState = {
   playlistItems: [],
   viewRevision: 0,
   travelled: { count: 0, ids: [] },
+  clipboardCount: 0,
   inspectedClipId: null,
   clipSettings: {},
   clipSampleDurations: {},
@@ -216,6 +219,13 @@ export const playlistSlice = createSlice({
         state.playlistItems.push(patternItem(clip))
         setWindow(state, clip.id, clip.window)
       })
+    },
+    setClipboardCount: (state, action: PayloadAction<number>) => {
+      state.clipboardCount = action.payload
+    },
+    // the playlist selects these clips, as it does the ones an undo changed
+    selectClips: (state, action: PayloadAction<number[]>) => {
+      state.travelled = { count: state.travelled.count + 1, ids: action.payload }
     },
     removePlaylistItem: (state, action) => {
       state.playlistItems = state.playlistItems.filter(e => e.id !== action.payload.id)
@@ -358,6 +368,8 @@ export const playlistSlice = createSlice({
       // the tool isn't saved: a project opens with Select
       state.tool = 'select'
       state.inspectedClipId = null
+      // the engine empties its clipboard on New and Open
+      state.clipboardCount = 0
       state.viewRevision += 1
 
       state.playlistItems = project.clips.map(clip => ({
@@ -887,6 +899,88 @@ export const splitClips = (ids: number[], beat: number) => async (
   } catch(e) {
     // eslint-disable-next-line no-console
     console.error(`could not cut the clips at beat ${beat}:`, e)
+    return null
+  }
+}
+
+export const { setClipboardCount, selectClips } = playlistSlice.actions
+
+export const selectClipboardCount = (state: RootState) => state.playlist.clipboardCount
+
+// copy clips to the engine's clipboard, which the system's is left out of
+export const copyClips = (ids: number[]) => async (dispatch: Dispatch): Promise<void> => {
+  if(!ids.length) return
+  try {
+    const count = await invoke<number>('copy_clips', { ids })
+    dispatch(playlistSlice.actions.setClipboardCount(count))
+  } catch(e) {
+    // eslint-disable-next-line no-console
+    console.error('could not copy the clips:', e)
+  }
+}
+
+// copy clips, and take them out of the playlist
+export const cutClips = (ids: number[]) => async (dispatch: Dispatch): Promise<void> => {
+  if(!ids.length) return
+  try {
+    const count = await invoke<number>('cut_clips', { ids })
+    ids.forEach(id => dispatch(playlistSlice.actions.removePlaylistItem({ id })))
+    dispatch(playlistSlice.actions.setClipboardCount(count))
+    await refreshTrackCount()(dispatch)
+  } catch(e) {
+    // eslint-disable-next-line no-console
+    console.error('could not cut the clips:', e)
+  }
+}
+
+// tell the user something in the notice banner. loaded when needed: the
+// project slice pulls in the file dialogs, which this slice otherwise doesn't need
+const notify = async (dispatch: Dispatch, message: string) => {
+  const { setProjectNotice } = await import('./projectSlice')
+  dispatch(setProjectNotice({ kind: 'info', message }))
+}
+
+// show the clips the engine placed, select them, and say if any were left out
+const reducePlaced = async (dispatch: Dispatch, placed: Placed) => {
+  dispatch(playlistSlice.actions.reduceChangedClips(placed))
+  const ids = [...placed.clips, ...placed.patternClips].map(clip => clip.id)
+  if(ids.length) dispatch(playlistSlice.actions.selectClips(ids))
+  await refreshTrackCount()(dispatch)
+
+  if(placed.leftOut > 0) {
+    await notify(dispatch, placed.leftOut === 1
+      ? '1 clip was left out: its pattern no longer exists.'
+      : `${placed.leftOut} clips were left out: their patterns no longer exist.`)
+  }
+}
+
+// paste the clipboard so its earliest clip starts at a beat: on the tracks
+// the clips came from, or with the topmost one on `track`. the engine
+// refuses, with a sentence for the user, if any would start past the end
+export const pasteClips = (beat: number, track: number | null = null) => async (
+  dispatch: Dispatch,
+): Promise<Placed | null> => {
+  try {
+    const placed = await invoke<Placed>('paste_clips', { beat, track })
+    await reducePlaced(dispatch, placed)
+    return placed
+  } catch(e) {
+    await notify(dispatch, String(e))
+    return null
+  }
+}
+
+// duplicate clips so the copies start where the originals' span ends
+export const repeatClips = (ids: number[]) => async (
+  dispatch: Dispatch,
+): Promise<Placed | null> => {
+  if(!ids.length) return null
+  try {
+    const placed = await invoke<Placed>('repeat_clips', { ids })
+    await reducePlaced(dispatch, placed)
+    return placed
+  } catch(e) {
+    await notify(dispatch, String(e))
     return null
   }
 }

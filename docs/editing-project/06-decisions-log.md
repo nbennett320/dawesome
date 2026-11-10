@@ -157,3 +157,17 @@ Added below as they happen, newest last. Each says what I chose, why, and what t
 - **The Snap key and the snap-value drop-down in the tray are the topbar's own, moved.**
 - **Not verified:** H1 to H5, H8, H9, H11 to H14 need the running app, including whether the tray's height leaves the canvas correctly sized.
 - **Verifier pass for M9 (follow-up commit "tray fixes"):** one blocker. The snap-value drop-down had been left in the topbar: my brief to the agent that built the tray wrongly said the Snap key brought the drop-down with it, and I did not catch it in review. It is in the tray now. Also fixed: the dashed cut line kept using the old snap setting after Snap was changed, until the next click; pressing C or S in the middle of dragging a clip turned the drag into a pan (the keys now wait until the mouse is let go); C and S work while the snap drop-down still has the keyboard; the line follows Option being pressed and is hidden while Shift is held.
+
+### M10 — Clipboard, Repeat, Select All, context menus
+
+- **The clipboard lives in the engine, not in the frontend as the plan said.** Copy keeps copies of the clips themselves, with their exact positions, so the two halves of a cut clip that are copied together still meet to the nanosecond when pasted, and Repeat lands exactly on the end of the span. It also means paste does not send every clip's details back and forth. The frontend only knows how many clips the clipboard holds. Alternative: the planned frontend clipboard, working from positions rounded to about a microsecond.
+- **The acceptance items marked "frontend unit test" for paste past the end and for Repeat's position (I5, I10) are engine tests instead,** because that is where the rule now is.
+- **Pasted at a different tempo from the one they were copied at, clips keep their distance in beats, not in seconds.**
+- **Cmd+X of a selection is one undo step that brings the clips back; it does not put the clipboard back as it was.**
+- **Copy, cut and paste are listened for three ways** (the key press, the system's own copy/cut/paste events, and the Edit menu), because I could not check which of them reach the page in the macOS webview. One press arriving by two routes within 150 ms is acted on once. The system clipboard is never written to.
+- **Cmd+R is stopped from reloading in two places:** the Edit menu's Repeat item holds the shortcut, and the page also swallows the key in every view, text fields included. Whether either is enough in a release build is unverified (acceptance I12).
+- **A paste that leaves out a clip because its pattern was deleted says so in the notice banner.** The spec only says the clip is skipped.
+- **The paste and repeat refusals read:** "Nothing was pasted: a clip would start past the end of the playlist." (and "repeated").
+- **"Explode into tracks" in the menu now also acts on every selected pattern clip** when the clicked clip is one of the selection, as the spec's rule for the menu says.
+- **The keys and menus were built by a Sonnet agent from a brief; the engine clipboard is mine.**
+- **Not verified:** I1 to I3, I6 to I9, I11 to I14, J1 to J6, E5 need the running app.

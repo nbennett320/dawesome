@@ -129,20 +129,20 @@ The press logic for E1, E2 and E4 is covered by `src/views/playlist/sketch/selec
 
 ## I. Clipboard and Repeat (M10)
 
-- [ ] I1 [M] Select two clips on tracks 1 and 3, Cmd+C, click the ruler at bar 9, Cmd+V: copies appear on tracks 1 and 3, the earlier one starting at bar 9, the other at the same distance after it, and they are selected.
+- [ ] I1 [M] Select two clips on tracks 1 and 3, Cmd+C, click the ruler at bar 9, Cmd+V: copies appear on tracks 1 and 3, the earlier one starting at bar 9, the other at the same distance after it, and they are selected. (Engine side covered by `clipboard::tests::test_paste_puts_the_earliest_clip_on_the_beat_and_keeps_the_rest_apart`.)
 - [ ] I2 [M] Cmd+V again puts a second set in the same place.
-- [ ] I3 [M] Cmd+X removes the clips and nothing else moves.
-- [ ] I4 [E] Changing a pasted clip's trim or settings leaves the original's rendered output unchanged, and no file is written by a paste.
-- [ ] I5 [U] A paste in which any clip would start past bar 64 pastes nothing; the notice banner explains.
+- [ ] I3 [M] Cmd+X removes the clips and nothing else moves. (Covered by `clipboard::tests::test_cutting_takes_the_clips_out_and_leaves_the_rest`.)
+- [x] I4 [E] Changing a pasted clip's trim or settings leaves the original's rendered output unchanged, and no file is written by a paste. — `clipboard::tests::test_a_pasted_clip_is_its_own_clip_of_the_same_sound`, `test_copy_and_paste_write_no_file`
+- [x] I5 [U] A paste in which any clip would start past bar 64 pastes nothing; the notice banner explains. — the rule lives in the engine, so the test is an engine test: `clipboard::tests::test_a_paste_past_the_end_pastes_nothing`; the banner: `playlistSlice.spec.ts` ("the clip clipboard")
 - [ ] I6 [M] While playing with Snap on, Cmd+V lands on the grid line nearest the playhead at the moment of the press.
-- [ ] I7 [M] Copy a clip, open another project, Cmd+V: nothing is pasted.
+- [ ] I7 [M] Copy a clip, open another project, Cmd+V: nothing is pasted. (Covered by `clipboard::tests::test_a_new_project_empties_the_clipboard`.)
 - [ ] I8 [M] Copy text in another app, copy clips in Dawesome, paste in the other app: the text is pasted.
 - [ ] I9 [M] In a rename field, Cmd+C, Cmd+X and Cmd+V act on the text and no clip changes.
-- [ ] I10 [U] Repeat on a selection spanning beats 2 to 5.7 puts the duplicate's earliest clip at beat 5.7 exactly, on the same tracks, with the same gaps.
+- [x] I10 [U] Repeat on a selection spanning beats 2 to 5.7 puts the duplicate's earliest clip at beat 5.7 exactly, on the same tracks, with the same gaps. — also in the engine, to the nanosecond: `clipboard::tests::test_repeat_starts_exactly_where_the_span_ends`, `test_a_repeat_past_the_end_repeats_nothing`
 - [ ] I11 [M] Pressing Cmd+R three times lays three copies end to end, the last one selected.
-- [ ] I12 [M] Cmd+R never reloads the window, in `pnpm dev` and in a release build, with any view focused.
-- [ ] I13 [M] Paste, Cmd+X and Repeat are each one undo step.
-- [ ] I14 [M] A pattern clip can be copied and pasted; the paste plays the same pattern.
+- [ ] I12 [M] Cmd+R never reloads the window, in `pnpm dev` and in a release build, with any view focused. (This is the one I most need you to check: whether Cmd+R reloads the window could not be tested without the app.)
+- [ ] I13 [M] Paste, Cmd+X and Repeat are each one undo step. (Covered by the clipboard engine tests.)
+- [ ] I14 [M] A pattern clip can be copied and pasted; the paste plays the same pattern. (Covered by the first clipboard engine test, and `test_a_clip_of_a_pattern_thats_gone_is_left_out`.)
 
 ## J. Context menus (M10, M11, M13)
 
@@ -150,7 +150,7 @@ The press logic for E1, E2 and E4 is covered by `src/views/playlist/sketch/selec
 - [ ] J2 [M] A pattern clip's menu has "Explode into tracks" and "Open in Sequencer" above those.
 - [ ] J3 [M] Right-clicking one of three selected clips and choosing Delete removes all three.
 - [ ] J4 [M] Right-clicking an unselected clip leaves the selection as it was, and Delete removes only that clip.
-- [ ] J5 [M] Right-clicking empty space at bar 5 on track 2 with clips on the clipboard opens a menu with Paste; choosing it puts the earliest clip at bar 5 with the topmost copied clip on track 2. With an empty clipboard no menu opens.
+- [ ] J5 [M] Right-clicking empty space at bar 5 on track 2 with clips on the clipboard opens a menu with Paste; choosing it puts the earliest clip at bar 5 with the topmost copied clip on track 2. With an empty clipboard no menu opens. (The track rule is covered by `clipboard::tests::test_paste_on_a_track_moves_every_clip_by_as_many_tracks`.)
 - [ ] J6 [M] The menu looks as it did, apart from the new items and divider lines.
 
 ## K. Deep copy (M11)
@@ -193,7 +193,7 @@ The press logic for E1, E2 and E4 is covered by `src/views/playlist/sketch/selec
 
 ## N. Shortcuts (M5–M13)
 
-- [ ] N1 [U] On macOS, Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+R, Ctrl+A and Ctrl+Z do nothing to clips.
+- [x] N1 [U] On macOS, Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+R, Ctrl+A and Ctrl+Z do nothing to clips. — `shortcuts.spec.ts`
 - [ ] N2 [M] Every row of the table in spec §18 behaves as listed.
 - [ ] N3 [M] Shift+E, Delete, Cmd+N, Cmd+O, Cmd+S, Shift+Cmd+S, Shift+Cmd+M and Shift+Cmd+E behave as before.
 

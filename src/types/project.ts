@@ -54,6 +54,12 @@ export interface ChangedClips {
   patternClips: LoadedPatternClip[]
 }
 
+// clips a paste or a repeat made, and how many of the clipboard's were
+// skipped because their pattern no longer exists
+export interface Placed extends ChangedClips {
+  leftOut: number
+}
+
 // a clip that couldn't be loaded, so it was left out of the playlist
 export interface MissingSample {
   path: string

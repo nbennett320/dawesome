@@ -1,14 +1,18 @@
 import { invoke } from '@tauri-apps/api/core'
 import reducer, {
-  addToPlaylist, reduceLoadedProject, playlistSlice, removeManyFromPlaylist, selectClipOverrides, selectClipWindow, setClipWindows,
+  addToPlaylist, copyClips, cutClips, pasteClips, repeatClips, reduceLoadedProject, playlistSlice, removeManyFromPlaylist, selectClipOverrides, selectClipWindow, setClipWindows,
   setPlaylistTempo,
   splitClips, stretchClips, updateClipSettings, validTempo,
 } from './playlistSlice'
 import { beginGesture, resetGestures } from '../gesture'
-import { ChangedClips, LoadedProject, ProjectView } from '../../types/project'
+import { setProjectNotice } from './projectSlice'
+import { ChangedClips, LoadedProject, Placed, ProjectView } from '../../types/project'
 import { defaultClipSettings } from '../../types/clip'
 
 jest.mock('@tauri-apps/api/core', () => ({ invoke: jest.fn() }))
+jest.mock('@tauri-apps/plugin-dialog', () => ({ ask: jest.fn(), open: jest.fn(), save: jest.fn() }))
+jest.mock('@tauri-apps/plugin-fs', () => ({ readDir: jest.fn() }))
+jest.mock('@tauri-apps/api/path', () => ({ dirname: jest.fn(), documentDir: jest.fn(), join: jest.fn() }))
 
 const loaded: LoadedProject = {
   tempo: 90,
@@ -492,5 +496,152 @@ describe('the playlist tool', () => {
     }
     state = reducer(state, actions.reduceProjectView({ project, selected: null }))
     expect(state.tool).toBe('cut')
+  })
+})
+
+describe('the clip clipboard', () => {
+  const mockInvoke = invoke as jest.Mock
+  const clip = (overrides = {}) => ({
+    ...loaded.clips[0], id: 20, startBeat: 12, window: null, ...overrides,
+  })
+  const start = () => reducer(undefined, reduceLoadedProject(loaded))
+  const placed = (overrides = {}): Placed => ({
+    clips: [clip({ id: 20 })],
+    patternClips: [{ id: 21, patternId: 2, trackNumber: 1, startBeat: 13, window: null }],
+    leftOut: 0,
+    ...overrides,
+  })
+  const run = async <T,>(thunk: (dispatch: jest.Mock) => Promise<T>) => {
+    const dispatch = jest.fn()
+    const result = await thunk(dispatch)
+    const state = dispatch.mock.calls.reduce(
+      (s, [action]) => typeof action === 'function' ? s : reducer(s, action),
+      start(),
+    )
+    return { result, state, dispatch }
+  }
+  const noticeFrom = (dispatch: jest.Mock) =>
+    dispatch.mock.calls.map(([a]) => a).filter(a => a.type === setProjectNotice.type)
+
+  beforeEach(() => {
+    mockInvoke.mockReset()
+    mockInvoke.mockImplementation(async (command: string) =>
+      command === 'get_playlist_data' ? [16, 256, 240, 4] : 0)
+  })
+
+  it('copies clips, and keeps the count the engine gives', async () => {
+    mockInvoke.mockImplementation(async (command: string) => (command === 'copy_clips' ? 2 : [16, 256, 240, 4]))
+    const { state } = await run(dispatch => copyClips([7, 9])(dispatch))
+
+    expect(mockInvoke).toHaveBeenCalledWith('copy_clips', { ids: [7, 9] })
+    expect(state.clipboardCount).toBe(2)
+    expect(state.playlistItems).toHaveLength(2)
+  })
+
+  it('cuts clips out of the playlist', async () => {
+    mockInvoke.mockImplementation(async (command: string) => (command === 'cut_clips' ? 1 : [16, 256, 240, 4]))
+    const { state } = await run(dispatch => cutClips([7])(dispatch))
+
+    expect(mockInvoke).toHaveBeenCalledWith('cut_clips', { ids: [7] })
+    expect(state.playlistItems.map((i: { id: number }) => i.id)).toEqual([9])
+    expect(state.clipboardCount).toBe(1)
+  })
+
+  it('changes nothing when a cut is refused', async () => {
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    mockInvoke.mockRejectedValue('no node with id 7')
+    const { state } = await run(dispatch => cutClips([7])(dispatch))
+
+    expect(state.playlistItems).toHaveLength(2)
+    expect(state.clipboardCount).toBe(0)
+    error.mockRestore()
+  })
+
+  it('pastes, and selects what it placed', async () => {
+    mockInvoke.mockImplementation(async (command: string) =>
+      (command === 'paste_clips' ? placed() : [16, 256, 240, 4]))
+    const { result, state } = await run(dispatch => pasteClips(12, 3)(dispatch))
+
+    expect(mockInvoke).toHaveBeenCalledWith('paste_clips', { beat: 12, track: 3 })
+    expect(result).toEqual(placed())
+    expect(state.playlistItems.map((i: { id: number }) => i.id)).toEqual([7, 9, 20, 21])
+    expect(state.travelled.ids).toEqual([20, 21])
+    expect(state.travelled.count).toBe(1)
+  })
+
+  it('pastes on the original tracks by default', async () => {
+    mockInvoke.mockImplementation(async (command: string) =>
+      (command === 'paste_clips' ? placed() : [16, 256, 240, 4]))
+    await run(dispatch => pasteClips(12)(dispatch))
+    expect(mockInvoke).toHaveBeenCalledWith('paste_clips', { beat: 12, track: null })
+  })
+
+  it('says why when a paste is refused, and adds nothing', async () => {
+    mockInvoke.mockRejectedValue('That would go past the end of the playlist.')
+    const { result, state, dispatch } = await run(d => pasteClips(250)(d))
+
+    expect(result).toBeNull()
+    expect(state.playlistItems).toHaveLength(2)
+    expect(state.travelled.count).toBe(0)
+    expect(noticeFrom(dispatch)).toEqual([
+      setProjectNotice({ kind: 'info', message: 'That would go past the end of the playlist.' }),
+    ])
+  })
+
+  it('says how many clips were left out', async () => {
+    mockInvoke.mockImplementation(async (command: string) =>
+      (command === 'paste_clips' ? placed({ leftOut: 1 }) : [16, 256, 240, 4]))
+    const one = await run(dispatch => pasteClips(12)(dispatch))
+    expect(noticeFrom(one.dispatch)).toEqual([
+      setProjectNotice({ kind: 'info', message: '1 clip was left out: its pattern no longer exists.' }),
+    ])
+
+    mockInvoke.mockImplementation(async (command: string) =>
+      (command === 'paste_clips' ? placed({ leftOut: 2 }) : [16, 256, 240, 4]))
+    const two = await run(dispatch => pasteClips(12)(dispatch))
+    expect(noticeFrom(two.dispatch)).toEqual([
+      setProjectNotice({ kind: 'info', message: '2 clips were left out: their patterns no longer exist.' }),
+    ])
+  })
+
+  it('selects nothing when nothing was placed', async () => {
+    mockInvoke.mockImplementation(async (command: string) =>
+      (command === 'paste_clips' ? placed({ clips: [], patternClips: [], leftOut: 1 }) : [16, 256, 240, 4]))
+    const { state } = await run(dispatch => pasteClips(12)(dispatch))
+    expect(state.travelled.count).toBe(0)
+  })
+
+  it('repeats clips, and selects the duplicates', async () => {
+    mockInvoke.mockImplementation(async (command: string) =>
+      (command === 'repeat_clips' ? placed() : [16, 256, 240, 4]))
+    const { result, state } = await run(dispatch => repeatClips([7, 9])(dispatch))
+
+    expect(mockInvoke).toHaveBeenCalledWith('repeat_clips', { ids: [7, 9] })
+    expect(result).toEqual(placed())
+    expect(state.travelled.ids).toEqual([20, 21])
+    expect(state.playlistItems).toHaveLength(4)
+  })
+
+  it('says why when a repeat is refused', async () => {
+    mockInvoke.mockRejectedValue('Nothing to repeat there.')
+    const { result, state, dispatch } = await run(d => repeatClips([7])(d))
+
+    expect(result).toBeNull()
+    expect(state.playlistItems).toHaveLength(2)
+    expect(noticeFrom(dispatch)).toEqual([setProjectNotice({ kind: 'info', message: 'Nothing to repeat there.' })])
+  })
+
+  it('does nothing for no clips', async () => {
+    await run(dispatch => copyClips([])(dispatch))
+    await run(dispatch => cutClips([])(dispatch))
+    await run(dispatch => repeatClips([])(dispatch))
+    expect(mockInvoke).not.toHaveBeenCalled()
+  })
+
+  it('is empty again once a project is loaded', () => {
+    const { setClipboardCount } = playlistSlice.actions
+    const state = reducer(start(), setClipboardCount(3))
+    expect(state.clipboardCount).toBe(3)
+    expect(reducer(state, reduceLoadedProject(loaded)).clipboardCount).toBe(0)
   })
 })

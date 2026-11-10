@@ -47,6 +47,8 @@ export interface CanvasProps extends SketchProps {
   onItemDrop: (pw: PlaylistWindow) => void
   // a clip was right-clicked, at clientX, clientY in the window
   onNodeRightClick: (id: number, clientX: number, clientY: number) => void
+  // empty space over the tracks was right-clicked, at this beat and track
+  onEmptyRightClick: (beat: number, track: number, clientX: number, clientY: number) => void
   onNodeMove: () => void
   // several selected clips were dragged together (see Renderer.onNodesMove)
   onNodesMove: (ids: number[], anchorId: number, dropBeat: number, trackNumber: number) => void
@@ -377,6 +379,7 @@ export class Renderer extends RendererBase {
 
   // reassigned function definitions
   onNodeRightClick!: (id: number, clientX: number, clientY: number) => void
+  onEmptyRightClick!: (beat: number, track: number, clientX: number, clientY: number) => void
   onNodeDoubleClick!: (id: number) => void
   onNodeMove!: (
     item: PlaylistItem,
@@ -551,6 +554,17 @@ export class Renderer extends RendererBase {
   select = (ids: number[]) => {
     this.selectedIds = new Set(ids)
     this.wake()
+  }
+
+  selectAll = () => {
+    this.selectedIds = new Set(this.playlistObjects.map(o => o.playlistItem.id))
+    this.wake()
+  }
+
+  // where a paste goes: the playhead, snapped like everything else
+  pasteBeat = (): number | null => {
+    const beat = this.playheadBeat()
+    return beat === null ? null : this.snapBeat(beat)
   }
 
   // the selected clips' ids, clearing the selection (to delete them). none
@@ -1484,7 +1498,13 @@ export class Renderer extends RendererBase {
         mouseY,
         target: item,
       })
+      return
     }
+
+    if(overRuler(p.mouseY) || this.overScrollbar(p.mouseX, p.mouseY)) return
+    const track = this.trackAt(this.screenToPlaylistY(p.mouseY))
+    if(track < 0) return
+    this.onEmptyRightClick(this.snapBeat(this.screenXToBeat(p.mouseX)), track, ev.clientX, ev.clientY)
   }
 
   // p5 sketch function
@@ -1816,6 +1836,7 @@ export class Renderer extends RendererBase {
       const { width, height, trackCount, currentScale } = this
 
       this.onNodeRightClick = props.onNodeRightClick
+      this.onEmptyRightClick = props.onEmptyRightClick
       this.onNodeMove = props.onNodeMove
       this.onNodesMove = props.onNodesMove
       this.onNodeDoubleClick = props.onNodeDoubleClick
