@@ -4,7 +4,7 @@ You went to sleep on 2026-11-10 and told me to work through the night with full 
 
 ## Where things stand
 
-*Written at the end of the build, 2026-11-10. Updated as the last verifier passes come in.*
+*Written at the end of the build, 2026-11-10, after the last verifier pass. Last commit: `deep copy, join and clips page fixes`. Tests at that commit: 319 engine (8 more are marked to run by hand), 386 frontend; typecheck and lint at their baselines.*
 
 **All 14 milestones in `03-plan.md` are built and committed** on `playlist-enhancements`, each followed by an independent verifier pass whose findings were fixed. Both test suites pass at the last commit, and lint and typecheck are at their baselines.
 
