@@ -53,12 +53,70 @@ export const lassoSelection = (
   return selected
 }
 
+// a press with shift held, until it's clear what it is: a click (toggle the
+// clip under it, if any) or the start of a box
+export interface ShiftPress {
+  // where it went down on the canvas, in pixels
+  screen: Point
+  // the same spot in playlist coordinates, where a box would start
+  point: Point
+  // the clip under it, if any
+  clipId: number | null
+}
+
+// the clip at a point in playlist coordinates: the one drawn last (on top)
+// of those whose box holds it, or none
+export const clipAt = (point: Point, clips: ReadonlyArray<{ id: number, box: Rect }>): number | null => {
+  const under = clips.filter(({ box }) => rectsTouch({ left: point.x, top: point.y, width: 0, height: 0 }, box))
+  return under.length ? under[under.length - 1].id : null
+}
+
+// whether the mouse has moved far enough from a shift press to be dragging
+// out a box, rather than clicking (the same distance that makes a press on a
+// clip a drag)
+export const startsLasso = (press: ShiftPress, mouse: Point, threshold: number): boolean =>
+  Math.hypot(mouse.x - press.screen.x, mouse.y - press.screen.y) > threshold
+
+// the box a shift press turns into once it's dragged. it adds to what's
+// selected, and starts where the press was, so a press on a clip takes that
+// clip in
+export const lassoFrom = (press: ShiftPress, selected: ReadonlySet<number>): Lasso => ({
+  start: press.point,
+  end: press.point,
+  base: new Set(selected),
+})
+
 // add a clip to the selection, or take it out if it's already in
 export const toggleSelected = (selected: ReadonlySet<number>, id: number): Set<number> => {
   const next = new Set(selected)
   if(next.has(id)) next.delete(id)
   else next.add(id)
   return next
+}
+
+// what's selected after a shift press is let go without becoming a box: the
+// clip under it is added, or taken out if it was in. on empty space, nothing
+// changes
+export const shiftClick = (press: ShiftPress, selected: ReadonlySet<number>): Set<number> =>
+  (press.clipId === null ? new Set(selected) : toggleSelected(selected, press.clipId))
+
+// what's selected once a shift press is let go, with the mouse at `mouse`
+// (`screen` in canvas pixels, `point` in playlist coordinates). let go
+// within the drag distance it was a click; further away it was a box, even
+// if no frame was drawn between the move and the release. a click on a clip
+// that has gone since the press (deleted, exploded) changes nothing
+export const shiftRelease = (
+  press: ShiftPress,
+  mouse: { screen: Point, point: Point },
+  threshold: number,
+  selected: ReadonlySet<number>,
+  clips: ReadonlyArray<{ id: number, box: Rect }>,
+): Set<number> => {
+  if(startsLasso(press, mouse.screen, threshold)) {
+    return lassoSelection({ ...lassoFrom(press, selected), end: mouse.point }, clips)
+  }
+  if(!clips.some(clip => clip.id === press.clipId)) return new Set(selected)
+  return shiftClick(press, selected)
 }
 
 // forget clips that no longer exist (removed, or a project was loaded)

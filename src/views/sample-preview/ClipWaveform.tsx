@@ -1,10 +1,12 @@
 import React from 'react'
 import {
   ClipSettings,
+  ClipWindow,
   envelopeAt,
   gainFactor,
-  playedDuration,
+  windowedDuration,
 } from '../../types/clip'
+import { Region, playedRegion, timeAtX } from './region'
 
 export interface WaveformData {
   // the engine's levels at evenly spaced points (see
@@ -17,6 +19,8 @@ interface Props {
   data: WaveformData
   settings: ClipSettings
   tempo: number
+  // the part of the sample the clip plays, null for all of it
+  window: ClipWindow | null
   // the attack or decay handle was dragged
   onEnvelopeChange: (change: Partial<Pick<ClipSettings, 'attackMs' | 'decayMs'>>) => void
 }
@@ -30,6 +34,8 @@ const COLORS = {
   beat: '#94a3b8', // slate-400
   centre: '#cbd5e1', // slate-300
   wave: 'rgb(2, 132, 199)', // sky-600
+  dimmed: '#cbd5e1', // slate-300
+  wash: 'rgba(241, 245, 249, 0.6)', // slate-100
   fill: 'rgba(14, 165, 233, 0.12)',
   // amber, like the dot on a clip whose settings were changed
   envelope: 'rgb(245, 158, 11)', // amber-500
@@ -65,6 +71,8 @@ interface Layout {
   height: number
   // the clip's played length, seconds
   played: number
+  // the part of the canvas the clip plays, the envelope sits inside it
+  region: Region
 }
 
 // where the envelope's top and bottom are drawn
@@ -73,11 +81,11 @@ const envelopeBottom = (height: number) => height - HANDLE_RADIUS - 2
 
 // x of the attack handle (where the fade in ends) and the decay handle
 // (where the fade out starts)
-const handleX = (handle: Handle, settings: ClipSettings, { width, played }: Layout) => {
-  if(played <= 0) return handle === 'attack' ? 0 : width
+const handleX = (handle: Handle, settings: ClipSettings, { played, region }: Layout) => {
+  if(played <= 0) return handle === 'attack' ? region.left : region.left + region.width
   return handle === 'attack'
-    ? settings.attackMs / 1000 / played * width
-    : width - settings.decayMs / 1000 / played * width
+    ? region.left + settings.attackMs / 1000 / played * region.width
+    : region.left + region.width - settings.decayMs / 1000 / played * region.width
 }
 
 const draw = (
@@ -88,7 +96,8 @@ const draw = (
   tempo: number,
   active: Handle | null,
 ) => {
-  const { width, height, played } = layout
+  const { width, height, played, region } = layout
+  const windowed = region.left > 0 || region.width < width
 
   ctx.clearRect(0, 0, width, height)
   ctx.fillStyle = COLORS.background
@@ -110,22 +119,26 @@ const draw = (
 
   // shade the fades
   ctx.fillStyle = COLORS.fade
-  ctx.fillRect(0, top, attackX, height - top)
-  ctx.fillRect(decayX, top, width - decayX, height - top)
+  ctx.fillRect(region.left, top, attackX - region.left, height - top)
+  ctx.fillRect(decayX, top, region.left + region.width - decayX, height - top)
 
   // beat gridlines across the played length, labelled from 1 like the
-  // playlist's timeline
+  // playlist's timeline. beat 1 is the region's left edge, and the lines
+  // go on across the rest of the canvas at the same spacing
   const beats = played * tempo / 60
-  if(beats > 0) {
-    const beatWidth = width / beats
+  if(beats > 0 && region.width > 0) {
+    const beatWidth = region.width / beats
     // skip labels that would overlap on a long clip
     const labelEvery = Math.max(1, Math.ceil(28 / beatWidth))
 
     ctx.font = '10px system-ui, sans-serif'
     ctx.textBaseline = 'middle'
 
-    for(let b = 0; b <= beats; b++) {
-      const x = Math.round(b * beatWidth) + 0.5
+    const firstBeat = Math.ceil(-region.left / region.width * beats)
+    const lastBeat = Math.floor((width - region.left) / region.width * beats)
+
+    for(let b = firstBeat; b <= lastBeat; b++) {
+      const x = Math.round(region.left + b * beatWidth) + 0.5
 
       ctx.strokeStyle = COLORS.grid
       ctx.beginPath()
@@ -133,7 +146,7 @@ const draw = (
       ctx.lineTo(x, height)
       ctx.stroke()
 
-      if(b % labelEvery === 0 && x < width - 8) {
+      if(b >= 0 && b % labelEvery === 0 && x < width - 8) {
         ctx.fillStyle = COLORS.beat
         ctx.fillText(String(b + 1), x + 3, RULER_HEIGHT / 2)
       }
@@ -151,11 +164,34 @@ const draw = (
   if(levels.length >= 2) {
     const gain = gainFactor(settings.gainDb) * UNITY_HEIGHT
     const xAt = (i: number) => i / (levels.length - 1) * width
+    // boosts past the top or bottom are drawn flat, like clipping
+    const heightAt = (level: number) => mid - Math.max(-1, Math.min(1, level)) * halfHeight
     const yAt = (i: number) => {
-      const t = i / (levels.length - 1) * played
-      const level = levels[i] * gain * envelopeAt(settings, t, played)
-      // boosts past the top or bottom are drawn flat, like clipping
-      return mid - Math.max(-1, Math.min(1, level)) * halfHeight
+      const t = timeAtX(region, played, xAt(i))
+      return heightAt(levels[i] * gain * envelopeAt(settings, t, played))
+    }
+    const strokeWave = (y: (i: number) => number) => {
+      ctx.beginPath()
+      levels.forEach((_, i) => (i ? ctx.lineTo(xAt(i), y(i)) : ctx.moveTo(xAt(i), y(i))))
+      ctx.stroke()
+    }
+
+    if(windowed) {
+      // outside the region: unshaped by the envelope, muted, no fill
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(0, top, region.left, height - top)
+      ctx.rect(region.left + region.width, top, width - region.left - region.width, height - top)
+      ctx.clip()
+      ctx.strokeStyle = COLORS.dimmed
+      strokeWave(i => heightAt(levels[i] * gain))
+      ctx.restore()
+
+      // inside the region only
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(region.left, top, region.width, height - top)
+      ctx.clip()
     }
 
     // shade between the wave and the centre line
@@ -168,9 +204,26 @@ const draw = (
     ctx.fill()
 
     ctx.strokeStyle = COLORS.wave
-    ctx.beginPath()
-    levels.forEach((_, i) => (i ? ctx.lineTo(xAt(i), yAt(i)) : ctx.moveTo(xAt(i), yAt(i))))
-    ctx.stroke()
+    strokeWave(yAt)
+
+    if(windowed) ctx.restore()
+  }
+
+  if(windowed) {
+    // dim what the clip doesn't play, and mark where it starts and ends
+    ctx.fillStyle = COLORS.wash
+    ctx.fillRect(0, top, region.left, height - top)
+    ctx.fillRect(region.left + region.width, top, width - region.left - region.width, height - top)
+
+    ctx.strokeStyle = COLORS.rulerLine
+    ctx.lineWidth = 1
+    const edges = [region.left, region.left + region.width]
+    edges.filter(x => x > 0 && x < width).forEach(x => {
+      ctx.beginPath()
+      ctx.moveTo(Math.round(x) + 0.5, top)
+      ctx.lineTo(Math.round(x) + 0.5, height)
+      ctx.stroke()
+    })
   }
 
   // the envelope: up from silence over the attack, down over the decay
@@ -179,15 +232,15 @@ const draw = (
   const envelopeY = (level: number) => eBottom - level * (eBottom - eTop)
   // where the fades cross when they overlap
   const peakX = Math.min(attackX, decayX)
-  const peakLevel = played > 0 ? envelopeAt(settings, peakX / width * played, played) : 1
+  const peakLevel = played > 0 ? envelopeAt(settings, timeAtX(region, played, peakX), played) : 1
 
   ctx.strokeStyle = COLORS.envelope
   ctx.lineWidth = 1.5
   ctx.beginPath()
-  ctx.moveTo(0, envelopeY(settings.attackMs > 0 ? 0 : 1))
+  ctx.moveTo(region.left, envelopeY(settings.attackMs > 0 ? 0 : 1))
   ctx.lineTo(peakX, envelopeY(peakLevel))
   if(decayX > attackX) ctx.lineTo(decayX, envelopeY(1))
-  ctx.lineTo(width, envelopeY(settings.decayMs > 0 ? 0 : 1))
+  ctx.lineTo(region.left + region.width, envelopeY(settings.decayMs > 0 ? 0 : 1))
   ctx.stroke()
 
   // handles, at the top of the envelope
@@ -195,7 +248,10 @@ const draw = (
   handles.forEach(([handle, x]) => {
     ctx.beginPath()
     ctx.arc(
-      Math.max(HANDLE_RADIUS, Math.min(width - HANDLE_RADIUS, x)),
+      // kept inside the played part (in the middle of one too narrow)
+      region.width < HANDLE_RADIUS * 2
+        ? region.left + region.width / 2
+        : Math.max(region.left + HANDLE_RADIUS, Math.min(region.left + region.width - HANDLE_RADIUS, x)),
       eTop,
       HANDLE_RADIUS,
       0,
@@ -210,7 +266,7 @@ const draw = (
 
 // a clip's waveform as it will play: its gain, its fades (with handles to
 // drag them), and its played length marked in beats
-const ClipWaveform = ({ data, settings, tempo, onEnvelopeChange }: Props) => {
+const ClipWaveform = ({ data, settings, tempo, window: clipWindow, onEnvelopeChange }: Props) => {
   const boxRef = React.useRef<HTMLDivElement>(null)
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
   const [size, setSize] = React.useState({ width: 0, height: 0 })
@@ -222,7 +278,8 @@ const ClipWaveform = ({ data, settings, tempo, onEnvelopeChange }: Props) => {
   const layout: Layout = {
     width: size.width,
     height: size.height,
-    played: playedDuration(settings, data.duration),
+    played: windowedDuration(settings, data.duration, clipWindow),
+    region: playedRegion(clipWindow, data.duration, size.width),
   }
 
   // follow the container's size: window resizes, split pane dividers
@@ -252,7 +309,7 @@ const ClipWaveform = ({ data, settings, tempo, onEnvelopeChange }: Props) => {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
     draw(ctx, layout, levels, settings, tempo, dragging ?? hovered)
-  }, [size, levels, settings, data.duration, tempo, dragging, hovered])
+  }, [size, levels, settings, data.duration, clipWindow, tempo, dragging, hovered])
 
   // pointer position on the canvas
   const pointerX = (ev: { clientX: number }) =>
@@ -274,9 +331,10 @@ const ClipWaveform = ({ data, settings, tempo, onEnvelopeChange }: Props) => {
 
   // milliseconds for a handle dragged to x
   const msAt = (handle: Handle, x: number) => {
-    const { width, played } = layout
-    const fraction = Math.max(0, Math.min(1, x / width))
-    const seconds = handle === 'attack' ? fraction * played : (1 - fraction) * played
+    const { played, region } = layout
+    // pointer held inside the region
+    const time = timeAtX(region, played, x)
+    const seconds = handle === 'attack' ? time : played - time
     return Math.round(seconds * 1000)
   }
 

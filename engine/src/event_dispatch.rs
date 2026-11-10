@@ -5,7 +5,7 @@ use std::time::{Instant, SystemTime};
 use tauri;
 
 use crate::daw::{InnerState};
-use crate::{app, daw, util, STATE};
+use crate::{app, daw, history, util, STATE};
 
 pub fn toggle_playlist(state: &Arc<daw::InnerState>) {
   if state.playlist.playing() {
@@ -81,6 +81,10 @@ fn get_start_time_ms(state: &daw::InnerState) -> Result<f64, String> {
     .lock()
     .unwrap()
     .ok_or("playlist has not been started")?;
+  Ok(wall_clock_ms(started)?)
+}
+
+fn wall_clock_ms(started: Instant) -> Result<f64, String> {
   let now = Instant::now();
   // UNIX_EPOCH is the epoch on every platform, including windows
   let wall = SystemTime::now()
@@ -134,15 +138,18 @@ pub struct PlaylistTransport {
 
 fn playlist_transport(state: &daw::InnerState) -> PlaylistTransport {
   let beat_interval = daw::beat_interval(state);
-  let start_offset = *state.playlist.start_offset.lock().unwrap();
+  // read as a pair: both move when the loop comes round
+  let (start_offset, started) = daw::run_anchor(state);
+  // (worked out before the struct, whose fields hold other locks as they're read)
+  let loop_beats = daw::offset_beats(daw::loop_end(state), beat_interval).round() as u64;
 
   PlaylistTransport {
     playing: state.playlist.playing(),
-    start_time_ms: get_start_time_ms(state).ok(),
+    start_time_ms: started.and_then(|started| wall_clock_ms(started).ok()),
     start_offset_ms: start_offset.as_secs_f64() * 1000.,
     position_ms: daw::playhead(state).as_secs_f64() * 1000.,
     beat_interval_ms: beat_interval.as_secs_f64() * 1000.,
-    loop_beats: state.playlist.max_beats.load(Ordering::SeqCst),
+    loop_beats,
     beats_displayed: state.playlist.ui.lock().unwrap().max_beats_displayed,
     loop_enabled: state.playlist.loop_enabled.load(Ordering::SeqCst),
     song_end_ms: daw::song_end(state).unwrap_or_default().as_secs_f64() * 1000.,
@@ -168,13 +175,24 @@ pub fn get_playlist_tempo(
   Ok(state.tempo())
 }
 
+// change the tempo (see daw::set_playlist_tempo), as a step that can be
+// undone. refused while recording
+// - gesture: the visit to the tempo field it's part of, if any
+pub fn change_tempo(state: &Arc<daw::InnerState>, tempo: f32, gesture: Option<u64>) -> Result<f32, String> {
+  let before = state.tempo();
+  let after = daw::set_playlist_tempo(state, tempo)?;
+  history::record(state, history::Step::new().in_gesture(gesture).with_tempo(before, after));
+  Ok(after)
+}
+
 #[tauri::command]
 pub fn set_playlist_tempo(
   state: daw::TState<'_>,
   val: f32,
-) {
+  gesture: Option<u64>,
+) -> Result<f32, String> {
   println!("playlist tempo updated: {}", val);
-  daw::set_playlist_tempo(state, val);
+  change_tempo(state.inner(), val, gesture)
 }
 
 pub fn toggle_metronome_enabled(
@@ -361,15 +379,29 @@ fn add_audiograph_node(
   start_offset: std::time::Duration,
   snap_enabled: bool,
 ) -> Result<u64, String> {
+  add_audiograph_node_at(state, sample_path, track_number, |_| start_offset, snap_enabled)
+}
+
+// add a clip where `start_offset` says, asked once its sample has been
+// decoded: that takes a while, and the tempo may change meanwhile, which
+// would move a time worked out before it
+fn add_audiograph_node_at(
+  state: &daw::InnerState,
+  sample_path: String,
+  track_number: u32,
+  start_offset: impl FnOnce(&daw::InnerState) -> std::time::Duration,
+  snap_enabled: bool,
+) -> Result<u64, String> {
   // decoded before taking the graph's lock, which playback (and the
   // playhead, polled from the UI) needs
-  let mut node = daw::AudioNode::new(0, sample_path, start_offset, track_number)?;
+  let mut node = daw::AudioNode::new(0, sample_path, std::time::Duration::ZERO, track_number)?;
+  node.start_offset = start_offset(state);
 
   let subdivision = state.playlist.ui.lock().unwrap().snap_subdivision;
   let mut audiograph = state.playlist.audiograph.lock().unwrap();
   if snap_enabled {
     // snap to nearest snap subdivision
-    node.start_offset = audiograph.find_nearest_offset_subdivision(start_offset, subdivision);
+    node.start_offset = audiograph.find_nearest_offset_subdivision(node.start_offset, subdivision);
   }
 
   Ok(audiograph.insert_node(node))
@@ -383,12 +415,22 @@ pub fn t_add_audiograph_node(
   track_number: u32,
   drop_beat: Option<f32>,
 ) -> Result<PlacedNode, String> {
-  let start_offset = beat_to_offset(state.inner(), drop_beat);
+  add_clip(state.inner(), sample_path, track_number, drop_beat)
+}
 
+// add a clip of a sample where it was dropped, snapped by the snap setting.
+// one step to undo
+pub(crate) fn add_clip(
+  state: &daw::InnerState,
+  sample_path: String,
+  track_number: u32,
+  drop_beat: Option<f32>,
+) -> Result<PlacedNode, String> {
   let snap_enabled = state.playlist.ui.lock().unwrap().snap_enabled;
 
-  let id = add_audiograph_node(state.inner(), sample_path, track_number, start_offset, snap_enabled)?;
-  let start_beat = node_beat(state.inner(), id)?;
+  let id = history::clip_edit(state, &[], None, || add_audiograph_node_at(
+    state, sample_path, track_number, |state| beat_to_offset(state, drop_beat), snap_enabled), |&id| vec![id])?;
+  let start_beat = node_beat(state, id)?;
 
   Ok(PlacedNode { id, start_beat })
 }
@@ -400,13 +442,24 @@ pub fn move_audiograph_node(
   track_number: u32,
   drop_beat: Option<f32>,
 ) -> Result<f32, String> {
-  let start_offset = beat_to_offset(state.inner(), drop_beat);
+  move_clip(state.inner(), id, track_number, drop_beat)
+}
+
+// move a clip to where it was dropped, snapped by the snap setting. returns
+// where it is now, in beats. one step to undo
+pub(crate) fn move_clip(
+  state: &daw::InnerState,
+  id: u64,
+  track_number: u32,
+  drop_beat: Option<f32>,
+) -> Result<f32, String> {
+  let start_offset = beat_to_offset(state, drop_beat);
 
   println!("moved sample with id: {}, with offset of: {}ms", id, start_offset.as_millis());
 
   // returns where the frontend should draw the node (in beats), after snapping
-  move_audiograph_node_to(state.inner(), id, track_number, start_offset)?;
-  node_beat(state.inner(), id)
+  history::clip_edit(state, &[id], None, || move_audiograph_node_to(state, id, track_number, start_offset), |_| vec![])?;
+  node_beat(state, id)
 }
 
 fn move_audiograph_node_to(
@@ -467,7 +520,21 @@ pub fn move_audiograph_nodes(
   drop_beat: f32,
   track_number: u32,
 ) -> Result<Vec<MovedNode>, String> {
-  move_audiograph_nodes_to(state.inner(), &ids, anchor_id, drop_beat, track_number)
+  move_clips(state.inner(), &ids, anchor_id, drop_beat, track_number)
+}
+
+// one step to undo, however many clips
+pub(crate) fn move_clips(
+  state: &daw::InnerState,
+  ids: &[u64],
+  anchor_id: u64,
+  drop_beat: f32,
+  track_number: u32,
+) -> Result<Vec<MovedNode>, String> {
+  history::clip_edit(
+    state, ids, None,
+    || move_audiograph_nodes_to(state, ids, anchor_id, drop_beat, track_number),
+    |_| vec![])
 }
 
 fn move_audiograph_nodes_to(
@@ -506,14 +573,37 @@ pub fn remove_audiograph_node(
   state: daw::TState<'_>,
   id: u64,
 ) -> Result<(), String> {
-  state
-    .playlist
-    .audiograph
-    .lock()
-    .unwrap()
-    .remove_node(id)?;
+  remove_clips(state.inner(), &[id])
+}
 
-  Ok(())
+// take several clips out of the playlist (a selection). all of them, or (if
+// one isn't there) none
+#[tauri::command]
+pub fn remove_audiograph_nodes(
+  state: daw::TState<'_>,
+  ids: Vec<u64>,
+) -> Result<(), String> {
+  remove_clips(state.inner(), &ids)
+}
+
+// take clips of either kind out of the playlist. one step to undo
+pub(crate) fn remove_clips(state: &daw::InnerState, ids: &[u64]) -> Result<(), String> {
+  // (an id given twice is removed once)
+  let mut ids = ids.to_vec();
+  ids.sort_unstable();
+  ids.dedup();
+  let ids = &ids[..];
+
+  history::clip_edit(state, ids, None, || {
+    let mut audiograph = state.playlist.audiograph.lock().unwrap();
+    if let Some(missing) = ids.iter().find(|&&id| audiograph.placement(id).is_none()) {
+      return Err(format!("no node with id {}", missing));
+    }
+    for &id in ids {
+      audiograph.remove_node(id)?;
+    }
+    Ok(())
+  }, |_| vec![])
 }
 
 #[tauri::command]
@@ -546,6 +636,42 @@ pub struct ClipInfo {
   pub(crate) sample_duration: f32,
   // how long the clip plays for
   pub(crate) played_duration: f32,
+  // the part of the sample it plays, in seconds of the sample. None: all
+  pub(crate) window: Option<ClipWindow>,
+}
+
+// the part of its source a clip plays, as the frontend and project files
+// have it: seconds of the sample for a sample clip, steps of the pattern
+// for a pattern clip
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipWindow {
+  pub start: f64,
+  // None: to the source's end
+  #[serde(default)]
+  pub end: Option<f64>,
+}
+
+impl ClipWindow {
+  pub fn of_sample(window: daw::Window) -> Self {
+    ClipWindow { start: window.start.as_secs_f64(), end: window.end.map(|end| end.as_secs_f64()) }
+  }
+
+  pub fn of_pattern(window: daw::PatternWindow) -> Self {
+    ClipWindow { start: window.start, end: window.end }
+  }
+
+  // as lengths of a sample, a number that makes no sense read as the
+  // sample's start (or, for the end, its end)
+  pub fn sample_times(&self) -> (std::time::Duration, Option<std::time::Duration>) {
+    // (a time too far off to count is past any sample's end)
+    let time = |secs: f64| match std::time::Duration::try_from_secs_f64(secs) {
+      Ok(time) => Some(time),
+      Err(_) if secs.is_finite() && secs > 0. => Some(std::time::Duration::MAX),
+      Err(_) => None,
+    };
+    (time(self.start).unwrap_or_default(), self.end.and_then(time))
+  }
 }
 
 pub(crate) fn clip_info(node: &daw::AudioNode) -> ClipInfo {
@@ -553,6 +679,7 @@ pub(crate) fn clip_info(node: &daw::AudioNode) -> ClipInfo {
     settings: node.settings(),
     sample_duration: node.sample_duration().as_secs_f32(),
     played_duration: node.duration().as_secs_f32(),
+    window: node.window().map(ClipWindow::of_sample),
   }
 }
 
@@ -589,13 +716,25 @@ pub fn get_clip(
 // info is returned with the settings that were kept
 //
 // takes effect the next time the clip starts playing
+// - gesture: the drag (of a knob, or a fade's handle) this change is part
+//   of, if any. the changes of one gesture are undone together
 #[tauri::command]
 pub fn set_clip_settings(
   state: daw::TState<'_>,
   id: u64,
   settings: daw::ClipSettings,
+  gesture: Option<u64>,
 ) -> Result<ClipInfo, String> {
-  set_clip_settings_of(&state, id, settings)
+  change_clip_settings(&state, id, settings, gesture)
+}
+
+pub(crate) fn change_clip_settings(
+  state: &daw::InnerState,
+  id: u64,
+  settings: daw::ClipSettings,
+  gesture: Option<u64>,
+) -> Result<ClipInfo, String> {
+  history::clip_edit(state, &[id], gesture, || set_clip_settings_of(state, id, settings), |_| vec![])
 }
 
 // play a clip on its own, with its settings
@@ -848,7 +987,7 @@ mod tests {
   fn test_beat_to_offset() {
     let state = daw::InnerState::default();
 
-    // default: 120bpm, 16 beats displayed
+    // default: 120bpm, a playlist of 256 beats (64 bars)
     let ms = |b: Option<f32>| beat_to_offset(&state, b).as_millis();
     assert_eq!(ms(Some(0.)), 0);
     assert_eq!(ms(Some(1.)), 500);
@@ -858,7 +997,8 @@ mod tests {
 
     // drops outside the playlist are clamped to its start/end
     assert_eq!(ms(Some(-2.)), 0);
-    assert_eq!(ms(Some(40.)), 8_000);
+    assert_eq!(ms(Some(40.)), 20_000);
+    assert_eq!(ms(Some(300.)), 128_000);
 
     // a beat is longer at a slower tempo
     state.set_tempo(60.);
@@ -883,8 +1023,9 @@ mod tests {
 
     let t = playlist_transport(&state);
     assert_eq!(t.beat_interval_ms, 500.); // 120bpm
+    // nothing in the playlist: the loop is four bars
     assert_eq!(t.loop_beats, 16);
-    assert_eq!(t.beats_displayed, 16);
+    assert_eq!(t.beats_displayed, 256);
     assert!(t.loop_enabled);
 
     // start time is reported in wall clock ms, 1.5s in the past
@@ -993,10 +1134,127 @@ mod tests {
     // float noise lands on the beat
     assert_eq!(daw::seek_playlist(&state, 3.000_000_1), 3.);
 
-    // kept within the playlist (16 beats)
+    // kept within the playlist (256 beats)
     assert_eq!(daw::seek_playlist(&state, -3.), 0.);
-    assert_eq!(daw::seek_playlist(&state, 40.), 16.);
+    assert_eq!(daw::seek_playlist(&state, 40.), 40.);
+    assert_eq!(daw::seek_playlist(&state, 400.), 256.);
     assert_eq!(daw::seek_playlist(&state, f64::NAN), 0.);
+  }
+
+  #[test]
+  fn test_clips_and_the_playhead_keep_their_beat_when_the_tempo_changes() {
+    let state = Arc::new(daw::InnerState::default());
+    let sample = daw::METRONOME_TICK_PATH.to_string();
+    let id = add_audiograph_node(&state, sample, 0, beat_to_offset(&state, Some(8.)), true).unwrap();
+    let ms = |id: u64| state.playlist.audiograph.lock().unwrap()
+      .get_node_by_id(id).unwrap().start_offset.as_secs_f64() * 1000.;
+    let length = |id: u64| state.playlist.audiograph.lock().unwrap()
+      .get_node_by_id(id).unwrap().duration();
+    let played = length(id);
+    daw::seek_playlist(&state, 9.);
+
+    // 120bpm to 90: beat 8 is 5.33s in, rather than 4s
+    assert_eq!(daw::set_playlist_tempo(&state, 90.), Ok(90.));
+    assert!((node_beat(&state, id).unwrap() - 8.).abs() < 1e-5);
+    assert!((ms(id) - 8. * 60_000. / 90.).abs() < 0.01);
+    // the playhead is still on beat 9
+    assert!((daw::offset_beats(daw::playhead(&state), daw::beat_interval(&state)) - 9.).abs() < 1e-5);
+    assert_eq!(state.playlist.total_beats.load(Ordering::SeqCst), 9);
+    // the clip plays the same audio, for as long
+    assert_eq!(length(id), played);
+
+    // and back again, without drifting
+    daw::set_playlist_tempo(&state, 120.).unwrap();
+    assert!((ms(id) - 4_000.).abs() < 0.001);
+    assert_eq!(get_playlist_position_of(&state), 9.);
+
+    // tempos that make no sense are refused, and nothing moves
+    for bad in [0., 0.5, -30., f32::NAN, f32::INFINITY, 5_000., 1e-20] {
+      assert!(daw::set_playlist_tempo(&state, bad).is_err());
+    }
+    assert_eq!(state.tempo(), 120.);
+    assert!((ms(id) - 4_000.).abs() < 0.001);
+    assert_eq!(get_playlist_position_of(&state), 9.);
+  }
+
+  #[test]
+  fn test_playback_carries_on_from_its_beat_at_the_new_tempo() {
+    let state = daw::InnerState::default();
+    // a clip far enough along that the loop is long
+    add_audiograph_node(&state, daw::METRONOME_TICK_PATH.to_string(), 0, beat_to_offset(&state, Some(60.)), true).unwrap();
+
+    // playing from beat 4 (2s), 1.25s ago: beat 6.5
+    fake_run(&state, 2_000, 1_250);
+    assert_eq!(daw::retime(&state, 60.), Ok(daw::Retimed::Playlist));
+
+    // the run was ended, and the playhead left on the beat it had got to, in
+    // the new tempo's time (6.5s), ready to carry on from
+    assert!(!state.playlist.playing());
+    let beat = daw::offset_beats(daw::playhead(&state), daw::beat_interval(&state));
+    assert!((beat - 6.5).abs() < 0.1, "beat {}", beat);
+    assert!((playhead_ms(&state) - 6_500.).abs() < 100.);
+    assert_eq!(state.playlist.total_beats.load(Ordering::SeqCst), 6);
+
+    // stopped: nothing to carry on with
+    assert_eq!(daw::retime(&state, 90.), Ok(daw::Retimed::Stopped));
+    // the same tempo again changes nothing
+    assert_eq!(daw::retime(&state, 90.), Ok(daw::Retimed::Stopped));
+
+    // a pattern playing on its own is ended too, to start over. the
+    // playlist's playhead stays on its beat
+    *state.playlist.mode.lock().unwrap() = daw::PlayMode::Pattern(3);
+    state.playlist.set_playing(true);
+    assert_eq!(daw::retime(&state, 120.), Ok(daw::Retimed::Pattern(3)));
+    assert!(!state.playlist.playing());
+    let beat = daw::offset_beats(daw::playhead(&state), daw::beat_interval(&state));
+    assert!((beat - 6.5).abs() < 0.1, "beat {}", beat);
+  }
+
+  // the playhead, in beats, as get_playlist_position reports it
+  fn get_playlist_position_of(state: &daw::InnerState) -> f64 {
+    let beats = daw::offset_beats(daw::playhead(state), daw::beat_interval(state));
+    (beats * 1e6).round() / 1e6
+  }
+
+  #[test]
+  fn test_the_loop_ends_with_the_last_clip() {
+    let state = daw::InnerState::default();
+    let sample = daw::METRONOME_TICK_PATH.to_string();
+    let ms = |d: Duration| d.as_millis();
+
+    // no clips: four bars (8s at 120bpm)
+    assert_eq!(ms(daw::loop_end(&state)), 8_000);
+    assert_eq!(daw::loop_len(&state).map(ms), Some(8_000));
+
+    // a short clip at beat 9 (the start of bar 3) ends in bar 3
+    let id = add_audiograph_node(&state, sample.clone(), 0, beat_to_offset(&state, Some(8.)), true).unwrap();
+    assert_eq!(ms(daw::loop_end(&state)), 6_000);
+    assert_eq!(playlist_transport(&state).loop_beats, 12);
+
+    // moved into bar 60, the loop follows it
+    move_audiograph_node_to(&state, id, 0, beat_to_offset(&state, Some(236.))).unwrap();
+    assert_eq!(node_beat(&state, id).unwrap(), 236.);
+    assert_eq!(playlist_transport(&state).loop_beats, 240);
+
+    // looping off: no loop length, but where it would end is still known
+    state.playlist.loop_enabled.store(false, Ordering::SeqCst);
+    assert_eq!(daw::loop_len(&state), None);
+    assert_eq!(playlist_transport(&state).loop_beats, 240);
+  }
+
+  #[test]
+  fn test_the_playhead_wraps_at_the_last_clip() {
+    let state = daw::InnerState::default();
+    // a clip in bar 2: the loop is two bars (4s)
+    add_audiograph_node(&state, daw::METRONOME_TICK_PATH.to_string(), 0, beat_to_offset(&state, Some(5.)), true).unwrap();
+    assert_eq!(playlist_transport(&state).loop_beats, 8);
+
+    // 5s into a run from the start: 1s into the second pass
+    fake_run(&state, 0, 5_000);
+    assert!((playhead_ms(&state) - 1_000.).abs() < 50.);
+    let t = playlist_transport(&state);
+    assert!((t.position_ms - 1_000.).abs() < 50.);
+    assert_eq!(t.start_offset_ms, 0.);
   }
 
   #[test]
@@ -1133,9 +1391,13 @@ mod tests {
     // c wasn't in the group
     assert_eq!(beat(c), 9.);
 
-    // dragged past the end of the 16 beats displayed: c stops at the end
-    move_audiograph_nodes_to(&state, &[a, c], c, 20., 3).unwrap();
-    assert_eq!((beat(a), beat(c)), (11., 16.));
+    // well past the first four bars
+    move_audiograph_nodes_to(&state, &[a, c], c, 236., 3).unwrap();
+    assert_eq!((beat(a), beat(c)), (231., 236.));
+
+    // dragged past the end of the playlist (256 beats): c stops at the end
+    move_audiograph_nodes_to(&state, &[a, c], c, 300., 3).unwrap();
+    assert_eq!((beat(a), beat(c)), (251., 256.));
 
     // with snap off the grabbed clip lands exactly where it's dropped
     state.playlist.ui.lock().unwrap().snap_enabled = false;

@@ -1,4 +1,6 @@
-import { isDeleteKey, isExplodeKey, isTypingTarget } from './keys'
+import {
+  isDeleteKey, isExplodeKey, isJoinKey, isTextTarget, isTransportKey, isTypingTarget, toolKey, transportKeyHandler,
+} from './keys'
 
 const el = (html: string) => {
   const box = document.createElement('div')
@@ -25,6 +27,18 @@ describe('isTypingTarget', () => {
     expect(isTypingTarget(el('<button></button>'))).toBe(false)
     expect(isTypingTarget(el('<input type="range">'))).toBe(false)
     expect(isTypingTarget(el('<input type="checkbox">'))).toBe(false)
+  })
+})
+
+describe('isTextTarget', () => {
+  it('is a text field, but not a drop-down, a slider or the page', () => {
+    expect(isTextTarget(el('<input type="text">'))).toBe(true)
+    expect(isTextTarget(el('<input type="number">'))).toBe(true)
+    expect(isTextTarget(el('<textarea></textarea>'))).toBe(true)
+    expect(isTextTarget(el('<select></select>'))).toBe(false)
+    expect(isTextTarget(el('<input type="range">'))).toBe(false)
+    expect(isTextTarget(document.body)).toBe(false)
+    expect(isTextTarget(null)).toBe(false)
   })
 })
 
@@ -57,5 +71,161 @@ describe('isExplodeKey', () => {
     expect(isExplodeKey(key('e', { shiftKey: false }))).toBe(false)
     expect(isExplodeKey(key('E', { metaKey: true }))).toBe(false)
     expect(isExplodeKey(key('R'))).toBe(false)
+  })
+})
+
+describe('isJoinKey', () => {
+  const key = (k: string, mods: Partial<KeyboardEvent> = {}) =>
+    ({ key: k, shiftKey: true, metaKey: false, ctrlKey: false, altKey: false, ...mods })
+
+  it('is Shift+J', () => {
+    expect(isJoinKey(key('J'))).toBe(true)
+    expect(isJoinKey(key('j'))).toBe(true)
+  })
+
+  it('is not J without shift, or with another modifier', () => {
+    expect(isJoinKey(key('j', { shiftKey: false }))).toBe(false)
+    expect(isJoinKey(key('J', { metaKey: true }))).toBe(false)
+    expect(isJoinKey(key('J', { ctrlKey: true }))).toBe(false)
+    expect(isJoinKey(key('J', { altKey: true }))).toBe(false)
+    expect(isJoinKey(key('E'))).toBe(false)
+  })
+})
+
+describe('the transport key', () => {
+  const none = { shiftKey: false, metaKey: false, ctrlKey: false, altKey: false }
+  const press = (over: Partial<KeyboardEvent> = {}) => ({
+    type: 'keydown',
+    key: ' ',
+    ...none,
+    repeat: false,
+    target: document.body as EventTarget | null,
+    preventDefault: jest.fn(),
+    stopPropagation: jest.fn(),
+    ...over,
+  })
+
+  it('is Space on its own', () => {
+    expect(isTransportKey({ key: ' ', ...none })).toBe(true)
+    expect(isTransportKey({ key: 'Enter', ...none })).toBe(false)
+    // ⌘ Space and ⌃ Space are the system's
+    expect(isTransportKey({ key: ' ', ...none, metaKey: true })).toBe(false)
+    expect(isTransportKey({ key: ' ', ...none, ctrlKey: true })).toBe(false)
+    expect(isTransportKey({ key: ' ', ...none, shiftKey: true })).toBe(false)
+    expect(isTransportKey({ key: ' ', ...none, altKey: true })).toBe(false)
+  })
+
+  it('plays or pauses, and keeps the key from what has the keyboard', () => {
+    const toggle = jest.fn()
+    // a focused button would otherwise be clicked by it
+    const ev = press({ target: el('<button></button>') })
+    transportKeyHandler(toggle)(ev)
+
+    expect(toggle).toHaveBeenCalledTimes(1)
+    expect(ev.preventDefault).toHaveBeenCalled()
+    expect(ev.stopPropagation).toHaveBeenCalled()
+  })
+
+  it('toggles once while held, and not again when let go', () => {
+    const toggle = jest.fn()
+    const handle = transportKeyHandler(toggle)
+    handle(press())
+    const held = press({ repeat: true })
+    handle(held)
+    handle(held)
+    const up = press({ type: 'keyup' })
+    handle(up)
+
+    expect(toggle).toHaveBeenCalledTimes(1)
+    // still kept from a focused button, which clicks on the way up
+    expect(held.preventDefault).toHaveBeenCalledTimes(2)
+    expect(up.preventDefault).toHaveBeenCalled()
+  })
+
+  it('types a space wherever typing goes', () => {
+    const toggle = jest.fn()
+    const handle = transportKeyHandler(toggle)
+    const fields = [
+      '<input type="text">', '<input type="number">', '<input type="search">', '<input>',
+      '<textarea></textarea>', '<select><option>1/4</option></select>',
+    ].map(el)
+    const editable = el('<div contenteditable="true"></div>')
+    Object.defineProperty(editable, 'isContentEditable', { value: true })
+
+    ;[...fields, editable].forEach(target => {
+      const ev = press({ target })
+      const up = press({ type: 'keyup', target })
+      handle(ev)
+      handle(up)
+      expect(ev.preventDefault).not.toHaveBeenCalled()
+      expect(ev.stopPropagation).not.toHaveBeenCalled()
+      expect(up.preventDefault).not.toHaveBeenCalled()
+      expect(up.stopPropagation).not.toHaveBeenCalled()
+    })
+    expect(toggle).not.toHaveBeenCalled()
+  })
+
+  it('leaves other keys alone', () => {
+    const toggle = jest.fn()
+    const ev = press({ key: 'Enter' })
+    transportKeyHandler(toggle)(ev)
+    const cmd = press({ metaKey: true })
+    transportKeyHandler(toggle)(cmd)
+
+    expect(toggle).not.toHaveBeenCalled()
+    expect(ev.preventDefault).not.toHaveBeenCalled()
+    expect(cmd.preventDefault).not.toHaveBeenCalled()
+  })
+
+  it('keeps Shift+Space and Option+Space from buttons and scrolling, without playing', () => {
+    const toggle = jest.fn()
+    const handle = transportKeyHandler(toggle)
+    const shifted = press({ shiftKey: true, target: el('<button></button>') })
+    const opted = press({ altKey: true })
+    handle(shifted)
+    handle(opted)
+
+    expect(toggle).not.toHaveBeenCalled()
+    expect(shifted.preventDefault).toHaveBeenCalled()
+    expect(opted.stopPropagation).toHaveBeenCalled()
+    // typed as usual in a text field
+    const typed = press({ shiftKey: true, target: el('<input type="text">') })
+    handle(typed)
+    expect(typed.preventDefault).not.toHaveBeenCalled()
+  })
+
+  it('plays from a slider, a checkbox, and with nothing focused', () => {
+    const toggle = jest.fn()
+    const handle = transportKeyHandler(toggle)
+    handle(press({ target: el('<input type="range">') }))
+    handle(press({ target: el('<input type="checkbox">') }))
+    handle(press({ target: null }))
+    handle(press({ target: document }))
+    expect(toggle).toHaveBeenCalledTimes(4)
+  })
+})
+
+describe('toolKey', () => {
+  const press = (key: string, mods: Partial<Record<'shiftKey' | 'metaKey' | 'ctrlKey' | 'altKey', boolean>> = {}) =>
+    toolKey({ key, shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, ...mods })
+
+  it('is select for S and cut for C, whatever the case', () => {
+    expect(press('s')).toBe('select')
+    expect(press('S')).toBe('select')
+    expect(press('c')).toBe('cut')
+    expect(press('C')).toBe('cut')
+  })
+
+  it('is nothing with any modifier held', () => {
+    ;(['shiftKey', 'metaKey', 'ctrlKey', 'altKey'] as const).forEach(mod => {
+      expect(press('s', { [mod]: true })).toBeNull()
+      expect(press('c', { [mod]: true })).toBeNull()
+    })
+  })
+
+  it('is nothing for other keys', () => {
+    expect(press('x')).toBeNull()
+    expect(press('Escape')).toBeNull()
+    expect(press(' ')).toBeNull()
   })
 })

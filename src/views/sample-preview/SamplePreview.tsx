@@ -5,6 +5,7 @@ import {
   resetClipSettings,
   selectClipSampleDuration,
   selectClipSettings,
+  selectClipWindow,
   selectInspectedClip,
   selectPlaylistTempo,
   updateClipSettings,
@@ -18,7 +19,7 @@ import {
   defaultClipSettings,
   isDefaultClipSettings,
   playbackRate,
-  playedDuration,
+  windowedDuration,
 } from '../../types/clip'
 import ClipWaveform, { WaveformData } from './ClipWaveform'
 import SettingControl from './SettingControl'
@@ -31,7 +32,9 @@ type Loaded =
   | { state: 'ready', levels: Float32Array }
 
 // the inspected clip's waveform levels, from the engine
-const useClipWaveform = (id: number | undefined): Loaded | null => {
+// - path: the file it plays, which a deep copy or a join changes under the
+//   same clip: its waveform is asked for again then
+const useClipWaveform = (id: number | undefined, path: string | undefined): Loaded | null => {
   const [loaded, setLoaded] = React.useState<Loaded | null>(null)
 
   React.useEffect(() => {
@@ -55,7 +58,7 @@ const useClipWaveform = (id: number | undefined): Loaded | null => {
       })
 
     return () => { current = false }
-  }, [id])
+  }, [id, path])
 
   return loaded
 }
@@ -84,8 +87,9 @@ const SamplePreview = () => {
   const clip = useAppSelector(selectInspectedClip)
   const tempo = useAppSelector(selectPlaylistTempo)
   const settings = useAppSelector(selectClipSettings(clip?.id))
+  const clipWindow = useAppSelector(selectClipWindow(clip?.id))
   const sampleDuration = useAppSelector(selectClipSampleDuration(clip?.id))
-  const waveform = useClipWaveform(clip?.id)
+  const waveform = useClipWaveform(clip?.id, clip?.path)
   const trackName = useAppSelector(selectTrackName(clip?.trackNumber ?? 0))
 
   if(!clip) {
@@ -97,7 +101,7 @@ const SamplePreview = () => {
   }
 
   const name = clip.path.split(/[\\/]/).pop() ?? clip.path
-  const played = sampleDuration === undefined ? null : playedDuration(settings, sampleDuration)
+  const played = sampleDuration === undefined ? null : windowedDuration(settings, sampleDuration, clipWindow)
   const waveformData: WaveformData | null = waveform?.state === 'ready' && sampleDuration !== undefined
     ? { levels: waveform.levels, duration: sampleDuration }
     : null
@@ -162,6 +166,7 @@ const SamplePreview = () => {
             data={waveformData}
             settings={settings}
             tempo={tempo}
+            window={clipWindow}
             onEnvelopeChange={update}
           />
         )}

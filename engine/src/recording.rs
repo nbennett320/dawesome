@@ -67,6 +67,9 @@ struct Session {
   keep_from: Instant,
   // the loop's length, if it was looping (the take ends where it comes round)
   loop_len: Option<Duration>,
+  // where the loop ended when the recording started, looping or not: it
+  // stays there until the recording's over
+  loop_end: Duration,
 }
 
 // what's armed, what's recording, and the clips recorded since the frontend
@@ -130,6 +133,12 @@ pub fn is_busy(state: &daw::InnerState) -> bool {
 
 pub fn is_recording(state: &daw::InnerState) -> bool {
   state.recorder.lock().unwrap().recording()
+}
+
+// where the loop ends while a recording is going: where it did when the
+// recording started
+pub fn loop_len_recording(state: &daw::InnerState) -> Option<Duration> {
+  state.recorder.lock().unwrap().session.as_ref().map(|session| session.loop_end)
 }
 
 // the clips recorded since this was last asked, and what went wrong
@@ -212,12 +221,12 @@ pub fn start(state: &Arc<daw::InnerState>) -> Result<(), String> {
   };
   daw::keep_recording_from(keep_from);
 
-  let interval = daw::beat_interval(state);
   let session = Session {
     tracks: armed.iter().zip(&files).map(|(track, file)| (track.track_number, file.path.clone())).collect(),
     start: *state.playlist.start_offset.lock().unwrap(),
     keep_from,
-    loop_len: state.playlist.loop_len(interval),
+    loop_len: daw::loop_len(state),
+    loop_end: daw::loop_end(state),
   };
   println!("recording {} tracks from {:?}", session.tracks.len(), session.start);
   let mut recorder = state.recorder.lock().unwrap();
@@ -358,7 +367,7 @@ mod tests {
 
   // a stand-in for a recording in progress
   fn session() -> Session {
-    Session { tracks: vec![], start: Duration::ZERO, keep_from: Instant::now(), loop_len: None }
+    Session { tracks: vec![], start: Duration::ZERO, keep_from: Instant::now(), loop_len: None, loop_end: Duration::ZERO }
   }
 
   #[test]
@@ -382,6 +391,38 @@ mod tests {
   }
 
   #[test]
+  fn test_no_undo_or_redo_while_recording() {
+    use crate::history;
+    let state = Arc::new(daw::InnerState::default());
+    let clip = crate::event_dispatch::add_clip(&state, daw::METRONOME_TICK_PATH.to_string(), 0, Some(2.)).unwrap().id;
+    let has_clip = || state.playlist.audiograph.lock().unwrap().get_node_by_id(clip).is_some();
+
+    // while a take is being recorded, nothing is undone, and the step waits
+    state.recorder.lock().unwrap().session = Some(session());
+    assert_eq!(history::undo(&state), Ok(None));
+    assert!(has_clip());
+    assert_eq!(state.history.lock().unwrap().len(), 1);
+
+    // nor while its takes are being put on their tracks
+    state.recorder.lock().unwrap().begin_finish();
+    assert_eq!(history::undo(&state), Ok(None));
+    assert!(has_clip());
+
+    // once it's over, the step is still there to undo
+    state.recorder.lock().unwrap().end_finish(vec![], vec![]);
+    assert!(history::undo(&state).unwrap().is_some());
+    assert!(!has_clip());
+
+    // and redo waits the same way
+    state.recorder.lock().unwrap().session = Some(session());
+    assert_eq!(history::redo(&state), Ok(None));
+    assert!(!has_clip());
+    state.recorder.lock().unwrap().session = None;
+    assert!(history::redo(&state).unwrap().is_some());
+    assert!(has_clip());
+  }
+
+  #[test]
   fn test_a_new_recording_waits_for_the_last_to_finish() {
     let state = Arc::new(daw::InnerState::default());
     state.recorder.lock().unwrap().session = Some(session());
@@ -398,6 +439,72 @@ mod tests {
     assert!(start(&state).unwrap_err().contains("Arm a track"));
     assert!(asked.elapsed() >= Duration::from_millis(45));
     done.join().unwrap();
+  }
+
+  #[test]
+  fn test_the_loop_stays_put_while_recording() {
+    let state = daw::InnerState::default();
+    let ms = |d: Duration| d.as_millis();
+    // four bars with nothing in the playlist
+    assert_eq!(ms(daw::loop_end(&state)), 8_000);
+
+    // (started with looping off: the loop's end is kept all the same)
+    state.playlist.loop_enabled.store(false, std::sync::atomic::Ordering::SeqCst);
+    state.recorder.lock().unwrap().session = Some(Session {
+      loop_len: daw::loop_len(&state),
+      loop_end: daw::loop_end(&state),
+      ..session()
+    });
+    state.playlist.loop_enabled.store(true, std::sync::atomic::Ordering::SeqCst);
+
+    // a clip in bar 6 would move the loop's end, but not under a take
+    state.playlist.audiograph.lock().unwrap()
+      .construct_and_add_node(daw::METRONOME_TICK_PATH.to_string(), Duration::from_millis(10_500), 0)
+      .unwrap();
+    assert_eq!(ms(daw::loop_end(&state)), 8_000);
+
+    // once it's over, the loop reaches the new clip
+    state.recorder.lock().unwrap().session = None;
+    assert_eq!(ms(daw::loop_end(&state)), 12_000);
+  }
+
+  #[test]
+  fn test_the_tempo_is_locked_while_recording() {
+    let state = Arc::new(daw::InnerState::default());
+    state.recorder.lock().unwrap().session = Some(session());
+
+    *state.playlist.start_offset.lock().unwrap() = Duration::from_millis(1_500);
+    assert!(daw::set_playlist_tempo(&state, 90.).is_err());
+    assert_eq!(state.tempo(), 120.);
+    // nothing moved
+    assert_eq!(*state.playlist.start_offset.lock().unwrap(), Duration::from_millis(1_500));
+
+    // nor while its takes are being put on their tracks, at the tempo they
+    // were recorded in
+    let stopped = state.recorder.lock().unwrap().begin_finish();
+    assert!(stopped.is_some());
+    assert!(daw::set_playlist_tempo(&state, 90.).is_err());
+
+    state.recorder.lock().unwrap().end_finish(vec![], vec![]);
+    assert_eq!(daw::set_playlist_tempo(&state, 90.), Ok(90.));
+  }
+
+  #[test]
+  fn test_nothing_is_undone_while_recording() {
+    let state = Arc::new(daw::InnerState::default());
+    let id = crate::event_dispatch::add_clip(&state, daw::METRONOME_TICK_PATH.to_string(), 0, Some(2.)).unwrap().id;
+    state.recorder.lock().unwrap().session = Some(session());
+
+    assert_eq!(crate::history::undo(&state).unwrap(), None);
+    assert!(state.playlist.audiograph.lock().unwrap().get_node_by_id(id).is_some());
+
+    // nor while its takes are being put on their tracks
+    let _ = state.recorder.lock().unwrap().begin_finish();
+    assert_eq!(crate::history::undo(&state).unwrap(), None);
+
+    state.recorder.lock().unwrap().end_finish(vec![], vec![]);
+    assert!(crate::history::undo(&state).unwrap().is_some());
+    assert!(state.playlist.audiograph.lock().unwrap().get_node_by_id(id).is_none());
   }
 
   #[test]

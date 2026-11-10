@@ -15,8 +15,11 @@ import {
   setPlaying,
   syncPlayingFrom,
   togglePlay,
+  setPlaylistTempo,
+  reduceProjectView,
 } from './playlistSlice'
 import { openTab, selectFocusedView } from './windowSlice'
+import { currentGesture } from '../gesture'
 
 // a pattern playing on its own, and when it started, for the step highlight
 export interface PatternRun {
@@ -86,6 +89,15 @@ export const sequencerSlice = createSlice({
         state.run = null
         fixSelection(state)
       })
+      // an undo or redo may have changed the rows and patterns. the selected
+      // pattern stays selected while it's there
+      .addCase(reduceProjectView, (state, action) => {
+        const { sequencer } = action.payload.project
+        state.rows = sequencer.rows
+        state.patterns = sequencer.patterns
+        state.folders = sequencer.folders
+        fixSelection(state)
+      })
       // nothing plays once the engine has stopped
       .addCase(setPlaying, (state, action) => {
         if(!action.payload) state.run = null
@@ -134,8 +146,9 @@ export const addSequencerRow = (path: string) => async (dispatch: Dispatch, getS
 export const removeSequencerRow = (rowId: number) =>
   edit('remove the row', 'remove_sequencer_row', { rowId })
 
+// (one drag of the knob is one step to undo: see state/gesture.ts)
 export const setSequencerRowVolume = (rowId: number, volume: number) =>
-  edit("set the row's volume", 'set_sequencer_row_volume', { rowId, volume })
+  edit("set the row's volume", 'set_sequencer_row_volume', { rowId, volume, gesture: currentGesture() })
 
 export const setSequencerRowMuted = (rowId: number, muted: boolean) =>
   edit('mute the row', 'set_sequencer_row_muted', { rowId, muted })
@@ -206,7 +219,9 @@ export const setPatternBars = (patternId: number, bars: number) =>
 export const setPatternStep = (patternId: number, rowId: number, step: number, on: boolean) =>
   (dispatch: Dispatch) => {
     dispatch(reduceStep({ patternId, rowId, step, on }))
-    return edit('change the step', 'set_pattern_step', { patternId, rowId, step, on })(dispatch)
+    // every step painted in one stroke of the mouse is undone together
+    const gesture = currentGesture()
+    return edit('change the step', 'set_pattern_step', { patternId, rowId, step, on, gesture })(dispatch)
   }
 
 // after a transport command: whether the engine plays, and which pattern
@@ -216,6 +231,17 @@ export const syncRun = async (dispatch: Dispatch) => {
   dispatch(setRun(t.playing && t.patternId !== null && t.startTimeMs !== null
     ? { patternId: t.patternId, startTimeMs: t.startTimeMs, beatIntervalMs: t.beatIntervalMs }
     : null))
+}
+
+// change the tempo (see setPlaylistTempo). a pattern playing on its own
+// starts over at the new tempo, so the Sequencer's step light follows the
+// new run. resolves to whether the tempo was changed
+export const changeTempo = (tempo: number, gesture: number | null = null) => async (
+  dispatch: Dispatch,
+): Promise<boolean> => {
+  const changed = await setPlaylistTempo(tempo, gesture)(dispatch)
+  if(changed) await syncRun(dispatch)
+  return changed
 }
 
 // split pattern clips in the playlist into a pattern clip per sample, each

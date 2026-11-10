@@ -142,7 +142,7 @@ impl SavedSequencer {
   }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Sequencer {
   rows: Vec<SequencerRow>,
   patterns: Vec<Pattern>,
@@ -181,14 +181,46 @@ impl Sequencer {
   // sample files that have moved, from where to where (their sounds are
   // already loaded). returns whether any row's did
   pub fn move_row_samples(&mut self, moved: &[(String, String)]) -> bool {
+    self.repoint_rows(&|path| moved.iter().find(|(from, _)| from == path).map(|(_, to)| to.clone()))
+  }
+
+  // sample files that have moved: `to` gives a path's new place, if it has
+  // one. returns whether any row's did
+  pub fn repoint_rows(&mut self, to: &dyn Fn(&str) -> Option<String>) -> bool {
     let mut any = false;
     for row in self.rows.iter_mut() {
-      if let Some((_, to)) = moved.iter().find(|(from, _)| *from == row.path) {
-        row.path = to.clone();
+      if let Some(path) = to(&row.path) {
+        row.path = path;
         any = true;
       }
     }
     any
+  }
+
+  // whether any row plays a file at or under `path`
+  pub fn plays_under(&self, path: &std::path::Path) -> bool {
+    self.rows.iter().any(|row| std::path::Path::new(&row.path).starts_with(path))
+  }
+
+  // whether another sequencer holds the same rows, patterns and folders
+  // (for the history, to tell whether an edit changed anything)
+  pub fn same_as(&self, other: &Sequencer) -> bool {
+    let row = |r: &SequencerRow| (r.id, r.path.clone(), r.volume, r.muted);
+    self.rows.iter().map(row).eq(other.rows.iter().map(row))
+      && self.patterns == other.patterns
+      && self.folders == other.folders
+  }
+
+  // go back to how another sequencer was (undo and redo). ids keep counting
+  // up from wherever they'd got to, so one from before never names
+  // something new
+  pub fn restore_from(&mut self, other: &Sequencer) {
+    self.rows = other.rows.clone();
+    self.patterns = other.patterns.clone();
+    self.folders = other.folders.clone();
+    self.next_row_id = self.next_row_id.max(other.next_row_id);
+    self.next_pattern_id = self.next_pattern_id.max(other.next_pattern_id);
+    self.next_folder_id = self.next_folder_id.max(other.next_folder_id);
   }
 
   pub fn row(&self, id: u64) -> Option<&SequencerRow> {
@@ -324,6 +356,29 @@ impl Sequencer {
     Ok(new_id)
   }
 
+  // a new pattern made from others (see join.rs): any number of steps
+  // long, with these steps lit, straight after the pattern `after` and in
+  // its folder. returns its id
+  pub fn add_pattern_after(
+    &mut self,
+    after: u64,
+    name: String,
+    length: u32,
+    steps: BTreeMap<u64, BTreeSet<u32>>,
+  ) -> Result<u64, String> {
+    let idx = self.patterns.iter().position(|p| p.id == after)
+      .ok_or_else(|| format!("no pattern with id {}", after))?;
+    if length == 0 {
+      return Err("a pattern needs some steps".into());
+    }
+    let id = self.next_pattern_id;
+    self.next_pattern_id += 1;
+
+    let folder = self.patterns[idx].folder;
+    self.patterns.insert(idx + 1, Pattern { id, name: Some(name), length, steps, folder });
+    Ok(id)
+  }
+
   pub fn remove_pattern(&mut self, id: u64) -> Result<(), String> {
     let idx = self.patterns.iter().position(|p| p.id == id)
       .ok_or_else(|| format!("no pattern with id {}", id))?;
@@ -370,6 +425,13 @@ impl Sequencer {
   // every hit of a pattern, as (row, time from the pattern's start), in row
   // order. muted rows, and steps past the pattern's end, don't play
   pub fn hits(&self, pattern_id: u64, beat_interval: Duration) -> Vec<(&SequencerRow, Duration)> {
+    self.hit_steps(pattern_id).into_iter()
+      .map(|(row, step)| (row, step_offset(step, beat_interval)))
+      .collect()
+  }
+
+  // the same, as (row, step)
+  pub fn hit_steps(&self, pattern_id: u64) -> Vec<(&SequencerRow, u32)> {
     let pattern = match self.pattern(pattern_id) {
       Some(p) => p,
       None => return Vec::new(),
@@ -381,7 +443,7 @@ impl Sequencer {
         .into_iter()
         .flatten()
         .filter(|&&step| step < pattern.length)
-        .map(move |&step| (row, step_offset(step, beat_interval))))
+        .map(move |&step| (row, step)))
       .collect()
   }
 

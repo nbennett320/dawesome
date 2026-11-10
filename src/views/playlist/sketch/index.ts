@@ -11,19 +11,29 @@ import Cursor from './Cursor'
 import PlaylistTrack from './PlaylistTrack'
 import PlaylistObject from './PlaylistObject'
 import RendererBase from '../../../render/RendererBase'
-import { ClipOverride } from '../../../types/clip'
+import { ClipOverride, ClipWindow } from '../../../types/clip'
 import {
   PlaylistItem,
   PlaylistItemPixelOffset,
+  PlaylistTool,
   PlaylistWindow
 } from '../../../types/playlist'
+import { CutClip, canCut, cutPoint, cutTargets } from './cut'
 import { theme } from './theme'
 import { PlaylistTransport } from '../../../types/transport'
 import { positionAt } from '../../transport/tape'
-import { Lasso, groupLanding, keepExisting, lassoRect, lassoSelection, toggleSelected } from './selection'
+import {
+  Lasso, ShiftPress, clipAt, groupLanding, keepExisting, lassoFrom, lassoRect, lassoSelection, shiftRelease, startsLasso,
+  toggleSelected,
+} from './selection'
 import { PlaceableItem as DragItem, dragItemKey } from '../../../state/sampleDrag'
 import { Pattern, SequencerState, patternSeconds } from '../../../types/sequencer'
 import { decodeLevels } from '../../../util/waveform'
+import { gridSteps, openingScale, visibleBeats } from './grid'
+import {
+  Edge, MAX_PITCH, Snapping, Span, StretchClip, TrimClip, edgeAt, patternTrimClip, pitchOf, sampleTrimClip,
+  snapPoint, stretchAll, stretchSet, trimAll, trimmedWindow,
+} from './edges'
 
 export interface CanvasProps extends SketchProps {
   height: number
@@ -37,14 +47,53 @@ export interface CanvasProps extends SketchProps {
   onItemDrop: (pw: PlaylistWindow) => void
   // a clip was right-clicked, at clientX, clientY in the window
   onNodeRightClick: (id: number, clientX: number, clientY: number) => void
+  // empty space over the tracks was right-clicked, at this beat and track
+  onEmptyRightClick: (beat: number, track: number, clientX: number, clientY: number) => void
   onNodeMove: () => void
   // several selected clips were dragged together (see Renderer.onNodesMove)
   onNodesMove: (ids: number[], anchorId: number, dropBeat: number, trackNumber: number) => void
   onNodeDoubleClick: (id: number) => void
   // see PlaylistState.transportRevision
   transportRevision: number
+  // whether the playlist loops (the ruler marks where the loop ends)
+  loopEnabled: boolean
   // move the playhead to a beat (clicking or dragging in the ruler)
   onSeek: (beat: number) => void
+  // clips' edges were dragged (see Renderer.onClipsTrim)
+  onClipsTrim: (edits: WindowEdit[]) => Promise<unknown>
+  // and with shift held (see Renderer.onClipsStretch)
+  onClipsStretch: (edits: StretchEdit[]) => Promise<unknown>
+  // clips were clicked with the Cut tool (see Renderer.onClipsCut)
+  onClipsCut: (ids: number[], beat: number) => Promise<unknown>
+}
+
+// how the Cut tool's cursor is drawn: a razor blade, its middle on the
+// spot, or a crosshair where the webview won't show that
+const RAZOR_CURSOR = "url('/cursors/razor.svg') 12 12, crosshair"
+
+// a sample clip to stretch: the pitch that makes it the length it was
+// dragged to, and the edge that stays where it is, as the engine's
+// stretch_clips takes it
+export interface StretchEdit {
+  id: number
+  pitch: number
+  keep: 'start' | 'end'
+}
+
+// the part of its sample (seconds) or pattern (steps) a clip is to play
+// after a trim, as the engine's set_clip_windows takes it
+export type WindowEdit = { id: number } & ClipWindow
+
+// where a clip is drawn, and what of its source it shows
+export interface ClipView {
+  startBeat: number
+  // how long it is
+  seconds: number
+  // the part of its source it shows, and the source's whole length: in
+  // seconds of the sample, or steps of the pattern
+  from: number
+  to: number
+  length: number
 }
 
 export const staticDefaults = {
@@ -135,6 +184,30 @@ interface ClipDrag {
   group: PlaylistObject[]
 }
 
+// an edge of a clip being dragged, to trim it (and the same edge of the
+// other selected clips, when it's one of them), or with shift held when it
+// was pressed, to stretch it
+interface EdgeDrag {
+  edge: Edge
+  grabbedId: number
+  // set when shift was held at the press, whatever it does afterwards: the
+  // sample clips to stretch, the grabbed one first (none for a pattern
+  // clip, which can't be stretched: the drag does nothing)
+  stretch: StretchClip[] | null
+  // the grabbed clip, then the clips trimmed with it, as they were when
+  // the edge was pressed
+  clips: TrimClip[]
+  // how far the edge was from the mouse when it was pressed, in beats, so
+  // it doesn't jump to the mouse
+  grabBeats: number
+  // where it was pressed, on the canvas
+  pressX: number
+  pressY: number
+  // false until the mouse moves past the drag threshold, so a click on an
+  // edge trims nothing
+  active: boolean
+}
+
 // a sample being dragged in from the sidebar, or a pattern from the
 // Sequencer. the mouse is outside the canvas when the drag starts, so
 // PlaylistCanvas reports its position
@@ -202,11 +275,13 @@ export class Renderer extends RendererBase {
   maxPlaylistBeats: number = staticDefaults.maxPlaylistBeats
   trackCount: number = staticDefaults.trackCount
   tempo: number = staticDefaults.tempo
-  // the full canvas width (at scale 1) spans this many beats
-  beatsDisplayed = 16
+  // the playlist's length in beats: the full canvas width (at scale 1)
+  // spans this many
+  beatsDisplayed = 256
   debugMode: boolean = staticDefaults.debugMode
 
-  currentScale = 1
+  // the playlist opens zoomed in on its first bars (see openingScale)
+  currentScale = openingScale(256)
   transformX = 0
   // how far the tracks are scrolled down, in pixels. the timeline stays at
   // the top. zoom only stretches x, so this isn't scaled
@@ -230,6 +305,7 @@ export class Renderer extends RendererBase {
   // draw the playback cursor
   transport: PlaylistTransport | null = null
   transportRevision: number | null = null
+  loopEnabled: boolean | null = null
   // counts transport fetches, so a slow one can't replace a newer one's
   #transportFetch = 0
   // the beat the ruler is being dragged to, or was just released at (shown
@@ -254,6 +330,41 @@ export class Renderer extends RendererBase {
 
   clipDrag: ClipDrag | null = null
   sampleDrag: SampleDrag | null = null
+  edgeDrag: EdgeDrag | null = null
+  // something slow is being written: the mouse shows the wait cursor
+  busy = false
+  setBusy = (busy: boolean) => {
+    this.busy = busy
+    this.wake()
+  }
+  // where the clips being trimmed start and end: while an edge is dragged,
+  // and after it's let go until the engine's answer has been drawn, so the
+  // clips don't flick back to where they were in between
+  #trimSpans: Map<number, Span> | null = null
+  // those clips as they were when the edge was pressed, which the spans
+  // are measured against (the clips themselves change as the engine's
+  // answer arrives: their windows first, their starts a moment later)
+  #trimClips: Map<number, TrimClip> | null = null
+  // and how fast each clip being stretched would play, by id
+  #stretchRates: Map<number, number> | null = null
+  // ends that wait (see #endEdgeDrag), and whether it's the clips being
+  // built again that it waits for (a clip's start moved) rather than just
+  // their windows arriving
+  #settleTrim: (() => void) | null = null
+  #settleOnRebuild = false
+  // the part of its sample or pattern each trimmed clip plays, by id
+  clipWindows: Record<number, ClipWindow> = {}
+  // the edge under the mouse that a press would grab, and its clip's id
+  #hoverEdge: { id: number, edge: Edge } | null = null
+  // whether Option is held: an edge being dragged doesn't snap
+  #altHeld = false
+  // what the mouse does to clips: move and trim them, or cut them
+  tool: PlaylistTool = 'select'
+  // a clip pressed with the Cut tool, and where: let go there, it's cut
+  #cutPress: { x: number, y: number, id: number } | null = null
+  // the cut a click would make now, with the Cut tool: the clips it would
+  // cut, the one under the mouse first, and the beat
+  #cutHover: { ids: number[], beat: number } | null = null
 
   // the Sequencer's rows and patterns, which pattern clips draw. read every
   // frame, so editing a pattern shows straight away without rebuilding
@@ -263,6 +374,9 @@ export class Renderer extends RendererBase {
   selectedIds: Set<number> = new Set()
   // the box being dragged out with shift held, if any
   lasso: Lasso | null = null
+  // a press with shift held that hasn't moved far enough to be a box yet:
+  // let go where it is, it's a click (see #endShiftPress)
+  #shiftPress: ShiftPress | null = null
   // whether the press was on empty track space (not a clip, the ruler or
   // the scrollbar), so a click there without dragging clears the selection
   #pressedOnEmpty = false
@@ -271,6 +385,7 @@ export class Renderer extends RendererBase {
 
   // reassigned function definitions
   onNodeRightClick!: (id: number, clientX: number, clientY: number) => void
+  onEmptyRightClick!: (beat: number, track: number, clientX: number, clientY: number) => void
   onNodeDoubleClick!: (id: number) => void
   onNodeMove!: (
     item: PlaylistItem,
@@ -280,6 +395,16 @@ export class Renderer extends RendererBase {
   // the grabbed clip (anchorId) was dropped at dropBeat (unsnapped) on
   // trackNumber, and every clip in ids moves by as much
   onNodesMove!: (ids: number[], anchorId: number, dropBeat: number, trackNumber: number) => void
+  // clips' edges were dragged: each clip in `edits` is to play that part of
+  // its sample or pattern. resolves to what the engine changed, or nothing
+  // if it refused
+  onClipsTrim!: (edits: WindowEdit[]) => Promise<unknown>
+  // clips' edges were dragged with shift held: each clip in `edits` is to
+  // be stretched to that pitch
+  onClipsStretch!: (edits: StretchEdit[]) => Promise<unknown>
+  // clips were clicked with the Cut tool: each clip in `ids` is to be cut
+  // in two at `beat`
+  onClipsCut!: (ids: number[], beat: number) => Promise<unknown>
 
   // return the current zoom/scale
   getCurrentScale = (): number => this.currentScale
@@ -341,6 +466,18 @@ export class Renderer extends RendererBase {
       const transport = await invoke<PlaylistTransport>('get_playlist_transport', {})
       if(fetch !== this.#transportFetch) return
 
+      // the loop's length changed while playing: the engine takes it up on
+      // its next beat (and counts the playhead from there), so ask again
+      // once it has
+      const before = this.transport
+      if(transport.playing && before && before.loopBeats !== transport.loopBeats) {
+        if(this.#loopSync) clearTimeout(this.#loopSync)
+        this.#loopSync = setTimeout(() => {
+          this.#loopSync = null
+          this.syncTransport()
+        }, transport.beatIntervalMs + 250)
+      }
+
       this.transport = transport
       // a released seek has reached the engine
       if(!this.seekDragging) this.seekBeat = null
@@ -349,6 +486,8 @@ export class Renderer extends RendererBase {
     }
     this.wake()
   }
+
+  #loopSync: ReturnType<typeof setTimeout> | null = null
 
   // the playhead, in beats: following the engine's run while playing, or
   // where the ruler's being dragged to
@@ -384,6 +523,24 @@ export class Renderer extends RendererBase {
     }, 1500)
   }
 
+  // back to how the playlist opens: its first bars, from the top (a project
+  // was opened, or the playlist's length changed)
+  resetView = () => {
+    this.currentScale = openingScale(this.beatsDisplayed)
+    this.transformX = 0
+    this.scrollY = 0
+    this.playlistObjects.forEach(obj => {
+      obj.currentScale = this.currentScale
+    })
+    this.wake()
+  }
+
+  // where the loop ends, in beats, while the playlist loops
+  loopEndBeat = (): number | null => {
+    const t = this.transport
+    return t && t.loopEnabled && t.loopBeats > 0 ? t.loopBeats : null
+  }
+
   syncSnapSetting = async () => {
     try {
       this.snap = await invoke<SnapSetting>('get_snap_setting', {})
@@ -398,10 +555,24 @@ export class Renderer extends RendererBase {
     this.wake()
   }
 
+  // select just these clips (the ones an undo or redo changed). ones that
+  // aren't in the playlist yet are kept once they are (see keepExisting)
+  select = (ids: number[]) => {
+    this.selectedIds = new Set(ids)
+    this.wake()
+  }
+
+  // where a paste goes: the playhead, snapped like everything else
+  pasteBeat = (): number | null => {
+    const beat = this.playheadBeat()
+    return beat === null ? null : this.snapBeat(beat)
+  }
+
   // the selected clips' ids, clearing the selection (to delete them). none
-  // while clips are being dragged or a box drawn
+  // while clips are being dragged, a box drawn, or a shift press is down
+  // (whose clip would be toggled on release, after it was gone)
   takeSelection = (): number[] => {
-    if(this.clipDrag?.active || this.lasso) return []
+    if(this.clipDrag?.active || this.lasso || this.#shiftPress || this.edgeDrag) return []
     const ids = [...this.selectedIds]
     this.clearSelection()
     return ids
@@ -413,10 +584,366 @@ export class Renderer extends RendererBase {
     y: this.screenToPlaylistY(p.mouseY),
   })
 
-  // start a selection box where the mouse was pressed
-  #startLasso = (p: P5CanvasInstance<CanvasProps>) => {
-    const start = this.#mousePoint(p)
-    this.lasso = { start, end: start, base: new Set(this.selectedIds) }
+  // a shift press becomes a selection box once the mouse has moved far
+  // enough from it, wherever it started: on empty space or on a clip. run
+  // every frame, as the mouse may be outside the canvas by then
+  #followShiftPress = (p: P5CanvasInstance<CanvasProps>) => {
+    const press = this.#shiftPress
+    if(!press || this.lasso) return
+    if(!startsLasso(press, { x: p.mouseX, y: p.mouseY }, staticDefaults.mouseDragDetectionThreshold)) return
+
+    this.lasso = lassoFrom(press, this.selectedIds)
+    this.#shiftPress = null
+  }
+
+  // every clip's id and box, for working out what a box selects
+  #clipBoxes = () =>
+    this.playlistObjects.map(clip => ({ id: clip.playlistItem.id, box: clip.boundingBox() }))
+
+  // a shift press was let go. one that never became a box was a click:
+  // on a clip, it adds the clip to the selection, or takes it out (see
+  // shiftRelease, which also covers a drag let go before a frame was drawn)
+  #endShiftPress = (p: P5CanvasInstance<CanvasProps>) => {
+    const press = this.#shiftPress
+    if(!press) return
+    this.#shiftPress = null
+    this.selectedIds = shiftRelease(
+      press,
+      { screen: { x: p.mouseX, y: p.mouseY }, point: this.#mousePoint(p) },
+      staticDefaults.mouseDragDetectionThreshold,
+      this.selectedIds,
+      this.#clipBoxes(),
+    )
+  }
+
+  // the window lost the keyboard and mouse mid-press (another app came to
+  // the front), so the release may never arrive: drop a pending shift press
+  // and a box being drawn, keeping what's selected
+  #dropPress = () => {
+    this.#altHeld = false
+    this.#cutPress = null
+    if(!this.#shiftPress && !this.lasso && !this.edgeDrag) return
+    this.#shiftPress = null
+    this.lasso = null
+    this.#cancelEdgeDrag()
+    this.wake()
+  }
+
+  // Option, held or let go, changes whether a dragged edge snaps
+  #followAlt = (ev: KeyboardEvent) => {
+    if(this.#altHeld === ev.altKey) return
+    this.#altHeld = ev.altKey
+    // (the Cut tool's line moves too)
+    if(this.edgeDrag || this.tool === 'cut') this.wake()
+  }
+
+  // what an edge being dragged, or a cut, snaps to just now
+  #snapping = (): Snapping => ({
+    enabled: this.snap.enabled,
+    beats: this.snap.beats,
+    // the playhead too, while it isn't moving
+    playheadBeat: this.playing ? null : this.playheadBeat(),
+    bypass: this.#altHeld,
+  })
+
+  // ---- the Cut tool ----
+
+  // (called on every store update, so only a change does anything)
+  setTool = (tool: PlaylistTool) => {
+    if(tool === this.tool) return
+    this.tool = tool
+    // whatever the other tool was in the middle of is dropped
+    this.#cancelEdgeDrag()
+    this.clipDrag = null
+    this.#cutPress = null
+    this.syncSnapSetting()
+    this.wake()
+  }
+
+  // every clip that can be cut, as far as cutting goes
+  #cutClips = (): CutClip[] => this.playlistObjects.flatMap(obj => {
+    const clip = this.trimClipOf(obj)
+    return clip ? [clip] : []
+  })
+
+  // the cut a click at the mouse would make: on the clip under it, where
+  // the mouse is after snapping, and through every other selected clip
+  // there when that clip is one of the selection. null where there's no
+  // clip, or the clip can't be cut
+  #cutAt = (p: P5CanvasInstance<CanvasProps>): { ids: number[], beat: number } | null => {
+    const item = this.clipUnderMouse()
+    const clip = item ? this.trimClipOf(item) : null
+    if(!clip) return null
+
+    const beat = cutPoint(clip, this.screenXToBeat(p.mouseX), this.#snapping())
+    if(beat === null) return null
+    const ids = cutTargets(this.#cutClips(), clip.id, this.selectedIds, beat)
+    return ids.length ? { ids, beat } : null
+  }
+
+  // a press with the Cut tool was let go: where it went down (give or take
+  // the drag distance), it's a click, and cuts. dragged away, it's nothing
+  #endCutPress = (p: P5CanvasInstance<CanvasProps>) => {
+    const press = this.#cutPress
+    if(!press) return
+    this.#cutPress = null
+    if(p.dist(press.x, press.y, p.mouseX, p.mouseY) > staticDefaults.mouseDragDetectionThreshold) return
+
+    const cut = this.#cutAt(p)
+    // (the clip that was pressed, not one the mouse slid onto)
+    if(cut && cut.ids[0] === press.id) this.onClipsCut(cut.ids, cut.beat)
+  }
+
+  // a dashed line down each clip a click would cut, where it would be cut.
+  // called inside the zoom/pan transform
+  #drawCutLine = (p: P5CanvasInstance<CanvasProps>) => {
+    const cut = this.#cutHover
+    if(!cut) return
+
+    const ctx = p.drawingContext as CanvasRenderingContext2D
+    const x = this.beatToX(cut.beat)
+    p.push()
+    p.stroke(...theme.accent)
+    // (x is stretched by the zoom, so the line's width is given without it)
+    p.strokeWeight(1.5 / this.currentScale)
+    ctx.setLineDash([4, 3])
+    this.playlistObjects
+      .filter(obj => cut.ids.includes(obj.playlistItem.id))
+      .forEach(obj => {
+        const { top, bottom } = obj.boundingBox()
+        p.line(x, top + 2, x, bottom - 2)
+      })
+    ctx.setLineDash([])
+    p.pop()
+  }
+
+  // the playhead's beat, if a clip can be cut there ("Split at playhead"):
+  // unsnapped, wherever the playhead is now, playing or not
+  splitBeatAtPlayhead = (id: number): number | null => {
+    const obj = this.playlistObjects.find(o => o.playlistItem.id === id)
+    const clip = obj ? this.trimClipOf(obj) : null
+    const beat = this.playheadBeat()
+    return clip && beat !== null && canCut(clip, beat) ? beat : null
+  }
+
+  // ---- trimming: dragging a clip's edge ----
+
+  // a beat's length, in seconds
+  #beatSeconds = (): number => (this.tempo > 0 ? 60 / this.tempo : 0)
+
+  // a clip, as far as trimming goes: where its edges are, and how far they
+  // can go. null for a sample clip whose length hasn't loaded yet, and a
+  // pattern clip whose pattern is gone
+  trimClipOf = (obj: PlaylistObject): TrimClip | null => {
+    const { id, startBeat, patternId } = obj.playlistItem
+    const window = this.clipWindows[id]
+    if(patternId !== undefined) {
+      const pattern = this.patternOf(patternId)
+      return pattern ? patternTrimClip(id, startBeat, pattern.length, window) : null
+    }
+
+    const override = this.clipOverrides[id]
+    const beatSeconds = this.#beatSeconds()
+    if(!override?.sampleDuration || !beatSeconds) return null
+    return sampleTrimClip(id, startBeat, override.sampleDuration, override.rate ?? 1, window, beatSeconds)
+  }
+
+  // where a clip is drawn and what of its source it shows: as it is, or as
+  // the trim being dragged would leave it
+  viewOf = (obj: PlaylistObject): ClipView | null => {
+    const { id } = obj.playlistItem
+    // while its edge is dragged (and until that's settled), a clip is
+    // measured as it was when the edge was pressed
+    const clip = this.#trimClips?.get(id) ?? this.trimClipOf(obj)
+    if(!clip) return null
+
+    const span = this.#trimSpans?.get(id) ?? clip
+    // a clip being stretched shows what it showed, squeezed or spread out
+    const shows = this.#stretchRates?.has(id) ? clip : span
+    const { perBeat } = clip
+    return {
+      startBeat: span.startBeat,
+      seconds: (span.endBeat - span.startBeat) * this.#beatSeconds(),
+      from: (shows.startBeat - clip.sourceStartBeat) * perBeat,
+      to: (shows.endBeat - clip.sourceStartBeat) * perBeat,
+      length: (clip.sourceEndBeat - clip.sourceStartBeat) * perBeat,
+    }
+  }
+
+  // show each trimmed clip's part of its sample or pattern
+  // (called on every store update, so only a change wakes the playlist)
+  setClipWindows = (windows: Record<number, ClipWindow>) => {
+    if(windows === this.clipWindows) return
+    this.clipWindows = windows
+    // the engine's answer to a trim: unless a clip's start moved too (the
+    // clips are built again for that), it's on screen now
+    if(!this.#settleOnRebuild) this.#settleTrim?.()
+    // a clip's length changes where the loop ends
+    this.syncTransport()
+    this.wake()
+  }
+
+  // the edge of a clip under the mouse, where a press grabs the edge rather
+  // than the clip
+  edgeUnderMouse = (): { item: PlaylistObject, edge: Edge } | null => {
+    const p = this.#p
+    const item = this.clipUnderMouse()
+    if(!p || !item || !this.trimClipOf(item)) return null
+
+    const { left, width } = item.boundingBox()
+    const edge = edgeAt(
+      (this.screenToPlaylistX(p.mouseX) - left) * this.currentScale,
+      width * this.currentScale,
+    )
+    return edge ? { item, edge } : null
+  }
+
+  // the edge of a clip that has a bar drawn on it: the one a press would
+  // grab, or the ones being dragged
+  edgeBarOn = (id: number): Edge | null => {
+    const drag = this.edgeDrag
+    if(drag) return (drag.stretch ?? drag.clips).some(clip => clip.id === id) ? drag.edge : null
+    return this.#hoverEdge?.id === id ? this.#hoverEdge.edge : null
+  }
+
+  // an edge was pressed. a selected clip's edge brings the same edge of the
+  // rest of the selection with it
+  // - stretch: shift was held, so the drag stretches the sample clips
+  //   rather than trimming
+  #startEdgeDrag = (p: P5CanvasInstance<CanvasProps>, item: PlaylistObject, edge: Edge, stretch = false) => {
+    // an earlier trim still waiting for the engine: it's done with
+    this.#settleTrim?.()
+
+    const others = this.selectedIds.has(item.playlistItem.id)
+      ? this.playlistObjects.filter(clip => clip !== item && this.selectedIds.has(clip.playlistItem.id))
+      : []
+    const clips = [item, ...others]
+      .map(this.trimClipOf)
+      .filter((clip): clip is TrimClip => clip !== null)
+    const grabbed = clips.find(clip => clip.id === item.playlistItem.id)
+    if(!grabbed) return
+
+    // pattern clips are left as they are by a stretch (see stretchSet)
+    const isPattern = (id: number) =>
+      this.playlistObjects.find(o => o.playlistItem.id === id)?.playlistItem.patternId !== undefined
+    const stretching = !stretch ? null : stretchSet(clips.map(clip => ({
+      id: clip.id,
+      startBeat: clip.startBeat,
+      endBeat: clip.endBeat,
+      rate: this.clipOverrides[clip.id]?.rate ?? 1,
+      minBeats: clip.minBeats,
+      pattern: isPattern(clip.id),
+    })), grabbed.id)
+
+    const edgeBeat = edge === 'left' ? grabbed.startBeat : grabbed.endBeat
+    this.edgeDrag = {
+      edge,
+      grabbedId: grabbed.id,
+      stretch: stretching,
+      clips,
+      grabBeats: edgeBeat - this.screenXToBeat(p.mouseX),
+      pressX: p.mouseX,
+      pressY: p.mouseY,
+      active: false,
+    }
+    this.syncSnapSetting()
+  }
+
+  // move the dragged edge to the mouse: onto the grid when snap is on, or
+  // the playhead when it's nearer and not moving, unless Option is held.
+  // run every frame, as the mouse may be outside the canvas
+  #followEdgeDrag = (p: P5CanvasInstance<CanvasProps>) => {
+    const drag = this.edgeDrag
+    if(!drag) return
+    if(!drag.active) {
+      if(p.dist(drag.pressX, drag.pressY, p.mouseX, p.mouseY) <= staticDefaults.mouseDragDetectionThreshold) return
+      drag.active = true
+    }
+
+    const target = snapPoint(this.screenXToBeat(p.mouseX) + drag.grabBeats, this.#snapping())
+    this.#trimClips = new Map(drag.clips.map(clip => [clip.id, clip]))
+    if(drag.stretch) {
+      const spans = stretchAll(drag.stretch, drag.grabbedId, drag.edge, target)
+      this.#trimSpans = new Map(spans.map(({ id, startBeat, endBeat }) => [id, { startBeat, endBeat }]))
+      this.#stretchRates = new Map(spans.map(({ id, rate }) => [id, rate]))
+      return
+    }
+
+    this.#trimSpans = new Map(
+      trimAll(drag.clips, drag.grabbedId, drag.edge, target).map(({ id, ...span }) => [id, span]),
+    )
+  }
+
+  // the clips are drawn as they are again
+  #clearTrimPreview = () => {
+    this.#trimSpans = null
+    this.#trimClips = null
+    this.#stretchRates = null
+  }
+
+  // the mouse came up: the clips are trimmed to where their edges were
+  // dragged, in one go
+  #endEdgeDrag = () => {
+    const drag = this.edgeDrag
+    if(!drag) return
+    // (once more, to where the mouse was let go: a quick drag can end
+    // before a frame has been drawn)
+    if(this.#p) this.#followEdgeDrag(this.#p)
+    this.edgeDrag = null
+
+    // shift+click on an edge, without dragging, is shift+click on the clip
+    if(drag.stretch && !drag.active) {
+      if(this.playlistObjects.some(o => o.playlistItem.id === drag.grabbedId)) {
+        this.selectedIds = toggleSelected(this.selectedIds, drag.grabbedId)
+      }
+      this.#clearTrimPreview()
+      this.wake()
+      return
+    }
+
+    const spans = this.#trimSpans
+    const rates = this.#stretchRates
+    // an edge that didn't move leaves its clip alone
+    const edits: WindowEdit[] = drag.stretch || !drag.active || !spans ? [] : drag.clips.flatMap(clip => {
+      const span = spans.get(clip.id)
+      if(!span || (span.startBeat === clip.startBeat && span.endBeat === clip.endBeat)) return []
+      return [{ id: clip.id, ...trimmedWindow(clip, span, drag.edge, this.clipWindows[clip.id]) }]
+    })
+    const stretches: StretchEdit[] = !drag.stretch || !rates ? [] : drag.stretch.flatMap(clip => {
+      const rate = rates.get(clip.id)
+      if(rate === undefined || Math.abs(rate - clip.rate) < 1e-9) return []
+      const pitch = Math.min(MAX_PITCH, Math.max(-MAX_PITCH, pitchOf(rate)))
+      return [{ id: clip.id, pitch, keep: drag.edge === 'left' ? 'end' as const : 'start' as const }]
+    })
+    if(!edits.length && !stretches.length) {
+      this.#clearTrimPreview()
+      this.wake()
+      return
+    }
+
+    // the clips stay as they were dragged until the engine's answer is on
+    // screen (see setClipWindows and updateWithProps), or it refuses
+    const settle = () => {
+      if(this.#settleTrim !== settle) return
+      this.#settleTrim = null
+      if(this.#trimSpans === spans) this.#clearTrimPreview()
+      this.wake()
+    }
+    this.#settleTrim = settle
+    // a left edge moves its clip's start, which the clips are built again for
+    this.#settleOnRebuild = drag.edge === 'left'
+    const sent = stretches.length ? this.onClipsStretch(stretches) : this.onClipsTrim(edits)
+    sent.then(changed => { if(!changed) settle() }, settle)
+    // (in case its answer changes nothing that's watched for)
+    setTimeout(settle, 1_000)
+  }
+
+  // Escape, or the window losing the mouse: the clips go back as they were
+  #cancelEdgeDrag = () => {
+    if(!this.edgeDrag) return
+    this.edgeDrag = null
+    this.#clearTrimPreview()
+    this.wake()
   }
 
   // stretch the box to the mouse, and select what it touches. run every
@@ -424,10 +951,7 @@ export class Renderer extends RendererBase {
   #followLasso = (p: P5CanvasInstance<CanvasProps>) => {
     if(!this.lasso) return
     this.lasso.end = this.#mousePoint(p)
-    this.selectedIds = lassoSelection(
-      this.lasso,
-      this.playlistObjects.map(clip => ({ id: clip.playlistItem.id, box: clip.boundingBox() })),
-    )
+    this.selectedIds = lassoSelection(this.lasso, this.#clipBoxes())
   }
 
   // the selection box: a dashed sky outline over a faint fill, drawn in
@@ -481,6 +1005,8 @@ export class Renderer extends RendererBase {
       || this.clipDrag !== null
       || this.sampleDrag !== null
       || this.lasso !== null
+      || this.#shiftPress !== null
+      || this.edgeDrag !== null
       || this.seekDragging
       || this.scrollbarGrab !== null
   }
@@ -587,7 +1113,11 @@ export class Renderer extends RendererBase {
   // (called on every store update, so only a change wakes the playlist)
   setSequencer = (sequencer: SequencerState) => {
     if(sequencer === this.sequencer) return
+    // a pattern's length changes where its clips (and so the loop) end
+    const lengths = (s: SequencerState) => s.patterns.map(p => `${p.id}:${p.length}`).join()
+    const resized = lengths(sequencer) !== lengths(this.sequencer)
     this.sequencer = sequencer
+    if(resized) this.syncTransport()
     this.wake()
   }
 
@@ -605,8 +1135,20 @@ export class Renderer extends RendererBase {
   setClipOverrides = (overrides: Record<number, ClipOverride>) => {
     this.clipOverrides = overrides
     this.playlistObjects.forEach(this.#applyClipOverride)
+    // the engine's answer to a stretch (see #endEdgeDrag)
+    if(!this.#settleOnRebuild) this.#settleTrim?.()
     this.wake()
+
+    // a clip's length changes where the loop ends. asked once the settings
+    // have reached the engine (they're sent a little behind, see sendSettings)
+    if(this.#overrideSync) clearTimeout(this.#overrideSync)
+    this.#overrideSync = setTimeout(() => {
+      this.#overrideSync = null
+      this.syncTransport()
+    }, 150)
   }
+
+  #overrideSync: ReturnType<typeof setTimeout> | null = null
 
   #applyClipOverride = (obj: PlaylistObject) => {
     const override = this.clipOverrides[obj.playlistItem.id]
@@ -752,11 +1294,13 @@ export class Renderer extends RendererBase {
     p.strokeWeight(1)
     p.stroke(...theme.accent)
     p.fill(...theme.accentSoft, 255*.25)
+    // in screen pixels across, so zoom doesn't stretch the outline or its dashes
+    p.scale(1 / this.currentScale, 1)
     this.landings(drag).forEach(({ item, beat, track }) => {
       const laneTop = this.#laneTop(track)
       if(laneTop === null) return
       const { width, height } = item.boundingBox()
-      p.rect(this.beatToX(beat), laneTop + 2, width, height - 4, 3)
+      p.rect(this.beatToX(beat) * this.currentScale, laneTop + 2, width * this.currentScale, height - 4, 3)
     })
     ctx.setLineDash([])
     p.pop()
@@ -937,7 +1481,15 @@ export class Renderer extends RendererBase {
   secondsToWidth = (seconds: number): number =>
     this.beatToX(seconds * this.tempo / 60)
 
+  // whether something on the playlist is being dragged, or pressed: keys
+  // that change the clips wait until it's let go
+  isDragging = (): boolean =>
+    !!this.edgeDrag || !!this.clipDrag?.active || !!this.lasso || this.#shiftPress !== null
+
   #handleRightClick = (ev: MouseEvent, p: P5CanvasInstance<CanvasProps>) => {
+    // not in the middle of dragging an edge
+    if(this.edgeDrag) return
+
     // the clip on top, as for clicks (not one hidden under the timeline)
     const item = this.clipUnderMouse()
     if(item) {
@@ -947,7 +1499,13 @@ export class Renderer extends RendererBase {
         mouseY,
         target: item,
       })
+      return
     }
+
+    if(overRuler(p.mouseY) || this.overScrollbar(p.mouseX, p.mouseY)) return
+    const track = this.trackAt(this.screenToPlaylistY(p.mouseY))
+    if(track < 0) return
+    this.onEmptyRightClick(this.snapBeat(this.screenXToBeat(p.mouseX)), track, ev.clientX, ev.clientY)
   }
 
   // p5 sketch function
@@ -983,12 +1541,17 @@ export class Renderer extends RendererBase {
       const elt = canvas.elt as HTMLCanvasElement
       const wakeOn = ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'dblclick', 'contextmenu', 'gesturechange']
       wakeOn.forEach(type => elt.addEventListener(type, this.wake, { passive: true }))
+      // a press whose release went to another app is dropped
+      window.addEventListener('blur', this.#dropPress)
+      window.addEventListener('keydown', this.#followAlt)
+      window.addEventListener('keyup', this.#followAlt)
       // labels drawn before the font loaded are drawn again in it
       document.fonts?.ready.then(this.wake)
       this.wake()
 
       // handle mouse press, and pick up a clip if one was pressed on
       canvas.mousePressed((ev: MouseEvent) => {
+        this.#altHeld = ev.altKey
         if(ev.button === 0) {
           // the scrollbar: grab the thumb, or jump to where the track was pressed
           const bar = this.scrollbar()
@@ -1008,10 +1571,44 @@ export class Renderer extends RendererBase {
           const item = this.clipUnderMouse()
 
           // shift+click a clip adds it to the selection, or takes it out.
-          // shift+drag on empty space draws a box to select clips with
+          // shift+drag draws a box to select clips with, wherever it starts
+          // (which it is isn't known until the mouse moves or lets go)
           if(ev.shiftKey) {
-            if(item) this.selectedIds = toggleSelected(this.selectedIds, item.playlistItem.id)
-            else this.#startLasso(p)
+            // on a clip's edge, a drag stretches the clip (and a click is
+            // still a click on the clip). not with the Cut tool, which
+            // leaves edges alone
+            const edge = item && this.tool === 'select' ? this.edgeUnderMouse() : null
+            if(edge) {
+              this.#startEdgeDrag(p, edge.item, edge.edge, true)
+              return
+            }
+
+            // from the event: p5 hasn't caught its own mouse position up
+            // with this press yet
+            const point = { x: this.screenToPlaylistX(ev.offsetX), y: this.screenToPlaylistY(ev.offsetY) }
+            this.#shiftPress = {
+              screen: { x: ev.offsetX, y: ev.offsetY },
+              point,
+              clipId: clipAt(point, this.#clipBoxes()),
+            }
+            return
+          }
+
+          // the Cut tool: a click on a clip cuts it, selected or not. clips
+          // aren't moved or trimmed (empty space still pans, below)
+          if(this.tool === 'cut' && item) {
+            this.#cutPress = { x: p.mouseX, y: p.mouseY, id: item.playlistItem.id }
+            this.syncSnapSetting()
+            return
+          }
+
+          // just inside either end of a clip, the press grabs that edge, to
+          // trim the clip. (as for picking a clip up: one that isn't
+          // selected leaves the selection)
+          const grabbed = item ? this.edgeUnderMouse() : null
+          if(grabbed) {
+            if(!this.selectedIds.has(grabbed.item.playlistItem.id)) this.clearSelection()
+            this.#startEdgeDrag(p, grabbed.item, grabbed.edge)
             return
           }
 
@@ -1043,8 +1640,16 @@ export class Renderer extends RendererBase {
       // the canvas has already been dropped by canvas.mouseReleased (element
       // listeners run before window listeners), so a drag still in progress
       // here was released outside the canvas and is cancelled
-      p.mouseReleased = () => {
+      p.mouseReleased = (ev?: MouseEvent) => {
+        // another button let go while an edge is dragged isn't the end of it
+        if(this.edgeDrag && ev && ev.button !== 0) return
         this.#endSeek()
+        // (a trim is applied wherever the mouse is let go)
+        this.#endEdgeDrag()
+        // (a cut needs the mouse still on its clip: over the canvas, where
+        // canvas.mouseReleased has dealt with it)
+        this.#cutPress = null
+        this.#endShiftPress(p)
         this.lasso = null
         this.#pressedOnEmpty = false
         this.scrollbarGrab = null
@@ -1087,7 +1692,10 @@ export class Renderer extends RendererBase {
       })
 
       // drop a dragged clip where the phantom shows
-      canvas.mouseReleased(() => {
+      canvas.mouseReleased((ev?: MouseEvent) => {
+        if(this.edgeDrag && ev && ev.button !== 0) return
+        this.#endEdgeDrag()
+        if(!ev || ev.button === 0) this.#endCutPress(p)
         const drag = this.clipDrag
         const target = this.dropTarget(p.mouseX, p.mouseY, drag?.grabX)
 
@@ -1104,6 +1712,7 @@ export class Renderer extends RendererBase {
         // a click on empty space (not a pan) clears the selection
         if(this.#pressedOnEmpty && !this.isMouseDragged) this.clearSelection()
         this.#pressedOnEmpty = false
+        this.#endShiftPress(p)
         this.lasso = null
 
         mousePressedX = null
@@ -1116,6 +1725,8 @@ export class Renderer extends RendererBase {
 
       // handle mouse drag
       canvas.mouseMoved((ev: MouseEvent) => {
+        // (as well as the keys: Option may have gone down in another app)
+        this.#altHeld = ev.altKey
         if(this.isMouseDown) {
           const dist = p.dist(mousePressedX ?? 0, mousePressedY ?? 0, p.mouseX, p.mouseY)
           if(dist > staticDefaults.mouseDragDetectionThreshold) {
@@ -1135,6 +1746,12 @@ export class Renderer extends RendererBase {
       // Esc clears the selection (and drops a box being drawn)
       p.keyPressed = () => {
         if(p.keyCode !== p.ESCAPE) return
+        // an edge being dragged: the clips go back, and that's all
+        if(this.edgeDrag) {
+          this.#cancelEdgeDrag()
+          return
+        }
+        this.#shiftPress = null
         this.lasso = null
         this.clearSelection()
         this.wake()
@@ -1163,6 +1780,8 @@ export class Renderer extends RendererBase {
 
       // double clicking a clip inspects it in the Sample tab
       this.canvasEl?.addEventListener('dblclick', () => {
+        // (with the Cut tool, two clicks are two cuts, not opening the clip)
+        if(this.tool === 'cut') return
         const item = this.clipUnderMouse()
         if(item) this.onNodeDoubleClick(item.playlistItem.id)
       })
@@ -1208,21 +1827,35 @@ export class Renderer extends RendererBase {
       this.maxPlaylistBeats = props.maxPlaylistBeats
       const tracksChanged = props.trackCount !== this.trackCount
       this.trackCount = props.trackCount
+      // clips' lengths in beats change with the tempo, so where the loop ends
+      if(props.tempo !== this.tempo) this.syncTransport()
       this.tempo = props.tempo
-      this.beatsDisplayed = props.beatsDisplayed
+      if(props.beatsDisplayed > 0 && props.beatsDisplayed !== this.beatsDisplayed) {
+        this.beatsDisplayed = props.beatsDisplayed
+        this.resetView()
+      }
       const { width, height, trackCount, currentScale } = this
 
       this.onNodeRightClick = props.onNodeRightClick
+      this.onEmptyRightClick = props.onEmptyRightClick
       this.onNodeMove = props.onNodeMove
       this.onNodesMove = props.onNodesMove
       this.onNodeDoubleClick = props.onNodeDoubleClick
       this.onSeek = props.onSeek
+      this.onClipsTrim = props.onClipsTrim
+      this.onClipsStretch = props.onClipsStretch
+      this.onClipsCut = props.onClipsCut
 
       // ask the engine where the playhead is when playback starts or stops,
       // or after any other transport command. other prop updates (drops,
       // moves, resizes) don't move it
-      if(props.playing !== this.playing || props.transportRevision !== this.transportRevision) {
+      if(
+        props.playing !== this.playing
+        || props.transportRevision !== this.transportRevision
+        || props.loopEnabled !== this.loopEnabled
+      ) {
         this.transportRevision = props.transportRevision
+        this.loopEnabled = props.loopEnabled
         this.syncTransport()
       }
 
@@ -1239,6 +1872,8 @@ export class Renderer extends RendererBase {
       // the clips only need building again when they (or the tracks) change.
       // tempo, zoom, and size are read from the renderer as they're drawn
       if(props.playlistObjects === this.#builtItems && !tracksChanged) return
+      // the clips changed, so where the loop ends may have too
+      if(this.#builtItems !== null && props.playlistObjects !== this.#builtItems) this.syncTransport()
       this.#builtItems = props.playlistObjects
 
       // the clips are rebuilt once every clip's data has arrived. until then
@@ -1259,8 +1894,12 @@ export class Renderer extends RendererBase {
         if(item.patternId !== undefined) {
           return { wf: new Float32Array(0), dur: this.patternSecondsOf(item.patternId) }
         }
+        // (the same clip can come to play another file: a deep copy, a
+        // join, or undoing one. its waveform is asked for again then)
         const known = current.get(item.id)
-        if(known) return { wf: known.soundData, dur: known.duration }
+        if(known && known.playlistItem.path === item.path && known.playlistItem.patternId === undefined) {
+          return { wf: known.soundData, dur: known.duration }
+        }
 
         let fetching = this.#fetching.get(item.id)
         if(!fetching) {
@@ -1317,6 +1956,9 @@ export class Renderer extends RendererBase {
         this.playlistObjects = newPlaylistObjects
         this.playlistTracks = newPlaylistTracks
         this.selectedIds = keepExisting(this.selectedIds, newPlaylistObjects.map(c => c.playlistItem.id))
+        // the clips are as the engine has them: a trim that was waiting
+        // for that is on screen
+        this.#settleTrim?.()
         this.wake()
       })
     }
@@ -1364,7 +2006,19 @@ export class Renderer extends RendererBase {
       this.#autoScroll(p)
       // kept in range: the canvas or the track count may have changed size
       this.scrollTo(this.scrollY)
+      this.#followShiftPress(p)
       this.#followLasso(p)
+      this.#followEdgeDrag(p)
+      // the edge a press would grab, which its clip marks with a bar (not
+      // while something else is being dragged or the mouse is held)
+      const idle = !this.edgeDrag && !this.clipDrag && !this.sampleDrag && !this.lasso
+        && !this.isMouseDown && !this.seekDragging && this.scrollbarGrab === null
+      const overTracks = idle && !overRuler(p.mouseY) && !this.overScrollbar(p.mouseX, p.mouseY)
+      const hover = overTracks && this.tool === 'select' ? this.edgeUnderMouse() : null
+      this.#hoverEdge = hover ? { id: hover.item.playlistItem.id, edge: hover.edge } : null
+      // and with the Cut tool, where a click would cut
+      // (not with shift held, when a click selects rather than cuts)
+      this.#cutHover = overTracks && this.tool === 'cut' && !p.keyIsDown(p.SHIFT) ? this.#cutAt(p) : null
 
       // the tracks, scrolled
       p.push()
@@ -1379,10 +2033,14 @@ export class Renderer extends RendererBase {
       }
 
       // render vertical grid lines: one per beat, darker on each bar. 1px
-      // wide whatever the zoom
+      // wide whatever the zoom. zoomed out, beat lines (then bars) thin out
+      // so they don't smear together, and only what's on screen is drawn
       p.strokeWeight(1 / currentScale)
       const gridBottom = trackTop(trackCount)
-      for(let beat = 0; beat < beatsDisplayed; beat++) {
+      const pixelsPerBeat = width * currentScale / beatsDisplayed
+      const { lineEvery } = gridSteps(pixelsPerBeat, theme.beatsPerBar)
+      const [firstBeat, lastBeat] = visibleBeats(pixelsPerBeat, this.transformX, width, beatsDisplayed)
+      for(let beat = Math.ceil(firstBeat / lineEvery) * lineEvery; beat < lastBeat; beat += lineEvery) {
         const x = beat * width / beatsDisplayed
         p.stroke(...(beat % theme.beatsPerBar === 0 ? theme.barLine : theme.beatLine))
         p.line(x, 0, x, gridBottom)
@@ -1395,6 +2053,7 @@ export class Renderer extends RendererBase {
 
       // render the clip being dragged on top of the other clips
       this.drawClipDrag(p, canvas)
+      this.#drawCutLine(p)
       
       p.pop()
 
@@ -1415,14 +2074,22 @@ export class Renderer extends RendererBase {
 
       this.#drawScrollbar(p)
 
-      if(this.lasso) {
+      if(this.busy) {
+        p.cursor('wait')
+      } else if(this.edgeDrag) {
+        p.cursor('ew-resize')
+      } else if(this.lasso) {
         p.cursor(p.CROSS)
       } else if(this.scrollbarGrab !== null || this.overScrollbar(p.mouseX, p.mouseY)) {
         p.cursor(p.ARROW)
       } else if(this.seekDragging || (overRuler(p.mouseY) && !this.clipDrag?.active && !this.sampleDrag)) {
         p.cursor(p.HAND)
+      } else if(this.#hoverEdge) {
+        p.cursor('ew-resize')
       } else if(this.clipDrag?.active || this.sampleDrag) {
         p.cursor('grabbing')
+      } else if(this.tool === 'cut') {
+        p.cursor(RAZOR_CURSOR)
       } else if(this.clipUnderMouse()) {
         p.cursor(p.HAND)
       } else {

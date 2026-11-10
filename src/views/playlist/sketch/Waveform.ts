@@ -32,8 +32,11 @@ interface Props extends PlaylistComponentProps {
 }
 
 class Waveform extends PlaylistComponent {
-  // the level (0..1) at evenly spaced points along the clip
+  // the level (0..1) at evenly spaced points along the whole sample
   soundData: Float32Array
+  // the part of the sample the clip shows, as fractions of it: from, to.
+  // all of it, unless the clip is trimmed
+  range: [number, number] = [0, 1]
   duration: number
   // where the clip starts, in beats from the playlist start
   startBeat: number
@@ -118,22 +121,36 @@ class Waveform extends PlaylistComponent {
     const deviceTop = bodyTop * scaleY + offsetY
     if(deviceTop + bodyHeight * scaleY < 0 || deviceTop > canvasHeight) return
 
+    // the points the clip shows: all of them, or a trimmed clip's part
+    const [from, to] = this.range
+    const trimmed = from > 0 || to < 1
+    const firstPoint = from * count
+    const shown = (to - from) * count
+    if(shown <= 0) return
+
     // the device x of point i, and the (fractional) point at device x
-    const pointsPerUnit = count / width
-    const deviceX = (i: number) => (left + i / pointsPerUnit) * scaleX + offsetX
-    const pointAt = (x: number) => ((x - offsetX) / scaleX - left) * pointsPerUnit
+    const pointsPerUnit = shown / width
+    const deviceX = (i: number) => (left + (i - firstPoint) / pointsPerUnit) * scaleX + offsetX
+    const pointAt = (x: number) => ((x - offsetX) / scaleX - left) * pointsPerUnit + firstPoint
     const y = (level: number) => bodyTop + level * bodyHeight
 
     // the columns on screen, left of the canvas's right edge
-    const first = Math.max(0, Math.floor(deviceX(0)))
-    const last = Math.min(canvasWidth, Math.ceil(deviceX(count - 1)))
+    const first = Math.max(0, Math.floor(deviceX(firstPoint)))
+    const last = Math.min(canvasWidth, Math.ceil(deviceX(Math.min(count - 1, to * count))))
     if(first >= last) return
 
     // the line is .75px wide, as it was when it was drawn a line per point
     const lineWidth = .75
 
     p.push()
-    if(count / (width * scaleX) >= 1) {
+    // a trimmed clip's line stops at its edges, though the points just past
+    // them shape its last stretch
+    if(trimmed) {
+      ctx.beginPath()
+      ctx.rect(left, bodyTop, width, bodyHeight)
+      ctx.clip()
+    }
+    if(shown / (width * scaleX) >= 1) {
       // a point or more to each column
       const peaks = peaksOf(this.soundData)
       // a column, in playlist x
@@ -160,15 +177,15 @@ class Waveform extends PlaylistComponent {
     } else {
       // zoomed in: fewer points than columns. the line through the points on
       // screen, and the ones just off either side
-      const from = Math.max(0, Math.floor(pointAt(first)))
-      const to = Math.min(count - 1, Math.ceil(pointAt(last)))
-      const pointX = (i: number) => left + i / pointsPerUnit
+      const start = Math.max(0, Math.floor(pointAt(first)))
+      const end = Math.min(count - 1, Math.ceil(pointAt(last)))
+      const pointX = (i: number) => left + (i - firstPoint) / pointsPerUnit
 
       p.stroke(...theme.clipWave)
       p.noFill()
       ctx.beginPath()
-      ctx.moveTo(pointX(from), y(this.soundData[from]))
-      for(let i = from + 1; i <= to; i++) {
+      ctx.moveTo(pointX(start), y(this.soundData[start]))
+      for(let i = start + 1; i <= end; i++) {
         ctx.lineTo(pointX(i), y(this.soundData[i]))
       }
       // stroked without the zoom, which would otherwise stretch the line's

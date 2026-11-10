@@ -7,6 +7,9 @@ import { listeners } from './events/window'
 import { projectName, selectProjectPath } from './state/slices/projectSlice'
 import ProjectNotice from './components/ProjectNotice'
 import DragGhost from './components/DragGhost'
+import { togglePlayHere } from './state/slices/sequencerSlice'
+import { listenForTransportKey } from './util/keys'
+import { useEditCommands } from './state/useEditCommands'
 
 const App = () => {
   const dispatch = useAppDispatch()
@@ -21,6 +24,16 @@ const App = () => {
     ]
     return () => { listening.forEach(l => l.then(stop => stop())) }
   }, [dispatch])
+
+  // Edit menu: undo and redo
+  useEditCommands()
+
+  // Space plays or pauses, as the topbar's Play key does, whatever has the
+  // keyboard (except something that takes typing)
+  React.useEffect(
+    () => listenForTransportKey(window, () => { dispatch(togglePlayHere()) }),
+    [dispatch],
+  )
 
   // show the project's name in the window's title bar
   React.useEffect(() => {

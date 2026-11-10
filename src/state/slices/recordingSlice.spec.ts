@@ -29,6 +29,7 @@ const clip: LoadedClip = {
   settings: { gainDb: 0, pan: 0, pitch: 0, attackMs: 0, decayMs: 0 },
   sampleDuration: 4,
   playedDuration: 4,
+  window: null,
 }
 const recorded = (overrides: Partial<Recorded> = {}): Recorded =>
   ({ recording: false, clips: [], problems: [], ...overrides })

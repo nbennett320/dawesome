@@ -6,6 +6,7 @@ import projectReducer from './slices/projectSlice'
 import mixerReducer from './slices/mixerSlice'
 import sequencerReducer from './slices/sequencerSlice'
 import recordingReducer from './slices/recordingSlice'
+import mixdownReducer from './slices/mixdownSlice'
 
 export const store = configureStore({
   reducer: {
@@ -16,6 +17,7 @@ export const store = configureStore({
     mixer: mixerReducer,
     sequencer: sequencerReducer,
     recording: recordingReducer,
+    mixdown: mixdownReducer,
   },
 })
 

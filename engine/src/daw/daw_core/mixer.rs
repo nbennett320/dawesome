@@ -292,6 +292,29 @@ impl Mixer {
     }
   }
 
+  // only what's been changed: the tracks that aren't at their defaults or
+  // have a name, and the master. `apply` puts the whole mixer back from it,
+  // so it's what the undo history keeps of the mixer
+  pub fn changed(&self) -> MixerSettings {
+    let names = self.names.lock().unwrap().clone();
+    let tracks = self.tracks.lock().unwrap();
+    let mut numbers: Vec<u32> = tracks.keys().chain(names.keys()).copied().collect();
+    numbers.sort_unstable();
+    numbers.dedup();
+
+    MixerSettings {
+      tracks: numbers.into_iter()
+        .map(|track_number| TrackMix {
+          track_number,
+          name: names.get(&track_number).cloned(),
+          settings: tracks.get(&track_number).map(|controls| controls.settings()).unwrap_or_default(),
+        })
+        .filter(|track| track.name.is_some() || track.settings != ChannelSettings::default())
+        .collect(),
+      master: self.master.settings(),
+    }
+  }
+
   // set every strip and name, e.g. from a project. tracks not listed go back
   // to their defaults, without a name
   pub fn apply(&self, settings: &MixerSettings) {

@@ -33,7 +33,8 @@ const SampleItem = ({ item, depth, open, selected, hint, onToggle, onPreview }: 
   }
 
   const onKeyDown = (ev: React.KeyboardEvent) => {
-    if(ev.key !== 'Enter' && ev.key !== ' ') return
+    // (space plays and pauses, see App)
+    if(ev.key !== 'Enter') return
     ev.preventDefault()
     if(isFolder) onToggle(item)
     else onPreview(item)

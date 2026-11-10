@@ -52,6 +52,13 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
         }).unwrap();
       }
     }
+    // Edit menu: the frontend does it, to the project or (in a text field)
+    // to the text, e.g. "edit-undo" → "undo"
+    id if id.starts_with("edit-") => {
+      app.emit("menu-edit", EventPayload {
+        data: id.trim_start_matches("edit-").into()
+      }).unwrap();
+    }
     // Window menu: the frontend opens the tab, e.g. "view-mixer" → "mixer"
     id if id.starts_with("view-") => {
       app.emit("menu-open-view", EventPayload {
@@ -82,6 +89,29 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     &PredefinedMenuItem::separator(app)?,
     &item("save", "Save", Some("CmdOrCtrl+S"))?,
     &item("save-as", "Save As…", Some("CmdOrCtrl+Shift+S"))?,
+    &PredefinedMenuItem::separator(app)?,
+    // opens the Mixdown tab, as the Window menu opens tabs
+    &item("view-mixdown", "Mixdown…", None)?,
+  ])?;
+
+  // define edit menu. undo, redo, repeat, select all and join are done by
+  // the frontend, which knows whether the keyboard is in a text field (see
+  // src/events/window.ts). cut, copy and paste are the system's own, so they
+  // work on text as they do anywhere; the frontend hears of them too, and
+  // does them to clips when the playlist has the keyboard
+  let edit_submenu = Submenu::with_items(app, "Edit", true, &[
+    &item("edit-undo", "Undo", Some("CmdOrCtrl+Z"))?,
+    &item("edit-redo", "Redo", Some("CmdOrCtrl+Shift+Z"))?,
+    &PredefinedMenuItem::separator(app)?,
+    &PredefinedMenuItem::cut(app, None)?,
+    &PredefinedMenuItem::copy(app, None)?,
+    &PredefinedMenuItem::paste(app, None)?,
+    &item("edit-repeat", "Repeat", Some("CmdOrCtrl+R"))?,
+    &item("edit-select-all", "Select All", Some("CmdOrCtrl+A"))?,
+    &PredefinedMenuItem::separator(app)?,
+    // (shift+J, handled in the window: as a menu shortcut it would take
+    // capital Js out of text fields)
+    &item("edit-join", "Join", None)?,
   ])?;
 
   // define window menu: opens (or selects) a tab. the frontend knows the
@@ -102,6 +132,7 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
   Menu::with_items(app, &[
     &main_submenu,
     &file_submenu,
+    &edit_submenu,
     &window_submenu,
     &preference_submenu,
   ])

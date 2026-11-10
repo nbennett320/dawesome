@@ -154,13 +154,14 @@ const TransportDeck = () => {
     onPointerUp: release,
     onPointerCancel: release,
     onKeyDown: (e: React.KeyboardEvent) => {
-      if((e.key === 'Enter' || e.key === ' ') && !e.repeat) {
+      // (space plays and pauses, see App)
+      if(e.key === 'Enter' && !e.repeat) {
         e.preventDefault()
         press(direction)
       }
     },
     onKeyUp: (e: React.KeyboardEvent) => {
-      if(e.key === 'Enter' || e.key === ' ') release()
+      if(e.key === 'Enter') release()
     },
     onBlur: release,
   })

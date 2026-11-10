@@ -35,7 +35,6 @@
     - Adjusting the clip start and end time by clicking and dragging on the left or right edge of the clip in the UI
         - when Shift is held -> stretch that clip according to where the user drags the cursor
         - normal behavior -> adjust the start or end of the clip
-        - in other words we want
     - Cut tool - split the sample into two
         - Prerequisite (probably): trimming clips from the front and back so we know where to start/end each "sub clip" or each half of the split clip
         - if there are two or more "instances" of the same clip (even if one is trimmed or something), i want the ability to make a new "deep" copy, where there is a new file saved on to the users computer
@@ -54,8 +53,7 @@
         - I want to be able to start lassoing when over a clip.
 - Shortcuts 
     - Shift mode -> selection mode 
-        - Ex, 2 Shift + J = Join
-        <!-- - Shift + drag = secect lasso -->
+        - Ex, 2 things are selected with lasso already, i press Shift + J = Join , they become one. works for patterns and samples
     - Space -> start or stop timeline
     
     

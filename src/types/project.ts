@@ -1,5 +1,5 @@
 import { ArmedTrack } from './audio'
-import { ClipInfo } from './clip'
+import { ClipInfo, ClipWindow } from './clip'
 import { MixerSettings } from './mixer'
 import { SequencerState } from './sequencer'
 import type { SnapNote } from '../state/slices/playlistSlice'
@@ -44,6 +44,28 @@ export interface LoadedPatternClip {
   patternId: number
   trackNumber: number
   startBeat: number
+  // the part of the pattern it plays, in steps. null for all of it
+  window: ClipWindow | null
+}
+
+// clips as they are after a trim or a cut (see engine/src/clip_commands.rs)
+export interface ChangedClips {
+  clips: LoadedClip[]
+  patternClips: LoadedPatternClip[]
+}
+
+// clips a paste or a repeat made, and how many of the clipboard's were
+// skipped because their pattern no longer exists
+export interface Placed extends ChangedClips {
+  leftOut: number
+}
+
+// what a join made: the joined clip is the one in `clips` or `patternClips`,
+// `removed` are the other clips, which are gone, and `sequencer` is set when
+// joining pattern clips made a new pattern
+export interface Joined extends ChangedClips {
+  removed: number[]
+  sequencer: SequencerState | null
 }
 
 // a clip that couldn't be loaded, so it was left out of the playlist
@@ -88,4 +110,27 @@ export interface Recorded {
   recording: boolean
   clips: LoadedClip[]
   problems: string[]
+}
+
+// the project as it is now, after an undo or redo (see project_view in
+// engine/src/history_commands.rs)
+export interface ProjectView {
+  tempo: number
+  clips: LoadedClip[]
+  patternClips: LoadedPatternClip[]
+  mixer: MixerSettings
+  sequencer: SequencerState
+}
+
+// what the engine's undo and redo return
+export interface Travelled {
+  // false when there was nothing to undo or redo, or it can't be done just
+  // now (while recording): nothing changed
+  changed: boolean
+  // the clips it changed or put back, which the playlist selects. null when
+  // it wasn't about clips (a fader, the tempo): the selection stays
+  selected: number[] | null
+  canUndo: boolean
+  canRedo: boolean
+  project: ProjectView
 }

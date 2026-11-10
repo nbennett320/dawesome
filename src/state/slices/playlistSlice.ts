@@ -1,18 +1,23 @@
 import { createSlice, Dispatch, PayloadAction } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api/core'
 import { RootState } from 'state/store'
-import { PlaylistItem, PlaylistItemPixelOffset } from '../../types/playlist'
+import { PlaylistItem, PlaylistItemPixelOffset, PlaylistTool } from '../../types/playlist'
 import { View } from '../../types/ui'
 import {
   ClipInfo,
   ClipOverride,
   ClipSettings,
+  ClipWindow,
   clampClipSettings,
   defaultClipSettings,
   isDefaultClipSettings,
-  playedDuration,
+  playbackRate,
+  windowedDuration,
 } from '../../types/clip'
-import { LoadedPatternClip, LoadedProject, MissingSample, MovedClip, SavedProject } from '../../types/project'
+import {
+  ChangedClips, LoadedClip, LoadedPatternClip, LoadedProject, Joined, MissingSample, MovedClip, Placed, ProjectView, SavedProject,
+} from '../../types/project'
+import { currentGesture } from '../gesture'
 import { Wind } from '../../types/transport'
 import { openTab } from './windowSlice'
 
@@ -46,7 +51,17 @@ export interface PlaylistState {
   loopEnabled: boolean,
   snapEnabled: boolean,
   snapNote: SnapNote,
+  // the playlist's mouse tool. not saved with the project
+  tool: PlaylistTool
   playlistItems: Array<PlaylistItem>
+  // counts projects opened (or started), so the playlist goes back to how
+  // it opens: its first bars
+  viewRevision: number
+  // the clips an undo or redo changed, or a paste made, for the playlist to
+  // select. the count goes up each time, so the same clips can be selected again
+  travelled: { count: number, ids: number[] }
+  // how many clips the engine's clipboard holds: whether there's anything to paste
+  clipboardCount: number
   // the clip shown in the Sample tab
   inspectedClipId: number | null
   // how each clip is played back, by clip id, as last loaded from or sent to
@@ -54,6 +69,9 @@ export interface PlaylistState {
   clipSettings: Record<number, ClipSettings>
   // each clip's sample length in seconds, before any speed change, by clip id
   clipSampleDurations: Record<number, number>
+  // the part of its sample or pattern each trimmed clip plays, by clip id.
+  // clips without an entry play all of it
+  clipWindows: Record<number, ClipWindow>
   ui: {
     maxPlaylistBeats: number,
     maxBeatsDisplayed: number,
@@ -75,13 +93,20 @@ const initialState = {
   loopEnabled: true,
   snapEnabled: true,
   snapNote: 'QuarterNote',
+  // not saved with the project
+  tool: 'select',
   playlistItems: [],
+  viewRevision: 0,
+  travelled: { count: 0, ids: [] },
+  clipboardCount: 0,
   inspectedClipId: null,
   clipSettings: {},
   clipSampleDurations: {},
+  clipWindows: {},
   ui: {
     maxPlaylistBeats: 16,
-    maxBeatsDisplayed: 16,
+    // the playlist's length: 64 bars
+    maxBeatsDisplayed: 256,
     maxPlaylistDuration: 120*2,
     trackCount: 4,
   },
@@ -91,6 +116,31 @@ const initialState = {
 // so there's no drop position to debug
 const NO_PIXEL_OFFSET: PlaylistItemPixelOffset = {
   x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0, xOffset: 0, yOffset: 0,
+}
+
+// the playlist's item for a clip the engine sent, built as a loaded project's are
+const sampleItem = (clip: LoadedClip): PlaylistItem => ({
+  id: clip.id,
+  path: clip.path,
+  startBeat: clip.startBeat,
+  trackNumber: clip.trackNumber,
+  pixelOffset: { ...NO_PIXEL_OFFSET },
+})
+
+const patternItem = (clip: LoadedPatternClip): PlaylistItem => ({
+  id: clip.id,
+  path: '',
+  patternId: clip.patternId,
+  startBeat: clip.startBeat,
+  trackNumber: clip.trackNumber,
+  pixelOffset: { ...NO_PIXEL_OFFSET },
+})
+
+// keep a clip's window as the engine has it: an entry when it's trimmed, none
+// when it plays all of its source
+const setWindow = (state: PlaylistState, id: number, window: ClipWindow | null | undefined) => {
+  if(window) state.clipWindows[id] = window
+  else delete state.clipWindows[id]
 }
 
 export const playlistSlice = createSlice({
@@ -163,16 +213,19 @@ export const playlistSlice = createSlice({
     reduceExploded: (state, action: PayloadAction<{ removed: number[], clips: LoadedPatternClip[] }>) => {
       const removed = new Set(action.payload.removed)
       state.playlistItems = state.playlistItems.filter(item => !removed.has(item.id))
+      removed.forEach(id => { delete state.clipWindows[id] })
+      // each plays the part of its pattern that the exploded clip played
       action.payload.clips.forEach(clip => {
-        state.playlistItems.push({
-          id: clip.id,
-          path: '',
-          patternId: clip.patternId,
-          startBeat: clip.startBeat,
-          trackNumber: clip.trackNumber,
-          pixelOffset: { ...NO_PIXEL_OFFSET },
-        })
+        state.playlistItems.push(patternItem(clip))
+        setWindow(state, clip.id, clip.window)
       })
+    },
+    setClipboardCount: (state, action: PayloadAction<number>) => {
+      state.clipboardCount = action.payload
+    },
+    // the playlist selects these clips, as it does the ones an undo changed
+    selectClips: (state, action: PayloadAction<number[]>) => {
+      state.travelled = { count: state.travelled.count + 1, ids: action.payload }
     },
     removePlaylistItem: (state, action) => {
       state.playlistItems = state.playlistItems.filter(e => e.id !== action.payload.id)
@@ -183,15 +236,51 @@ export const playlistSlice = createSlice({
 
       delete state.clipSettings[action.payload.id]
       delete state.clipSampleDurations[action.payload.id]
+      delete state.clipWindows[action.payload.id]
     },
     setInspectedClip: (state, action: { type: string, payload: number | null }) => {
       state.inspectedClipId = action.payload
     },
     // a clip's settings and length, as the engine has them
-    setClipInfo: (state, action: { type: string, payload: { id: number } & ClipInfo }) => {
-      const { id, settings, sampleDuration } = action.payload
+    // (a clip with no window, such as one just recorded, can leave it out)
+    setClipInfo: (
+      state,
+      action: { type: string, payload: { id: number } & Omit<ClipInfo, 'window'> & { window?: ClipWindow | null } },
+    ) => {
+      const { id, settings, sampleDuration, window } = action.payload
       state.clipSettings[id] = settings
       state.clipSampleDurations[id] = sampleDuration
+      setWindow(state, id, window)
+    },
+    // clips as they are after a trim or a cut: the ones the playlist has are
+    // updated where they are, and new ones (the second half of a cut) added
+    reduceChangedClips: (state, action: PayloadAction<ChangedClips>) => {
+      const { clips, patternClips } = action.payload
+
+      const place = (item: PlaylistItem) => {
+        const have = state.playlistItems.find(i => i.id === item.id)
+        if(!have) {
+          state.playlistItems.push(item)
+          return
+        }
+        have.startBeat = item.startBeat
+        have.trackNumber = item.trackNumber
+        have.path = item.path
+        // a deep copy turns a pattern clip into a sample clip: no stale pattern
+        if(item.patternId !== undefined) have.patternId = item.patternId
+        else delete have.patternId
+      }
+
+      clips.forEach(clip => {
+        place(sampleItem(clip))
+        state.clipSettings[clip.id] = clip.settings
+        state.clipSampleDurations[clip.id] = clip.sampleDuration
+        setWindow(state, clip.id, clip.window)
+      })
+      patternClips.forEach(clip => {
+        place(patternItem(clip))
+        setWindow(state, clip.id, clip.window)
+      })
     },
     // change some of a clip's settings, kept in range like the engine does
     reduceClipSettings: (
@@ -201,9 +290,54 @@ export const playlistSlice = createSlice({
       const { id, settings } = action.payload
       const merged = { ...(state.clipSettings[id] ?? defaultClipSettings), ...settings }
       const sampleSeconds = state.clipSampleDurations[id]
-      const played = sampleSeconds === undefined ? undefined : playedDuration(merged, sampleSeconds)
+      const played = sampleSeconds === undefined
+        ? undefined
+        : windowedDuration(merged, sampleSeconds, state.clipWindows[id])
 
       state.clipSettings[id] = clampClipSettings(merged, played)
+    },
+    // the project as it is after an undo or redo: every clip, with its
+    // settings. clips keep their ids, so the playlist keeps the waveforms it
+    // has, and the transport isn't touched
+    reduceProjectView: (
+      state,
+      action: PayloadAction<{ project: ProjectView, selected: number[] | null }>,
+    ) => {
+      const { project, selected } = action.payload
+
+      state.tempo = project.tempo
+      state.playlistItems = [
+        ...project.clips.map(clip => ({
+          id: clip.id,
+          path: clip.path,
+          startBeat: clip.startBeat,
+          trackNumber: clip.trackNumber,
+          pixelOffset: { ...NO_PIXEL_OFFSET },
+        })),
+        ...project.patternClips.map(clip => ({
+          id: clip.id,
+          path: '',
+          patternId: clip.patternId,
+          startBeat: clip.startBeat,
+          trackNumber: clip.trackNumber,
+          pixelOffset: { ...NO_PIXEL_OFFSET },
+        })),
+      ]
+
+      state.clipSettings = {}
+      state.clipSampleDurations = {}
+      state.clipWindows = {}
+      project.clips.forEach(clip => {
+        state.clipSettings[clip.id] = clip.settings
+        state.clipSampleDurations[clip.id] = clip.sampleDuration
+        setWindow(state, clip.id, clip.window)
+      })
+      project.patternClips.forEach(clip => setWindow(state, clip.id, clip.window))
+
+      if(!state.playlistItems.some(item => item.id === state.inspectedClipId)) {
+        state.inspectedClipId = null
+      }
+      if(selected) state.travelled = { count: state.travelled.count + 1, ids: selected }
     },
     setPlaylistUI: (state, action) => {
       state.ui = action.payload
@@ -216,6 +350,9 @@ export const playlistSlice = createSlice({
     },
     setSnapNote: (state, action) => {
       state.snapNote = action.payload
+    },
+    setTool: (state, action: PayloadAction<PlaylistTool>) => {
+      state.tool = action.payload
     },
     // replace the playlist with a project the engine just loaded (or a new,
     // empty one). the engine has already stopped playback
@@ -230,7 +367,12 @@ export const playlistSlice = createSlice({
       state.loopEnabled = project.loopEnabled
       state.snapEnabled = project.snapEnabled
       state.snapNote = project.snapNote
+      // the tool isn't saved: a project opens with Select
+      state.tool = 'select'
       state.inspectedClipId = null
+      // the engine empties its clipboard on New and Open
+      state.clipboardCount = 0
+      state.viewRevision += 1
 
       state.playlistItems = project.clips.map(clip => ({
         id: clip.id,
@@ -254,10 +396,13 @@ export const playlistSlice = createSlice({
 
       state.clipSettings = {}
       state.clipSampleDurations = {}
+      state.clipWindows = {}
       project.clips.forEach(clip => {
         state.clipSettings[clip.id] = clip.settings
         state.clipSampleDurations[clip.id] = clip.sampleDuration
+        setWindow(state, clip.id, clip.window)
       })
+      ;(project.patternClips ?? []).forEach(clip => setWindow(state, clip.id, clip.window))
     },
   },
 })
@@ -321,9 +466,32 @@ export const selectWind = (state: RootState) => state.playlist.wind
 // start tempo methods
 export const { reduceTempo } = playlistSlice.actions
 
-export const setPlaylistTempo = (val: number) => async (dispatch: Dispatch) => {
-  await invoke<void>('set_playlist_tempo', { val })
-  dispatch(reduceTempo(val))
+// the tempos the engine takes (see daw::timing::valid_tempo)
+export const validTempo = (tempo: number): boolean =>
+  Number.isFinite(tempo) && tempo >= 1 && tempo <= 1000
+
+// change the tempo. clips and the playhead keep their beats, and playback
+// carries on from the beat it had got to. a tempo that makes no sense isn't
+// sent, and the engine refuses any while recording. resolves to whether the
+// tempo was changed
+// - gesture: the visit to the tempo field this is part of, if any. every
+//   tempo typed during one visit is undone as one step
+export const setPlaylistTempo = (val: number, gesture: number | null = null) => async (
+  dispatch: Dispatch,
+): Promise<boolean> => {
+  if(!validTempo(val)) return false
+
+  try {
+    const tempo = await invoke<number>('set_playlist_tempo', { val, gesture })
+    dispatch(reduceTempo(tempo))
+    // the playhead's time, and the beat's length, have changed
+    await syncPlayingFrom(dispatch)
+    return true
+  } catch(e) {
+    // eslint-disable-next-line no-console
+    console.error(`could not set the tempo to ${val}:`, e)
+    return false
+  }
 }
 
 // retrieve tempo from internal (rust) state
@@ -438,6 +606,16 @@ export const addToPlaylist = (
 
   // a clip dropped below the last track made a new one
   await refreshTrackCount()(dispatch)
+
+  // its sample's length, which the playlist needs to trim it (and to show
+  // it at the right length once its pitch changes)
+  try {
+    const info = await invoke<ClipInfo>('get_clip', { id })
+    dispatch(playlistSlice.actions.setClipInfo({ id, ...info }))
+  } catch(e) {
+    // eslint-disable-next-line no-console
+    console.error(`could not load clip ${id}:`, e)
+  }
 }
 
 // place a pattern in the playlist (dragged from the Sequencer's pattern
@@ -528,20 +706,14 @@ export const moveNodesInPlaylist = (
   await refreshTrackCount()(dispatch)
 }
 
-// remove several clips (a selection). each is taken off the playlist once the
-// engine has removed it, so a failure leaves the rest consistent
+// remove several clips (a selection)
 export const removeManyFromPlaylist = (ids: number[]) => async (dispatch: Dispatch) => {
-  try {
-    // one at a time, in order: each removal locks the engine's audio graph
-    await ids.reduce(async (previous, id) => {
-      await previous
-      await invoke('remove_audiograph_node', { id })
-      dispatch(removePlaylistItem({ id }))
-    }, Promise.resolve())
-  } finally {
-    // the last clips on the bottom tracks may have gone
-    await refreshTrackCount()(dispatch)
-  }
+  // together: all of them go, or (if the engine refuses) none, and undoing
+  // brings them all back at once
+  await invoke('remove_audiograph_nodes', { ids })
+  ids.forEach(id => dispatch(removePlaylistItem({ id })))
+  // the last clips on the bottom tracks may have gone
+  await refreshTrackCount()(dispatch)
 }
 
 export const removeFromPlaylist = (id: number) => async (dispatch: Dispatch) => {
@@ -594,8 +766,13 @@ const SEND_SETTINGS_EVERY_MS = 50
 // per clip: settings waiting to be sent, while a send was recent
 const queuedSettings = new Map<number, ClipSettings | null>()
 
+// per clip: the gesture (a drag of a knob or a fade's handle) its settings
+// were last changed in, if any. sent with them, however late they go, so
+// one drag is undone as one step
+const settingsGesture = new Map<number, number | null>()
+
 const sendSettingsNow = (id: number, settings: ClipSettings) =>
-  invoke<ClipInfo>('set_clip_settings', { id, settings })
+  invoke<ClipInfo>('set_clip_settings', { id, settings, gesture: settingsGesture.get(id) ?? null })
     // eslint-disable-next-line no-console
     .catch(e => console.error(`could not update clip ${id}:`, e))
 
@@ -625,6 +802,10 @@ const sendSettings = (id: number, settings: ClipSettings) => {
   setTimeout(flush, SEND_SETTINGS_EVERY_MS)
 }
 
+export const selectClipWindow = (id?: number) =>
+  (state: RootState): ClipWindow | null =>
+    (id === undefined ? undefined : state.playlist.clipWindows[id]) ?? null
+
 export const selectClipSettings = (id: number | undefined) =>
   (state: RootState): ClipSettings =>
     (id === undefined ? undefined : state.playlist.clipSettings[id]) ?? defaultClipSettings
@@ -633,7 +814,7 @@ export const selectClipSettings = (id: number | undefined) =>
 // changed, by clip id. builds a new object every call, so don't pass it to
 // useAppSelector
 export const selectClipOverrides = (state: RootState): Record<number, ClipOverride> => {
-  const { clipSettings, clipSampleDurations } = state.playlist
+  const { clipSettings, clipSampleDurations, clipWindows } = state.playlist
   const overrides: Record<number, ClipOverride> = {}
 
   Object.entries(clipSettings).forEach(([key, settings]) => {
@@ -643,8 +824,10 @@ export const selectClipOverrides = (state: RootState): Record<number, ClipOverri
     overrides[id] = {
       playedDuration: sampleSeconds === undefined
         ? undefined
-        : playedDuration(settings, sampleSeconds),
+        : windowedDuration(settings, sampleSeconds, clipWindows[id]),
       modified: !isDefaultClipSettings(settings),
+      sampleDuration: sampleSeconds,
+      rate: playbackRate(settings),
     }
   })
 
@@ -662,11 +845,268 @@ export const updateClipSettings = (id: number, settings: Partial<ClipSettings>) 
   getState: () => RootState,
 ) => {
   dispatch(playlistSlice.actions.reduceClipSettings({ id, settings }))
+  settingsGesture.set(id, currentGesture())
   sendSettings(id, selectClipSettings(id)(getState()))
 }
 
 export const resetClipSettings = (id: number) => (dispatch: Dispatch, getState: () => RootState) =>
   updateClipSettings(id, defaultClipSettings)(dispatch, getState)
+
+// trim clips: each plays the part of its sample (seconds) or pattern (steps)
+// from start to end, null for to the end. the engine keeps the sound where it
+// is, and returns the clips as they are now. null if it refused
+export const setClipWindows = (
+  edits: { id: number, start: number, end: number | null }[],
+) => async (dispatch: Dispatch): Promise<ChangedClips | null> => {
+  try {
+    const changed = await invoke<ChangedClips>('set_clip_windows', { edits })
+    dispatch(playlistSlice.actions.reduceChangedClips(changed))
+    await refreshTrackCount()(dispatch)
+    return changed
+  } catch(e) {
+    // eslint-disable-next-line no-console
+    console.error('could not trim the clips:', e)
+    return null
+  }
+}
+
+// stretch sample clips, like tape: each is given the pitch that makes it the
+// length it was dragged to, with its start or its end staying where it is.
+// the engine returns the clips as they are now. null if it refused
+export const stretchClips = (
+  edits: { id: number, pitch: number, keep: 'start' | 'end' }[],
+) => async (dispatch: Dispatch): Promise<ChangedClips | null> => {
+  try {
+    const changed = await invoke<ChangedClips>('stretch_clips', { edits })
+    dispatch(playlistSlice.actions.reduceChangedClips(changed))
+    await refreshTrackCount()(dispatch)
+    return changed
+  } catch(e) {
+    // eslint-disable-next-line no-console
+    console.error('could not stretch the clips:', e)
+    return null
+  }
+}
+
+// cut clips in two at a beat. the second halves are new clips, which the
+// engine returns with the first halves. null if it refused
+export const splitClips = (ids: number[], beat: number) => async (
+  dispatch: Dispatch,
+): Promise<ChangedClips | null> => {
+  try {
+    const changed = await invoke<ChangedClips>('split_clips', { ids, beat })
+    dispatch(playlistSlice.actions.reduceChangedClips(changed))
+    await refreshTrackCount()(dispatch)
+    return changed
+  } catch(e) {
+    // eslint-disable-next-line no-console
+    console.error(`could not cut the clips at beat ${beat}:`, e)
+    return null
+  }
+}
+
+export const { setClipboardCount, selectClips } = playlistSlice.actions
+
+export const selectClipboardCount = (state: RootState) => state.playlist.clipboardCount
+
+// copy clips to the engine's clipboard, which the system's is left out of
+export const copyClips = (ids: number[]) => async (dispatch: Dispatch): Promise<void> => {
+  if(!ids.length) return
+  try {
+    const count = await invoke<number>('copy_clips', { ids })
+    dispatch(playlistSlice.actions.setClipboardCount(count))
+  } catch(e) {
+    // eslint-disable-next-line no-console
+    console.error('could not copy the clips:', e)
+  }
+}
+
+// copy clips, and take them out of the playlist
+export const cutClips = (ids: number[]) => async (dispatch: Dispatch): Promise<void> => {
+  if(!ids.length) return
+  try {
+    const count = await invoke<number>('cut_clips', { ids })
+    ids.forEach(id => dispatch(playlistSlice.actions.removePlaylistItem({ id })))
+    dispatch(playlistSlice.actions.setClipboardCount(count))
+    await refreshTrackCount()(dispatch)
+  } catch(e) {
+    // eslint-disable-next-line @typescript-eslint/no-use-before-define
+    await notifyError(dispatch, `The clips couldn't be cut: ${e}`)
+  }
+}
+
+// tell the user something in the notice banner. loaded when needed: the
+// project slice pulls in the file dialogs, which this slice otherwise doesn't need
+const notify = async (dispatch: Dispatch, message: string) => {
+  const { setProjectNotice } = await import('./projectSlice')
+  dispatch(setProjectNotice({ kind: 'info', message }))
+}
+
+// tell the user something went wrong, in the notice banner's error style
+const notifyError = async (dispatch: Dispatch, message: string) => {
+  const { setProjectNotice } = await import('./projectSlice')
+  dispatch(setProjectNotice({ kind: 'error', message }))
+}
+
+// the Clips page lists its folder again: deep copy and join wrote files there.
+// loaded when needed: the recording slice imports this one
+const tookNewFiles = async (dispatch: Dispatch) => {
+  const { takesChanged } = await import('./recordingSlice')
+  dispatch(takesChanged())
+}
+
+// mirrors NEEDS_SAVING in engine/src/bounce.rs: what the engine says when a
+// file has to be written and the project has never been saved
+export const NEEDS_SAVING = 'The project has to be saved first, so its clips have somewhere to go.'
+
+// show a wait cursor only if the work is slow, so a quick one shows nothing
+export const withWaitCursor = async <T,>(
+  work: Promise<T>,
+  setBusy: (busy: boolean) => void,
+): Promise<T> => {
+  let busy = false
+  const timer = setTimeout(() => {
+    busy = true
+    setBusy(true)
+  }, 500)
+  try {
+    return await work
+  } finally {
+    clearTimeout(timer)
+    if(busy) setBusy(false)
+  }
+}
+
+// save the project (the Save dialog opens if it never was), and say whether
+// it has a file now: the user may have cancelled
+const saveFirst = async (
+  dispatch: Dispatch,
+  getState: () => RootState,
+): Promise<boolean> => {
+  const { runProjectCommand } = await import('./projectSlice')
+  await runProjectCommand('save')(dispatch, getState)
+  return !!getState().project.path
+}
+
+// run a command that writes files, saving the project first if the engine
+// says it must. null if it failed or the save was cancelled. `report` says
+// what to do with a failure's sentence
+const writingClips = async <T,>(
+  dispatch: Dispatch,
+  getState: () => RootState,
+  setBusy: (busy: boolean) => void,
+  command: string,
+  ids: number[],
+  report: (message: string) => Promise<void>,
+): Promise<T | null> => {
+  const attempt = () => withWaitCursor(invoke<T>(command, { ids }), setBusy)
+  try {
+    return await attempt()
+  } catch(e) {
+    if(String(e) !== NEEDS_SAVING) {
+      await report(String(e))
+      return null
+    }
+  }
+
+  if(!await saveFirst(dispatch, getState)) return null
+  try {
+    return await attempt()
+  } catch(e) {
+    await report(String(e))
+    return null
+  }
+}
+
+// write each clip out as a file of its own, and switch it to that. the clips
+// keep their ids and places. all or nothing; the engine says why if it can't
+export const deepCopyClips = (ids: number[], setBusy: (busy: boolean) => void = () => {}) => async (
+  dispatch: Dispatch,
+  getState: () => RootState,
+): Promise<ChangedClips | null> => {
+  if(!ids.length) return null
+  const changed = await writingClips<ChangedClips>(
+    dispatch, getState, setBusy, 'deep_copy_clips', ids, message => notifyError(dispatch, message),
+  )
+  if(!changed) return null
+
+  dispatch(playlistSlice.actions.reduceChangedClips(changed))
+  await tookNewFiles(dispatch)
+  await refreshTrackCount()(dispatch)
+  return changed
+}
+
+// join clips into one. the engine refuses, with a sentence starting
+// 'Join needs', a join that doesn't apply: that's information, not a failure
+export const joinClips = (ids: number[], setBusy: (busy: boolean) => void = () => {}) => async (
+  dispatch: Dispatch,
+  getState: () => RootState,
+): Promise<Joined | null> => {
+  if(ids.length < 2) return null
+  const joined = await writingClips<Joined>(
+    dispatch, getState, setBusy, 'join_clips', ids,
+    message => message.startsWith('Join needs') ? notify(dispatch, message) : notifyError(dispatch, message),
+  )
+  if(!joined) return null
+
+  joined.removed.forEach(id => dispatch(playlistSlice.actions.removePlaylistItem({ id })))
+  dispatch(playlistSlice.actions.reduceChangedClips(joined))
+  if(joined.sequencer) {
+    // loaded when needed: the sequencer slice imports this one
+    const { setSequencer } = await import('./sequencerSlice')
+    dispatch(setSequencer(joined.sequencer))
+  }
+  await tookNewFiles(dispatch)
+  const kept = [...joined.clips, ...joined.patternClips].map(clip => clip.id)
+  if(kept.length) dispatch(playlistSlice.actions.selectClips(kept))
+  await refreshTrackCount()(dispatch)
+  return joined
+}
+
+// show the clips the engine placed, select them, and say if any were left out
+const reducePlaced = async (dispatch: Dispatch, placed: Placed) => {
+  dispatch(playlistSlice.actions.reduceChangedClips(placed))
+  const ids = [...placed.clips, ...placed.patternClips].map(clip => clip.id)
+  if(ids.length) dispatch(playlistSlice.actions.selectClips(ids))
+  await refreshTrackCount()(dispatch)
+
+  if(placed.leftOut > 0) {
+    await notify(dispatch, placed.leftOut === 1
+      ? '1 clip was left out: its pattern no longer exists.'
+      : `${placed.leftOut} clips were left out: their patterns no longer exist.`)
+  }
+}
+
+// paste the clipboard so its earliest clip starts at a beat: on the tracks
+// the clips came from, or with the topmost one on `track`. the engine
+// refuses, with a sentence for the user, if any would start past the end
+export const pasteClips = (beat: number, track: number | null = null) => async (
+  dispatch: Dispatch,
+): Promise<Placed | null> => {
+  try {
+    const placed = await invoke<Placed>('paste_clips', { beat, track })
+    await reducePlaced(dispatch, placed)
+    return placed
+  } catch(e) {
+    await notify(dispatch, String(e))
+    return null
+  }
+}
+
+// duplicate clips so the copies start where the originals' span ends
+export const repeatClips = (ids: number[]) => async (
+  dispatch: Dispatch,
+): Promise<Placed | null> => {
+  if(!ids.length) return null
+  try {
+    const placed = await invoke<Placed>('repeat_clips', { ids })
+    await reducePlaced(dispatch, placed)
+    return placed
+  } catch(e) {
+    await notify(dispatch, String(e))
+    return null
+  }
+}
 
 // play a clip on its own, with its current settings
 export const auditionClip = (id: number) => async (_: Dispatch, getState: () => RootState) => {
@@ -731,7 +1171,26 @@ export const selectSnapNote = (state: RootState) =>
 // the engine reads and writes project files; the frontend then shows
 // whatever it loaded
 
-export const { reduceLoadedProject } = playlistSlice.actions
+export const { setTool } = playlistSlice.actions
+
+export const selectTool = (state: RootState) => state.playlist.tool
+
+export const { reduceLoadedProject, reduceProjectView } = playlistSlice.actions
+
+// settings changed a moment ago may still be waiting to be sent (see
+// sendSettings). send them now, so the engine has them: before saving, or
+// before undoing, which mustn't be overtaken by a late change
+export const flushClipSettings = (getState: () => RootState): Promise<unknown> =>
+  Promise.all(Array.from(queuedSettings.keys()).map(id => {
+    queuedSettings.set(id, null)
+    return sendSettingsNow(id, selectClipSettings(id)(getState()))
+  }))
+
+// settings still waiting to be sent no longer apply (the project was
+// replaced, or an undo put the clips' settings back)
+export const dropQueuedClipSettings = (): void => {
+  queuedSettings.clear()
+}
 
 // show a project the engine just loaded. returns the samples it couldn't find
 const showLoadedProject = async (
@@ -740,6 +1199,7 @@ const showLoadedProject = async (
 ): Promise<MissingSample[]> => {
   // settings still waiting to be sent belong to clips that are gone
   queuedSettings.clear()
+  settingsGesture.clear()
   dispatch(reduceLoadedProject(project))
   // the playlist's length depends on its clips
   await initPlaylist()(dispatch)
@@ -756,10 +1216,7 @@ export const saveProject = (path: string, somewhereNew: boolean) => async (
 ): Promise<SavedProject> => {
   // clips changed in the last moment may not have been sent yet. send their
   // latest settings, so the file has them
-  await Promise.all(Array.from(queuedSettings.keys()).map(id => {
-    queuedSettings.set(id, null)
-    return sendSettingsNow(id, selectClipSettings(id)(getState()))
-  }))
+  await flushClipSettings(getState)
 
   const saved = await invoke<SavedProject>('save_project', { path, somewhereNew })
   dispatch(playlistSlice.actions.reduceMovedClips(saved.movedClips))

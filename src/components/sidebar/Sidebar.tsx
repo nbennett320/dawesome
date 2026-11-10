@@ -11,12 +11,14 @@ import SidebarList from './SidebarList'
 import SampleBrowser from '../toolbars/sample-browser/SampleBrowser'
 import PatternBrowser from '../toolbars/pattern-browser/PatternBrowser'
 import RecordingsBrowser from '../toolbars/recordings-browser/RecordingsBrowser'
+import ClipsBrowser from '../toolbars/clips-browser/ClipsBrowser'
 import styles from './styles.module.scss'
 
 const pages: Record<SidebarPage, () => React.ReactElement> = {
   [SidebarPage.Samples]: () => <SampleBrowser />,
   [SidebarPage.Patterns]: () => <PatternBrowser />,
   [SidebarPage.Recordings]: () => <RecordingsBrowser />,
+  [SidebarPage.Clips]: () => <ClipsBrowser />,
 }
 
 const Sidebar = () => {

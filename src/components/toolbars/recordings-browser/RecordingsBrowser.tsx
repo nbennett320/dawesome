@@ -13,7 +13,7 @@ import {
   FolderNode, ROOT, allItems, buildTree, findFolder, freeName,
 } from '../../../types/folderTree'
 import {
-  MovedRecording, RecordingFile, RecordingsListing, TakeUse,
+  Library, MovedRecording, RecordingFile, RecordingsListing, TakeUse,
   describeUse, formatTakeDate, formatTakeDuration, movedFolderPath, parentFolder,
   recordingFolders, searchTakes, takeUses,
 } from '../../../types/recordings'
@@ -35,10 +35,23 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 const isUsed = (use: TakeUse | undefined) => !!use && (use.clips > 0 || use.rows > 0)
 
+// what the user calls the files of each library
+const words = {
+  recordings: {
+    noun: 'recording', nouns: 'recordings', title: 'Recordings', made: 'Recorded',
+    none: 'Nothing recorded yet. Arm a track and press record.',
+  },
+  clips: {
+    noun: 'clip', nouns: 'clips', title: 'Clips', made: 'Made',
+    none: 'No clips yet. Deep copy or join clips to make some.',
+  },
+}
+
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 interface RowProps {
   take: RecordingFile
+  library: Library
   use: TakeUse | undefined
   selected: boolean
   depth: number
@@ -50,7 +63,7 @@ interface RowProps {
 
 // one take: click to hear it, drag it into the playlist, the Sequencer, or
 // a folder, right-click to rename or delete it
-const TakeRow = ({ take, use, selected, depth, showFolder, onPreview, onMenu }: RowProps) => {
+const TakeRow = ({ take, library, use, selected, depth, showFolder, onPreview, onMenu }: RowProps) => {
   const recorded = take.modifiedMs === null ? '' : new Date(take.modifiedMs).toLocaleString()
 
   const onMouseDown = (ev: React.MouseEvent) => {
@@ -60,7 +73,8 @@ const TakeRow = ({ take, use, selected, depth, showFolder, onPreview, onMenu }: 
   }
 
   const onKeyDown = (ev: React.KeyboardEvent) => {
-    if(ev.key !== 'Enter' && ev.key !== ' ') return
+    // (space plays and pauses, see App)
+    if(ev.key !== 'Enter') return
     ev.preventDefault()
     onPreview(take)
   }
@@ -70,7 +84,7 @@ const TakeRow = ({ take, use, selected, depth, showFolder, onPreview, onMenu }: 
       role='treeitem'
       selected={selected}
       used={isUsed(use)}
-      title={[take.path, recorded && `Recorded ${recorded}`, describeUse(use)].filter(Boolean).join('\n')}
+      title={[take.path, recorded && `${words[library].made} ${recorded}`, describeUse(use)].filter(Boolean).join('\n')}
       style={{ paddingLeft: depth * 12 + 8 }}
       onMouseDown={onMouseDown}
       onKeyDown={onKeyDown}
@@ -96,17 +110,25 @@ type Menu =
   | { kind: 'folder', node: FolderNode<RecordingFile>, x: number, y: number }
   | { kind: 'top', x: number, y: number }
 
-// the project's recorded takes, in the recordings folder's folders: hear
-// them, drag them back in, file them into folders, see which ones the
-// project isn't using, and rename or bin them
-const RecordingsBrowser = () => {
+interface BrowserProps {
+  // which of the project's folders of audio to show
+  library?: Library
+}
+
+// the project's recorded takes (or, for the Clips page, the files the app
+// wrote out itself), in the folder's folders: hear them, drag them back in,
+// file them into folders, see which ones the project isn't using, and rename
+// or bin them
+const RecordingsBrowser = ({ library = 'recordings' }: BrowserProps) => {
   const dispatch = useAppDispatch()
+  const w = words[library]
   const revision = useAppSelector(selectTakesRevision)
-  const recording = useAppSelector(selectRecording)
+  // only takes are recorded into
+  const recording = useAppSelector(selectRecording) && library === 'recordings'
   const items = useAppSelector(selectPlaylistItems)
   const rows = useAppSelector(selectSequencerRows)
   const [listing, setListing] = React.useState<RecordingsListing | null>(null)
-  const [expanded, setExpanded] = useSessionSet('recordings')
+  const [expanded, setExpanded] = useSessionSet(library)
   // the take heard last, or the folder clicked last (new folders go in it)
   const [selected, setSelected] = React.useState<string | null>(null)
   const [selectedFolder, setSelectedFolder] = React.useState<string | null>(null)
@@ -119,11 +141,11 @@ const RecordingsBrowser = () => {
 
   React.useEffect(() => {
     let current = true
-    invoke<RecordingsListing>('t_list_recordings', {})
+    invoke<RecordingsListing>('t_list_recordings', { library })
       .then(next => { if(current) setListing(next) })
-      .catch(logError('list the recordings'))
+      .catch(logError(`list the ${w.nouns}`))
     return () => { current = false }
-  }, [revision])
+  }, [revision, library, w.nouns])
 
   const takes = React.useMemo(() => listing?.takes ?? [], [listing])
   const folders = React.useMemo(() => recordingFolders(listing?.folders ?? []), [listing])
@@ -185,7 +207,7 @@ const RecordingsBrowser = () => {
     setRenamingTake(null)
     if(name === null) return
 
-    invoke<MovedRecording>('t_rename_recording', { path: take.path, name })
+    invoke<MovedRecording>('t_rename_recording', { path: take.path, name, library })
       .then(moved => {
         if(selected === take.path) setSelected(moved.path)
         applyMoved(moved)
@@ -194,10 +216,10 @@ const RecordingsBrowser = () => {
   }
 
   const trashTake = async (take: RecordingFile) => {
-    const sure = await ask(`Move "${take.name}" to the Trash?`, 'Delete recording')
+    const sure = await ask(`Move "${take.name}" to the Trash?`, `Delete ${w.noun}`)
     if(!sure) return
 
-    invoke('t_delete_recording', { path: take.path })
+    invoke('t_delete_recording', { path: take.path, library })
       .then(() => dispatch(takesChanged()))
       .catch(fail(`delete ${take.name}`))
   }
@@ -206,7 +228,7 @@ const RecordingsBrowser = () => {
 
   const newFolder = (parent: string) => {
     const siblings = (findFolder(tree, parent) ?? tree).folders.map(f => f.name)
-    invoke<string>('t_create_recording_folder', { parent, name: freeName('New folder', siblings) })
+    invoke<string>('t_create_recording_folder', { parent, name: freeName('New folder', siblings), library })
       .then(made => {
         open(parent)
         setSelectedFolder(made)
@@ -220,7 +242,7 @@ const RecordingsBrowser = () => {
     setRenamingFolder(null)
     if(name === null) return
 
-    invoke<MovedRecording>('t_rename_recording_folder', { folder: key, name })
+    invoke<MovedRecording>('t_rename_recording_folder', { folder: key, name, library })
       .then(moved => {
         followFolder(key, moved.path)
         applyMoved(moved)
@@ -230,11 +252,11 @@ const RecordingsBrowser = () => {
 
   const trashFolder = async (node: FolderNode<RecordingFile>) => {
     const count = allItems(node).length
-    const what = count ? ` and the ${plural(count, 'recording')} in it` : ''
+    const what = count ? ` and the ${plural(count, w.noun)} in it` : ''
     const sure = await ask(`Move "${node.name}"${what} to the Trash?`, 'Delete folder')
     if(!sure) return
 
-    invoke('t_delete_recording_folder', { folder: node.key })
+    invoke('t_delete_recording_folder', { folder: node.key, library })
       .then(() => dispatch(takesChanged()))
       .catch(fail(`delete ${node.name}`))
   }
@@ -249,7 +271,8 @@ const RecordingsBrowser = () => {
       const take = takeAt(item.path)
       return !!take && take.folder !== key
     }
-    if(item.kind === 'folder' && item.scope === 'recordings') {
+    // (a folder of this page's own: not one dragged over from the other)
+    if(item.kind === 'folder' && item.scope === library) {
       // not where it is already, and not inside itself
       return parentFolder(item.key) !== key && key !== item.key && !key.startsWith(`${item.key}/`)
     }
@@ -258,15 +281,15 @@ const RecordingsBrowser = () => {
 
   const onDrop = (item: DragItem, key: string) => {
     if(item.kind === 'sample') {
-      invoke<MovedRecording>('t_move_recording', { path: item.path, toFolder: key })
+      invoke<MovedRecording>('t_move_recording', { path: item.path, toFolder: key, library })
         .then(moved => {
           if(selected === item.path) setSelected(moved.path)
           open(key)
           applyMoved(moved)
         })
-        .catch(fail('move the recording'))
+        .catch(fail(`move the ${w.noun}`))
     } else if(item.kind === 'folder') {
-      invoke<MovedRecording>('t_move_recording_folder', { folder: item.key, toFolder: key })
+      invoke<MovedRecording>('t_move_recording_folder', { folder: item.key, toFolder: key, library })
         .then(moved => {
           followFolder(item.key, moved.path)
           open(key)
@@ -316,7 +339,7 @@ const RecordingsBrowser = () => {
           label: 'Move to Trash',
           danger: true,
           disabled: used > 0 || recording,
-          title: busy ?? (used ? `The project uses ${plural(used, 'recording')} in it. Remove those first` : undefined),
+          title: busy ?? (used ? `The project uses ${plural(used, w.noun)} in it. Remove those first` : undefined),
           onSelect: () => { trashFolder(node).catch(fail(`delete ${node.name}`)) },
         },
       ]
@@ -330,13 +353,13 @@ const RecordingsBrowser = () => {
   const search = query.trim()
   let empty: string | null = null
   if(listing === null) empty = 'Loading…'
-  else if(!takes.length && !folders.length) empty = recording ? 'Recording…' : 'Nothing recorded yet. Arm a track and press record.'
+  else if(!takes.length && !folders.length) empty = recording ? 'Recording…' : w.none
 
   const renderTake = (take: RecordingFile, depth: number) => (renamingTake === take.path
     ? (
       <RenameField
         initial={take.name}
-        label='Recording name'
+        label={`${w.title.slice(0, -1)} name`}
         depth={depth}
         onDone={name => renameTake(take, name)}
       />
@@ -344,6 +367,7 @@ const RecordingsBrowser = () => {
     : (
       <TakeRow
         take={take}
+        library={library}
         use={uses.get(take.path)}
         selected={selected === take.path}
         depth={depth}
@@ -359,7 +383,7 @@ const RecordingsBrowser = () => {
     list = (
       <div className='pb-2'>
         {found.map(take => <React.Fragment key={take.path}>{renderTake(take, 0)}</React.Fragment>)}
-        {!found.length && <div className='px-3 py-2 text-xs text-slate-400'>No recordings match.</div>}
+        {!found.length && <div className='px-3 py-2 text-xs text-slate-400'>No {w.nouns} match.</div>}
       </div>
     )
   } else {
@@ -374,7 +398,7 @@ const RecordingsBrowser = () => {
         dropTarget={dropTarget}
         onFolderMenu={(node, ev) => setMenu({ kind: 'folder', node, ...at(ev) })}
         onFolderDragStart={(node, ev) => beginSampleDrag(
-          { kind: 'folder', scope: 'recordings', key: node.key, label: node.name }, ev)}
+          { kind: 'folder', scope: library, key: node.key, label: node.name }, ev)}
         folderHint={node => {
           const count = allItems(node).length
           return count ? String(count) : undefined
@@ -389,7 +413,7 @@ const RecordingsBrowser = () => {
 
   return (
     <div ref={boxRef} className='relative flex flex-col h-full min-h-0'>
-      <BrowserSearch value={query} onChange={setQuery} label='Search recordings'>
+      <BrowserSearch value={query} onChange={setQuery} label={`Search ${w.nouns}`}>
         <AnalogButton
           size='xs'
           aria-label='New folder'
@@ -405,7 +429,7 @@ const RecordingsBrowser = () => {
         ref={listRef}
         className='flex-1 min-h-0 overflow-y-auto overflow-x-hidden'
         role='tree'
-        aria-label='Recordings'
+        aria-label={w.title}
         tabIndex={-1}
         onContextMenu={ev => {
           ev.preventDefault()

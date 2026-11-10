@@ -18,6 +18,15 @@ export interface ClipSettings {
 
 export type ClipSetting = keyof ClipSettings
 
+// the part of its source a clip plays: seconds of the sample for a sample
+// clip, steps of the pattern for a pattern clip (mirrors ClipWindow in
+// engine/src/event_dispatch.rs)
+export interface ClipWindow {
+  start: number
+  // null: to the source's end
+  end: number | null
+}
+
 // a clip's settings and lengths, from the engine's get_clip and
 // set_clip_settings (mirrors ClipInfo in engine/src/event_dispatch.rs)
 export interface ClipInfo {
@@ -26,6 +35,8 @@ export interface ClipInfo {
   sampleDuration: number
   // seconds the clip plays for
   playedDuration: number
+  // the part of the sample it plays, null for all of it
+  window: ClipWindow | null
 }
 
 // what the playlist shows differently for a clip whose settings changed
@@ -35,6 +46,11 @@ export interface ClipOverride {
   playedDuration?: number
   // whether any setting differs from the default
   modified: boolean
+  // the sample's length in seconds, before any change of speed (unknown
+  // until it has loaded), and how much faster than that the clip plays:
+  // what the playlist needs to trim the clip, and to draw it trimmed
+  sampleDuration?: number
+  rate?: number
 }
 
 export const defaultClipSettings: ClipSettings = {
@@ -64,6 +80,15 @@ export const playbackRate = (settings: ClipSettings): number => 2 ** (settings.p
 // the clip's length in seconds once it's sped up or slowed down
 export const playedDuration = (settings: ClipSettings, sampleDuration: number): number =>
   sampleDuration / playbackRate(settings)
+
+// the seconds a clip plays for once it's trimmed (window, in seconds of the
+// sample) and sped up or slowed down
+export const windowedDuration = (
+  settings: ClipSettings,
+  sampleDuration: number,
+  window: ClipWindow | null | undefined,
+): number =>
+  Math.max(0, ((window?.end ?? sampleDuration) - (window?.start ?? 0)) / playbackRate(settings))
 
 // the volume multiplier for a gain in decibels
 export const gainFactor = (gainDb: number): number => 10 ** (gainDb / 20)

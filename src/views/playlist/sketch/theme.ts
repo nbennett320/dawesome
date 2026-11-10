@@ -26,6 +26,8 @@ export const theme = {
   // the playhead, while playing and while stopped
   playhead: [14, 165, 233] as RGB, // sky-500
   playheadStopped: [148, 163, 184] as RGB, // slate-400
+  // where the loop ends, on the ruler
+  loopEnd: [71, 85, 105] as RGB, // slate-600
 
   // clips
   clip: [255, 255, 255] as RGB,

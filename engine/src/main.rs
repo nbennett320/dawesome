@@ -7,9 +7,18 @@ mod project;
 mod project_files;
 mod recording;
 mod recent;
+mod history;
+mod history_commands;
 mod mixer_commands;
 mod audio_commands;
 mod sequencer_commands;
+mod clip_commands;
+mod clipboard;
+mod bounce;
+mod join;
+mod mixdown;
+mod mixdown_file;
+mod mixdown_commands;
 mod bind_functions;
 
 use std::env;
@@ -62,6 +71,12 @@ fn init_tauri() {
   use mixer_commands::*;
   use audio_commands::*;
   use sequencer_commands::*;
+  use clip_commands::*;
+  use clipboard::*;
+  use bounce::*;
+  use join::*;
+  use mixdown_commands::*;
+  use history_commands::{undo, redo};
 
   // read before the menu is built, which lists them
   let recent_projects = recent::RecentProjects::load();
@@ -80,6 +95,7 @@ fn init_tauri() {
     .setup(app::window::setup)
     .manage(Arc::new(daw::InnerState::default()))
     .manage(recent_projects)
+    .manage(Arc::new(mixdown_commands::Mixdowns::default()))
     .invoke_handler(tauri::generate_handler![
       get_playlist_playing,
       t_toggle_playlist,
@@ -110,6 +126,9 @@ fn init_tauri() {
       move_audiograph_node,
       move_audiograph_nodes,
       remove_audiograph_node,
+      remove_audiograph_nodes,
+      undo,
+      redo,
       get_node_data,
       get_playlist_sample_offset,
       get_playlist_data,
@@ -175,7 +194,22 @@ fn init_tauri() {
       t_play_pattern,
       t_toggle_pattern,
       add_pattern_clip,
-      explode_pattern_clips
+      explode_pattern_clips,
+      set_clip_windows,
+      split_clips,
+      stretch_clips,
+      copy_clips,
+      cut_clips,
+      paste_clips,
+      repeat_clips,
+      clipboard_count,
+      deep_copy_clips,
+      join_clips,
+      mixdown_defaults,
+      start_mixdown,
+      mixdown_status,
+      cancel_mixdown,
+      reveal_file
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

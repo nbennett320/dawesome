@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { initPlaylist } from '../../state/slices/playlistSlice'
 import { useAppDispatch } from '../../hooks/redux'
 import PlaylistCanvas from './PlaylistCanvas'
+import PlaylistTray from './PlaylistTray'
 import styles from './styles.module.scss'
 
 const Playlist = () => {
@@ -32,9 +33,12 @@ const Playlist = () => {
   return (
     <div 
       ref={ref}
-      className={`${styles.Playlist} h-full`}
+      className={`${styles.Playlist} flex flex-col h-full`}
     >
-      <PlaylistCanvas />
+      <PlaylistTray />
+      <div className='relative flex-1 min-h-0'>
+        <PlaylistCanvas />
+      </div>
     </div>
   )
 }

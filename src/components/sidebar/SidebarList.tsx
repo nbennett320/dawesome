@@ -2,6 +2,7 @@ import React from 'react'
 import SidebarIcon from '../icons/SidebarIcon'
 import PatternIcon from '../icons/PatternIcon'
 import RecordingsIcon from '../icons/RecordingsIcon'
+import ClipsIcon from '../icons/ClipsIcon'
 import { AnalogButton } from '../fourtrack'
 import { SidebarPage } from '../../types/ui'
 
@@ -16,6 +17,7 @@ const keys: Array<{ page: SidebarPage, name: string, Icon: React.ComponentType<R
   { page: SidebarPage.Samples, name: 'samples', Icon: SidebarIcon },
   { page: SidebarPage.Patterns, name: 'patterns', Icon: PatternIcon },
   { page: SidebarPage.Recordings, name: 'recordings', Icon: RecordingsIcon },
+  { page: SidebarPage.Clips, name: 'clips', Icon: ClipsIcon },
 ]
 
 // the rail down the left: a key per sidebar page, latched while it's showing.

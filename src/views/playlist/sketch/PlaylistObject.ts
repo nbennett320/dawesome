@@ -2,11 +2,12 @@ import p5 from 'p5'
 import { P5CanvasInstance } from 'react-p5-wrapper'
 import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import Waveform from './Waveform'
-import { CanvasProps, Renderer, staticDefaults } from './index'
+import { ClipView, CanvasProps, Renderer, staticDefaults } from './index'
 import { PlaylistItem } from '../../../types/playlist'
 import { P5BoundingBox, State as ComponentState } from '../../../render/P5Component'
 import { theme } from './theme'
 import { STEPS_PER_BEAT, litRows, patternLabel } from '../../../types/sequencer'
+import { hiddenBeyond } from './edges'
 
 interface Props extends PlaylistComponentProps {
   playlistItem: PlaylistItem
@@ -21,6 +22,12 @@ type State = ComponentState<Record<string, never>>
 
 // room at the end of the label for the modified dot, in screen pixels
 const MODIFIED_DOT_SPACE = 12
+// room at either end of the label for the triangle that marks a trimmed
+// edge, and the narrowest clip that shows them, in screen pixels
+const TRIANGLE_SPACE = 8
+const TRIANGLES_FROM_WIDTH = 28
+// how wide the bar on an edge that's hovered or being dragged is
+const EDGE_BAR_WIDTH = 2
 
 class PlaylistObject extends PlaylistComponent<State> {
   playlistItem: PlaylistItem
@@ -70,7 +77,38 @@ class PlaylistObject extends PlaylistComponent<State> {
     )
   }
 
-  boundingBox = (): P5BoundingBox => this.waveform.boundingBox()
+  // where the clip is and what of its source it shows, as last worked out
+  #view: ClipView | null = null
+
+  // follow where the renderer has the clip now: its start and length, and
+  // the part of its sample or pattern it shows. these change when the clip
+  // is trimmed, while an edge is dragged, and with the tempo
+  syncView = () => {
+    const renderer = this.renderer as Renderer
+    const view = renderer?.viewOf?.(this) ?? null
+    this.#view = view
+    this.waveform.startBeat = view ? view.startBeat : this.playlistItem.startBeat
+
+    const { patternId } = this.playlistItem
+    if(view) {
+      this.setDuration(view.seconds)
+      this.waveform.range = view.length > 0 ? [view.from / view.length, view.to / view.length] : [0, 1]
+    } else if(patternId !== undefined && renderer?.patternSecondsOf) {
+      // (a pattern clip whose pattern is gone)
+      this.setDuration(renderer.patternSecondsOf(patternId))
+    }
+  }
+
+  boundingBox = (): P5BoundingBox => {
+    this.syncView()
+    return this.waveform.boundingBox()
+  }
+
+  // which edges hide some of the sample or pattern beyond them
+  #hidden = (): { left: boolean, right: boolean } => {
+    const view = this.#view
+    return view ? hiddenBeyond(view.from, view.to, view.length) : { left: false, right: false }
+  }
 
   // the pattern a pattern clip plays (undefined for a sample clip, or a
   // pattern that's gone)
@@ -155,22 +193,42 @@ class PlaylistObject extends PlaylistComponent<State> {
     if(isPattern) colors = { border: theme.patternBorder, card: theme.patternClip, label: theme.patternLabel }
     if(selected) colors = { border: theme.selectedBorder, card: theme.selectedClip, label: theme.selectedLabel }
     const { border } = colors
+    // drawn in screen pixels across (like the label's text), so zoom doesn't
+    // stretch the card's border or its corners
+    const scale = this.currentScale
+    this.p.push()
+    this.p.scale(1 / scale, 1)
     this.p.strokeWeight(selected ? 1.5 : 1)
     this.p.stroke(...border)
     this.p.fill(...colors.card)
-    this.p.rect(left, cardTop, width, cardHeight, 3)
+    this.p.rect(left * scale, cardTop, width * scale, cardHeight, 3)
     this.p.noStroke()
     this.p.fill(...colors.label)
-    this.p.rect(left + .5, cardTop + .5, width - 1, this.labelHeight - inset - .5, 3, 3, 0, 0)
+    this.p.rect(left * scale + .5, cardTop + .5, width * scale - 1, this.labelHeight - inset - .5, 3, 3, 0, 0)
     this.p.strokeWeight(1)
     this.p.stroke(...border)
-    this.p.line(left, top + this.labelHeight, right, top + this.labelHeight)
+    this.p.line(left * scale, top + this.labelHeight, right * scale, top + this.labelHeight)
+
+    // a small triangle in the label, pointing into the clip, at each edge
+    // that hides some of the sample or pattern beyond it (a trimmed edge)
+    const hidden = width * scale >= TRIANGLES_FROM_WIDTH ? this.#hidden() : { left: false, right: false }
+    const labelMiddle = cardTop + (this.labelHeight - inset) / 2
+    this.p.noStroke()
+    this.p.fill(...border)
+    if(hidden.left) {
+      const x = left * scale + 3
+      this.p.triangle(x, labelMiddle - 4, x, labelMiddle + 4, x + 5, labelMiddle)
+    }
+    if(hidden.right) {
+      const x = right * scale - 3
+      this.p.triangle(x, labelMiddle - 4, x, labelMiddle + 4, x - 5, labelMiddle)
+    }
+    const leftSpace = hidden.left ? TRIANGLE_SPACE : 0
+    const rightSpace = hidden.right ? TRIANGLE_SPACE : 0
 
     // render text
     this.p.noStroke()
     this.p.fill(...theme.clipText)
-    this.p.push()
-    this.p.scale(1 / this.currentScale, 1)
     this.p.textFont(theme.font)
     this.p.textSize(11)
     this.p.textAlign(this.p.LEFT, this.p.TOP)
@@ -179,8 +237,8 @@ class PlaylistObject extends PlaylistComponent<State> {
     this.p.text(
       // the file's name, without its folders, or the pattern's name: as much
       // as fits on the label
-      this.#fittedLabel(Math.round(width * this.currentScale - 10 - dotSpace)),
-      left * this.currentScale + 6,
+      this.#fittedLabel(Math.round(width * this.currentScale - 10 - dotSpace - leftSpace - rightSpace)),
+      left * this.currentScale + 6 + leftSpace,
       cardTop + 3,
     )
 
@@ -189,9 +247,22 @@ class PlaylistObject extends PlaylistComponent<State> {
     if(this.modified) {
       this.p.fill(...theme.modified)
       this.p.circle(
-        right * this.currentScale - MODIFIED_DOT_SPACE / 2,
+        right * this.currentScale - MODIFIED_DOT_SPACE / 2 - rightSpace,
         top + this.labelHeight / 2,
         6,
+      )
+    }
+
+    // a bar on the edge the mouse can grab, or is dragging, to trim the clip
+    const bar = (this.renderer as Renderer)?.edgeBarOn?.(this.playlistItem.id)
+    if(bar) {
+      this.p.noStroke()
+      this.p.fill(...theme.accent)
+      this.p.rect(
+        bar === 'left' ? left * scale : right * scale - EDGE_BAR_WIDTH,
+        cardTop,
+        EDGE_BAR_WIDTH,
+        cardHeight,
       )
     }
 
@@ -218,12 +289,21 @@ class PlaylistObject extends PlaylistComponent<State> {
     const bodyHeight = height - this.labelHeight - 7
     if(!pattern || pattern.length <= 0 || bodyHeight <= 0) return
 
-    const stepWidth = width / pattern.length
+    // the steps the clip shows: the whole pattern, or a trimmed clip's part
+    // of it (which can start or end between two steps)
+    const from = this.#view ? this.#view.from : 0
+    const to = this.#view ? this.#view.to : pattern.length
+    if(to <= from) return
+    const stepWidth = width / (to - from)
+    const right = left + width
+    const stepX = (step: number) => left + (step - from) * stepWidth
+    const last = Math.min(to, pattern.length)
 
     this.p.strokeWeight(1 / this.currentScale)
     this.p.stroke(...theme.patternBeat)
-    for(let step = STEPS_PER_BEAT; step < pattern.length; step += STEPS_PER_BEAT) {
-      const x = left + step * stepWidth
+    const firstBeat = (Math.floor(from / STEPS_PER_BEAT) + 1) * STEPS_PER_BEAT
+    for(let step = firstBeat; step < last; step += STEPS_PER_BEAT) {
+      const x = stepX(step)
       this.p.line(x, bodyTop, x, bodyTop + bodyHeight)
     }
 
@@ -238,8 +318,11 @@ class PlaylistObject extends PlaylistComponent<State> {
     this.p.fill(...theme.patternHit)
     lanes.forEach((steps, lane) => {
       const y = bodyTop + lane * laneHeight
-      steps.forEach(step => {
-        this.p.rect(left + step * stepWidth + gapX, y + gapY, stepWidth - gapX * 2, laneHeight - gapY * 2)
+      // only the hits that start inside the clip, as it plays them
+      steps.filter(step => step >= from && step < last).forEach(step => {
+        const x = stepX(step)
+        const cell = Math.min(stepWidth, right - x)
+        if(cell > gapX * 2) this.p.rect(x + gapX, y + gapY, cell - gapX * 2, laneHeight - gapY * 2)
       })
     })
   }
@@ -247,9 +330,21 @@ class PlaylistObject extends PlaylistComponent<State> {
   render = () => {
     const { waveform } = this
 
-    // a pattern clip is as long as its pattern, which can change at any time
+    // a pattern clip is as long as its pattern, which can change at any
+    // time, and any clip changes while it's trimmed
     const { patternId } = this.playlistItem
-    if(patternId !== undefined) this.setDuration((this.renderer as Renderer).patternSecondsOf(patternId))
+    this.syncView()
+
+    // off the canvas (scrolled or zoomed away), there's nothing to draw:
+    // with hundreds of clips most are. worked out from where this draws on
+    // the canvas, so a clip being dragged is found where it's dragged to
+    const ctx = this.p.drawingContext as CanvasRenderingContext2D
+    const { a: scaleX, e: offsetX, d: scaleY, f: offsetY } = ctx.getTransform()
+    const { left, right, top, bottom } = waveform.boundingBox()
+    if(
+      right * scaleX + offsetX < 0 || left * scaleX + offsetX > ctx.canvas.width
+      || bottom * scaleY + offsetY < 0 || top * scaleY + offsetY > ctx.canvas.height
+    ) return
 
     this.drawBoundingBox()
 
@@ -260,10 +355,9 @@ class PlaylistObject extends PlaylistComponent<State> {
     if((this.renderer as Renderer)?.debugMode) {
       // mouse drop height debug
       const { pixelOffset } = this.playlistItem
-      const { left, width } = waveform.boundingBox()
       this.p.strokeWeight(2)
       this.p.stroke(255,187,153)
-      this.p.line(left, pixelOffset.yOffset, left + width, pixelOffset.yOffset)
+      this.p.line(left, pixelOffset.yOffset, right, pixelOffset.yOffset)
 
     }
   }

@@ -25,9 +25,11 @@ const menuViews: Record<string, View> = {
   sequencer: View.Sequencer,
   // Preferences › Audio Settings…
   audio: View.AudioSettings,
+  // File › Mixdown…
+  mixdown: View.Mixdown,
 }
 
-// the Window and Preferences menus: open a tab, or select it where it's already open.
+// the Window and Preferences menus (and File › Mixdown…): open a tab, or select it where it's already open.
 // resolves to a function that stops listening
 const viewMenu = (dispatch: AppDispatch) =>
   listen<{ data: string }>('menu-open-view', ev => {
@@ -35,10 +37,19 @@ const viewMenu = (dispatch: AppDispatch) =>
     if(view !== undefined) dispatch(openTab(view))
   })
 
+// the Edit menu's items, by the names the engine sends (see build_menu in
+// engine/src/app/window.rs)
+export type EditCommand = 'undo' | 'redo' | 'repeat' | 'select-all' | 'join'
+
+// resolves to a function that stops listening
+const editMenu = (run: (command: EditCommand) => void) =>
+  listen<{ data: EditCommand }>('menu-edit', ev => run(ev.payload.data))
+
 const listeners = { 
   projectMenu,
   recentProjectMenu,
   viewMenu,
+  editMenu,
 }
 
 export { listeners }

@@ -4,6 +4,7 @@ import playlistReducer, { reduceLoadedProject } from './playlistSlice'
 import mixerReducer, {
   clearPendingMixerSends,
   fetchMixer,
+  flushMixerSends,
   resetMixer,
   selectAnySolo,
   selectTrackMix,
@@ -11,11 +12,13 @@ import mixerReducer, {
   setMasterVolume,
   setTrackMute,
   setTrackName,
+  setTrackPan,
   setTrackSolo,
   setTrackVolume,
 } from './mixerSlice'
 import { defaultChannelSettings, MixerSettings } from '../../types/mixer'
 import { LoadedProject } from '../../types/project'
+import { beginGesture, resetGestures } from '../gesture'
 
 jest.mock('@tauri-apps/api/core', () => ({ invoke: jest.fn() }))
 
@@ -38,6 +41,7 @@ beforeEach(() => {
   jest.resetAllMocks()
   jest.useFakeTimers()
   clearPendingMixerSends()
+  resetGestures()
   mockInvoke.mockResolvedValue(undefined)
 })
 
@@ -68,15 +72,63 @@ describe('mixerSlice', () => {
 
     expect(selectTrackMix(1)(state(store)).volumeDb).toBe(-5)
     expect(mockInvoke).toHaveBeenCalledTimes(1)
-    expect(mockInvoke).toHaveBeenLastCalledWith('set_track_volume', { trackNumber: 1, volumeDb: -3 })
+    expect(mockInvoke).toHaveBeenLastCalledWith('set_track_volume', { trackNumber: 1, volumeDb: -3, gesture: null })
 
     jest.runOnlyPendingTimers()
     expect(mockInvoke).toHaveBeenCalledTimes(2)
-    expect(mockInvoke).toHaveBeenLastCalledWith('set_track_volume', { trackNumber: 1, volumeDb: -5 })
+    expect(mockInvoke).toHaveBeenLastCalledWith('set_track_volume', { trackNumber: 1, volumeDb: -5, gesture: null })
 
     // each fader is sent on its own
     store.dispatch(setMasterVolume(-1))
-    expect(mockInvoke).toHaveBeenLastCalledWith('set_master_volume', { volumeDb: -1 })
+    expect(mockInvoke).toHaveBeenLastCalledWith('set_master_volume', { volumeDb: -1, gesture: null })
+  })
+
+  it('sends every value of one drag as the same gesture, to be undone as one step', () => {
+    const store = makeStore()
+    mockInvoke.mockResolvedValue(0)
+
+    // the mouse goes down on a fader
+    const drag = beginGesture()
+    store.dispatch(setTrackVolume(1, -3))
+    store.dispatch(setTrackVolume(1, -5))
+    jest.runOnlyPendingTimers()
+    store.dispatch(setTrackPan(1, 0.5))
+    store.dispatch(setMasterVolume(-2))
+
+    expect(mockInvoke.mock.calls).toEqual([
+      ['set_track_volume', { trackNumber: 1, volumeDb: -3, gesture: drag }],
+      ['set_track_volume', { trackNumber: 1, volumeDb: -5, gesture: drag }],
+      ['set_track_pan', { trackNumber: 1, pan: 0.5, gesture: drag }],
+      ['set_master_volume', { volumeDb: -2, gesture: drag }],
+    ])
+
+    // the next press is another gesture
+    const next = beginGesture()
+    expect(next).not.toBe(drag)
+    jest.runOnlyPendingTimers()
+    jest.runOnlyPendingTimers()
+    store.dispatch(setTrackVolume(1, 0))
+    expect(mockInvoke).toHaveBeenLastCalledWith('set_track_volume', { trackNumber: 1, volumeDb: 0, gesture: next })
+  })
+
+  it('sends what is waiting when asked, with the gesture it was moved in', async () => {
+    const store = makeStore()
+    mockInvoke.mockResolvedValue(0)
+    const drag = beginGesture()
+    store.dispatch(setTrackVolume(0, -3))
+    store.dispatch(setTrackVolume(0, -9))
+    store.dispatch(setTrackPan(2, 0.1))
+    expect(mockInvoke).toHaveBeenCalledTimes(2)
+
+    // (before an undo)
+    await flushMixerSends()
+    expect(mockInvoke).toHaveBeenCalledTimes(3)
+    expect(mockInvoke).toHaveBeenLastCalledWith('set_track_volume', { trackNumber: 0, volumeDb: -9, gesture: drag })
+
+    // and not again when its turn would have come
+    jest.runOnlyPendingTimers()
+    jest.runOnlyPendingTimers()
+    expect(mockInvoke).toHaveBeenCalledTimes(3)
   })
 
   it('forgets unsent values when told to', () => {
