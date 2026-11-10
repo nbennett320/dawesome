@@ -181,7 +181,8 @@ pub struct AudioNode {
   // the sample's length, before the clip's settings change its speed
   duration: Duration,
   sample_rate: u32,
-  waveform: Vec<f32>,
+  // the waveform, ready to send (see daw::encode_levels)
+  waveform: String,
   // how the clip is played back
   settings: daw::ClipSettings,
 }
@@ -194,21 +195,21 @@ fn duration_and_waveform(
   samples: Vec<i16>,
   channels: u16,
   sample_rate: u32,
-) -> Result<(Duration, Vec<f32>), String> {
+) -> Result<(Duration, String), String> {
   if samples.is_empty() || channels == 0 {
     return Err(format!("sample '{}' contains no audio", sample_path));
   }
   let dur_s = (samples.len() as f32 / sample_rate as f32) as f32 / channels as f32;
   let duration = Duration::from_secs_f32(dur_s);
-  let waveform = daw::calc_waveform_from_samples(samples, channels)
+  let levels = daw::calc_waveform_from_samples(samples, channels, sample_rate)
     .ok_or_else(|| format!("sample '{}' is too short to draw a waveform", sample_path))?;
 
-  Ok((duration, waveform))
+  Ok((duration, daw::encode_levels(&levels)))
 }
 
 // decode a sample's length and waveform without creating a node,
 // so the frontend can draw a clip before it's dropped into the playlist
-pub fn preview_sample(sample_path: &str) -> Result<(Duration, Vec<f32>), String> {
+pub fn preview_sample(sample_path: &str) -> Result<(Duration, String), String> {
   let file_buf = BufReader::new(File::open(sample_path)
     .map_err(|e| format!("could not open sample '{}': {}", sample_path, e))?);
   let source = Decoder::new(file_buf)
@@ -298,8 +299,8 @@ impl AudioNode {
     self.settings.apply(self.buffer.decoder().convert_samples::<f32>(), self.duration)
   }
   
-  pub fn get_waveform(&mut self) -> &mut Vec<f32> {
-    &mut self.waveform
+  pub fn get_waveform(&self) -> &str {
+    &self.waveform
   }
 }
 
@@ -1489,17 +1490,17 @@ mod tests {
 
   #[test]
   fn test_waveform_rejects_empty_and_tiny_samples() {
-    assert!(daw::calc_waveform_from_samples(vec![], 2).is_none());
-    assert!(daw::calc_waveform_from_samples(vec![1, 2, 3], 0).is_none());
+    assert!(daw::calc_waveform_from_samples(vec![], 2, 44_100).is_none());
+    assert!(daw::calc_waveform_from_samples(vec![1, 2, 3], 0, 44_100).is_none());
+    assert!(daw::calc_waveform_from_samples(vec![1, 2, 3], 1, 0).is_none());
     // a few samples (< 0.25ms) used to divide by zero
-    assert!(daw::calc_waveform_from_samples(vec![100, -100, 50, -50], 1).is_some());
+    assert!(daw::calc_waveform_from_samples(vec![100, -100, 50, -50], 1, 44_100).is_some());
   }
 
   #[test]
   fn test_silence_has_a_flat_waveform() {
     // used to panic: silence smoothed and normalised by dividing by zero
-    let waveform = daw::calc_waveform_from_samples(vec![0; 48_000], 1).unwrap();
-    let levels: Vec<f32> = waveform.chunks(2).map(|point| point[1]).collect();
+    let levels = daw::calc_waveform_from_samples(vec![0; 48_000], 1, 48_000).unwrap();
     assert!(!levels.is_empty());
     assert!(levels.iter().all(|&level| level == 0.));
   }

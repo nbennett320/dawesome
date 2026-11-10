@@ -186,4 +186,6 @@ const PatternStrip = ({ beatsPerBar, playingId }: { beatsPerBar: number, playing
   )
 }
 
-export default PatternStrip
+// memo: the Sequencer re-renders as the playing step moves, which doesn't
+// change the strip
+export default React.memo(PatternStrip)

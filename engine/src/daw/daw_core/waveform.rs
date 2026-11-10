@@ -1,7 +1,6 @@
 use std::vec::{Vec};
 use std::fs::{File};
 use std::io::{BufReader};
-use num_traits::ToPrimitive;
 use rodio::{Decoder, Source};
 
 use crate::util;
@@ -31,44 +30,44 @@ impl WaveformData {
   }
 }
 
-// calculate a path of a node's normalized audio waveform
+// a sample's waveform: its level at evenly spaced points, from 0 (the lowest)
+// to 1 (the highest), about 2 points to each millisecond of sound
+// - samples: interleaved samples for all channels
+// - sample_rate: the sample file's own rate
 // returns None if the samples are empty or too short to draw
 pub fn calc_waveform_from_samples(
-  samples: Vec<i16>, 
+  samples: Vec<i16>,
   channels: u16,
+  sample_rate: u32,
 ) -> Option<Vec<f32>> {
-  if samples.is_empty() || channels == 0 {
+  if samples.is_empty() || channels == 0 || sample_rate == 0 {
     return None;
   }
 
-  let dur_ms = samples.len() as f32 / 44_100. * 1_000. / channels as f32;
+  let dur_ms = samples.len() as f32 / sample_rate as f32 * 1_000. / channels as f32;
   // at least one point, so very short samples don't divide by zero
   let lod = (dur_ms.round() as u32 * 2).max(1);
-  println!("dur_ms: {}, lod: {}", dur_ms, lod);
 
-  // get frames and interpolate points
-  let xs: Vec<i32> = (0..samples.len())
-    .into_iter()
-    .map(|x| x as i32)
-    .collect();
   let ys: Vec<i32> = samples
     .iter()
     .map(|y| *y as i32)
     .collect();
   let y_gauss = util::math::gaussian_1d(&ys, 1., false)?;
-  let y_smoothed = util::math::sample_to_n_elements(&y_gauss, lod as u32)?;
-  let len = y_smoothed.len();
-  let y_norms = util::math::f_normalize::<f32>(y_smoothed);
+  let y_smoothed = util::math::sample_to_n_elements(&y_gauss, lod)?;
 
-  println!("ysmoothed len: {}", len);
-  println!("dur_ms: {}", dur_ms);
+  Some(util::math::f_normalize::<f32>(y_smoothed))
+}
 
-  let xsf: Vec<f32> = xs
+// a waveform's levels as sent to the frontend: each level (0..1) as a
+// little-endian u16 (0..65535), in base64. a fraction of the size of the
+// levels as JSON numbers (see decodeLevels in src/util/waveform.ts)
+pub fn encode_levels(levels: &[f32]) -> String {
+  let bytes: Vec<u8> = levels
     .iter()
-    .map(|x| x.to_f32().unwrap())
+    .flat_map(|level| ((level.clamp(0., 1.) * 65_535.).round() as u16).to_le_bytes())
     .collect();
 
-  util::math::interleave(xsf.get(0..(lod as usize))?.to_vec(), y_norms)
+  base64::encode(bytes)
 }
 
 // get a path of a node's normalized audio waveform, given
@@ -77,11 +76,35 @@ pub fn calc_waveform_from_file_path(sample_path: &str) -> Option<Vec<f32>> {
   let file = BufReader::new(File::open(sample_path).ok()?);
   let source = Decoder::new(file).ok()?;
   let channels = source.channels();
+  let sample_rate = source.sample_rate();
   let mut samples = Vec::<i16>::new();
 
   for sample in source {
     samples.push(sample);
   }
 
-  calc_waveform_from_samples(samples, channels)
+  calc_waveform_from_samples(samples, channels, sample_rate)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_encode_levels() {
+    // 0, 65535, 32768 as little-endian u16s. src/util/waveform.spec.ts
+    // decodes the same string
+    assert_eq!(encode_levels(&[0., 1., 0.5]), "AAD//wCA");
+    // kept within 0..1
+    assert_eq!(encode_levels(&[-1., 2.]), encode_levels(&[0., 1.]));
+    assert_eq!(encode_levels(&[]), "");
+  }
+
+  #[test]
+  fn test_points_follow_the_sample_rate() {
+    // a second of stereo sound gets 2000 points, whatever its rate
+    let noise = |n: usize| (0..n).map(|i| ((i * 7919) % 2001) as i16 - 1000).collect::<Vec<_>>();
+    assert_eq!(calc_waveform_from_samples(noise(44_100 * 2), 2, 44_100).unwrap().len(), 2_000);
+    assert_eq!(calc_waveform_from_samples(noise(48_000 * 2), 2, 48_000).unwrap().len(), 2_000);
+  }
 }

@@ -33,13 +33,6 @@ export const buildPeaks = (ys: ArrayLike<number>): Peaks => {
   return { count: first.length, levels }
 }
 
-// the y values of a waveform's [x, y] pairs (see calc_waveform_from_samples)
-export const peaksOfPairs = (pairs: ArrayLike<number>): Peaks => {
-  const ys = new Float32Array(Math.floor(pairs.length / 2))
-  for(let i = 0; i < ys.length; i++) ys[i] = pairs[2 * i + 1]
-  return buildPeaks(ys)
-}
-
 // the lowest and highest level among points `from` to `to`, both included
 // (kept within the waveform). null when that leaves no points
 export const peakRange = (peaks: Peaks, from: number, to: number): [number, number] | null => {

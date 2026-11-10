@@ -90,6 +90,9 @@ export const useMixerMeters = (playing: boolean) => {
     }
   }, [playing])
 
+  // the meters are drawn every frame while there's something to show: while
+  // playing, and until they've fallen back to silence after. then the loop
+  // stops, until playback starts again
   React.useEffect(() => {
     let frame = 0
     let last = performance.now()
@@ -97,6 +100,7 @@ export const useMixerMeters = (playing: boolean) => {
     const draw = (now: number) => {
       const fall = FALL_DB_PER_SECOND * Math.max(0, now - last) / 1000
       last = now
+      let moving = false
 
       meters.current.forEach((elements, key) => {
         const reading = readings.current.get(key)
@@ -108,6 +112,7 @@ export const useMixerMeters = (playing: boolean) => {
           if(now > reading.holdUntil) reading.holdDb = Math.max(MIN_DB, reading.holdDb - fall)
           level = dbToPosition(reading.db)
           hold = dbToPosition(reading.holdDb)
+          if(reading.db > MIN_DB || reading.holdDb > MIN_DB) moving = true
         }
 
         // the bar's colours span the whole meter, so it's uncovered rather
@@ -117,12 +122,13 @@ export const useMixerMeters = (playing: boolean) => {
         elements.hold.style.opacity = hold > 0 ? '1' : '0'
       })
 
-      frame = requestAnimationFrame(draw)
+      // (this frame drew them at rest, so they stay that way)
+      frame = playing || moving ? requestAnimationFrame(draw) : 0
     }
 
     frame = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(frame)
-  }, [])
+  }, [playing])
 
   const clearClip = React.useCallback(() => setClipped(false), [])
 

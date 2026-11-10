@@ -7,9 +7,9 @@ import {
 } from '../../types/clip'
 
 export interface WaveformData {
-  // [x, y] pairs from the engine (see calc_waveform_from_samples): x is the
-  // point's index, y is scaled so the lowest sample is 0 and the highest is 1
-  points: number[]
+  // the engine's levels at evenly spaced points (see
+  // calc_waveform_from_samples), scaled so the lowest is 0 and the highest 1
+  levels: Float32Array
   duration: number
 }
 
@@ -49,8 +49,7 @@ type Handle = 'attack' | 'decay'
 
 // y values around their average, scaled so the loudest point reaches ±1
 // (the engine's 0..1 scaling doesn't put silence at 0.5)
-const centredLevels = (points: number[]): number[] => {
-  const ys = points.filter((_, i) => i % 2 === 1)
+const centredLevels = (ys: Float32Array): number[] => {
   if(!ys.length) return []
 
   const mean = ys.reduce((a, b) => a + b, 0) / ys.length
@@ -58,7 +57,7 @@ const centredLevels = (points: number[]): number[] => {
   // points to pass as arguments
   const peak = ys.reduce((max, y) => Math.max(max, Math.abs(y - mean)), 0) || 1
 
-  return ys.map(y => (y - mean) / peak)
+  return Array.from(ys, y => (y - mean) / peak)
 }
 
 interface Layout {
@@ -219,7 +218,7 @@ const ClipWaveform = ({ data, settings, tempo, onEnvelopeChange }: Props) => {
   const [dragging, setDragging] = React.useState<Handle | null>(null)
   const [hovered, setHovered] = React.useState<Handle | null>(null)
 
-  const levels = React.useMemo(() => centredLevels(data.points), [data.points])
+  const levels = React.useMemo(() => centredLevels(data.levels), [data.levels])
   const layout: Layout = {
     width: size.width,
     height: size.height,

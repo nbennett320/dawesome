@@ -10,7 +10,8 @@ import { STEPS_PER_BEAT, litRows, patternLabel } from '../../../types/sequencer'
 
 interface Props extends PlaylistComponentProps {
   playlistItem: PlaylistItem
-  soundData: number[]
+  // the waveform's levels (empty for a pattern clip)
+  soundData: Float32Array
   duration: number
   trackNumber: number
   trackHeight: number
@@ -23,7 +24,7 @@ const MODIFIED_DOT_SPACE = 12
 
 class PlaylistObject extends PlaylistComponent<State> {
   playlistItem: PlaylistItem
-  soundData: number[] = []
+  soundData: Float32Array
   duration: number
   trackNumber: number
   trackHeight: number = staticDefaults.trackHeight
@@ -76,6 +77,35 @@ class PlaylistObject extends PlaylistComponent<State> {
   #pattern = () => {
     const { patternId } = this.playlistItem
     return patternId === undefined ? undefined : (this.renderer as Renderer)?.patternOf(patternId)
+  }
+
+  // the label as last fitted to the clip (see #fittedLabel)
+  #fitted: { label: string, width: number, text: string } | null = null
+
+  // as much of the label as fits on one line `width` pixels wide (the font
+  // set up already). measured only when the label or the width changes,
+  // rather than wrapped a character at a time every frame
+  #fittedLabel = (width: number): string => {
+    const label = this.#label()
+    const fitted = this.#fitted
+    if(fitted && fitted.label === label && fitted.width === width) return fitted.text
+
+    let text = label
+    if(width <= 0) text = ''
+    else if(this.p.textWidth(label) > width) {
+      // the longest start of it that fits
+      let low = 0
+      let high = label.length
+      while(low < high) {
+        const mid = Math.ceil((low + high) / 2)
+        if(this.p.textWidth(label.slice(0, mid)) <= width) low = mid
+        else high = mid - 1
+      }
+      text = label.slice(0, low)
+    }
+
+    this.#fitted = { label, width, text }
+    return text
   }
 
   // what the label says: the sample's file name, or the pattern's name
@@ -144,16 +174,14 @@ class PlaylistObject extends PlaylistComponent<State> {
     this.p.textFont(theme.font)
     this.p.textSize(11)
     this.p.textAlign(this.p.LEFT, this.p.TOP)
-    this.p.textWrap(this.p.CHAR)
     // leave room for the modified dot
     const dotSpace = this.modified ? MODIFIED_DOT_SPACE : 0
     this.p.text(
-      // the file's name, without its folders, or the pattern's name
-      this.#label(),
+      // the file's name, without its folders, or the pattern's name: as much
+      // as fits on the label
+      this.#fittedLabel(Math.round(width * this.currentScale - 10 - dotSpace)),
       left * this.currentScale + 6,
       cardTop + 3,
-      width * this.currentScale - 10 - dotSpace,
-      this.labelHeight - inset - 3,
     )
 
     // a dot at the end of the label: this clip's settings were changed

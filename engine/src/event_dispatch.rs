@@ -247,7 +247,8 @@ pub fn set_playlist_time_signature(
   *state.playlist.time_signature.lock().unwrap() = updated;
 }
 
-#[tauri::command]
+// (async: off the main thread, as listing a folder can take a while)
+#[tauri::command(async)]
 pub fn get_sidebar_samples() -> Result<(
   Vec<String>, 
   Vec<String>, 
@@ -259,7 +260,7 @@ pub fn get_sidebar_samples() -> Result<(
   Ok((samples, samples_paths, dirs, dirs_paths))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn enumerate_directory(dir_path: String) -> Result<(
   Vec<String>, 
   Vec<String>, 
@@ -360,43 +361,22 @@ fn add_audiograph_node(
   start_offset: std::time::Duration,
   snap_enabled: bool,
 ) -> Result<u64, String> {
-  // println!("added sample: {}, with offset of: {}ms", sample_path, start_offset.as_millis());
+  // decoded before taking the graph's lock, which playback (and the
+  // playhead, polled from the UI) needs
+  let mut node = daw::AudioNode::new(0, sample_path, start_offset, track_number)?;
 
-  let id: u64;
+  let subdivision = state.playlist.ui.lock().unwrap().snap_subdivision;
+  let mut audiograph = state.playlist.audiograph.lock().unwrap();
   if snap_enabled {
-    println!("snapping the sample");
     // snap to nearest snap subdivision
-    let subdivision = state
-      .playlist
-      .ui
-      .lock()
-      .unwrap()
-      .snap_subdivision;
-
-    id = state
-      .playlist
-      .audiograph
-      .lock()
-      .unwrap()
-      .construct_and_add_node_with_snap(
-        sample_path, 
-        start_offset, 
-        track_number,
-        subdivision)?;
-  } else {
-    // don't snap
-    id = state
-      .playlist
-      .audiograph
-      .lock()
-      .unwrap()
-      .construct_and_add_node(sample_path, start_offset, track_number)?;
+    node.start_offset = audiograph.find_nearest_offset_subdivision(start_offset, subdivision);
   }
 
-  Ok(id)
+  Ok(audiograph.insert_node(node))
 }
 
-#[tauri::command]
+// runs off the main thread (async): decoding the sample takes a while
+#[tauri::command(async)]
 pub fn t_add_audiograph_node(
   state: daw::TState<'_>,
   sample_path: String,
@@ -540,7 +520,7 @@ pub fn remove_audiograph_node(
 pub fn get_node_data(
   state: daw::TState<'_>,
   id: u64,
-) -> Result<(Vec<f32>, f32), String> {
+) -> Result<(String, f32), String> {
   let playlist = &state.playlist;
   let mut audiograph = playlist
     .audiograph
@@ -549,7 +529,7 @@ pub fn get_node_data(
   let node = audiograph.get_mut_node_by_id(id)
     .ok_or_else(|| format!("no node with id {}", id))?;
   println!("offset dur: {:?}", node.start_offset.as_millis());
-  let waveform = node.get_waveform().clone();
+  let waveform = node.get_waveform().to_string();
   let dur = node.duration().as_secs_f32();
   let ratio = dur / audiograph.max_beats() as f32;
 
@@ -641,11 +621,12 @@ pub fn t_preview_node(
 // waveform data and duration (seconds) of a sample that isn't in the
 // playlist yet, in the same shape as get_node_data
 // used to draw a clip while it's dragged in from the sidebar
-#[tauri::command]
+// (async: off the main thread, as decoding the sample takes a while)
+#[tauri::command(async)]
 pub fn get_sample_preview(
   state: daw::TState<'_>,
   sample_path: String,
-) -> Result<(Vec<f32>, f32), String> {
+) -> Result<(String, f32), String> {
   let (dur, waveform) = daw::preview_sample(&sample_path)?;
 
   Ok((waveform, dur.as_secs_f32()))

@@ -1,4 +1,4 @@
-import { buildPeaks, peakRange, peaksOfPairs } from './peaks'
+import { buildPeaks, peakRange } from './peaks'
 
 // the same answer the slow way
 const bruteRange = (ys: number[], from: number, to: number): [number, number] | null => {
@@ -42,14 +42,5 @@ describe('peakRange', () => {
 
   it('works on a single point', () => {
     expect(peakRange(buildPeaks([0.25]), 0, 0)).toEqual([0.25, 0.25])
-  })
-})
-
-describe('peaksOfPairs', () => {
-  it('keeps the y of each [x, y] pair', () => {
-    const peaks = peaksOfPairs([0, 0.5, 1, 0.25, 2, 0.75])
-    expect(peaks.count).toBe(3)
-    expect(Array.from(peaks.levels[0].min)).toEqual([0.5, 0.25, 0.75])
-    expect(peakRange(peaks, 0, 2)).toEqual([0.25, 0.75])
   })
 })

@@ -231,21 +231,23 @@ impl Sequencer {
 
   // add a row playing the sample at `path`, at the bottom. returns its id
   pub fn add_row(&mut self, path: &str) -> Result<u64, String> {
+    self.add_loaded_row(path, RowSample::load(path)?)
+  }
+
+  // add a row playing a sample that's already been loaded (see RowSample),
+  // at the bottom. returns its id
+  pub fn add_loaded_row(&mut self, path: &str, sample: RowSample) -> Result<u64, String> {
     let id = self.next_row_id;
-    self.insert_row(SavedRow { id, path: path.to_string(), volume: ROW_VOLUME, muted: false })?;
+    self.insert_row(SavedRow { id, path: path.to_string(), volume: ROW_VOLUME, muted: false }, sample)?;
     Ok(id)
   }
 
   // add a row with a known id (from a project)
-  fn insert_row(&mut self, saved: SavedRow) -> Result<(), String> {
+  fn insert_row(&mut self, saved: SavedRow, sample: RowSample) -> Result<(), String> {
     if self.row(saved.id).is_some() {
       return Err(format!("there's already a sequencer row with id {}", saved.id));
     }
-    // decoded first, so a file that isn't audio is refused here rather than
-    // when it's played
-    let (duration, _) = daw::preview_sample(&saved.path)?;
-    let buffer = daw::SampleBuffer::load(&saved.path)
-      .map_err(|e| format!("could not read sample '{}': {}", saved.path, e))?;
+    let RowSample { duration, buffer } = sample;
 
     self.next_row_id = self.next_row_id.max(saved.id + 1);
     self.rows.push(SequencerRow {
@@ -592,14 +594,24 @@ impl Sequencer {
   // (path, reason). patterns that don't make sense (no steps, or an id used
   // twice) are left out
   pub fn restore(&mut self, saved: SavedSequencer) -> Vec<(String, String)> {
+    let samples = RowSample::load_rows(&saved);
+    self.restore_loaded(saved, samples)
+  }
+
+  // restore, with the rows' samples already loaded (see RowSample::load_rows)
+  pub fn restore_loaded(
+    &mut self,
+    saved: SavedSequencer,
+    samples: Vec<Result<RowSample, String>>,
+  ) -> Vec<(String, String)> {
     self.clear();
     let mut missing = Vec::new();
 
-    for row in saved.rows {
+    for (row, sample) in saved.rows.into_iter().zip(samples) {
       // past missing rows' ids too, so a new row never takes one
       self.next_row_id = self.next_row_id.max(row.id + 1);
       let path = row.path.clone();
-      if let Err(e) = self.insert_row(row) {
+      if let Err(e) = sample.and_then(|sample| self.insert_row(row, sample)) {
         missing.push((path, e));
       }
     }
@@ -616,6 +628,29 @@ impl Sequencer {
       }
     }
     missing
+  }
+}
+
+// a row's sample, decoded. loading one takes a while, so it's done without
+// the sequencer, whose lock playback needs
+pub struct RowSample {
+  duration: Duration,
+  buffer: daw::SampleBuffer,
+}
+
+impl RowSample {
+  // decoded here, so a file that isn't audio is refused when it's added
+  // rather than when it's played
+  pub fn load(path: &str) -> Result<Self, String> {
+    let (duration, _) = daw::preview_sample(path)?;
+    let buffer = daw::SampleBuffer::load(path)
+      .map_err(|e| format!("could not read sample '{}': {}", path, e))?;
+    Ok(RowSample { duration, buffer })
+  }
+
+  // each of a saved sequencer's rows' samples, in order
+  pub fn load_rows(saved: &SavedSequencer) -> Vec<Result<Self, String>> {
+    saved.rows.iter().map(|row| Self::load(&row.path)).collect()
   }
 }
 

@@ -302,6 +302,31 @@ pub fn apply(
 ) -> LoadedProject {
   daw::stop_playlist(state);
 
+  // the samples are decoded before taking any locks: it takes a while, and
+  // playback (and the playhead, polled from the UI) needs the graph's
+  let decoded: Vec<(String, Result<daw::AudioNode, String>)> = project.clips.iter()
+    .map(|clip| {
+      let path = resolved_path(&clip.path, project_dir);
+      let path_str = path.to_string_lossy().into_owned();
+      let node = if path.is_file() {
+        daw::AudioNode::new(0, path_str.clone(), Duration::ZERO, clip.track_number)
+      } else {
+        Err("file not found".into())
+      };
+      (path_str, node)
+    })
+    .collect();
+
+  // the sequencer's rows, with their paths found like clips'
+  let mut saved = project.sequencer.clone();
+  for row in &mut saved.rows {
+    row.path = resolved_path(&row.path, project_dir).to_string_lossy().into_owned();
+  }
+  let row_samples = daw::RowSample::load_rows(&saved);
+  // the UI isn't frozen while that loads: anything played meanwhile stops
+  // before the playlist changes under it
+  daw::stop_playlist(state);
+
   let settings = project.settings;
   state.metronome_enabled.store(settings.metronome_enabled, Ordering::SeqCst);
   state.playlist.loop_enabled.store(settings.loop_enabled, Ordering::SeqCst);
@@ -324,20 +349,13 @@ pub fn apply(
   let mut clips = Vec::new();
   let mut missing = Vec::new();
 
-  for clip in &project.clips {
-    let path = resolved_path(&clip.path, project_dir);
-    let path_str = path.to_string_lossy().into_owned();
-
-    if !path.is_file() {
-      missing.push(MissingSample { path: path_str, reason: "file not found".into() });
-      continue;
-    }
-
+  for (clip, (path_str, node)) in project.clips.iter().zip(decoded) {
     let start_beat = if clip.start_beat.is_finite() { clip.start_beat.max(0.) } else { 0. };
-    let offset: Duration = interval.mul_f64(start_beat);
 
-    match audiograph.construct_and_add_node(path_str.clone(), offset, clip.track_number) {
-      Ok(id) => {
+    match node {
+      Ok(mut node) => {
+        node.start_offset = interval.mul_f64(start_beat);
+        let id = audiograph.insert_node(node);
         let node = audiograph
           .get_mut_node_by_id(id)
           .expect("a node that was just added");
@@ -355,14 +373,9 @@ pub fn apply(
     }
   }
 
-  // the sequencer's rows, with their paths found like clips'
-  let mut saved = project.sequencer.clone();
-  for row in &mut saved.rows {
-    row.path = resolved_path(&row.path, project_dir).to_string_lossy().into_owned();
-  }
   let sequencer = {
     let mut sequencer = state.playlist.sequencer.lock().unwrap();
-    for (path, reason) in sequencer.restore(saved) {
+    for (path, reason) in sequencer.restore_loaded(saved, row_samples) {
       missing.push(MissingSample { path, reason });
     }
     sequencer.state()
@@ -532,13 +545,14 @@ pub fn save_project_to(
   let mut problems = Vec::new();
 
   if let Some((from, copy)) = from.filter(|(from, _)| from.is_dir() && !project_files::same_dir(from, &to)) {
-    let mut audiograph = state.playlist.audiograph.lock().unwrap();
-    let mut seq = state.playlist.sequencer.lock().unwrap();
-
     // the whole folder comes over, folders and unused takes too, so the
-    // recordings browser shows the same after saving
+    // recordings browser shows the same after saving. (before taking the
+    // locks: copying takes a while, and the clips' sounds are already loaded)
     let (relocated, errors) = project_files::relocate_takes(&from, &to, &name, copy);
     problems = errors;
+
+    let mut audiograph = state.playlist.audiograph.lock().unwrap();
+    let mut seq = state.playlist.sequencer.lock().unwrap();
 
     for node in audiograph.nodes.iter_mut() {
       if let Some(take) = relocated.iter().find(|take| take.from == node.sample_path()) {
@@ -565,7 +579,8 @@ pub fn save_project_to(
   })
 }
 
-#[tauri::command]
+// (async, like load_project: off the main thread, as it can take a while)
+#[tauri::command(async)]
 pub fn save_project(state: daw::TState<'_>, path: String, somewhere_new: bool) -> Result<SavedProject, String> {
   save_project_to(&state, Path::new(&path), somewhere_new)
 }
@@ -577,7 +592,8 @@ pub fn project_file_for(path: String) -> String {
   project_files::project_file_for(Path::new(&path)).to_string_lossy().into_owned()
 }
 
-#[tauri::command]
+// (async: off the main thread, as decoding every sample takes a while)
+#[tauri::command(async)]
 pub fn load_project(state: daw::TState<'_>, path: String) -> Result<LoadedProject, String> {
   load_from(&state, Path::new(&path))
 }
