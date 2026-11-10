@@ -28,3 +28,9 @@ Things worth fixing that this project does not touch unless a design answer brin
 - **Mouse-wheel zoom is capped at 3.5% per notch** (`staticDefaults.zoomSensitivity`), so zooming from the opening view out to the whole playlist takes about 80 notches.
 - **The loop's bar length comes from the project's time signature, the canvas grid assumes 4 beats to the bar** (`theme.beatsPerBar`). They differ only for a hand-edited project file.
 - **For up to a beat after the loop is shortened behind the playhead, the engine's own playhead reading is wrong** (it is right again once the scheduler wraps). A Pause in that window parks the playhead in the wrong place.
+
+## Found while building M5 and M6 (2026-11-10)
+
+- **A failed Play/Pause is not caught** (`togglePlay`, `src/state/slices/playlistSlice.ts`): if the engine refuses, the error goes nowhere. Same for the topbar key and Space.
+- **A right-button release during a left-button press ends the press** (`canvas.mouseReleased`, `src/views/playlist/sketch/index.ts`, does not check which button came up).
+- **`src/components/common/base/SelectBase.tsx` looks unused.** If it comes back into use, Space on it would play instead of opening it.

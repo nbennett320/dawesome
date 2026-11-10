@@ -21,7 +21,7 @@ import { theme } from './theme'
 import { PlaylistTransport } from '../../../types/transport'
 import { positionAt } from '../../transport/tape'
 import {
-  Lasso, ShiftPress, groupLanding, keepExisting, lassoFrom, lassoRect, lassoSelection, shiftClick, startsLasso,
+  Lasso, ShiftPress, clipAt, groupLanding, keepExisting, lassoFrom, lassoRect, lassoSelection, shiftRelease, startsLasso,
 } from './selection'
 import { PlaceableItem as DragItem, dragItemKey } from '../../../state/sampleDrag'
 import { Pattern, SequencerState, patternSeconds } from '../../../types/sequencer'
@@ -449,9 +449,10 @@ export class Renderer extends RendererBase {
   }
 
   // the selected clips' ids, clearing the selection (to delete them). none
-  // while clips are being dragged or a box drawn
+  // while clips are being dragged, a box drawn, or a shift press is down
+  // (whose clip would be toggled on release, after it was gone)
   takeSelection = (): number[] => {
-    if(this.clipDrag?.active || this.lasso) return []
+    if(this.clipDrag?.active || this.lasso || this.#shiftPress) return []
     const ids = [...this.selectedIds]
     this.clearSelection()
     return ids
@@ -475,13 +476,34 @@ export class Renderer extends RendererBase {
     this.#shiftPress = null
   }
 
+  // every clip's id and box, for working out what a box selects
+  #clipBoxes = () =>
+    this.playlistObjects.map(clip => ({ id: clip.playlistItem.id, box: clip.boundingBox() }))
+
   // a shift press was let go. one that never became a box was a click:
-  // on a clip, it adds the clip to the selection, or takes it out
-  #endShiftPress = () => {
+  // on a clip, it adds the clip to the selection, or takes it out (see
+  // shiftRelease, which also covers a drag let go before a frame was drawn)
+  #endShiftPress = (p: P5CanvasInstance<CanvasProps>) => {
     const press = this.#shiftPress
     if(!press) return
     this.#shiftPress = null
-    this.selectedIds = shiftClick(press, this.selectedIds)
+    this.selectedIds = shiftRelease(
+      press,
+      { screen: { x: p.mouseX, y: p.mouseY }, point: this.#mousePoint(p) },
+      staticDefaults.mouseDragDetectionThreshold,
+      this.selectedIds,
+      this.#clipBoxes(),
+    )
+  }
+
+  // the window lost the keyboard and mouse mid-press (another app came to
+  // the front), so the release may never arrive: drop a pending shift press
+  // and a box being drawn, keeping what's selected
+  #dropPress = () => {
+    if(!this.#shiftPress && !this.lasso) return
+    this.#shiftPress = null
+    this.lasso = null
+    this.wake()
   }
 
   // stretch the box to the mouse, and select what it touches. run every
@@ -489,10 +511,7 @@ export class Renderer extends RendererBase {
   #followLasso = (p: P5CanvasInstance<CanvasProps>) => {
     if(!this.lasso) return
     this.lasso.end = this.#mousePoint(p)
-    this.selectedIds = lassoSelection(
-      this.lasso,
-      this.playlistObjects.map(clip => ({ id: clip.playlistItem.id, box: clip.boundingBox() })),
-    )
+    this.selectedIds = lassoSelection(this.lasso, this.#clipBoxes())
   }
 
   // the selection box: a dashed sky outline over a faint fill, drawn in
@@ -1065,6 +1084,8 @@ export class Renderer extends RendererBase {
       const elt = canvas.elt as HTMLCanvasElement
       const wakeOn = ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'dblclick', 'contextmenu', 'gesturechange']
       wakeOn.forEach(type => elt.addEventListener(type, this.wake, { passive: true }))
+      // a press whose release went to another app is dropped
+      window.addEventListener('blur', this.#dropPress)
       // labels drawn before the font loaded are drawn again in it
       document.fonts?.ready.then(this.wake)
       this.wake()
@@ -1093,10 +1114,13 @@ export class Renderer extends RendererBase {
           // shift+drag draws a box to select clips with, wherever it starts
           // (which it is isn't known until the mouse moves or lets go)
           if(ev.shiftKey) {
+            // from the event: p5 hasn't caught its own mouse position up
+            // with this press yet
+            const point = { x: this.screenToPlaylistX(ev.offsetX), y: this.screenToPlaylistY(ev.offsetY) }
             this.#shiftPress = {
-              screen: { x: p.mouseX, y: p.mouseY },
-              point: this.#mousePoint(p),
-              clipId: item ? item.playlistItem.id : null,
+              screen: { x: ev.offsetX, y: ev.offsetY },
+              point,
+              clipId: clipAt(point, this.#clipBoxes()),
             }
             return
           }
@@ -1131,7 +1155,7 @@ export class Renderer extends RendererBase {
       // here was released outside the canvas and is cancelled
       p.mouseReleased = () => {
         this.#endSeek()
-        this.#endShiftPress()
+        this.#endShiftPress(p)
         this.lasso = null
         this.#pressedOnEmpty = false
         this.scrollbarGrab = null
@@ -1191,7 +1215,7 @@ export class Renderer extends RendererBase {
         // a click on empty space (not a pan) clears the selection
         if(this.#pressedOnEmpty && !this.isMouseDragged) this.clearSelection()
         this.#pressedOnEmpty = false
-        this.#endShiftPress()
+        this.#endShiftPress(p)
         this.lasso = null
 
         mousePressedX = null

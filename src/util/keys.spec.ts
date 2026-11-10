@@ -124,10 +124,13 @@ describe('the transport key', () => {
 
     ;[...fields, editable].forEach(target => {
       const ev = press({ target })
+      const up = press({ type: 'keyup', target })
       handle(ev)
-      handle(press({ type: 'keyup', target }))
+      handle(up)
       expect(ev.preventDefault).not.toHaveBeenCalled()
       expect(ev.stopPropagation).not.toHaveBeenCalled()
+      expect(up.preventDefault).not.toHaveBeenCalled()
+      expect(up.stopPropagation).not.toHaveBeenCalled()
     })
     expect(toggle).not.toHaveBeenCalled()
   })
@@ -142,5 +145,32 @@ describe('the transport key', () => {
     expect(toggle).not.toHaveBeenCalled()
     expect(ev.preventDefault).not.toHaveBeenCalled()
     expect(cmd.preventDefault).not.toHaveBeenCalled()
+  })
+
+  it('keeps Shift+Space and Option+Space from buttons and scrolling, without playing', () => {
+    const toggle = jest.fn()
+    const handle = transportKeyHandler(toggle)
+    const shifted = press({ shiftKey: true, target: el('<button></button>') })
+    const opted = press({ altKey: true })
+    handle(shifted)
+    handle(opted)
+
+    expect(toggle).not.toHaveBeenCalled()
+    expect(shifted.preventDefault).toHaveBeenCalled()
+    expect(opted.stopPropagation).toHaveBeenCalled()
+    // typed as usual in a text field
+    const typed = press({ shiftKey: true, target: el('<input type="text">') })
+    handle(typed)
+    expect(typed.preventDefault).not.toHaveBeenCalled()
+  })
+
+  it('plays from a slider, a checkbox, and with nothing focused', () => {
+    const toggle = jest.fn()
+    const handle = transportKeyHandler(toggle)
+    handle(press({ target: el('<input type="range">') }))
+    handle(press({ target: el('<input type="checkbox">') }))
+    handle(press({ target: null }))
+    handle(press({ target: document }))
+    expect(toggle).toHaveBeenCalledTimes(4)
   })
 })

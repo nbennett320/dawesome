@@ -1,5 +1,6 @@
 import {
-  groupLanding, keepExisting, lassoRect, lassoSelection, rectsTouch, toggleSelected, ShiftPress, lassoFrom, shiftClick, startsLasso,
+  groupLanding, keepExisting, lassoRect, lassoSelection, rectsTouch, toggleSelected, ShiftPress, clipAt, lassoFrom,
+  shiftClick, shiftRelease, startsLasso,
 } from './selection'
 
 const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height })
@@ -104,19 +105,40 @@ describe('groupLanding', () => {
 
 describe('a shift press', () => {
   const clips = [
-    { id: 1, box: { left: 0, top: 24, width: 100, height: 100 } },
-    { id: 2, box: { left: 300, top: 124, width: 100, height: 100 } },
+    { id: 1, box: { left: 380, top: 224, width: 100, height: 100 } },
+    { id: 2, box: { left: 680, top: 324, width: 100, height: 100 } },
   ]
+  // the view is scrolled and zoomed, so where the press is on the canvas
+  // (`screen`) isn't where it is in the playlist (`point`).
   // pressed in the middle of clip 1
-  const onClip: ShiftPress = { screen: { x: 50, y: 60 }, point: { x: 50, y: 60 }, clipId: 1 }
-  const onEmpty: ShiftPress = { screen: { x: 200, y: 60 }, point: { x: 200, y: 60 }, clipId: null }
+  const onClip: ShiftPress = { screen: { x: 50, y: 60 }, point: { x: 430, y: 260 }, clipId: 1 }
+  const onEmpty: ShiftPress = { screen: { x: 200, y: 60 }, point: { x: 580, y: 260 }, clipId: null }
+  // the mouse `dx`, `dy` canvas pixels from where `press` went down (and,
+  // zoomed in 2x, half as far in the playlist's x)
+  const moved = (press: ShiftPress, dx: number, dy: number) => ({
+    screen: { x: press.screen.x + dx, y: press.screen.y + dy },
+    point: { x: press.point.x + dx / 2, y: press.point.y + dy },
+  })
 
-  it('is a click until the mouse has moved past the drag distance', () => {
+  it('finds the clip under a point, the top one where clips overlap', () => {
+    const over = [...clips, { id: 3, box: { left: 400, top: 224, width: 50, height: 100 } }]
+    expect(clipAt({ x: 430, y: 260 }, clips)).toBe(1)
+    expect(clipAt({ x: 430, y: 260 }, over)).toBe(3)
+    expect(clipAt({ x: 470, y: 260 }, over)).toBe(1)
+    expect(clipAt({ x: 580, y: 260 }, over)).toBeNull()
+    expect(clipAt({ x: 430, y: 200 }, over)).toBeNull()
+  })
+
+  it('is a click until the mouse has moved past the drag distance on the canvas', () => {
     expect(startsLasso(onClip, { x: 50, y: 60 }, 10)).toBe(false)
     expect(startsLasso(onClip, { x: 59, y: 60 }, 10)).toBe(false)
     expect(startsLasso(onClip, { x: 50, y: 70 }, 10)).toBe(false)
     expect(startsLasso(onClip, { x: 61, y: 60 }, 10)).toBe(true)
     expect(startsLasso(onClip, { x: 42, y: 52 }, 10)).toBe(true)
+    // measured on the canvas, not in the playlist: the press's own playlist
+    // point is far from its canvas point, and isn't a drag
+    expect(startsLasso(onClip, onClip.point, 10)).toBe(true)
+    expect(startsLasso(onClip, onClip.screen, 10)).toBe(false)
   })
 
   it('let go without moving, toggles the clip under it', () => {
@@ -128,18 +150,49 @@ describe('a shift press', () => {
 
   it('dragged from a clip, draws a box that takes that clip in', () => {
     const lasso = lassoFrom(onClip, new Set())
-    expect(lasso.start).toEqual({ x: 50, y: 60 })
+    // the box starts where the press was in the playlist, however the view
+    // is scrolled
+    expect(lasso.start).toEqual({ x: 430, y: 260 })
+    expect(lasso.end).toEqual({ x: 430, y: 260 })
     // the box hasn't reached anything else yet
-    expect([...lassoSelection({ ...lasso, end: { x: 62, y: 60 } }, clips)]).toEqual([1])
+    expect([...lassoSelection({ ...lasso, end: { x: 442, y: 260 } }, clips)]).toEqual([1])
     // and once it has
-    expect([...lassoSelection({ ...lasso, end: { x: 320, y: 130 } }, clips)].sort()).toEqual([1, 2])
+    expect([...lassoSelection({ ...lasso, end: { x: 700, y: 330 } }, clips)].sort()).toEqual([1, 2])
   })
 
   it('adds to what was selected', () => {
     const lasso = lassoFrom(onEmpty, new Set([1]))
-    expect([...lassoSelection({ ...lasso, end: { x: 320, y: 130 } }, clips)].sort()).toEqual([1, 2])
+    expect([...lassoSelection({ ...lasso, end: { x: 700, y: 330 } }, clips)].sort()).toEqual([1, 2])
     // and never takes a clip out, even one the press was on
     const fromSelected = lassoFrom(onClip, new Set([1]))
-    expect([...lassoSelection({ ...fromSelected, end: { x: 70, y: 60 } }, clips)]).toEqual([1])
+    expect([...lassoSelection({ ...fromSelected, end: { x: 450, y: 260 } }, clips)]).toEqual([1])
+  })
+
+  describe('let go', () => {
+    const release = (press: ShiftPress, dx: number, dy: number, selected: number[], existing = clips) =>
+      [...shiftRelease(press, moved(press, dx, dy), 10, new Set(selected), existing)].sort()
+
+    it('within the drag distance, is a click', () => {
+      expect(release(onClip, 0, 0, [])).toEqual([1])
+      expect(release(onClip, 9, 0, [1, 2])).toEqual([2])
+      expect(release(onClip, 10, 0, [1])).toEqual([])
+      expect(release(onEmpty, 3, 3, [2])).toEqual([2])
+    })
+
+    it('past the drag distance, is a box, even if no frame saw it start', () => {
+      // from a selected clip: a click would take it out, a box keeps it
+      expect(release(onClip, 11, 0, [1])).toEqual([1])
+      expect(release(onClip, 11, 0, [])).toEqual([1])
+      // dragged across to the second clip
+      expect(release(onClip, 520, 70, [])).toEqual([1, 2])
+      // from empty space, onto nothing
+      expect(release(onEmpty, 20, 0, [2])).toEqual([2])
+    })
+
+    it('on a clip that has gone since the press, changes nothing', () => {
+      // deleted, or exploded, while the mouse was down
+      expect(release(onClip, 0, 0, [], [clips[1]])).toEqual([])
+      expect(release(onClip, 0, 0, [2], [clips[1]])).toEqual([2])
+    })
   })
 })

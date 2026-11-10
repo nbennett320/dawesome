@@ -31,6 +31,12 @@ export const isTransportKey = (
 ): boolean =>
   ev.key === ' ' && !ev.shiftKey && !ev.metaKey && !ev.ctrlKey && !ev.altKey
 
+// Space, alone or with Shift or Option. only Space alone plays, but all of
+// these are kept from buttons, tabs and scrolling panes, so Shift+Space
+// doesn't click what Space no longer does
+const isSpaceKey = (ev: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey'>): boolean =>
+  ev.key === ' ' && !ev.metaKey && !ev.ctrlKey
+
 type TransportKeyEvent = Pick<
   KeyboardEvent,
   'type' | 'key' | 'shiftKey' | 'metaKey' | 'ctrlKey' | 'altKey' | 'repeat' | 'target'
@@ -45,10 +51,25 @@ type TransportKeyEvent = Pick<
 // for `keydown` and `keyup`, listened to on the window as the event goes
 // down (capture), so it runs before any control's own handler
 export const transportKeyHandler = (onToggle: () => void) => (ev: TransportKeyEvent): void => {
-  if(!isTransportKey(ev) || isTypingTarget(ev.target)) return
+  if(!isSpaceKey(ev) || isTypingTarget(ev.target)) return
 
   ev.preventDefault()
   ev.stopPropagation()
   // held down, it toggles once
-  if(ev.type === 'keydown' && !ev.repeat) onToggle()
+  if(ev.type === 'keydown' && !ev.repeat && isTransportKey(ev)) onToggle()
+}
+
+// listen for Space on `target` (the window), ahead of everything inside it.
+// returns a function that stops listening
+export const listenForTransportKey = (
+  target: Pick<Window, 'addEventListener' | 'removeEventListener'>,
+  onToggle: () => void,
+): () => void => {
+  const onKey = transportKeyHandler(onToggle)
+  target.addEventListener('keydown', onKey, true)
+  target.addEventListener('keyup', onKey, true)
+  return () => {
+    target.removeEventListener('keydown', onKey, true)
+    target.removeEventListener('keyup', onKey, true)
+  }
 }
