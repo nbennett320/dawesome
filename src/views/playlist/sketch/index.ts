@@ -53,7 +53,7 @@ export const staticDefaults = {
   timelineHeight: 24,
   trackHeight: 100,
   playing: false,
-  debugMode: true,
+  debugMode: false,
 
   // defaults on Renderer construction, these will be reassigned
   // when the canvas renders
@@ -211,6 +211,9 @@ export class Renderer extends RendererBase {
   scrollbarGrab: number | null = null
   // the p5 instance drawing, for the mouse position
   #p: P5CanvasInstance<CanvasProps> | null = null
+  // whether the playlist can be seen. hidden behind another tab, it stops
+  // drawing (see setVisible)
+  #visible = true
   
   isMouseDown = false
   isMouseDragged = false
@@ -429,6 +432,21 @@ export class Renderer extends RendererBase {
     p.rect(x, y, width * this.currentScale, height)
     ctx.setLineDash([])
     p.pop()
+  }
+
+  // stop drawing while the playlist can't be seen (its tab isn't selected),
+  // and start again, from however things are by then, once it can
+  setVisible = (visible: boolean) => {
+    if(visible === this.#visible) return
+    this.#visible = visible
+
+    // (not a p5 instance that's been removed, whose canvas is gone: started
+    // again, it would draw on unseen. a new one starts as this says, in setup)
+    const p = this.#p
+    const ctx = p?.drawingContext as CanvasRenderingContext2D | undefined
+    if(!p || !ctx?.canvas.isConnected) return
+    if(visible) p.loop()
+    else p.noLoop()
   }
 
   // the clip under the mouse, if any (the last one drawn is on top)
@@ -895,6 +913,7 @@ export class Renderer extends RendererBase {
       this.canvas = canvas
       this.syncSnapSetting()
       p.frameRate(60)
+      if(!this.#visible) p.noLoop()
       p.noStroke()
 
       // handle mouse press, and pick up a clip if one was pressed on

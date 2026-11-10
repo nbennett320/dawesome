@@ -204,7 +204,8 @@ const PlaylistCanvas = () => {
     }
   }, [store, dispatch])
 
-  // fit the canvas to the playlist's box whenever it changes size: the
+  // fit the canvas to the playlist's box whenever it changes size (or is
+  // hidden, which stops it drawing): the
   // window resizing, the sidebar toggling, a split pane's divider moving,
   // or the playlist's tab being shown again after another tab was selected
   React.useEffect(() => {
@@ -214,9 +215,14 @@ const PlaylistCanvas = () => {
     const fit = () => {
       const { height: h, width: w } = el.getBoundingClientRect()
 
-      // hidden behind another tab, keep the last size
-      if(!w || !h) return
+      // hidden behind another tab: keep the last size, and stop drawing
+      // until it's shown again
+      if(!w || !h) {
+        playlistRenderer.setVisible(false)
+        return
+      }
 
+      playlistRenderer.setVisible(true)
       setHeight(h)
       setWidth(w)
       playlistRenderer.setHeight(h)
