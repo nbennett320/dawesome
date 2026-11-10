@@ -4,11 +4,11 @@ import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import { CanvasProps, Renderer, staticDefaults } from './index'
 import { PlaylistItemPixelOffset } from '../../../types/playlist'
 import { theme } from './theme'
-import { Peaks, peakRange, peaksOfPairs } from './peaks'
+import { Peaks, buildPeaks, peakRange } from './peaks'
 
 interface Props extends PlaylistComponentProps {
   // id: number
-  soundData: number[]
+  soundData: Float32Array
   duration: number
   startBeat: number
   trackNumber: number
@@ -19,7 +19,8 @@ interface Props extends PlaylistComponentProps {
 }
 
 class Waveform extends PlaylistComponent {
-  soundData: number[]
+  // the level (0..1) at evenly spaced points along the clip
+  soundData: Float32Array
   duration: number
   // where the clip starts, in beats from the playlist start
   startBeat: number
@@ -72,9 +73,8 @@ class Waveform extends PlaylistComponent {
     width: this.#getWidth(),
   })
   
-  // the waveform is the line through the engine's points (soundData holds
-  // [x, y] pairs: x is the point's index, y is 0..1), spread evenly across
-  // the clip's width and filling the clip below its label
+  // the waveform is the line through the engine's levels (0..1), spread
+  // evenly across the clip's width and filling the clip below its label
   //
   // a clip usually has many points to each pixel (about 2000 a second of
   // sound), so rather than a line per point, each column of pixels on screen
@@ -84,7 +84,7 @@ class Waveform extends PlaylistComponent {
   // is drawn, and it looks the same as a line per point
   render = () => {
     const { minHeight, height, labelHeight, p } = this
-    const count = this.soundData.length / 2
+    const count = this.soundData.length
     if(count < 2) return
 
     // (this used to subtract the playlist's distance from the top of the
@@ -125,7 +125,7 @@ class Waveform extends PlaylistComponent {
     p.push()
     if(count / (width * scaleX) >= 1) {
       // a point or more to each column
-      if(!this.#peaks) this.#peaks = peaksOfPairs(this.soundData)
+      if(!this.#peaks) this.#peaks = buildPeaks(this.soundData)
       const peaks = this.#peaks
       // a column, in playlist x
       const columnWidth = 1 / scaleX
@@ -158,9 +158,9 @@ class Waveform extends PlaylistComponent {
       p.stroke(...theme.clipWave)
       p.noFill()
       ctx.beginPath()
-      ctx.moveTo(pointX(from), y(this.soundData[2 * from + 1]))
+      ctx.moveTo(pointX(from), y(this.soundData[from]))
       for(let i = from + 1; i <= to; i++) {
-        ctx.lineTo(pointX(i), y(this.soundData[2 * i + 1]))
+        ctx.lineTo(pointX(i), y(this.soundData[i]))
       }
       // stroked without the zoom, which would otherwise stretch the line's
       // width along with the timeline (y is only scaled by pixel density)

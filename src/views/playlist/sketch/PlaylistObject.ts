@@ -10,7 +10,8 @@ import { STEPS_PER_BEAT, litRows, patternLabel } from '../../../types/sequencer'
 
 interface Props extends PlaylistComponentProps {
   playlistItem: PlaylistItem
-  soundData: number[]
+  // the waveform's levels (empty for a pattern clip)
+  soundData: Float32Array
   duration: number
   trackNumber: number
   trackHeight: number
@@ -23,7 +24,7 @@ const MODIFIED_DOT_SPACE = 12
 
 class PlaylistObject extends PlaylistComponent<State> {
   playlistItem: PlaylistItem
-  soundData: number[] = []
+  soundData: Float32Array
   duration: number
   trackNumber: number
   trackHeight: number = staticDefaults.trackHeight

@@ -23,6 +23,7 @@ import { positionAt } from '../../transport/tape'
 import { Lasso, groupLanding, keepExisting, lassoRect, lassoSelection, toggleSelected } from './selection'
 import { PlaceableItem as DragItem, dragItemKey } from '../../../state/sampleDrag'
 import { Pattern, SequencerState, patternSeconds } from '../../../types/sequencer'
+import { decodeLevels } from '../../../util/waveform'
 
 export interface CanvasProps extends SketchProps {
   height: number
@@ -142,7 +143,7 @@ interface SampleDrag {
   // the playlist's top in the window, used for waveform y
   containerTop: number
   // waveform and duration (seconds), once loaded from the engine
-  data: { soundData: number[], duration: number } | null
+  data: { soundData: Float32Array, duration: number } | null
   // the clip drawn under the mouse, built in draw once the data has loaded
   preview: PlaylistObject | null
   // set if the waveform couldn't be loaded
@@ -178,10 +179,10 @@ interface DropTarget {
 
 // get waveform data and duration of individual audio nodes
 const fetchNodeData = async (id: number) => {
-  const [wf, dur] = await invoke<[number[], number]>('get_node_data', { id })
+  const [wf, dur] = await invoke<[string, number]>('get_node_data', { id })
 
   return {
-    wf,
+    wf: decodeLevels(wf),
     dur,
   }
 }
@@ -500,7 +501,7 @@ export class Renderer extends RendererBase {
       this.#loadSamplePreview(item.path, key)
     } else {
       // a pattern clip has no waveform: it draws its pattern (see PlaylistObject)
-      this.sampleDrag.data = { soundData: [], duration: this.patternSecondsOf(item.patternId) }
+      this.sampleDrag.data = { soundData: new Float32Array(0), duration: this.patternSecondsOf(item.patternId) }
     }
     this.syncSnapSetting()
   }
@@ -541,12 +542,12 @@ export class Renderer extends RendererBase {
 
   #loadSamplePreview = async (path: string, key: string) => {
     try {
-      const [soundData, duration] =
-        await invoke<[number[], number]>('get_sample_preview', { samplePath: path })
+      const [encoded, duration] =
+        await invoke<[string, number]>('get_sample_preview', { samplePath: path })
       // the drag may have ended, or moved on to another sample, while loading
       if(this.sampleDrag?.key !== key) return
 
-      this.sampleDrag.data = { soundData, duration }
+      this.sampleDrag.data = { soundData: decodeLevels(encoded), duration }
     } catch(e) {
       console.error('could not preview sample:', path, e)
       if(this.sampleDrag?.key === key) this.sampleDrag.error = String(e)
@@ -1151,7 +1152,7 @@ export class Renderer extends RendererBase {
           // long as the pattern is (see PlaylistObject)
           const { wf: soundData, dur: duration } = item.patternId === undefined
             ? await fetchNodeData(item.id)
-            : { wf: [], dur: this.patternSecondsOf(item.patternId) }
+            : { wf: new Float32Array(0), dur: this.patternSecondsOf(item.patternId) }
           const clip = new PlaylistObject(p, built, this, {
             currentScale,
             soundData,

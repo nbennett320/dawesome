@@ -540,7 +540,7 @@ pub fn remove_audiograph_node(
 pub fn get_node_data(
   state: daw::TState<'_>,
   id: u64,
-) -> Result<(Vec<f32>, f32), String> {
+) -> Result<(String, f32), String> {
   let playlist = &state.playlist;
   let mut audiograph = playlist
     .audiograph
@@ -549,7 +549,7 @@ pub fn get_node_data(
   let node = audiograph.get_mut_node_by_id(id)
     .ok_or_else(|| format!("no node with id {}", id))?;
   println!("offset dur: {:?}", node.start_offset.as_millis());
-  let waveform = node.get_waveform().clone();
+  let waveform = node.get_waveform().to_string();
   let dur = node.duration().as_secs_f32();
   let ratio = dur / audiograph.max_beats() as f32;
 
@@ -645,7 +645,7 @@ pub fn t_preview_node(
 pub fn get_sample_preview(
   state: daw::TState<'_>,
   sample_path: String,
-) -> Result<(Vec<f32>, f32), String> {
+) -> Result<(String, f32), String> {
   let (dur, waveform) = daw::preview_sample(&sample_path)?;
 
   Ok((waveform, dur.as_secs_f32()))

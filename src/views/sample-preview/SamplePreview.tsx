@@ -23,13 +23,14 @@ import {
 import ClipWaveform, { WaveformData } from './ClipWaveform'
 import SettingControl from './SettingControl'
 import { AnalogButton, PlayIcon } from '../../components/fourtrack'
+import { decodeLevels } from '../../util/waveform'
 
 type Loaded =
   | { state: 'loading' }
   | { state: 'error', message: string }
-  | { state: 'ready', points: number[] }
+  | { state: 'ready', levels: Float32Array }
 
-// the inspected clip's waveform points, from the engine
+// the inspected clip's waveform levels, from the engine
 const useClipWaveform = (id: number | undefined): Loaded | null => {
   const [loaded, setLoaded] = React.useState<Loaded | null>(null)
 
@@ -45,9 +46,9 @@ const useClipWaveform = (id: number | undefined): Loaded | null => {
 
     // (the duration it also returns is the played length, which changes with
     // the clip's pitch. the sample's own length comes from get_clip)
-    invoke<[number[], number]>('get_node_data', { id })
-      .then(([points]) => {
-        if(current) setLoaded({ state: 'ready', points })
+    invoke<[string, number]>('get_node_data', { id })
+      .then(([encoded]) => {
+        if(current) setLoaded({ state: 'ready', levels: decodeLevels(encoded) })
       })
       .catch(e => {
         if(current) setLoaded({ state: 'error', message: String(e) })
@@ -98,7 +99,7 @@ const SamplePreview = () => {
   const name = clip.path.split(/[\\/]/).pop() ?? clip.path
   const played = sampleDuration === undefined ? null : playedDuration(settings, sampleDuration)
   const waveformData: WaveformData | null = waveform?.state === 'ready' && sampleDuration !== undefined
-    ? { points: waveform.points, duration: sampleDuration }
+    ? { levels: waveform.levels, duration: sampleDuration }
     : null
 
   const update = (change: Partial<ClipSettings>) => {
