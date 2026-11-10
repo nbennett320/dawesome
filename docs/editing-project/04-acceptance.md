@@ -27,7 +27,7 @@ Milestone tags (M1–M14) say when an item becomes checkable.
 - [ ] A7 [M] After Open and after New Project the view is back on bars 1 to 4.
 - [x] A8 [E] A clip at beat 8 at 120 bpm is still at beat 8 after the tempo is set to 90, and its first rendered frame is at the frame for beat 8 at 90 bpm. — `audiograph::tests::test_a_clip_on_beat_8_is_heard_on_beat_8_at_another_tempo` (rendered frame 235,200 at 90 bpm), `event_dispatch::tests::test_clips_and_the_playhead_keep_their_beat_when_the_tempo_changes`
 - [ ] A9 [M] After changing the tempo, each clip sits on the same grid line as before and plays on that beat, without saving and reloading.
-- [ ] A10 [E] A trimmed 1.000-second clip is still 1.000 second long after a tempo change. (Proved for an untrimmed one-second clip by `audiograph::tests::test_a_one_second_clip_is_a_second_long_at_any_tempo`; to be re-proved on a trimmed clip when trim lands in M4.)
+- [x] A10 [E] A trimmed 1.000-second clip is still 1.000 second long after a tempo change. — `audiograph::tests::test_a_trimmed_clip_is_as_long_at_any_tempo`
 - [ ] A11 [M] Changing the tempo during playback: playback continues from the same beat at the new tempo. (Engine half covered by `event_dispatch::tests::test_playback_carries_on_from_its_beat_at_the_new_tempo`.)
 - [ ] A12 [M] While recording, the tempo field cannot be changed. (Engine refusal covered by `recording::tests::test_the_tempo_is_locked_while_recording`.)
 
@@ -50,10 +50,10 @@ Milestone tags (M1–M14) say when an item becomes checkable.
 
 ## C. Clip windows and project file (M4)
 
-- [ ] C1 [E] A whole clip sounds as it did before this project: the new reader's output equals the old path's within one 16-bit step.
-- [ ] C2 [E] A project with no trimmed clip is still written as version 1 or 2, and an older-format fixture loads with every clip whole.
-- [ ] C3 [E] A project with a trimmed clip is written as version 3 and reloads with the same window.
-- [ ] C4 [E] Changing one clip's window leaves the rendered output of another clip of the same file unchanged, sample for sample.
+- [x] C1 [E] A whole clip sounds as it did before this project: the new reader's output equals the old path's within one 16-bit step. — `clip_reader::tests::test_a_whole_clip_is_read_as_it_always_was` (identical, bit for bit, with no fades), `test_a_whole_clip_with_every_setting_is_within_a_16_bit_step`
+- [x] C2 [E] A project with no trimmed clip is still written as version 1 or 2, and an older-format fixture loads with every clip whole. — `project::tests::test_the_version_follows_what_a_project_uses`, `test_an_older_file_loads_whole_and_is_left_alone`
+- [x] C3 [E] A project with a trimmed clip is written as version 3 and reloads with the same window. — `project::tests::test_a_trimmed_clip_is_saved_and_loaded`, `test_the_two_halves_of_a_cut_clip_come_back_to_the_nanosecond`, `test_a_pattern_clips_window_is_kept_past_the_patterns_end`
+- [x] C4 [E] Changing one clip's window leaves the rendered output of another clip of the same file unchanged, sample for sample. — `audiograph::tests::test_changing_a_clip_changes_no_other_clip_of_the_sample`
 
 ## D. Space (M5)
 
@@ -209,7 +209,7 @@ The press logic for E1, E2 and E4 is covered by `src/views/playlist/sketch/selec
 
 Each of these is a failure whenever it is observed, at any milestone.
 
-- [ ] X1 [E] Editing one clip (trim, stretch, cut, settings, deep copy) changes what another clip plays.
+- [ ] X1 [E] Editing one clip (trim, stretch, cut, settings, deep copy) changes what another clip plays. (Trim, cut and settings proved by `audiograph::tests::test_changing_a_clip_changes_no_other_clip_of_the_sample`; stretch and deep copy to be proved in M8 and M11.)
 - [ ] X2 [E] A deep copy or join writes a file anywhere outside the project's folder.
 - [ ] X3 [E] A deep copy or join overwrites an existing file.
 - [ ] X4 [E] Undo, redo, deep copy or join deletes or moves an audio file. (Undo and redo proved by `history::tests::test_undo_and_redo_leave_files_alone`; deep copy and join to be proved in M11 and M13.)
@@ -217,9 +217,9 @@ Each of these is a failure whenever it is observed, at any milestone.
 - [ ] X6 [M] C, S, Shift+J, Cmd+C, Cmd+X, Cmd+V, Cmd+R or Cmd+A changes the project while typing in a text field.
 - [ ] X7 [M] Cmd+R reloads the app window.
 - [ ] X8 [E] A failed deep copy or join leaves a clip pointing at a missing or partly written file.
-- [ ] X9 [E] An older-format project is rewritten or changed merely by opening it.
-- [ ] X10 [E] A project with a trimmed clip is written with a version lower than 3 (which would let an older build open it and play the clip untrimmed).
-- [ ] X11 [E] A whole, unedited clip sounds different from how it sounded before this project, beyond one 16-bit step.
+- [x] X9 [E] An older-format project is rewritten or changed merely by opening it. — `project::tests::test_an_older_file_loads_whole_and_is_left_alone`
+- [x] X10 [E] A project with a trimmed clip is written with a version lower than 3 (which would let an older build open it and play the clip untrimmed). — `project::tests::test_the_version_follows_what_a_project_uses`
+- [x] X11 [E] A whole, unedited clip sounds different from how it sounded before this project, beyond one 16-bit step. — `clip_reader::tests::test_a_whole_clip_is_read_as_it_always_was`
 - [ ] X12 [E] A paste, repeat or multi-clip cut applies to only some of its clips after a failure (each is all or nothing).
 - [ ] X13 [M] A trim, cut or stretch moves a clip the user did not select or grab.
 - [ ] X14 [M] `docs/todo.md` appears in any commit from this project.

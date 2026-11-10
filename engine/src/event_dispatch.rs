@@ -636,6 +636,37 @@ pub struct ClipInfo {
   pub(crate) sample_duration: f32,
   // how long the clip plays for
   pub(crate) played_duration: f32,
+  // the part of the sample it plays, in seconds of the sample. None: all
+  pub(crate) window: Option<ClipWindow>,
+}
+
+// the part of its source a clip plays, as the frontend and project files
+// have it: seconds of the sample for a sample clip, steps of the pattern
+// for a pattern clip
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipWindow {
+  pub start: f64,
+  // None: to the source's end
+  #[serde(default)]
+  pub end: Option<f64>,
+}
+
+impl ClipWindow {
+  pub fn of_sample(window: daw::Window) -> Self {
+    ClipWindow { start: window.start.as_secs_f64(), end: window.end.map(|end| end.as_secs_f64()) }
+  }
+
+  pub fn of_pattern(window: daw::PatternWindow) -> Self {
+    ClipWindow { start: window.start, end: window.end }
+  }
+
+  // as lengths of a sample, a number that makes no sense read as the
+  // sample's start (or, for the end, its end)
+  pub fn sample_times(&self) -> (std::time::Duration, Option<std::time::Duration>) {
+    let time = |secs: f64| std::time::Duration::try_from_secs_f64(secs).ok();
+    (time(self.start).unwrap_or_default(), self.end.and_then(time))
+  }
 }
 
 pub(crate) fn clip_info(node: &daw::AudioNode) -> ClipInfo {
@@ -643,6 +674,7 @@ pub(crate) fn clip_info(node: &daw::AudioNode) -> ClipInfo {
     settings: node.settings(),
     sample_duration: node.sample_duration().as_secs_f32(),
     played_duration: node.duration().as_secs_f32(),
+    window: node.window().map(ClipWindow::of_sample),
   }
 }
 

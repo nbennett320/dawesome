@@ -56,6 +56,18 @@ impl ClipSettings {
     sample_duration.div_f32(self.playback_rate())
   }
 
+  // the same, to the nanosecond (played_duration rounds to a float's seven
+  // or so digits, which is fine for a length to show, but not for working
+  // out where a point of a sample is heard)
+  pub fn played_exactly(&self, of_sample: Duration) -> Duration {
+    Duration::from_secs_f64(of_sample.as_secs_f64() / self.playback_rate() as f64)
+  }
+
+  // how much of the sample goes by in a length of played time
+  pub fn sample_time(&self, played: Duration) -> Duration {
+    Duration::from_secs_f64(played.as_secs_f64() * self.playback_rate() as f64)
+  }
+
   // the volume multiplier for the gain
   pub fn gain_factor(&self) -> f32 {
     10f32.powf(self.gain_db / 20.)

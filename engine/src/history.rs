@@ -61,7 +61,7 @@ impl Placed {
     match (&self.clip, &other.clip) {
       (ClipSnap::Sample(a), ClipSnap::Sample(b)) => a.same_clip(b),
       (ClipSnap::Pattern(a), ClipSnap::Pattern(b)) =>
-        a.pattern_id == b.pattern_id && a.track_number == b.track_number,
+        a.pattern_id == b.pattern_id && a.track_number == b.track_number && a.window == b.window,
       _ => false,
     }
   }

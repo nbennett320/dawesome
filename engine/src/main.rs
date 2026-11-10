@@ -12,6 +12,7 @@ mod history_commands;
 mod mixer_commands;
 mod audio_commands;
 mod sequencer_commands;
+mod clip_commands;
 mod bind_functions;
 
 use std::env;
@@ -64,6 +65,7 @@ fn init_tauri() {
   use mixer_commands::*;
   use audio_commands::*;
   use sequencer_commands::*;
+  use clip_commands::*;
   use history_commands::{undo, redo};
 
   // read before the menu is built, which lists them
@@ -181,7 +183,9 @@ fn init_tauri() {
       t_play_pattern,
       t_toggle_pattern,
       add_pattern_clip,
-      explode_pattern_clips
+      explode_pattern_clips,
+      set_clip_windows,
+      split_clips
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

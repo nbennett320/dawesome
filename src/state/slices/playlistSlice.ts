@@ -7,13 +7,14 @@ import {
   ClipInfo,
   ClipOverride,
   ClipSettings,
+  ClipWindow,
   clampClipSettings,
   defaultClipSettings,
   isDefaultClipSettings,
-  playedDuration,
+  windowedDuration,
 } from '../../types/clip'
 import {
-  LoadedPatternClip, LoadedProject, MissingSample, MovedClip, ProjectView, SavedProject,
+  ChangedClips, LoadedClip, LoadedPatternClip, LoadedProject, MissingSample, MovedClip, ProjectView, SavedProject,
 } from '../../types/project'
 import { currentGesture } from '../gesture'
 import { Wind } from '../../types/transport'
@@ -63,6 +64,9 @@ export interface PlaylistState {
   clipSettings: Record<number, ClipSettings>
   // each clip's sample length in seconds, before any speed change, by clip id
   clipSampleDurations: Record<number, number>
+  // the part of its sample or pattern each trimmed clip plays, by clip id.
+  // clips without an entry play all of it
+  clipWindows: Record<number, ClipWindow>
   ui: {
     maxPlaylistBeats: number,
     maxBeatsDisplayed: number,
@@ -90,6 +94,7 @@ const initialState = {
   inspectedClipId: null,
   clipSettings: {},
   clipSampleDurations: {},
+  clipWindows: {},
   ui: {
     maxPlaylistBeats: 16,
     // the playlist's length: 64 bars
@@ -103,6 +108,31 @@ const initialState = {
 // so there's no drop position to debug
 const NO_PIXEL_OFFSET: PlaylistItemPixelOffset = {
   x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0, xOffset: 0, yOffset: 0,
+}
+
+// the playlist's item for a clip the engine sent, built as a loaded project's are
+const sampleItem = (clip: LoadedClip): PlaylistItem => ({
+  id: clip.id,
+  path: clip.path,
+  startBeat: clip.startBeat,
+  trackNumber: clip.trackNumber,
+  pixelOffset: { ...NO_PIXEL_OFFSET },
+})
+
+const patternItem = (clip: LoadedPatternClip): PlaylistItem => ({
+  id: clip.id,
+  path: '',
+  patternId: clip.patternId,
+  startBeat: clip.startBeat,
+  trackNumber: clip.trackNumber,
+  pixelOffset: { ...NO_PIXEL_OFFSET },
+})
+
+// keep a clip's window as the engine has it: an entry when it's trimmed, none
+// when it plays all of its source
+const setWindow = (state: PlaylistState, id: number, window: ClipWindow | null | undefined) => {
+  if(window) state.clipWindows[id] = window
+  else delete state.clipWindows[id]
 }
 
 export const playlistSlice = createSlice({
@@ -195,15 +225,49 @@ export const playlistSlice = createSlice({
 
       delete state.clipSettings[action.payload.id]
       delete state.clipSampleDurations[action.payload.id]
+      delete state.clipWindows[action.payload.id]
     },
     setInspectedClip: (state, action: { type: string, payload: number | null }) => {
       state.inspectedClipId = action.payload
     },
     // a clip's settings and length, as the engine has them
-    setClipInfo: (state, action: { type: string, payload: { id: number } & ClipInfo }) => {
-      const { id, settings, sampleDuration } = action.payload
+    // (a clip with no window, such as one just recorded, can leave it out)
+    setClipInfo: (
+      state,
+      action: { type: string, payload: { id: number } & Omit<ClipInfo, 'window'> & { window?: ClipWindow | null } },
+    ) => {
+      const { id, settings, sampleDuration, window } = action.payload
       state.clipSettings[id] = settings
       state.clipSampleDurations[id] = sampleDuration
+      setWindow(state, id, window)
+    },
+    // clips as they are after a trim or a cut: the ones the playlist has are
+    // updated where they are, and new ones (the second half of a cut) added
+    reduceChangedClips: (state, action: PayloadAction<ChangedClips>) => {
+      const { clips, patternClips } = action.payload
+
+      const place = (item: PlaylistItem) => {
+        const have = state.playlistItems.find(i => i.id === item.id)
+        if(!have) {
+          state.playlistItems.push(item)
+          return
+        }
+        have.startBeat = item.startBeat
+        have.trackNumber = item.trackNumber
+        have.path = item.path
+        if(item.patternId !== undefined) have.patternId = item.patternId
+      }
+
+      clips.forEach(clip => {
+        place(sampleItem(clip))
+        state.clipSettings[clip.id] = clip.settings
+        state.clipSampleDurations[clip.id] = clip.sampleDuration
+        setWindow(state, clip.id, clip.window)
+      })
+      patternClips.forEach(clip => {
+        place(patternItem(clip))
+        setWindow(state, clip.id, clip.window)
+      })
     },
     // change some of a clip's settings, kept in range like the engine does
     reduceClipSettings: (
@@ -213,7 +277,9 @@ export const playlistSlice = createSlice({
       const { id, settings } = action.payload
       const merged = { ...(state.clipSettings[id] ?? defaultClipSettings), ...settings }
       const sampleSeconds = state.clipSampleDurations[id]
-      const played = sampleSeconds === undefined ? undefined : playedDuration(merged, sampleSeconds)
+      const played = sampleSeconds === undefined
+        ? undefined
+        : windowedDuration(merged, sampleSeconds, state.clipWindows[id])
 
       state.clipSettings[id] = clampClipSettings(merged, played)
     },
@@ -247,10 +313,13 @@ export const playlistSlice = createSlice({
 
       state.clipSettings = {}
       state.clipSampleDurations = {}
+      state.clipWindows = {}
       project.clips.forEach(clip => {
         state.clipSettings[clip.id] = clip.settings
         state.clipSampleDurations[clip.id] = clip.sampleDuration
+        setWindow(state, clip.id, clip.window)
       })
+      project.patternClips.forEach(clip => setWindow(state, clip.id, clip.window))
 
       if(!state.playlistItems.some(item => item.id === state.inspectedClipId)) {
         state.inspectedClipId = null
@@ -307,10 +376,13 @@ export const playlistSlice = createSlice({
 
       state.clipSettings = {}
       state.clipSampleDurations = {}
+      state.clipWindows = {}
       project.clips.forEach(clip => {
         state.clipSettings[clip.id] = clip.settings
         state.clipSampleDurations[clip.id] = clip.sampleDuration
+        setWindow(state, clip.id, clip.window)
       })
+      ;(project.patternClips ?? []).forEach(clip => setWindow(state, clip.id, clip.window))
     },
   },
 })
@@ -700,6 +772,10 @@ const sendSettings = (id: number, settings: ClipSettings) => {
   setTimeout(flush, SEND_SETTINGS_EVERY_MS)
 }
 
+export const selectClipWindow = (id?: number) =>
+  (state: RootState): ClipWindow | null =>
+    (id === undefined ? undefined : state.playlist.clipWindows[id]) ?? null
+
 export const selectClipSettings = (id: number | undefined) =>
   (state: RootState): ClipSettings =>
     (id === undefined ? undefined : state.playlist.clipSettings[id]) ?? defaultClipSettings
@@ -708,7 +784,7 @@ export const selectClipSettings = (id: number | undefined) =>
 // changed, by clip id. builds a new object every call, so don't pass it to
 // useAppSelector
 export const selectClipOverrides = (state: RootState): Record<number, ClipOverride> => {
-  const { clipSettings, clipSampleDurations } = state.playlist
+  const { clipSettings, clipSampleDurations, clipWindows } = state.playlist
   const overrides: Record<number, ClipOverride> = {}
 
   Object.entries(clipSettings).forEach(([key, settings]) => {
@@ -718,7 +794,7 @@ export const selectClipOverrides = (state: RootState): Record<number, ClipOverri
     overrides[id] = {
       playedDuration: sampleSeconds === undefined
         ? undefined
-        : playedDuration(settings, sampleSeconds),
+        : windowedDuration(settings, sampleSeconds, clipWindows[id]),
       modified: !isDefaultClipSettings(settings),
     }
   })
@@ -743,6 +819,41 @@ export const updateClipSettings = (id: number, settings: Partial<ClipSettings>) 
 
 export const resetClipSettings = (id: number) => (dispatch: Dispatch, getState: () => RootState) =>
   updateClipSettings(id, defaultClipSettings)(dispatch, getState)
+
+// trim clips: each plays the part of its sample (seconds) or pattern (steps)
+// from start to end, null for to the end. the engine keeps the sound where it
+// is, and returns the clips as they are now. null if it refused
+export const setClipWindows = (
+  edits: { id: number, start: number, end: number | null }[],
+) => async (dispatch: Dispatch): Promise<ChangedClips | null> => {
+  try {
+    const changed = await invoke<ChangedClips>('set_clip_windows', { edits })
+    dispatch(playlistSlice.actions.reduceChangedClips(changed))
+    await refreshTrackCount()(dispatch)
+    return changed
+  } catch(e) {
+    // eslint-disable-next-line no-console
+    console.error('could not trim the clips:', e)
+    return null
+  }
+}
+
+// cut clips in two at a beat. the second halves are new clips, which the
+// engine returns with the first halves. null if it refused
+export const splitClips = (ids: number[], beat: number) => async (
+  dispatch: Dispatch,
+): Promise<ChangedClips | null> => {
+  try {
+    const changed = await invoke<ChangedClips>('split_clips', { ids, beat })
+    dispatch(playlistSlice.actions.reduceChangedClips(changed))
+    await refreshTrackCount()(dispatch)
+    return changed
+  } catch(e) {
+    // eslint-disable-next-line no-console
+    console.error(`could not cut the clips at beat ${beat}:`, e)
+    return null
+  }
+}
 
 // play a clip on its own, with its current settings
 export const auditionClip = (id: number) => async (_: Dispatch, getState: () => RootState) => {

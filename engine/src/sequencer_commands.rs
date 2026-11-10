@@ -377,14 +377,7 @@ fn explode_each(state: &daw::InnerState, ids: &[u64], touched: &mut Vec<u64>) ->
     removed.push(id);
     for new_id in made {
       let node = audiograph.get_pattern_node_by_id(new_id).expect("a clip that was just made");
-      clips.push(LoadedPatternClip {
-        id: new_id,
-        pattern_id: node.pattern_id,
-        track_number: node.track_number,
-        start_beat: if interval.is_zero() { 0. } else {
-          (node.start_offset.as_secs_f64() / interval.as_secs_f64()) as f32
-        },
-      });
+      clips.push(LoadedPatternClip::of(node, interval));
     }
   }
 

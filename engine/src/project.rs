@@ -11,14 +11,18 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::daw;
-use crate::event_dispatch::{clip_info, ClipInfo};
+use crate::event_dispatch::{clip_info, ClipInfo, ClipWindow};
 use crate::project_files::{self, recordings_dir_for};
 
 // the newest project format this version of the app reads and writes.
 // bump it when a change means older apps would misread a project
-pub const PROJECT_VERSION: u32 = 2;
-// what a project without patterns is saved as, so older apps can still open
-// it. version 2 added the sequencer and pattern clips
+pub const PROJECT_VERSION: u32 = 3;
+// what a project with patterns but no trimmed clips is saved as, so older
+// apps can still open it. version 3 added clips that play part of their
+// sample or pattern
+pub const PROJECT_VERSION_WITHOUT_WINDOWS: u32 = 2;
+// what a project without patterns or trimmed clips is saved as, so older
+// apps can still open it. version 2 added the sequencer and pattern clips
 pub const PROJECT_VERSION_WITHOUT_PATTERNS: u32 = 1;
 
 // the playlist's settings, as saved in a project
@@ -60,6 +64,9 @@ pub struct ProjectClip {
   pub start_beat: f64,
   #[serde(default)]
   pub settings: daw::ClipSettings,
+  // the part of the sample it plays, in seconds. left out for all of it
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub window: Option<ClipWindow>,
 }
 
 // a pattern placed in the playlist, as saved in a project
@@ -70,6 +77,9 @@ pub struct ProjectPatternClip {
   pub track_number: u32,
   // beats from the start of the playlist
   pub start_beat: f64,
+  // the part of the pattern it plays, in steps. left out for all of it
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub window: Option<ClipWindow>,
 }
 
 // a project file. missing fields take their defaults, so hand edited or
@@ -154,6 +164,20 @@ pub struct LoadedClip {
   pub info: ClipInfo,
 }
 
+impl LoadedClip {
+  // a clip in the playlist, as the frontend shows it
+  // - interval: a beat's length
+  pub fn of(node: &daw::AudioNode, interval: Duration) -> Self {
+    LoadedClip {
+      id: node.id,
+      path: node.sample_path().to_string(),
+      track_number: node.track_number,
+      start_beat: beats(node.start_offset, interval),
+      info: clip_info(node),
+    }
+  }
+}
+
 // a pattern clip after loading, with its new id
 #[derive(Serialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -162,6 +186,25 @@ pub struct LoadedPatternClip {
   pub pattern_id: u64,
   pub track_number: u32,
   pub start_beat: f32,
+  // the part of the pattern it plays, in steps. None: all of it
+  pub window: Option<ClipWindow>,
+}
+
+impl LoadedPatternClip {
+  pub fn of(node: &daw::PatternNode, interval: Duration) -> Self {
+    LoadedPatternClip {
+      id: node.id,
+      pattern_id: node.pattern_id,
+      track_number: node.track_number,
+      start_beat: beats(node.start_offset, interval),
+      window: node.window.map(ClipWindow::of_pattern),
+    }
+  }
+}
+
+// an offset into the playlist, in beats
+fn beats(offset: Duration, interval: Duration) -> f32 {
+  if interval.is_zero() { 0. } else { (offset.as_secs_f64() / interval.as_secs_f64()) as f32 }
 }
 
 // a clip that couldn't be loaded, so it was left out
@@ -238,24 +281,31 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
   let (tempo, clips, pattern_clips, sequencer) = {
     let audiograph = state.playlist.audiograph.lock().unwrap();
     let interval = audiograph.beat_interval().as_secs_f64();
-    let beat_of = |offset: Duration| if interval > 0. {
-      tidy_beat(offset.as_secs_f64() / interval)
+    // a trimmed clip's beat isn't rounded: the two halves of a cut clip only
+    // play exactly what the uncut one did if they come back from a project to
+    // the nanosecond, and rounding to six places moves a clip by up to half a
+    // microsecond
+    let beat_of = |offset: Duration, trimmed: bool| if interval > 0. {
+      let beat = offset.as_secs_f64() / interval;
+      if trimmed { beat } else { tidy_beat(beat) }
     } else {
       0.
     };
 
-    let clips = audiograph.nodes.iter().map(|node| ProjectClip {
+    let clips: Vec<ProjectClip> = audiograph.nodes.iter().map(|node| ProjectClip {
       path: stored_path(node.sample_path(), project_dir),
       track_number: node.track_number,
-      start_beat: beat_of(node.start_offset),
+      start_beat: beat_of(node.start_offset, node.window().is_some()),
       settings: node.settings(),
+      window: node.window().map(ClipWindow::of_sample),
     }).collect();
 
     // in the order they start, so saving twice gives the same file
     let mut pattern_clips: Vec<ProjectPatternClip> = audiograph.pattern_nodes.iter().map(|node| ProjectPatternClip {
       pattern_id: node.pattern_id,
       track_number: node.track_number,
-      start_beat: beat_of(node.start_offset),
+      start_beat: beat_of(node.start_offset, node.window.is_some()),
+      window: node.window.map(ClipWindow::of_pattern),
     }).collect();
     pattern_clips.sort_by(|a, b| a.start_beat.total_cmp(&b.start_beat).then(a.track_number.cmp(&b.track_number)));
 
@@ -273,8 +323,16 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
   mixer.tracks.retain(|track| track.settings != daw::ChannelSettings::default() || track.name.is_some());
 
   let uses_patterns = !sequencer.is_empty() || !pattern_clips.is_empty();
+  let uses_windows = clips.iter().any(|clip| clip.window.is_some())
+    || pattern_clips.iter().any(|clip| clip.window.is_some());
   Project {
-    version: if uses_patterns { PROJECT_VERSION } else { PROJECT_VERSION_WITHOUT_PATTERNS },
+    version: if uses_windows {
+      PROJECT_VERSION
+    } else if uses_patterns {
+      PROJECT_VERSION_WITHOUT_WINDOWS
+    } else {
+      PROJECT_VERSION_WITHOUT_PATTERNS
+    },
     settings: ProjectSettings {
       tempo,
       time_signature: *state.playlist.time_signature.lock().unwrap(),
@@ -290,6 +348,14 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
     pattern_clips,
     armed: state.recorder.lock().unwrap().armed(),
   }
+}
+
+// a saved pattern clip window made sensible: no negative start, and no end
+// that isn't after it. None if that leaves all of the pattern
+fn sanitised_pattern_window(window: ClipWindow) -> Option<daw::PatternWindow> {
+  let start = if window.start.is_finite() && window.start > 0. { window.start } else { 0. };
+  let end = window.end.filter(|end| end.is_finite() && *end > start);
+  if start == 0. && end.is_none() { None } else { Some(daw::PatternWindow { start, end }) }
 }
 
 // replace the playlist with a project. playback stops, and every clip gets a
@@ -362,6 +428,12 @@ pub fn apply(
           .get_mut_node_by_id(id)
           .expect("a node that was just added");
         node.set_settings(clip.settings);
+        // the clip stays where it was heard: only the window changes, not
+        // where it starts
+        if let Some(window) = clip.window {
+          let (start, end) = window.sample_times();
+          node.set_window(start, end);
+        }
 
         clips.push(LoadedClip {
           id,
@@ -395,12 +467,20 @@ pub fn apply(
     match audiograph.add_pattern_node::<daw::timing::Note>(
       clip.pattern_id, interval.mul_f64(start_beat), clip.track_number, None,
     ) {
-      Ok(id) => pattern_clips.push(LoadedPatternClip {
-        id,
-        pattern_id: clip.pattern_id,
-        track_number: clip.track_number,
-        start_beat: start_beat as f32,
-      }),
+      Ok(id) => {
+        // kept as saved, even past the pattern's current end: lengthening
+        // the pattern later gives the clip its steps back
+        let window = clip.window.and_then(sanitised_pattern_window);
+        let node = audiograph.pattern_nodes.iter_mut().find(|n| n.id == id).expect("a node that was just added");
+        node.window = window;
+        pattern_clips.push(LoadedPatternClip {
+          id,
+          pattern_id: clip.pattern_id,
+          track_number: clip.track_number,
+          start_beat: start_beat as f32,
+          window: window.map(ClipWindow::of_pattern),
+        });
+      }
       Err(e) => println!("left out a clip of pattern {}: {}", clip.pattern_id, e),
     }
   }
@@ -1056,7 +1136,7 @@ mod tests {
     save_to(&state, &project_path).unwrap();
 
     let saved = Project::from_json(&fs::read_to_string(&project_path).unwrap()).unwrap();
-    assert_eq!(saved.version, PROJECT_VERSION);
+    assert_eq!(saved.version, PROJECT_VERSION_WITHOUT_WINDOWS);
     // inside the project's folder, so saved relative to it
     assert_eq!(saved.sequencer.rows[0].path, "drums/kick.wav");
     // in the order they start
@@ -1090,6 +1170,180 @@ mod tests {
     let json = serde_json::to_value(&project).unwrap();
     assert!(json.get("sequencer").is_none());
     assert!(json.get("patternClips").is_none());
+  }
+
+  fn edit(id: u64, start: f64, end: Option<f64>) -> crate::clip_commands::WindowEdit {
+    crate::clip_commands::WindowEdit { id, window: ClipWindow { start, end } }
+  }
+
+  // a one bar pattern with a kick step, and a clip of it on a beat
+  fn add_pattern_clip(state: &daw::InnerState, bars: u32, beat: f64) -> (u64, u64) {
+    let pattern = {
+      let mut seq = state.playlist.sequencer.lock().unwrap();
+      let row = seq.add_row("assets/assets_66-bd-01.wav").unwrap();
+      let pattern = seq.add_pattern(bars, 4).unwrap();
+      seq.set_step(pattern, row, 0, true).unwrap();
+      pattern
+    };
+    let mut audiograph = state.playlist.audiograph.lock().unwrap();
+    let offset = audiograph.beat_interval().mul_f64(beat);
+    let clip = audiograph.add_pattern_node::<daw::timing::Note>(pattern, offset, 1, None).unwrap();
+    (pattern, clip)
+  }
+
+  fn sorted_nodes(state: &daw::InnerState) -> Vec<daw::AudioNode> {
+    let mut nodes = state.playlist.audiograph.lock().unwrap().nodes.clone();
+    nodes.sort_by_key(|node| node.start_offset);
+    nodes
+  }
+
+  #[test]
+  fn test_a_trimmed_clip_is_saved_and_loaded() {
+    let dir = test_dir("trimmed");
+    let file = dir.join("song.dawesome");
+    let state = daw::InnerState::default();
+    let id = add_clip(&state, "assets/assets_66-bd-01.wav", 0, 2.);
+    crate::clip_commands::set_windows(&state, &[edit(id, 0.02, Some(0.08))]).unwrap();
+    let before = sorted_nodes(&state).remove(0);
+    assert!(before.window().is_some());
+    save_to(&state, &file).unwrap();
+
+    let other = daw::InnerState::default();
+    let loaded = load_from(&other, &file).unwrap();
+    let after = sorted_nodes(&other).remove(0);
+    assert_eq!(after.window(), before.window());
+    assert_eq!(after.start_offset, before.start_offset);
+    assert_eq!(after.settings(), before.settings());
+    assert_eq!(loaded.clips.len(), 1);
+    assert_eq!(loaded.clips[0].info.window, before.window().map(ClipWindow::of_sample));
+
+    fs::remove_dir_all(dir).unwrap();
+  }
+
+  #[test]
+  fn test_the_two_halves_of_a_cut_clip_come_back_to_the_nanosecond() {
+    let dir = test_dir("cut");
+    let file = dir.join("song.dawesome");
+    let state = daw::InnerState::default();
+    let id = add_clip(&state, "assets/assets_66-bd-01.wav", 0, 2.337);
+    crate::event_dispatch::change_clip_settings(
+      &state, id, daw::ClipSettings { pitch: -7., ..Default::default() }, None,
+    ).unwrap();
+    // a beat inside the clip
+    let beat = {
+      let audiograph = state.playlist.audiograph.lock().unwrap();
+      let node = audiograph.get_node_by_id(id).unwrap();
+      (node.start_offset + node.duration() / 2).as_secs_f64() / audiograph.beat_interval().as_secs_f64()
+    };
+    crate::clip_commands::split(&state, &[id], beat).unwrap();
+    let before = sorted_nodes(&state);
+    assert_eq!(before.len(), 2);
+    save_to(&state, &file).unwrap();
+
+    let other = daw::InnerState::default();
+    load_from(&other, &file).unwrap();
+    let after = sorted_nodes(&other);
+    assert_eq!(after.len(), 2);
+    let (left, right) = (&after[0], &after[1]);
+    assert_eq!(left.origin(), right.origin());
+    assert_eq!(left.start_offset + left.duration(), right.start_offset);
+    for (loaded, saved) in after.iter().zip(&before) {
+      assert_eq!(loaded.start_offset, saved.start_offset);
+      assert_eq!(loaded.window(), saved.window());
+    }
+
+    fs::remove_dir_all(dir).unwrap();
+  }
+
+  #[test]
+  fn test_the_version_follows_what_a_project_uses() {
+    // nothing trimmed or patterned: version 1, with no window in the file
+    let state = daw::InnerState::default();
+    let id = add_clip(&state, "assets/assets_66-bd-01.wav", 0, 0.);
+    let plain = capture(&state, None);
+    assert_eq!(plain.version, 1);
+    assert!(!serde_json::to_string(&plain).unwrap().contains("\"window\""));
+
+    // a trimmed sample clip, without patterns
+    crate::clip_commands::set_windows(&state, &[edit(id, 0.02, Some(0.08))]).unwrap();
+    let trimmed = capture(&state, None);
+    assert_eq!(trimmed.version, 3);
+    assert!(serde_json::to_string(&trimmed).unwrap().contains("\"window\""));
+
+    // patterns, not trimmed
+    let state = daw::InnerState::default();
+    let (_, clip) = add_pattern_clip(&state, 1, 0.);
+    assert_eq!(capture(&state, None).version, 2);
+
+    // a trimmed pattern clip
+    crate::clip_commands::set_windows(&state, &[edit(clip, 4., Some(12.))]).unwrap();
+    let trimmed = capture(&state, None);
+    assert_eq!(trimmed.version, 3);
+    assert_eq!(trimmed.pattern_clips[0].window, Some(ClipWindow { start: 4., end: Some(12.) }));
+  }
+
+  #[test]
+  fn test_a_pattern_clips_window_is_kept_past_the_patterns_end() {
+    let dir = test_dir("pattern-window");
+    let file = dir.join("song.dawesome");
+    let state = daw::InnerState::default();
+    let (pattern, clip) = add_pattern_clip(&state, 2, 0.);
+    crate::clip_commands::set_windows(&state, &[edit(clip, 4., Some(24.))]).unwrap();
+    state.playlist.sequencer.lock().unwrap().set_pattern_bars(pattern, 1, 4).unwrap();
+    save_to(&state, &file).unwrap();
+
+    let other = daw::InnerState::default();
+    let loaded = load_from(&other, &file).unwrap();
+    let window = Some(daw::PatternWindow { start: 4., end: Some(24.) });
+    assert_eq!(other.playlist.audiograph.lock().unwrap().pattern_nodes[0].window, window);
+    assert_eq!(loaded.pattern_clips[0].window, Some(ClipWindow { start: 4., end: Some(24.) }));
+
+    fs::remove_dir_all(dir).unwrap();
+  }
+
+  #[test]
+  fn test_an_older_file_loads_whole_and_is_left_alone() {
+    let dir = test_dir("older");
+    let file = dir.join("old.dawesome");
+    let sample = fs::canonicalize("assets/assets_66-bd-01.wav").unwrap();
+    let sample = sample.to_str().unwrap();
+    let json = format!(r#"{{
+  "version": 2,
+  "clips": [
+    {{ "path": "{sample}", "trackNumber": 0, "startBeat": 1.5 }}
+  ],
+  "sequencer": {{
+    "rows": [{{ "id": 0, "path": "{sample}" }}],
+    "patterns": [{{ "id": 1, "name": null, "length": 16, "steps": {{ "0": [0, 4] }} }}]
+  }},
+  "patternClips": [
+    {{ "patternId": 1, "trackNumber": 1, "startBeat": 4 }}
+  ]
+}}
+"#);
+    fs::write(&file, &json).unwrap();
+
+    let state = daw::InnerState::default();
+    let loaded = load_from(&state, &file).unwrap();
+    assert!(loaded.missing.is_empty());
+    assert_eq!(loaded.clips.len(), 1);
+    assert_eq!(loaded.pattern_clips.len(), 1);
+    assert_eq!(loaded.clips[0].info.window, None);
+    assert_eq!(loaded.pattern_clips[0].window, None);
+    let audiograph = state.playlist.audiograph.lock().unwrap();
+    assert!(audiograph.nodes.iter().all(|node| node.window().is_none()));
+    assert!(audiograph.pattern_nodes.iter().all(|node| node.window.is_none()));
+    drop(audiograph);
+    assert_eq!(fs::read(&file).unwrap(), json.as_bytes());
+
+    fs::remove_dir_all(dir).unwrap();
+  }
+
+  #[test]
+  fn test_a_newer_file_is_refused() {
+    let error = Project::from_json(r#"{"version": 4}"#).unwrap_err();
+    assert!(error.contains("saved by a newer version"), "{}", error);
+    assert!(Project::from_json(r#"{"version": 3}"#).is_ok());
   }
 
   #[test]

@@ -397,6 +397,13 @@ impl Sequencer {
   // every hit of a pattern, as (row, time from the pattern's start), in row
   // order. muted rows, and steps past the pattern's end, don't play
   pub fn hits(&self, pattern_id: u64, beat_interval: Duration) -> Vec<(&SequencerRow, Duration)> {
+    self.hit_steps(pattern_id).into_iter()
+      .map(|(row, step)| (row, step_offset(step, beat_interval)))
+      .collect()
+  }
+
+  // the same, as (row, step)
+  pub fn hit_steps(&self, pattern_id: u64) -> Vec<(&SequencerRow, u32)> {
     let pattern = match self.pattern(pattern_id) {
       Some(p) => p,
       None => return Vec::new(),
@@ -408,7 +415,7 @@ impl Sequencer {
         .into_iter()
         .flatten()
         .filter(|&&step| step < pattern.length)
-        .map(move |&step| (row, step_offset(step, beat_interval))))
+        .map(move |&step| (row, step)))
       .collect()
   }
 

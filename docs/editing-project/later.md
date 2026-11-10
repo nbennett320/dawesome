@@ -41,3 +41,11 @@ Things worth fixing that this project does not touch unless a design answer brin
 - **Undo pressed while a dropped sample is still loading undoes the edit before the drop** (`add_clip`, `engine/src/event_dispatch.rs`, records its step only after the file is decoded).
 - **The Edit menu's Undo and Redo items are never dimmed.** The engine already returns `canUndo` and `canRedo` with every undo and redo.
 - **`set_playlist_time_signature` records no undo step.** Nothing in the UI calls it.
+
+## Found while building M4 (2026-11-10)
+
+- **Two clips of the same file each hold their own decoded copy** when the file is dropped in twice (`AudioNode::new`, `engine/src/daw/daw_core/audiograph.rs`). Only cuts, copies and the undo history share one. A cache by path would fix it.
+- **Each new clip's whole-file waveform is fetched again** by the canvas, including the second half of a cut (`fetchNodeData`, `src/views/playlist/sketch/index.ts`).
+- **`ClipSettings::apply`, `Envelope` and `Pan` in `engine/src/daw/daw_core/clip.rs` are now only used by tests,** as the reference the new reader is compared against.
+- **`AudioNode.duration` (a sample's length) is worked out in single precision,** so for a long file it can be off by tens of microseconds (`duration_and_waveform`, `audiograph.rs`). Windows work around it by treating "to the end" as its own case.
+- **rodio's `size_hint` can overflow** on a converted stereo source (it panics in debug builds if something collects such a source into a `Vec`). Nothing in the app does.

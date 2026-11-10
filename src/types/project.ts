@@ -1,5 +1,5 @@
 import { ArmedTrack } from './audio'
-import { ClipInfo } from './clip'
+import { ClipInfo, ClipWindow } from './clip'
 import { MixerSettings } from './mixer'
 import { SequencerState } from './sequencer'
 import type { SnapNote } from '../state/slices/playlistSlice'
@@ -44,6 +44,14 @@ export interface LoadedPatternClip {
   patternId: number
   trackNumber: number
   startBeat: number
+  // the part of the pattern it plays, in steps. null for all of it
+  window: ClipWindow | null
+}
+
+// clips as they are after a trim or a cut (see engine/src/clip_commands.rs)
+export interface ChangedClips {
+  clips: LoadedClip[]
+  patternClips: LoadedPatternClip[]
 }
 
 // a clip that couldn't be loaded, so it was left out of the playlist

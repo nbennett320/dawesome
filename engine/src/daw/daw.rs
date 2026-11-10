@@ -231,7 +231,7 @@ pub fn run_playlist(
 
       let metronome = on_beat && state.metronome_enabled.load(Ordering::SeqCst);
       let sounds = match mode {
-        state::PlayMode::Playlist => audiograph_ref.run_sounds(dur, metronome, resume),
+        state::PlayMode::Playlist => audiograph_ref.run_sounds_at(at, engine.sample_rate(), dur, metronome, resume),
         state::PlayMode::Pattern(id) => audiograph_ref.pattern_sounds(id, dur, metronome, resume),
       };
 

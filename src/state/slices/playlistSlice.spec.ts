@@ -1,9 +1,11 @@
 import { invoke } from '@tauri-apps/api/core'
 import reducer, {
-  reduceLoadedProject, playlistSlice, removeManyFromPlaylist, setPlaylistTempo, updateClipSettings, validTempo,
+  reduceLoadedProject, playlistSlice, removeManyFromPlaylist, selectClipOverrides, selectClipWindow, setClipWindows,
+  setPlaylistTempo,
+  splitClips, updateClipSettings, validTempo,
 } from './playlistSlice'
 import { beginGesture, resetGestures } from '../gesture'
-import { LoadedProject } from '../../types/project'
+import { ChangedClips, LoadedProject, ProjectView } from '../../types/project'
 import { defaultClipSettings } from '../../types/clip'
 
 jest.mock('@tauri-apps/api/core', () => ({ invoke: jest.fn() }))
@@ -24,12 +26,13 @@ const loaded: LoadedProject = {
       settings: { ...defaultClipSettings, pitch: 12 },
       sampleDuration: 2,
       playedDuration: 1,
+      window: { start: 0.25, end: 1.5 },
     },
   ],
   missing: [],
   mixer: { tracks: [], master: { volumeDb: 0, pan: 0, mute: false, solo: false } },
   sequencer: { rows: [], patterns: [], folders: [] },
-  patternClips: [{ id: 9, patternId: 2, trackNumber: 1, startBeat: 8 }],
+  patternClips: [{ id: 9, patternId: 2, trackNumber: 1, startBeat: 8, window: { start: 4, end: null } }],
 }
 
 describe('movePlaylistItem', () => {
@@ -53,8 +56,8 @@ describe('reduceExploded', () => {
     state = reducer(state, actions.reduceExploded({
       removed: [3],
       clips: [
-        { id: 10, patternId: 6, trackNumber: 0, startBeat: 4 },
-        { id: 11, patternId: 7, trackNumber: 2, startBeat: 4 },
+        { id: 10, patternId: 6, trackNumber: 0, startBeat: 4, window: null },
+        { id: 11, patternId: 7, trackNumber: 2, startBeat: 4, window: null },
       ],
     }))
 
@@ -217,6 +220,22 @@ describe('reduceLoadedProject', () => {
     })
     expect(state.clipSettings).toEqual({ 7: { ...defaultClipSettings, pitch: 12 } })
     expect(state.clipSampleDurations).toEqual({ 7: 2 })
+    expect(state.clipWindows).toEqual({ 7: { start: 0.25, end: 1.5 }, 9: { start: 4, end: null } })
+  })
+
+  it('clears the windows of the old project', () => {
+    const { actions } = playlistSlice
+    let state = reducer(undefined, { type: 'init' })
+    state = reducer(state, actions.reduceChangedClips({
+      clips: [], patternClips: [{ id: 1, patternId: 2, trackNumber: 0, startBeat: 0, window: { start: 4, end: 8 } }],
+    }))
+    expect(state.clipWindows[1]).toBeDefined()
+
+    state = reducer(state, reduceLoadedProject(loaded))
+    expect(state.clipWindows[1]).toBeUndefined()
+
+    state = reducer(state, reduceLoadedProject({ ...loaded, clips: [], patternClips: [] }))
+    expect(state.clipWindows).toEqual({})
   })
 
   it('empties the playlist for a new project', () => {
@@ -229,5 +248,157 @@ describe('reduceLoadedProject', () => {
 
     expect(state.playlistItems).toEqual([])
     expect(state.clipSettings).toEqual({})
+  })
+})
+
+describe('reduceProjectView', () => {
+  it('fills the windows of both kinds of clip, and clears stale ones', () => {
+    const { actions } = playlistSlice
+    let state = reducer(undefined, { type: 'init' })
+    state = reducer(state, actions.reduceChangedClips({
+      clips: [], patternClips: [{ id: 1, patternId: 2, trackNumber: 0, startBeat: 0, window: { start: 4, end: 8 } }],
+    }))
+
+    const project: ProjectView = {
+      tempo: 90,
+      clips: loaded.clips,
+      patternClips: loaded.patternClips,
+      mixer: loaded.mixer,
+      sequencer: loaded.sequencer,
+    }
+    state = reducer(state, actions.reduceProjectView({ project, selected: null }))
+
+    expect(state.clipWindows).toEqual({ 7: { start: 0.25, end: 1.5 }, 9: { start: 4, end: null } })
+  })
+})
+
+describe('trimmed and cut clips', () => {
+  const { actions } = playlistSlice
+  const clip = (overrides = {}) => ({
+    ...loaded.clips[0], id: 7, startBeat: 4.5, window: null, ...overrides,
+  })
+  const patternClip = (overrides = {}) => ({
+    id: 9, patternId: 2, trackNumber: 1, startBeat: 8, window: null, ...overrides,
+  })
+  const start = () => {
+    let state = reducer(undefined, { type: 'init' })
+    state = reducer(state, reduceLoadedProject({
+      ...loaded,
+      clips: [clip({ window: { start: 0.25, end: 1.5 } })],
+      patternClips: [patternClip({ window: { start: 4, end: null } })],
+    }))
+    return state
+  }
+
+  it('is as long as the part of its sample it plays, and keeps its fades within that', () => {
+    // two seconds of sample an octave up, playing 0.25s to 1.5s of it
+    let state = start()
+    const overrides = (playlist: typeof state) =>
+      selectClipOverrides({ playlist } as unknown as Parameters<typeof selectClipOverrides>[0])
+    expect(overrides(state)[7].playedDuration).toBeCloseTo(0.625, 10)
+
+    // a fade can't be longer than that
+    state = reducer(state, actions.reduceClipSettings({ id: 7, settings: { attackMs: 5_000 } }))
+    expect(state.clipSettings[7].attackMs).toBeCloseTo(625, 6)
+
+    // untrimmed again, it's the whole sample's length
+    state = reducer(state, actions.reduceChangedClips({ clips: [clip({ window: null })], patternClips: [] }))
+    expect(overrides(state)[7].playedDuration).toBe(1)
+  })
+
+  it('updates a clip where it is, and adds new ones', () => {
+    let state = start()
+    state = reducer(state, actions.reduceChangedClips({
+      clips: [
+        clip({ startBeat: 5, window: { start: 0.5, end: null } }),
+        clip({ id: 20, startBeat: 6, trackNumber: 3, window: { start: 0, end: 0.5 } }),
+      ],
+      patternClips: [
+        patternClip({ startBeat: 9, window: { start: 4, end: 12 } }),
+        patternClip({ id: 21, startBeat: 12, window: { start: 12, end: null } }),
+      ],
+    }))
+
+    expect(state.playlistItems.map(i => i.id)).toEqual([7, 9, 20, 21])
+    expect(state.playlistItems[0]).toMatchObject({ id: 7, startBeat: 5, trackNumber: 2, path: '/samples/kick.wav' })
+    expect(state.playlistItems[1]).toMatchObject({ id: 9, startBeat: 9, patternId: 2 })
+    expect(state.playlistItems[2]).toMatchObject({ id: 20, startBeat: 6, trackNumber: 3, path: '/samples/kick.wav' })
+    expect(state.playlistItems[3]).toMatchObject({ id: 21, startBeat: 12, patternId: 2, path: '' })
+    expect(state.clipWindows).toEqual({
+      7: { start: 0.5, end: null },
+      9: { start: 4, end: 12 },
+      20: { start: 0, end: 0.5 },
+      21: { start: 12, end: null },
+    })
+    expect(state.clipSampleDurations[20]).toBe(2)
+    expect(selectClipWindow(20)({ playlist: state } as never)).toEqual({ start: 0, end: 0.5 })
+    expect(selectClipWindow(99)({ playlist: state } as never)).toBeNull()
+    expect(selectClipWindow()({ playlist: state } as never)).toBeNull()
+  })
+
+  it('drops the window of a clip that comes back whole', () => {
+    let state = start()
+    expect(state.clipWindows[7]).toBeDefined()
+    state = reducer(state, actions.reduceChangedClips({
+      clips: [clip()], patternClips: [patternClip()],
+    }))
+    expect(state.clipWindows).toEqual({})
+  })
+
+  it('forgets the window of a removed clip', () => {
+    let state = start()
+    state = reducer(state, actions.removePlaylistItem({ id: 7 }))
+    state = reducer(state, actions.removePlaylistItem({ id: 9 }))
+    expect(state.clipWindows).toEqual({})
+  })
+
+  describe('the commands', () => {
+    const mockInvoke = invoke as jest.Mock
+    const changed: ChangedClips = {
+      clips: [clip({ id: 7, window: { start: 0.5, end: null } })],
+      patternClips: [],
+    }
+    const run = async (thunk: (dispatch: jest.Mock) => Promise<ChangedClips | null>) => {
+      const dispatch = jest.fn()
+      const result = await thunk(dispatch)
+      const state = dispatch.mock.calls.reduce(
+        (s, [action]) => typeof action === 'function' ? s : reducer(s, action),
+        start(),
+      )
+      return { result, state }
+    }
+
+    beforeEach(() => {
+      mockInvoke.mockReset()
+      mockInvoke.mockImplementation(async (command: string) =>
+        command === 'get_playlist_data' ? [16, 256, 240, 4] : changed)
+    })
+
+    it('trims clips', async () => {
+      const edits = [{ id: 7, start: 0.5, end: null }]
+      const { result, state } = await run(dispatch => setClipWindows(edits)(dispatch))
+
+      expect(mockInvoke).toHaveBeenCalledWith('set_clip_windows', { edits })
+      expect(result).toEqual(changed)
+      expect(state.clipWindows[7]).toEqual({ start: 0.5, end: null })
+    })
+
+    it('cuts clips', async () => {
+      const { result, state } = await run(dispatch => splitClips([7], 5)(dispatch))
+
+      expect(mockInvoke).toHaveBeenCalledWith('split_clips', { ids: [7], beat: 5 })
+      expect(result).toEqual(changed)
+      expect(state.clipWindows[7]).toEqual({ start: 0.5, end: null })
+    })
+
+    it('gives null when the engine refuses', async () => {
+      const error = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+      mockInvoke.mockRejectedValue('no node with id 7')
+
+      const { result, state } = await run(dispatch => splitClips([7], 5)(dispatch))
+      expect(result).toBeNull()
+      expect(state.clipWindows[7]).toEqual({ start: 0.25, end: 1.5 })
+      error.mockRestore()
+    })
   })
 })

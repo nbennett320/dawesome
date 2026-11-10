@@ -6,6 +6,7 @@ import {
   isDefaultClipSettings,
   playbackRate,
   playedDuration,
+  windowedDuration,
 } from './clip'
 
 const settings = (overrides = {}) => ({ ...defaultClipSettings, ...overrides })
@@ -16,6 +17,17 @@ describe('clip settings', () => {
     expect(playbackRate(settings({ pitch: 12 }))).toBeCloseTo(2)
     expect(playbackRate(settings({ pitch: -12 }))).toBeCloseTo(0.5)
     expect(playedDuration(settings({ pitch: 12 }), 4)).toBeCloseTo(2)
+  })
+
+  test('a trimmed clip plays for its window, sped up or slowed down', () => {
+    expect(windowedDuration(settings(), 4, null)).toBe(4)
+    expect(windowedDuration(settings(), 4, undefined)).toBe(4)
+    expect(windowedDuration(settings(), 4, { start: 1, end: 3 })).toBe(2)
+    // no end: to the sample's end
+    expect(windowedDuration(settings(), 4, { start: 1, end: null })).toBe(3)
+    expect(windowedDuration(settings({ pitch: 12 }), 4, { start: 1, end: 3 })).toBeCloseTo(1)
+    // never below nothing
+    expect(windowedDuration(settings(), 4, { start: 3, end: 1 })).toBe(0)
   })
 
   test('gain in decibels', () => {
