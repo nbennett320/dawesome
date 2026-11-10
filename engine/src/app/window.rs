@@ -16,6 +16,9 @@ struct EventPayload {
 pub fn setup(
   app: &mut tauri::App<>
 ) -> Result<(), Box<dyn Error>> {
+  #[cfg(all(debug_assertions, target_os = "macos"))]
+  set_dev_dock_icon();
+
   let window = app.get_window("main").unwrap();
   let window_cp = window.clone();
 
@@ -56,6 +59,25 @@ pub fn setup(
     }
   });
   Ok(())
+}
+
+// bundled builds get their icon from the .app; an unbundled dev binary
+// shows a generic one in the dock unless it's set at runtime
+#[cfg(all(debug_assertions, target_os = "macos"))]
+#[allow(unexpected_cfgs)] // objc 0.2's macros check cfg(feature = "cargo-clippy")
+fn set_dev_dock_icon() {
+  use objc::runtime::Object;
+  use objc::{class, msg_send, sel, sel_impl};
+
+  const ICON: &[u8] = include_bytes!("../../icons/dawesome.icns");
+  unsafe {
+    let data: *mut Object = msg_send![class!(NSData),
+      dataWithBytes: ICON.as_ptr() length: ICON.len()];
+    let image: *mut Object = msg_send![class!(NSImage), alloc];
+    let image: *mut Object = msg_send![image, initWithData: data];
+    let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
+    let () = msg_send![app, setApplicationIconImage: image];
+  }
 }
 
 // build the containing window menus

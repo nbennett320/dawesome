@@ -37,6 +37,10 @@ trash = "~5.2.3"  # 5.3 needs rustc 1.87
 pulse = { version = "2.26.*", package= "libpulse-binding" }
 psimple = { version="2.25.*", package="libpulse-simple-binding" }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# already a dependency of tauri; sets the dock icon in dev builds
+objc = "0.2"
+
 [features]
 # by default Tauri runs in production mode
 # when `tauri dev` runs it is executed with `cargo run --no-default-features` if `devPath` is an URL
