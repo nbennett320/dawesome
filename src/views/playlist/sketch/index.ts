@@ -96,6 +96,11 @@ const AUTO_SCROLL = {
 }
 
 // a wheel event's delta in lines (a mouse wheel on some systems), in pixels
+// how long the playlist keeps drawing after something changes (see
+// Renderer.wake), so whatever follows from it (a hover, a scroll settling)
+// is drawn too
+const IDLE_MS = 500
+
 const WHEEL_LINE_PIXELS = 16
 // how much zoom one pixel of ⌘+wheel gives, before limiting to
 // staticDefaults.zoomSensitivity per event
@@ -342,6 +347,7 @@ export class Renderer extends RendererBase {
     } catch(e) {
       console.error('could not sync the playback cursor:', e)
     }
+    this.wake()
   }
 
   // the playhead, in beats: following the engine's run while playing, or
@@ -374,6 +380,7 @@ export class Renderer extends RendererBase {
     if(this.#seekTimeout) clearTimeout(this.#seekTimeout)
     this.#seekTimeout = setTimeout(() => {
       if(!this.seekDragging) this.seekBeat = null
+      this.wake()
     }, 1500)
   }
 
@@ -383,10 +390,12 @@ export class Renderer extends RendererBase {
     } catch(e) {
       console.error('could not get the snap setting:', e)
     }
+    this.wake()
   }
 
   clearSelection = () => {
     this.selectedIds = new Set()
+    this.wake()
   }
 
   // the selected clips' ids, clearing the selection (to delete them). none
@@ -440,19 +449,52 @@ export class Renderer extends RendererBase {
     p.pop()
   }
 
+  // the playlist draws only while something on it can change: while it's
+  // playing, while something's being dragged, and for a moment after
+  // anything else (the mouse, a prop update, data arriving). otherwise the
+  // last frame stays, and drawing costs nothing
+  //
+  // when wake was last called (performance.now(), ms)
+  #lastWake = 0
+
+  // the p5 instance drawing, unless it's been removed (its canvas is gone):
+  // started again, it would draw on unseen
+  #liveP = () => {
+    const p = this.#p
+    const ctx = p?.drawingContext as CanvasRenderingContext2D | undefined
+    return p && ctx?.canvas.isConnected ? p : null
+  }
+
+  // something changed: draw it, and keep drawing for a moment (see IDLE_MS)
+  wake = () => {
+    this.#lastWake = performance.now()
+    if(this.#visible) this.#liveP()?.loop()
+  }
+
+  // whether the next frame may differ from the last without anything waking
+  // the playlist: the playhead moves, or something follows the mouse
+  #animating = (): boolean => {
+    const t = this.transport
+    return this.playing
+      || !!(t?.playing && t.patternId === null)
+      || this.isMouseDown
+      || this.clipDrag !== null
+      || this.sampleDrag !== null
+      || this.lasso !== null
+      || this.seekDragging
+      || this.scrollbarGrab !== null
+  }
+
   // stop drawing while the playlist can't be seen (its tab isn't selected),
   // and start again, from however things are by then, once it can
   setVisible = (visible: boolean) => {
     if(visible === this.#visible) return
     this.#visible = visible
 
-    // (not a p5 instance that's been removed, whose canvas is gone: started
-    // again, it would draw on unseen. a new one starts as this says, in setup)
-    const p = this.#p
-    const ctx = p?.drawingContext as CanvasRenderingContext2D | undefined
-    if(!p || !ctx?.canvas.isConnected) return
-    if(visible) p.loop()
-    else p.noLoop()
+    // (a new p5 instance starts as this says, in setup)
+    const p = this.#liveP()
+    if(visible) this.wake()
+    else p?.noLoop()
   }
 
   // the clip under the mouse, if any (the last one drawn is on top)
@@ -513,6 +555,7 @@ export class Renderer extends RendererBase {
   // - x, y: mouse position on the canvas
   // - containerTop: the playlist's top in the window, used for waveform y
   setSampleDrag = (item: DragItem, x: number, y: number, containerTop: number) => {
+    this.wake()
     const key = dragItemKey(item)
     if(this.sampleDrag?.key === key) {
       this.sampleDrag.x = x
@@ -540,9 +583,18 @@ export class Renderer extends RendererBase {
     return pattern ? patternSeconds(pattern, this.tempo) : 0
   }
 
-  setSequencer = (sequencer: SequencerState) => { this.sequencer = sequencer }
+  // (pattern clips draw their pattern)
+  // (called on every store update, so only a change wakes the playlist)
+  setSequencer = (sequencer: SequencerState) => {
+    if(sequencer === this.sequencer) return
+    this.sequencer = sequencer
+    this.wake()
+  }
 
-  clearSampleDrag = () => { this.sampleDrag = null }
+  clearSampleDrag = () => {
+    this.sampleDrag = null
+    this.wake()
+  }
 
   // clips whose settings changed in the Sample tab, by id. kept here so
   // clips rebuilt on later prop updates get them too
@@ -553,6 +605,7 @@ export class Renderer extends RendererBase {
   setClipOverrides = (overrides: Record<number, ClipOverride>) => {
     this.clipOverrides = overrides
     this.playlistObjects.forEach(this.#applyClipOverride)
+    this.wake()
   }
 
   #applyClipOverride = (obj: PlaylistObject) => {
@@ -576,6 +629,7 @@ export class Renderer extends RendererBase {
       console.error('could not preview sample:', path, e)
       if(this.sampleDrag?.key === key) this.sampleDrag.error = String(e)
     }
+    this.wake()
   }
 
   // build the sidebar drag preview with the p5 instance that's drawing, so it
@@ -924,6 +978,15 @@ export class Renderer extends RendererBase {
       if(!this.#visible) p.noLoop()
       p.noStroke()
 
+      // anything done on the canvas shows (see wake). drags carry on past
+      // its edges, and keep it drawing until they end (see #animating)
+      const elt = canvas.elt as HTMLCanvasElement
+      const wakeOn = ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'dblclick', 'contextmenu', 'gesturechange']
+      wakeOn.forEach(type => elt.addEventListener(type, this.wake, { passive: true }))
+      // labels drawn before the font loaded are drawn again in it
+      document.fonts?.ready.then(this.wake)
+      this.wake()
+
       // handle mouse press, and pick up a clip if one was pressed on
       canvas.mousePressed((ev: MouseEvent) => {
         if(ev.button === 0) {
@@ -990,6 +1053,7 @@ export class Renderer extends RendererBase {
         this.isMouseDown = false
         this.isMouseDragged = false
         this.clipDrag = null
+        this.wake()
       }
 
       // the wheel or a two-finger swipe scrolls: up/down through the tracks,
@@ -1073,6 +1137,7 @@ export class Renderer extends RendererBase {
         if(p.keyCode !== p.ESCAPE) return
         this.lasso = null
         this.clearSelection()
+        this.wake()
       }
 
       // handle right click
@@ -1133,6 +1198,7 @@ export class Renderer extends RendererBase {
         console.error("this.canvas in the playlist Renderer was null when p.updatingWithProps was called.")
         return
       }
+      this.wake()
 
       // the canvas's box can be unmeasured for a moment (e.g. while a split
       // pane remounts the playlist). keep the last good size: an undefined
@@ -1251,12 +1317,17 @@ export class Renderer extends RendererBase {
         this.playlistObjects = newPlaylistObjects
         this.playlistTracks = newPlaylistTracks
         this.selectedIds = keepExisting(this.selectedIds, newPlaylistObjects.map(c => c.playlistItem.id))
+        this.wake()
       })
     }
 
     // render p5 canvas
     p.draw = () => {
       if(!canvas) return
+
+      // nothing's changed for a while: this is the last frame until
+      // something does (see wake)
+      if(!this.#animating() && performance.now() - this.#lastWake > IDLE_MS) p.noLoop()
 
       const { width, trackCount, currentScale, beatsDisplayed } = this
 
