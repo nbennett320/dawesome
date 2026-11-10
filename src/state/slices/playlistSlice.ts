@@ -327,9 +327,28 @@ export const selectWind = (state: RootState) => state.playlist.wind
 // start tempo methods
 export const { reduceTempo } = playlistSlice.actions
 
-export const setPlaylistTempo = (val: number) => async (dispatch: Dispatch) => {
-  await invoke<void>('set_playlist_tempo', { val })
-  dispatch(reduceTempo(val))
+// the tempos the engine takes (see daw::timing::valid_tempo)
+export const validTempo = (tempo: number): boolean =>
+  Number.isFinite(tempo) && tempo >= 1 && tempo <= 1000
+
+// change the tempo. clips and the playhead keep their beats, and playback
+// carries on from the beat it had got to. a tempo that makes no sense isn't
+// sent, and the engine refuses any while recording. resolves to whether the
+// tempo was changed
+export const setPlaylistTempo = (val: number) => async (dispatch: Dispatch): Promise<boolean> => {
+  if(!validTempo(val)) return false
+
+  try {
+    const tempo = await invoke<number>('set_playlist_tempo', { val })
+    dispatch(reduceTempo(tempo))
+    // the playhead's time, and the beat's length, have changed
+    await syncPlayingFrom(dispatch)
+    return true
+  } catch(e) {
+    // eslint-disable-next-line no-console
+    console.error(`could not set the tempo to ${val}:`, e)
+    return false
+  }
 }
 
 // retrieve tempo from internal (rust) state

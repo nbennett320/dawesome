@@ -175,13 +175,14 @@ pub fn get_playlist_tempo(
   Ok(state.tempo())
 }
 
+// change the tempo (see daw::set_playlist_tempo). refused while recording
 #[tauri::command]
 pub fn set_playlist_tempo(
   state: daw::TState<'_>,
   val: f32,
-) {
+) -> Result<f32, String> {
   println!("playlist tempo updated: {}", val);
-  daw::set_playlist_tempo(state, val);
+  daw::set_playlist_tempo(state.inner(), val)
 }
 
 pub fn toggle_metronome_enabled(
@@ -368,15 +369,29 @@ fn add_audiograph_node(
   start_offset: std::time::Duration,
   snap_enabled: bool,
 ) -> Result<u64, String> {
+  add_audiograph_node_at(state, sample_path, track_number, |_| start_offset, snap_enabled)
+}
+
+// add a clip where `start_offset` says, asked once its sample has been
+// decoded: that takes a while, and the tempo may change meanwhile, which
+// would move a time worked out before it
+fn add_audiograph_node_at(
+  state: &daw::InnerState,
+  sample_path: String,
+  track_number: u32,
+  start_offset: impl FnOnce(&daw::InnerState) -> std::time::Duration,
+  snap_enabled: bool,
+) -> Result<u64, String> {
   // decoded before taking the graph's lock, which playback (and the
   // playhead, polled from the UI) needs
-  let mut node = daw::AudioNode::new(0, sample_path, start_offset, track_number)?;
+  let mut node = daw::AudioNode::new(0, sample_path, std::time::Duration::ZERO, track_number)?;
+  node.start_offset = start_offset(state);
 
   let subdivision = state.playlist.ui.lock().unwrap().snap_subdivision;
   let mut audiograph = state.playlist.audiograph.lock().unwrap();
   if snap_enabled {
     // snap to nearest snap subdivision
-    node.start_offset = audiograph.find_nearest_offset_subdivision(start_offset, subdivision);
+    node.start_offset = audiograph.find_nearest_offset_subdivision(node.start_offset, subdivision);
   }
 
   Ok(audiograph.insert_node(node))
@@ -390,11 +405,10 @@ pub fn t_add_audiograph_node(
   track_number: u32,
   drop_beat: Option<f32>,
 ) -> Result<PlacedNode, String> {
-  let start_offset = beat_to_offset(state.inner(), drop_beat);
-
   let snap_enabled = state.playlist.ui.lock().unwrap().snap_enabled;
 
-  let id = add_audiograph_node(state.inner(), sample_path, track_number, start_offset, snap_enabled)?;
+  let id = add_audiograph_node_at(
+    state.inner(), sample_path, track_number, |state| beat_to_offset(state, drop_beat), snap_enabled)?;
   let start_beat = node_beat(state.inner(), id)?;
 
   Ok(PlacedNode { id, start_beat })
@@ -1007,6 +1021,81 @@ mod tests {
     assert_eq!(daw::seek_playlist(&state, 40.), 40.);
     assert_eq!(daw::seek_playlist(&state, 400.), 256.);
     assert_eq!(daw::seek_playlist(&state, f64::NAN), 0.);
+  }
+
+  #[test]
+  fn test_clips_and_the_playhead_keep_their_beat_when_the_tempo_changes() {
+    let state = Arc::new(daw::InnerState::default());
+    let sample = daw::METRONOME_TICK_PATH.to_string();
+    let id = add_audiograph_node(&state, sample, 0, beat_to_offset(&state, Some(8.)), true).unwrap();
+    let ms = |id: u64| state.playlist.audiograph.lock().unwrap()
+      .get_node_by_id(id).unwrap().start_offset.as_secs_f64() * 1000.;
+    let length = |id: u64| state.playlist.audiograph.lock().unwrap()
+      .get_node_by_id(id).unwrap().duration();
+    let played = length(id);
+    daw::seek_playlist(&state, 9.);
+
+    // 120bpm to 90: beat 8 is 5.33s in, rather than 4s
+    assert_eq!(daw::set_playlist_tempo(&state, 90.), Ok(90.));
+    assert!((node_beat(&state, id).unwrap() - 8.).abs() < 1e-5);
+    assert!((ms(id) - 8. * 60_000. / 90.).abs() < 0.01);
+    // the playhead is still on beat 9
+    assert!((daw::offset_beats(daw::playhead(&state), daw::beat_interval(&state)) - 9.).abs() < 1e-5);
+    assert_eq!(state.playlist.total_beats.load(Ordering::SeqCst), 9);
+    // the clip plays the same audio, for as long
+    assert_eq!(length(id), played);
+
+    // and back again, without drifting
+    daw::set_playlist_tempo(&state, 120.).unwrap();
+    assert!((ms(id) - 4_000.).abs() < 0.001);
+    assert_eq!(get_playlist_position_of(&state), 9.);
+
+    // tempos that make no sense are refused, and nothing moves
+    for bad in [0., 0.5, -30., f32::NAN, f32::INFINITY, 5_000., 1e-20] {
+      assert!(daw::set_playlist_tempo(&state, bad).is_err());
+    }
+    assert_eq!(state.tempo(), 120.);
+    assert!((ms(id) - 4_000.).abs() < 0.001);
+    assert_eq!(get_playlist_position_of(&state), 9.);
+  }
+
+  #[test]
+  fn test_playback_carries_on_from_its_beat_at_the_new_tempo() {
+    let state = daw::InnerState::default();
+    // a clip far enough along that the loop is long
+    add_audiograph_node(&state, daw::METRONOME_TICK_PATH.to_string(), 0, beat_to_offset(&state, Some(60.)), true).unwrap();
+
+    // playing from beat 4 (2s), 1.25s ago: beat 6.5
+    fake_run(&state, 2_000, 1_250);
+    assert_eq!(daw::retime(&state, 60.), Ok(daw::Retimed::Playlist));
+
+    // the run was ended, and the playhead left on the beat it had got to, in
+    // the new tempo's time (6.5s), ready to carry on from
+    assert!(!state.playlist.playing());
+    let beat = daw::offset_beats(daw::playhead(&state), daw::beat_interval(&state));
+    assert!((beat - 6.5).abs() < 0.1, "beat {}", beat);
+    assert!((playhead_ms(&state) - 6_500.).abs() < 100.);
+    assert_eq!(state.playlist.total_beats.load(Ordering::SeqCst), 6);
+
+    // stopped: nothing to carry on with
+    assert_eq!(daw::retime(&state, 90.), Ok(daw::Retimed::Stopped));
+    // the same tempo again changes nothing
+    assert_eq!(daw::retime(&state, 90.), Ok(daw::Retimed::Stopped));
+
+    // a pattern playing on its own is ended too, to start over. the
+    // playlist's playhead stays on its beat
+    *state.playlist.mode.lock().unwrap() = daw::PlayMode::Pattern(3);
+    state.playlist.set_playing(true);
+    assert_eq!(daw::retime(&state, 120.), Ok(daw::Retimed::Pattern(3)));
+    assert!(!state.playlist.playing());
+    let beat = daw::offset_beats(daw::playhead(&state), daw::beat_interval(&state));
+    assert!((beat - 6.5).abs() < 0.1, "beat {}", beat);
+  }
+
+  // the playhead, in beats, as get_playlist_position reports it
+  fn get_playlist_position_of(state: &daw::InnerState) -> f64 {
+    let beats = daw::offset_beats(daw::playhead(state), daw::beat_interval(state));
+    (beats * 1e6).round() / 1e6
   }
 
   #[test]

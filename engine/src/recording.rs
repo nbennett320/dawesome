@@ -437,6 +437,27 @@ mod tests {
   }
 
   #[test]
+  fn test_the_tempo_is_locked_while_recording() {
+    let state = Arc::new(daw::InnerState::default());
+    state.recorder.lock().unwrap().session = Some(session());
+
+    *state.playlist.start_offset.lock().unwrap() = Duration::from_millis(1_500);
+    assert!(daw::set_playlist_tempo(&state, 90.).is_err());
+    assert_eq!(state.tempo(), 120.);
+    // nothing moved
+    assert_eq!(*state.playlist.start_offset.lock().unwrap(), Duration::from_millis(1_500));
+
+    // nor while its takes are being put on their tracks, at the tempo they
+    // were recorded in
+    let stopped = state.recorder.lock().unwrap().begin_finish();
+    assert!(stopped.is_some());
+    assert!(daw::set_playlist_tempo(&state, 90.).is_err());
+
+    state.recorder.lock().unwrap().end_finish(vec![], vec![]);
+    assert_eq!(daw::set_playlist_tempo(&state, 90.), Ok(90.));
+  }
+
+  #[test]
   fn test_a_count_in_is_a_bar() {
     let state = daw::InnerState::default();
     // off unless it's turned on

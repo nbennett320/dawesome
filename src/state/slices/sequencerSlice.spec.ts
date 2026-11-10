@@ -1,4 +1,5 @@
-import reducer, { sequencerSlice, selectPattern, setSequencer } from './sequencerSlice'
+import { invoke } from '@tauri-apps/api/core'
+import reducer, { changeTempo, sequencerSlice, selectPattern, setSequencer } from './sequencerSlice'
 import { reduceLoadedProject, setPlaying } from './playlistSlice'
 import { LoadedProject } from '../../types/project'
 import { SequencerState } from '../../types/sequencer'
@@ -70,5 +71,35 @@ describe('sequencerSlice', () => {
     expect(state.patterns).toHaveLength(2)
     expect(state.rows).toHaveLength(1)
     expect(state.selectedPatternId).toBe(0)
+  })
+})
+
+describe('changeTempo', () => {
+  const mockInvoke = invoke as jest.Mock
+  // a pattern playing on its own, as the engine reports it after starting
+  // it over at the new tempo
+  const transport = {
+    playing: true, patternId: 4, startTimeMs: 5_000, beatIntervalMs: 666,
+  }
+
+  it('follows a pattern that started over at the new tempo', async () => {
+    mockInvoke.mockImplementation(async (command: string, args?: { val: number }) => {
+      if(command === 'set_playlist_tempo') return args?.val
+      if(command === 'get_playlist_playing') return true
+      if(command === 'get_playlist_transport') return transport
+      return undefined
+    })
+    const actions: { type: string }[] = []
+
+    expect(await changeTempo(90)(a => { actions.push(a as { type: string }); return a })).toBe(true)
+
+    const state = actions.reduce(reducer, init())
+    expect(state.run).toEqual({ patternId: 4, startTimeMs: 5_000, beatIntervalMs: 666 })
+  })
+
+  it('asks nothing more when the tempo was not changed', async () => {
+    const dispatch = jest.fn()
+    expect(await changeTempo(NaN)(dispatch)).toBe(false)
+    expect(mockInvoke).not.toHaveBeenCalled()
   })
 })

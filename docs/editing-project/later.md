@@ -13,7 +13,7 @@ Things worth fixing that this project does not touch unless a design answer brin
 - **Escape clears the playlist selection from anywhere**, including while typing in a rename field (`src/views/playlist/sketch/index.ts:1136-1141`).
 - **The renderer's copy of the snap setting can be stale.** It refreshes at setup and when a drag starts, not when the Snap key is pressed, so ruler seeking can snap to the old setting (`sketch/index.ts:387-394`).
 - **Deleting a selection is one engine call per clip** and can fail halfway (`playlistSlice.ts:533-545`).
-- **The tempo field sends to the engine on every keystroke** (`src/components/topbar/TempoInput.tsx:17`).
+- ~~**The tempo field sends to the engine on every keystroke.**~~ Changed in M2: a typed tempo is now taken up half a second after typing stops, on Enter, or when the field is left (`src/components/topbar/TempoInput.tsx`).
 - **Lint and typecheck baselines are not clean.** `eslint src` reports 3 errors and 55 warnings; `tsc --noEmit` reports a missing type definition for `@testing-library/jest-dom`; Prettier has no config; CI runs neither.
 - **Jest cannot render components.** `jest-transform-css` is referenced but not installed, and React's default import is undefined under the current ts-jest settings.
 - **Linux build.** `AudioNode` is gated off on Linux while ungated code uses it (`audiograph.rs:173`, `:225`). Not verified against CI.

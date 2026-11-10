@@ -1,4 +1,5 @@
-import reducer, { reduceLoadedProject, playlistSlice } from './playlistSlice'
+import { invoke } from '@tauri-apps/api/core'
+import reducer, { reduceLoadedProject, playlistSlice, setPlaylistTempo, validTempo } from './playlistSlice'
 import { LoadedProject } from '../../types/project'
 import { defaultClipSettings } from '../../types/clip'
 
@@ -56,6 +57,53 @@ describe('reduceExploded', () => {
 
     expect(state.playlistItems.map(i => i.id)).toEqual([4, 10, 11])
     expect(state.playlistItems[2]).toMatchObject({ path: '', patternId: 7, trackNumber: 2, startBeat: 4 })
+  })
+})
+
+describe('setPlaylistTempo', () => {
+  const mockInvoke = invoke as jest.Mock
+
+  it('takes the tempos the engine does', () => {
+    expect([120, 1, 1000].every(validTempo)).toBe(true)
+    expect([0, 0.5, -90, NaN, Infinity, 1000.5, 1e-20].some(validTempo)).toBe(false)
+  })
+
+  it('sends a tempo, then asks where the playhead is', async () => {
+    mockInvoke.mockImplementation(async (command: string, args?: { val: number }) => {
+      if(command === 'set_playlist_tempo') return args?.val
+      if(command === 'get_playlist_playing') return true
+      return undefined
+    })
+    const dispatch = jest.fn()
+
+    expect(await setPlaylistTempo(90)(dispatch)).toBe(true)
+
+    expect(mockInvoke).toHaveBeenCalledWith('set_playlist_tempo', { val: 90 })
+    const state = dispatch.mock.calls.reduce((s, [action]) => reducer(s, action), reducer(undefined, { type: 'init' }))
+    expect(state.tempo).toBe(90)
+    // views that follow the playhead ask the engine again
+    expect(state.transportRevision).toBe(1)
+  })
+
+  it('does not send half a number', async () => {
+    const dispatch = jest.fn()
+    expect(await setPlaylistTempo(NaN)(dispatch)).toBe(false)
+    expect(await setPlaylistTempo(0)(dispatch)).toBe(false)
+
+    expect(mockInvoke).not.toHaveBeenCalled()
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+
+  it('keeps the tempo when the engine refuses (while recording)', async () => {
+    mockInvoke.mockRejectedValue('the tempo can\'t be changed while recording')
+    const error = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const dispatch = jest.fn()
+
+    expect(await setPlaylistTempo(90)(dispatch)).toBe(false)
+
+    expect(dispatch).not.toHaveBeenCalled()
+    expect(error).toHaveBeenCalled()
+    error.mockRestore()
   })
 })
 

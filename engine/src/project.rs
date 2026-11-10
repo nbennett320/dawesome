@@ -126,7 +126,7 @@ impl Project {
     }
 
     let tempo = self.settings.tempo;
-    if !tempo.is_finite() || tempo <= 0. || tempo > 1000. {
+    if !daw::timing::valid_tempo(tempo) {
       return Err(format!("the project's tempo ({}) is out of range", tempo));
     }
 
@@ -810,6 +810,20 @@ mod tests {
     assert_eq!(other.project.lock().unwrap().name(), project_files::UNTITLED);
 
     let _ = fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_clips_are_saved_on_their_beats_after_a_tempo_change() {
+    let sample = fs::canonicalize(daw::METRONOME_TICK_PATH).unwrap();
+    let state = daw::InnerState::default();
+    add_clip(&state, sample.to_str().unwrap(), 1, 4.5);
+    add_clip(&state, sample.to_str().unwrap(), 0, 200.);
+
+    // placed at 120bpm, saved at 93 (then 77): the same beats, to the digit
+    state.set_tempo(93.);
+    state.set_tempo(77.);
+    let beats: Vec<f64> = capture(&state, None).clips.iter().map(|clip| clip.start_beat).collect();
+    assert_eq!(beats, vec![4.5, 200.]);
   }
 
   #[test]

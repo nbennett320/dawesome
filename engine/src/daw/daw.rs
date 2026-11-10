@@ -550,16 +550,66 @@ pub fn offset_beats(offset: Duration, interval: Duration) -> f64 {
   if interval.is_zero() { 0. } else { offset.as_secs_f64() / interval.as_secs_f64() }
 }
 
-pub fn set_playlist_tempo(
-  state: tauri::State<'_, Arc<state::InnerState>>,
-  val: f32,
-) {
-  state
-    .playlist
-    .audiograph
-    .lock()
-    .unwrap()
-    .set_tempo(val);
+// what was playing when the tempo changed, to carry on with
+#[derive(Debug, PartialEq)]
+pub enum Retimed {
+  Stopped,
+  Playlist,
+  Pattern(u64),
+}
+
+// change the tempo, ending whatever's playing. every clip, and the playhead,
+// stays on its beat: a playlist that was playing is left paused on the beat
+// it had got to. returns what was playing (see set_playlist_tempo)
+pub fn retime(state: &state::InnerState, tempo: f32) -> Result<Retimed, String> {
+  if !daw_core::timing::valid_tempo(tempo) {
+    return Err(format!("the tempo can't be {}", tempo));
+  }
+  // carrying on at another tempo would cut a take short, and one being put
+  // on its track is placed in the tempo it was recorded at
+  if crate::recording::is_busy(state) {
+    return Err("the tempo can't be changed while recording".into());
+  }
+  if state.tempo() == tempo { return Ok(Retimed::Stopped); }
+
+  let was = match state.playlist.playing_pattern() {
+    Some(id) => Retimed::Pattern(id),
+    None if state.playlist.playing_playlist() => Retimed::Playlist,
+    None => Retimed::Stopped,
+  };
+  match was {
+    Retimed::Playlist => {
+      // where it's got to (in the old tempo's time), before the run ends
+      let position = playhead(state);
+      end_run(state);
+      *state.playlist.start_offset.lock().unwrap() = position;
+    }
+    Retimed::Pattern(_) => end_run(state),
+    Retimed::Stopped => {}
+  }
+
+  state.set_tempo(tempo);
+  // the counters follow the playhead's beat
+  let position = *state.playlist.start_offset.lock().unwrap();
+  set_playhead(state, position);
+
+  Ok(was)
+}
+
+// change the tempo. every clip, and the playhead, stays on its beat. while
+// the playlist plays, it carries on from the beat it had got to (after a
+// short fade); a pattern playing on its own starts over. returns the tempo
+pub fn set_playlist_tempo(state: &Arc<state::InnerState>, tempo: f32) -> Result<f32, String> {
+  match retime(state, tempo)? {
+    Retimed::Playlist => start_playlist(state),
+    // (the tempo's changed even if the pattern has gone meanwhile)
+    Retimed::Pattern(id) => if let Err(e) = start_pattern(state, id) {
+      println!("could not carry on with pattern {}: {}", id, e);
+    },
+    Retimed::Stopped => {}
+  }
+
+  Ok(tempo)
 }
 
 pub fn get_playlist_track_count(

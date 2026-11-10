@@ -43,13 +43,20 @@ impl InnerState {
       .tempo()
   }
 
-  pub fn set_tempo(&self, tempo: f32) {
-    self
-      .playlist
-      .audiograph
-      .lock()
-      .unwrap()
-      .set_tempo(tempo);
+  // change the tempo. clips and the playhead keep the beats they're on
+  //
+  // only with nothing playing: a run keeps the beat length it started with
+  // (see daw::set_playlist_tempo, which ends the run first)
+  pub(crate) fn set_tempo(&self, tempo: f32) {
+    // the playhead moves under the graph's lock, so nothing sees the clips
+    // moved and the playhead not
+    let mut audiograph = self.playlist.audiograph.lock().unwrap();
+    let before = audiograph.beat_interval();
+    audiograph.set_tempo(tempo);
+    let after = audiograph.beat_interval();
+
+    let mut playhead = self.playlist.start_offset.lock().unwrap();
+    *playhead = crate::daw::timing::keep_beat(*playhead, before, after);
   }
 }
 

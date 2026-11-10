@@ -25,11 +25,11 @@ Milestone tags (M1–M14) say when an item becomes checkable.
 - [ ] A5 [M] With Loop on, a marker on the ruler sits at the loop's end and moves when the last clip is moved or trimmed. With Loop off it is not drawn.
 - [x] A6 [E] During a recording the loop length does not change when clips are added. — `recording::tests::test_the_loop_stays_put_while_recording`
 - [ ] A7 [M] After Open and after New Project the view is back on bars 1 to 4.
-- [ ] A8 [E] A clip at beat 8 at 120 bpm is still at beat 8 after the tempo is set to 90, and its first rendered frame is at the frame for beat 8 at 90 bpm.
+- [x] A8 [E] A clip at beat 8 at 120 bpm is still at beat 8 after the tempo is set to 90, and its first rendered frame is at the frame for beat 8 at 90 bpm. — `audiograph::tests::test_a_clip_on_beat_8_is_heard_on_beat_8_at_another_tempo` (rendered frame 235,200 at 90 bpm), `event_dispatch::tests::test_clips_and_the_playhead_keep_their_beat_when_the_tempo_changes`
 - [ ] A9 [M] After changing the tempo, each clip sits on the same grid line as before and plays on that beat, without saving and reloading.
-- [ ] A10 [E] A trimmed 1.000-second clip is still 1.000 second long after a tempo change.
-- [ ] A11 [M] Changing the tempo during playback: playback continues from the same beat at the new tempo.
-- [ ] A12 [M] While recording, the tempo field cannot be changed.
+- [ ] A10 [E] A trimmed 1.000-second clip is still 1.000 second long after a tempo change. (Proved for an untrimmed one-second clip by `audiograph::tests::test_a_one_second_clip_is_a_second_long_at_any_tempo`; to be re-proved on a trimmed clip when trim lands in M4.)
+- [ ] A11 [M] Changing the tempo during playback: playback continues from the same beat at the new tempo. (Engine half covered by `event_dispatch::tests::test_playback_carries_on_from_its_beat_at_the_new_tempo`.)
+- [ ] A12 [M] While recording, the tempo field cannot be changed. (Engine refusal covered by `recording::tests::test_the_tempo_is_locked_while_recording`.)
 
 ## B. Undo and redo (M3, extended by each later milestone)
 

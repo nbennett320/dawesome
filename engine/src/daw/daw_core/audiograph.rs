@@ -572,8 +572,21 @@ impl AudioGraph<'static> {
     sounds
   }
 
+  // change the tempo. clips keep their beat: one on beat 9 is still on beat
+  // 9, so it starts sooner or later in time. (how long a sample clip plays
+  // for doesn't change)
   pub fn set_tempo(&mut self, tempo: f32) {
+    let before = self.beat_interval();
     self.tempo = tempo;
+    let after = self.beat_interval();
+    if before.is_zero() || before == after { return; }
+
+    for node in self.nodes.iter_mut() {
+      node.start_offset = daw::timing::keep_beat(node.start_offset, before, after);
+    }
+    for node in self.pattern_nodes.iter_mut() {
+      node.start_offset = daw::timing::keep_beat(node.start_offset, before, after);
+    }
   }
 
   pub fn tempo(&self) -> f32 {
@@ -983,11 +996,14 @@ impl AudioGraph<'static> {
       self.tempo,
       subdivision);
 
-    let nearest_offset_micros = util::math::round_to_nearest_multiple(
-      offset.as_micros(),
-      interval.as_micros());
+    // in nanoseconds: a beat is rarely a whole number of microseconds, and
+    // what's lost in each would add up along a long playlist
+    if interval.is_zero() { return offset; }
+    let nearest_offset_nanos = util::math::round_to_nearest_multiple(
+      offset.as_nanos(),
+      interval.as_nanos());
 
-    Duration::from_micros(nearest_offset_micros.try_into().unwrap())
+    Duration::from_nanos(nearest_offset_nanos.try_into().unwrap())
   }
   
   // return the unique audio tracks numbers in the graph
@@ -1286,6 +1302,78 @@ mod tests {
     // the metronome doesn't play without a run of the graph
     audiograph.pause();
     assert!(audiograph.run_sounds(second, true, false).is_empty());
+  }
+
+  #[test]
+  fn test_clips_keep_their_beat_when_the_tempo_changes() {
+    let rate = 44_100;
+    // a tick on beat 2 at 120bpm (1s in), and a pattern clip on beat 4
+    let mut audiograph = graph_with_ticks(&[1_000]);
+    audiograph.pattern_nodes.push(PatternNode { id: 99, pattern_id: 0, start_offset: ms(2_000), track_number: 1 });
+    let played = audiograph.nodes[0].duration();
+
+    // at 60bpm, beat 2 is 2s in, and beat 4 is 4s in
+    audiograph.set_tempo(60.);
+    assert_eq!(audiograph.nodes[0].start_offset, ms(2_000));
+    assert_eq!(audiograph.pattern_nodes[0].start_offset, ms(4_000));
+    // the clip plays for as long as it did
+    assert_eq!(audiograph.nodes[0].duration(), played);
+
+    // and it's heard there: its first frame is 2s (88,200 frames) into a run
+    audiograph.init();
+    let tick = render_run(vec![metronome_tick()], rate, 2_000);
+    let into_tick = first_sound(&tick).expect("the tick is silent");
+    let run = render_run(audiograph.run_sounds(Duration::from_secs(3), false, false), rate, 3 * rate as usize);
+    assert_eq!(first_sound(&run), Some(88_200 + into_tick));
+  }
+
+  #[test]
+  fn test_a_clip_on_beat_8_is_heard_on_beat_8_at_another_tempo() {
+    let rate = 44_100;
+    // beat 8 at 120bpm is 4s in
+    let mut audiograph = graph_with_ticks(&[4_000]);
+    audiograph.init();
+    let tick = render_run(vec![metronome_tick()], rate, 2_000);
+    let into_tick = first_sound(&tick).expect("the tick is silent");
+
+    // at 90bpm a beat is two thirds of a second, which isn't a whole number
+    // of anything: beat 8 is 5.3333s in, frame 235,200
+    audiograph.set_tempo(90.);
+    let run = render_run(audiograph.run_sounds(Duration::from_secs(6), false, false), rate, 6 * rate as usize);
+    assert_eq!(first_sound(&run), Some(235_200 + into_tick));
+
+    // clips keep their order (the scheduler relies on it)
+    let mut audiograph = graph_with_ticks(&[900, 0, 200, 4_000]);
+    audiograph.set_tempo(77.);
+    let starts: Vec<Duration> = audiograph.nodes.iter().map(|n| n.start_offset).collect();
+    let mut sorted = starts.clone();
+    sorted.sort();
+    assert_eq!(starts, sorted);
+  }
+
+  #[test]
+  fn test_a_one_second_clip_is_a_second_long_at_any_tempo() {
+    let path = one_second_at_48k();
+    let mut audiograph = AudioGraph::new(44_100, 120., 8);
+    let id = audiograph.construct_and_add_node(path, ms(1_000), 0).unwrap();
+    assert_eq!(audiograph.get_node_by_id(id).unwrap().duration(), Duration::from_secs(1));
+
+    audiograph.set_tempo(90.);
+    assert_eq!(audiograph.get_node_by_id(id).unwrap().duration(), Duration::from_secs(1));
+    audiograph.set_tempo(200.);
+    assert_eq!(audiograph.get_node_by_id(id).unwrap().duration(), Duration::from_secs(1));
+  }
+
+  #[test]
+  fn test_snapping_is_exact_far_along_the_playlist() {
+    // at 90bpm a beat is 666.666...ms. beat 200 is 133.33s in, to the
+    // nanosecond (not 137 microseconds early, as snapping in whole
+    // microseconds made it)
+    let audiograph = AudioGraph::new(44_100, 90., 8);
+    let beat = audiograph.beat_interval();
+    let near = beat * 200 + Duration::from_millis(40);
+    let snapped = audiograph.find_nearest_offset_subdivision(near, daw::timing::Note::QuarterNote);
+    assert_eq!(snapped, beat * 200);
   }
 
   #[test]
