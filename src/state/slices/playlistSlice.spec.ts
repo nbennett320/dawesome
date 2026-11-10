@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import reducer, {
-  reduceLoadedProject, playlistSlice, removeManyFromPlaylist, selectClipOverrides, selectClipWindow, setClipWindows,
+  addToPlaylist, reduceLoadedProject, playlistSlice, removeManyFromPlaylist, selectClipOverrides, selectClipWindow, setClipWindows,
   setPlaylistTempo,
   splitClips, stretchClips, updateClipSettings, validTempo,
 } from './playlistSlice'
@@ -46,6 +46,35 @@ describe('movePlaylistItem', () => {
   })
 })
 
+describe('addToPlaylist', () => {
+  const mockInvoke = invoke as jest.Mock
+
+  it('asks for a dropped clip\'s length, which trimming it needs', async () => {
+    mockInvoke.mockReset()
+    mockInvoke.mockImplementation(async (command: string) => {
+      if(command === 't_add_audiograph_node') return { id: 31, startBeat: 2 }
+      if(command === 'get_clip') {
+        return { settings: defaultClipSettings, sampleDuration: 1.5, playedDuration: 1.5, window: null }
+      }
+      if(command === 'get_playlist_data') return [16, 256, 240, 4]
+      return undefined
+    })
+    const dispatch = jest.fn()
+    const box = { x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0 }
+    await addToPlaylist('/samples/kick.wav', 1, 2.2, box)(dispatch)
+
+    const state = dispatch.mock.calls.reduce(
+      (s, [action]) => (typeof action === 'function' ? s : reducer(s, action)),
+      reducer(undefined, { type: 'init' }),
+    )
+    expect(state.playlistItems.map((item: { id: number }) => item.id)).toEqual([31])
+    expect(state.clipSampleDurations[31]).toBe(1.5)
+    // so the canvas knows how far its edges can go
+    const overrides = selectClipOverrides({ playlist: state } as unknown as Parameters<typeof selectClipOverrides>[0])
+    expect(overrides[31]).toMatchObject({ sampleDuration: 1.5, rate: 1, playedDuration: 1.5 })
+  })
+})
+
 describe('reduceExploded', () => {
   it('swaps pattern clips for a pattern clip per sample', () => {
     const { actions } = playlistSlice
@@ -63,6 +92,26 @@ describe('reduceExploded', () => {
 
     expect(state.playlistItems.map(i => i.id)).toEqual([4, 10, 11])
     expect(state.playlistItems[2]).toMatchObject({ path: '', patternId: 7, trackNumber: 2, startBeat: 4 })
+  })
+
+  it('gives each new clip the part of its pattern the trimmed clip played', () => {
+    const { actions } = playlistSlice
+    let state = reducer(undefined, { type: 'init' })
+    state = reducer(state, actions.reduceChangedClips({
+      clips: [],
+      patternClips: [{ id: 3, patternId: 5, trackNumber: 0, startBeat: 5, window: { start: 4, end: 12 } }],
+    }))
+    expect(state.clipWindows[3]).toEqual({ start: 4, end: 12 })
+
+    state = reducer(state, actions.reduceExploded({
+      removed: [3],
+      clips: [
+        { id: 10, patternId: 6, trackNumber: 0, startBeat: 5, window: { start: 4, end: 12 } },
+        { id: 11, patternId: 7, trackNumber: 2, startBeat: 5, window: { start: 4, end: 12 } },
+      ],
+    }))
+
+    expect(state.clipWindows).toEqual({ 10: { start: 4, end: 12 }, 11: { start: 4, end: 12 } })
   })
 })
 
@@ -413,5 +462,35 @@ describe('trimmed and cut clips', () => {
       expect(state.clipWindows[7]).toEqual({ start: 0.25, end: 1.5 })
       error.mockRestore()
     })
+  })
+})
+
+describe('the playlist tool', () => {
+  const { actions } = playlistSlice
+
+  it('is select by default', () => {
+    expect(reducer(undefined, { type: 'init' }).tool).toBe('select')
+  })
+
+  it('goes back to select when a project is loaded', () => {
+    let state = reducer(undefined, { type: 'init' })
+    state = reducer(state, actions.setTool('cut'))
+    expect(state.tool).toBe('cut')
+    state = reducer(state, reduceLoadedProject(loaded))
+    expect(state.tool).toBe('select')
+  })
+
+  it('is left alone by undo and redo', () => {
+    let state = reducer(undefined, { type: 'init' })
+    state = reducer(state, actions.setTool('cut'))
+    const project: ProjectView = {
+      tempo: 90,
+      clips: loaded.clips,
+      patternClips: loaded.patternClips,
+      mixer: loaded.mixer,
+      sequencer: loaded.sequencer,
+    }
+    state = reducer(state, actions.reduceProjectView({ project, selected: null }))
+    expect(state.tool).toBe('cut')
   })
 })

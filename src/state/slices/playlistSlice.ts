@@ -1,7 +1,7 @@
 import { createSlice, Dispatch, PayloadAction } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api/core'
 import { RootState } from 'state/store'
-import { PlaylistItem, PlaylistItemPixelOffset } from '../../types/playlist'
+import { PlaylistItem, PlaylistItemPixelOffset, PlaylistTool } from '../../types/playlist'
 import { View } from '../../types/ui'
 import {
   ClipInfo,
@@ -51,6 +51,8 @@ export interface PlaylistState {
   loopEnabled: boolean,
   snapEnabled: boolean,
   snapNote: SnapNote,
+  // the playlist's mouse tool. not saved with the project
+  tool: PlaylistTool
   playlistItems: Array<PlaylistItem>
   // counts projects opened (or started), so the playlist goes back to how
   // it opens: its first bars
@@ -89,6 +91,8 @@ const initialState = {
   loopEnabled: true,
   snapEnabled: true,
   snapNote: 'QuarterNote',
+  // not saved with the project
+  tool: 'select',
   playlistItems: [],
   viewRevision: 0,
   travelled: { count: 0, ids: [] },
@@ -206,15 +210,11 @@ export const playlistSlice = createSlice({
     reduceExploded: (state, action: PayloadAction<{ removed: number[], clips: LoadedPatternClip[] }>) => {
       const removed = new Set(action.payload.removed)
       state.playlistItems = state.playlistItems.filter(item => !removed.has(item.id))
+      removed.forEach(id => { delete state.clipWindows[id] })
+      // each plays the part of its pattern that the exploded clip played
       action.payload.clips.forEach(clip => {
-        state.playlistItems.push({
-          id: clip.id,
-          path: '',
-          patternId: clip.patternId,
-          startBeat: clip.startBeat,
-          trackNumber: clip.trackNumber,
-          pixelOffset: { ...NO_PIXEL_OFFSET },
-        })
+        state.playlistItems.push(patternItem(clip))
+        setWindow(state, clip.id, clip.window)
       })
     },
     removePlaylistItem: (state, action) => {
@@ -339,6 +339,9 @@ export const playlistSlice = createSlice({
     setSnapNote: (state, action) => {
       state.snapNote = action.payload
     },
+    setTool: (state, action: PayloadAction<PlaylistTool>) => {
+      state.tool = action.payload
+    },
     // replace the playlist with a project the engine just loaded (or a new,
     // empty one). the engine has already stopped playback
     reduceLoadedProject: (state, action: { type: string, payload: LoadedProject }) => {
@@ -352,6 +355,8 @@ export const playlistSlice = createSlice({
       state.loopEnabled = project.loopEnabled
       state.snapEnabled = project.snapEnabled
       state.snapNote = project.snapNote
+      // the tool isn't saved: a project opens with Select
+      state.tool = 'select'
       state.inspectedClipId = null
       state.viewRevision += 1
 
@@ -587,6 +592,16 @@ export const addToPlaylist = (
 
   // a clip dropped below the last track made a new one
   await refreshTrackCount()(dispatch)
+
+  // its sample's length, which the playlist needs to trim it (and to show
+  // it at the right length once its pitch changes)
+  try {
+    const info = await invoke<ClipInfo>('get_clip', { id })
+    dispatch(playlistSlice.actions.setClipInfo({ id, ...info }))
+  } catch(e) {
+    // eslint-disable-next-line no-console
+    console.error(`could not load clip ${id}:`, e)
+  }
 }
 
 // place a pattern in the playlist (dragged from the Sequencer's pattern
@@ -938,6 +953,10 @@ export const selectSnapNote = (state: RootState) =>
 // start project methods
 // the engine reads and writes project files; the frontend then shows
 // whatever it loaded
+
+export const { setTool } = playlistSlice.actions
+
+export const selectTool = (state: RootState) => state.playlist.tool
 
 export const { reduceLoadedProject, reduceProjectView } = playlistSlice.actions
 

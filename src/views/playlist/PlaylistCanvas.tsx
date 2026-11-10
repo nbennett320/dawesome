@@ -201,6 +201,8 @@ const PlaylistCanvas = () => {
     const onExplodeKey = (ev: KeyboardEvent) => {
       if(!isExplodeKey(ev) || ev.repeat || isTypingTarget(ev.target)) return
       if(selectFocusedView(store.getState()) !== View.Playlist) return
+      // (not while clips are being dragged, trimmed or boxed)
+      if(playlistRenderer.isDragging()) return
 
       const patternClips = new Set(store.getState().playlist.playlistItems
         .filter(item => item.patternId !== undefined)

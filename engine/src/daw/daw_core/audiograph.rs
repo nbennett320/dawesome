@@ -198,7 +198,7 @@ pub struct AudioNode {
 // - sample_rate: the sample file's own rate
 fn duration_and_waveform(
   sample_path: &str,
-  samples: Vec<i16>,
+  samples: &[i16],
   channels: u16,
   sample_rate: u32,
 ) -> Result<(Duration, String), String> {
@@ -224,7 +224,61 @@ pub fn preview_sample(sample_path: &str) -> Result<(Duration, String), String> {
   let sample_rate = source.sample_rate();
   let samples: Vec<i16> = source.collect();
 
-  duration_and_waveform(sample_path, samples, channels, sample_rate)
+  duration_and_waveform(sample_path, &samples, channels, sample_rate)
+}
+
+// a sample file, decoded: its sound, its length and its waveform
+#[derive(Clone)]
+struct Decoded {
+  pcm: Arc<daw::Pcm>,
+  duration: Duration,
+  waveform: Arc<str>,
+}
+
+// what tells a file that's been written again from the one that was read:
+// its size and when it was last changed
+type FileStamp = (u64, Option<std::time::SystemTime>);
+
+fn file_stamp(path: &str) -> Option<FileStamp> {
+  let metadata = std::fs::metadata(path).ok()?;
+  Some((metadata.len(), metadata.modified().ok()))
+}
+
+lazy_static! {
+  // the samples clips are playing, by path, so every clip of a file shares
+  // one decoded copy of it (a long file takes tens of megabytes). an entry
+  // lasts as long as some clip, or the undo history, still holds the sample
+  static ref DECODED: Mutex<std::collections::HashMap<String, (FileStamp, std::sync::Weak<daw::Pcm>, Duration, std::sync::Weak<str>)>> =
+    Mutex::new(std::collections::HashMap::new());
+}
+
+// a sample file's sound, length and waveform: as already decoded for
+// another clip, if the file hasn't changed since, or decoded now
+fn decoded(sample_path: &str) -> Result<Decoded, String> {
+  let stamp = file_stamp(sample_path);
+  if let Some(stamp) = stamp {
+    if let Some((had, pcm, duration, waveform)) = DECODED.lock().unwrap().get(sample_path) {
+      if let (true, Some(pcm), Some(waveform)) = (*had == stamp, pcm.upgrade(), waveform.upgrade()) {
+        return Ok(Decoded { pcm, duration: *duration, waveform });
+      }
+    }
+  }
+
+  // (decoded without the lock: it takes a while)
+  let pcm = daw::Pcm::load(sample_path)?;
+  let (duration, waveform) =
+    duration_and_waveform(sample_path, pcm.samples(), pcm.channels(), pcm.rate())?;
+  let decoded = Decoded { pcm: Arc::new(pcm), duration, waveform: waveform.into() };
+
+  if let Some(stamp) = stamp {
+    let mut known = DECODED.lock().unwrap();
+    known.retain(|_, (_, pcm, _, _)| pcm.strong_count() > 0);
+    known.insert(
+      sample_path.to_string(),
+      (stamp, Arc::downgrade(&decoded.pcm), decoded.duration, Arc::downgrade(&decoded.waveform)),
+    );
+  }
+  Ok(decoded)
 }
 
 // audio node implementation for Mac/Windows
@@ -236,11 +290,9 @@ impl AudioNode {
     start_offset: Duration,
     track_number: u32,
   ) -> Result<Self, String> {
-    let pcm = daw::Pcm::load(&sample_path)?;
+    let Decoded { pcm, duration, waveform } = decoded(&sample_path)?;
     let channels = pcm.channels();
     let sample_rate = pcm.rate();
-    let (duration, waveform) =
-      duration_and_waveform(&sample_path, pcm.samples().to_vec(), channels, sample_rate)?;
     println!("length of sample in ms: {:?}", duration.as_millis());
     println!("channels: {:?}", channels);
     println!("track number: {}", track_number);
@@ -251,11 +303,11 @@ impl AudioNode {
       start_offset,
       track_number,
       channels,
-      pcm: Arc::new(pcm),
+      pcm,
       duration,
       sample_rate,
       window: None,
-      waveform: waveform.into(),
+      waveform,
       settings: daw::ClipSettings::default(),
     })
   }
@@ -303,6 +355,18 @@ impl AudioNode {
     // the fades are kept within what's left
     self.set_settings(self.settings);
     self.window
+  }
+
+  // the part of the sample to play, as it was saved in a project: kept
+  // within the sample, but otherwise as it is (a clip a hair under the
+  // shortest a trim allows, which a cut can leave, isn't moved)
+  pub fn restore_window(&mut self, start: Duration, end: Option<Duration>) {
+    let end = end.filter(|end| *end < self.duration);
+    let last = end.unwrap_or(self.duration);
+    if start >= last { return; }
+
+    self.window = if start.is_zero() && end.is_none() { None } else { Some(daw::Window { start, end }) };
+    self.set_settings(self.settings);
   }
 
   // where the sample's first frame would be heard, were all of it played:
@@ -355,8 +419,18 @@ impl AudioNode {
   }
 
   fn reader(&self, rate: u32, lead: u64, end: Option<u64>) -> daw::ClipReader {
-    let window = self.window.unwrap_or(daw::Window { start: Duration::ZERO, end: None });
-    daw::ClipReader::new(self.pcm.clone(), &self.settings, rate, window, self.duration(), lead, end)
+    // where the clip starts and ends, in played time from the sample's
+    // start, which its fades are measured from. a clip that plays to the
+    // sample's end ends where the whole sample does, as a clip of all of
+    // it has it
+    let fades = (
+      self.played(self.window_start()),
+      match self.window.and_then(|window| window.end) {
+        Some(end) => self.played(end),
+        None => self.settings.played_duration(self.duration),
+      },
+    );
+    daw::ClipReader::new(self.pcm.clone(), &self.settings, rate, fades, lead, end)
   }
 
   // the sample's length, before any speed change
@@ -523,10 +597,14 @@ impl PatternNode {
   // window kept. a window that's the whole pattern is None
   pub fn set_window(&mut self, start: f64, end: Option<f64>, length: u32) -> Option<PatternWindow> {
     let length = length as f64;
-    let fix = |steps: f64| if steps.is_finite() { steps } else { 0. };
+    // (a number that makes no sense is the pattern's start, or its end)
+    let start = if start.is_finite() { start } else { 0. };
     // (an end too near the start is moved later, where there's room)
-    let start = fix(start).min(length - MIN_PATTERN_CLIP).max(0.);
-    let end = end.map(|end| fix(end).max(start + MIN_PATTERN_CLIP)).filter(|end| *end < length);
+    let start = start.min(length - MIN_PATTERN_CLIP).max(0.);
+    let end = end
+      .filter(|end| end.is_finite())
+      .map(|end| end.max(start + MIN_PATTERN_CLIP))
+      .filter(|end| *end < length);
 
     self.window = if start == 0. && end.is_none() { None } else { Some(PatternWindow { start, end }) };
     self.window
@@ -1919,17 +1997,17 @@ mod tests {
 
   #[test]
   fn test_waveform_rejects_empty_and_tiny_samples() {
-    assert!(daw::calc_waveform_from_samples(vec![], 2, 44_100).is_none());
-    assert!(daw::calc_waveform_from_samples(vec![1, 2, 3], 0, 44_100).is_none());
-    assert!(daw::calc_waveform_from_samples(vec![1, 2, 3], 1, 0).is_none());
+    assert!(daw::calc_waveform_from_samples(&[], 2, 44_100).is_none());
+    assert!(daw::calc_waveform_from_samples(&[1, 2, 3], 0, 44_100).is_none());
+    assert!(daw::calc_waveform_from_samples(&[1, 2, 3], 1, 0).is_none());
     // a few samples (< 0.25ms) used to divide by zero
-    assert!(daw::calc_waveform_from_samples(vec![100, -100, 50, -50], 1, 44_100).is_some());
+    assert!(daw::calc_waveform_from_samples(&[100, -100, 50, -50], 1, 44_100).is_some());
   }
 
   #[test]
   fn test_silence_has_a_flat_waveform() {
     // used to panic: silence smoothed and normalised by dividing by zero
-    let levels = daw::calc_waveform_from_samples(vec![0; 48_000], 1, 48_000).unwrap();
+    let levels = daw::calc_waveform_from_samples(&vec![0; 48_000], 1, 48_000).unwrap();
     assert!(!levels.is_empty());
     assert!(levels.iter().all(|&level| level == 0.));
   }
@@ -2446,6 +2524,72 @@ mod tests {
   }
 
   #[test]
+  fn test_a_cut_clip_keeps_its_fades_exactly() {
+    let rate = 48_000;
+    let total = Duration::from_secs(4);
+    let path = noise_wav("cut-fades", 44_100, 2, 66_150);
+    for pitch in [-7., 0., 5.] {
+      let (mut graph, id) = graph_with_clip(&path, pitch);
+      // fades that both fit in the half they stay with
+      graph.get_mut_node_by_id(id).unwrap().set_settings(daw::ClipSettings {
+        pitch, gain_db: -2., pan: -0.2, attack_ms: 60., decay_ms: 90.,
+      });
+      let node = graph.get_node_by_id(id).unwrap().clone();
+      let whole = play(&mut graph, rate, Duration::ZERO, total);
+
+      let right = graph.split_node(id, node.start_offset + node.duration() / 2).unwrap().unwrap();
+      assert_eq!(graph.get_node_by_id(id).unwrap().settings().attack_ms, 60.);
+      assert_eq!(graph.get_node_by_id(right).unwrap().settings().decay_ms, 90.);
+      // not one sample differs, through either fade
+      assert_eq!(differences(&play(&mut graph, rate, Duration::ZERO, total), &whole), 0, "pitch {}", pitch);
+    }
+  }
+
+  #[test]
+  fn test_a_clip_whose_sample_starts_before_the_playlist_is_cut_exactly() {
+    let rate = 48_000;
+    let total = Duration::from_secs(3);
+    let path = noise_wav("early", 44_100, 2, 66_150);
+    let (mut graph, id) = graph_with_clip(&path, -7.);
+    // its first 700ms hidden, then moved to 100ms in: its sample would
+    // start well before the playlist does
+    graph.set_window(id, ms(700), None).unwrap();
+    graph.move_node(id, ms(100), 0).unwrap();
+    assert!(graph.get_node_by_id(id).unwrap().origin() < 0);
+    let starts = [Duration::ZERO, ms(350), ms(600)];
+    let whole: Vec<Vec<f32>> = starts.iter().map(|&start| play(&mut graph, rate, start, total)).collect();
+    assert!(whole[0].iter().any(|&sample| sample != 0.));
+
+    graph.split_node(id, ms(550)).unwrap().expect("a cut inside the clip");
+    for (&start, whole) in starts.iter().zip(&whole) {
+      assert_eq!(differences(&play(&mut graph, rate, start, total), whole), 0, "played from {:?}", start);
+    }
+  }
+
+  #[test]
+  fn test_clips_of_one_file_share_its_sound() {
+    let path = noise_wav("shared", 44_100, 1, 4_410);
+    let mut graph = AudioGraph::new(44_100, 120., 256);
+    let a = graph.construct_and_add_node(path.clone(), Duration::ZERO, 0).unwrap();
+    let b = graph.construct_and_add_node(path.clone(), ms(900), 1).unwrap();
+    let pcm = |graph: &AudioGraph<'static>, id: u64| graph.get_node_by_id(id).unwrap().pcm.clone();
+    // one decoded copy, however many clips, cut halves included
+    assert!(Arc::ptr_eq(&pcm(&graph, a), &pcm(&graph, b)));
+    let half = graph.split_node(a, ms(50)).unwrap().unwrap();
+    assert!(Arc::ptr_eq(&pcm(&graph, a), &pcm(&graph, half)));
+    assert_eq!(graph.get_node_by_id(a).unwrap().get_waveform(), graph.get_node_by_id(b).unwrap().get_waveform());
+
+    // the file written again (longer): a clip made now plays the new sound,
+    // and the clips there already keep what they had
+    let longer = noise_wav("shared", 44_100, 1, 8_820);
+    assert_eq!(longer, path);
+    let c = graph.construct_and_add_node(path, ms(2_000), 2).unwrap();
+    assert!(!Arc::ptr_eq(&pcm(&graph, a), &pcm(&graph, c)));
+    assert_eq!(pcm(&graph, a).frames(), 4_410);
+    assert_eq!(pcm(&graph, c).frames(), 8_820);
+  }
+
+  #[test]
   fn test_the_halves_of_a_cut() {
     let path = noise_wav("halves", 44_100, 2, 66_150);
     let (mut graph, id) = graph_with_clip(&path, 0.);
@@ -2587,6 +2731,15 @@ mod tests {
     assert!(right[bar_2 - 2] != 0. && right[bar_2 - 2] == whole[bar_2 - 2]);
     assert!(right[bar_2..].iter().all(|&sample| sample == 0.));
 
+    // and back to the end of bar 2: a two bar clip, ending with what played
+    // just before bar 3
+    let bar_3 = bar_2 * 2;
+    graph.set_window(id, Duration::ZERO, Some(ms(4_000))).unwrap();
+    assert_eq!(graph.get_node_by_id(id).unwrap().duration(), ms(4_000));
+    let two_bars = play(&mut graph, rate, Duration::ZERO, total);
+    assert_eq!(differences(&two_bars[..bar_3], &whole[..bar_3]), 0);
+    assert!(two_bars[bar_3 - 2] != 0. && two_bars[bar_3..].iter().all(|&sample| sample == 0.));
+
     // the left edge dragged from bar 1 to bar 2 instead: the clip starts on
     // bar 2, with what played at bar 2 before
     graph.set_window(id, ms(2_000), None).unwrap();
@@ -2642,6 +2795,40 @@ mod tests {
       assert_eq!(node.start_offset, ms(4_000));
       assert_eq!(node.start_offset + node.duration(), ms(8_000));
     }
+  }
+
+  #[test]
+  fn test_stretching_a_trimmed_clip_squeezes_only_what_it_plays() {
+    // from 0.5s to 1.5s of a two second sample, with fades, on beat 8
+    let path = noise_wav("stretch-trimmed", 44_100, 1, 88_200);
+    let mut graph = AudioGraph::new(44_100, 120., 256);
+    let id = graph.construct_and_add_node(path, ms(4_000), 0).unwrap();
+    graph.set_window(id, ms(500), Some(ms(1_500))).unwrap();
+    graph.get_mut_node_by_id(id).unwrap().set_settings(daw::ClipSettings { attack_ms: 400., decay_ms: 700., ..Default::default() });
+    let before = graph.get_node_by_id(id).unwrap().clone();
+    let window = before.window();
+    let end = before.start_offset + before.duration();
+
+    // to half its length, from its end: an octave up
+    graph.stretch_node(id, 12., true).unwrap();
+    let node = graph.get_node_by_id(id).unwrap().clone();
+    // it plays the same part of the sample, in half the time, and ends
+    // where it did
+    assert_eq!(node.window(), window);
+    assert_eq!(node.duration(), ms(500));
+    assert_eq!(node.start_offset + node.duration(), end);
+    assert_eq!(node.start_offset, before.start_offset + ms(500));
+    // its fades are kept within its new length
+    assert_eq!(node.settings().attack_ms, 400.);
+    assert!((node.settings().decay_ms - 500.).abs() < 0.01);
+
+    // and it's silent outside that half second: nothing hidden is heard
+    let out = play(&mut graph, 44_100, Duration::ZERO, Duration::from_secs(7));
+    let from = run_frame(node.start_offset.as_nanos() as i128, 44_100) as usize * 2;
+    let to = run_frame(end.as_nanos() as i128, 44_100) as usize * 2;
+    assert!(out[..from].iter().all(|&sample| sample == 0.));
+    assert!(out[to..].iter().all(|&sample| sample == 0.));
+    assert!(out[from..to].iter().any(|&sample| sample != 0.));
   }
 
   #[test]
@@ -2785,6 +2972,10 @@ mod tests {
     assert!(play(&mut graph, rate, Duration::ZERO, total).iter().all(|&sample| sample == 0.));
     graph.sequencer.lock().unwrap().set_pattern_bars(pattern, 2, 4).unwrap();
 
+    // an end that's no number at all is the pattern's end
+    graph.set_pattern_window(clip, 4., Some(f64::NAN)).unwrap();
+    assert_eq!(span(&graph), (4., 32.));
+
     // never under a step long, nor past the pattern's ends
     graph.set_pattern_window(clip, 10., Some(10.25)).unwrap();
     assert_eq!(span(&graph), (10., 11.));
@@ -2795,6 +2986,16 @@ mod tests {
     assert_eq!(graph.get_pattern_node_by_id(clip).unwrap().start_offset, ms(2_000));
 
     assert!(graph.set_pattern_window(9_999, 0., None).is_err());
+
+    // exploded, each new clip plays the part of its pattern the clip played
+    graph.set_pattern_window(clip, 4., Some(20.5)).unwrap();
+    let before = onsets(&play(&mut graph, rate, Duration::ZERO, total));
+    let made = graph.explode_pattern_node(clip).unwrap();
+    assert!(!made.is_empty());
+    for id in &made {
+      assert_eq!(graph.get_pattern_node_by_id(*id).unwrap().window, Some(PatternWindow { start: 4., end: Some(20.5) }));
+    }
+    assert_eq!(onsets(&play(&mut graph, rate, Duration::ZERO, total)), before);
   }
 
   #[test]

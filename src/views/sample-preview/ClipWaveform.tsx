@@ -248,10 +248,10 @@ const draw = (
   handles.forEach(([handle, x]) => {
     ctx.beginPath()
     ctx.arc(
-      Math.max(
-        region.left + HANDLE_RADIUS,
-        Math.min(region.left + region.width - HANDLE_RADIUS, x),
-      ),
+      // kept inside the played part (in the middle of one too narrow)
+      region.width < HANDLE_RADIUS * 2
+        ? region.left + region.width / 2
+        : Math.max(region.left + HANDLE_RADIUS, Math.min(region.left + region.width - HANDLE_RADIUS, x)),
       eTop,
       HANDLE_RADIUS,
       0,

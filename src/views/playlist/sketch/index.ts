@@ -25,12 +25,12 @@ import {
   toggleSelected,
 } from './selection'
 import { PlaceableItem as DragItem, dragItemKey } from '../../../state/sampleDrag'
-import { Pattern, STEPS_PER_BEAT, SequencerState, patternSeconds } from '../../../types/sequencer'
+import { Pattern, SequencerState, patternSeconds } from '../../../types/sequencer'
 import { decodeLevels } from '../../../util/waveform'
 import { gridSteps, openingScale, visibleBeats } from './grid'
 import {
   Edge, MAX_PITCH, Span, StretchClip, TrimClip, edgeAt, patternTrimClip, pitchOf, sampleTrimClip, snapPoint,
-  stretchAll, trimAll, windowOf,
+  stretchAll, stretchSet, trimAll, trimmedWindow,
 } from './edges'
 
 export interface CanvasProps extends SketchProps {
@@ -325,6 +325,10 @@ export class Renderer extends RendererBase {
   // and after it's let go until the engine's answer has been drawn, so the
   // clips don't flick back to where they were in between
   #trimSpans: Map<number, Span> | null = null
+  // those clips as they were when the edge was pressed, which the spans
+  // are measured against (the clips themselves change as the engine's
+  // answer arrives: their windows first, their starts a moment later)
+  #trimClips: Map<number, TrimClip> | null = null
   // and how fast each clip being stretched would play, by id
   #stretchRates: Map<number, number> | null = null
   // ends that wait (see #endEdgeDrag), and whether it's the clips being
@@ -603,14 +607,6 @@ export class Renderer extends RendererBase {
   // a beat's length, in seconds
   #beatSeconds = (): number => (this.tempo > 0 ? 60 / this.tempo : 0)
 
-  // how much of a clip's source goes by in a beat: seconds of its sample
-  // (at the clip's speed), or steps of its pattern
-  #sourcePerBeat = (obj: PlaylistObject): number => {
-    const { id, patternId } = obj.playlistItem
-    if(patternId !== undefined) return STEPS_PER_BEAT
-    return this.#beatSeconds() * (this.clipOverrides[id]?.rate ?? 1)
-  }
-
   // a clip, as far as trimming goes: where its edges are, and how far they
   // can go. null for a sample clip whose length hasn't loaded yet, and a
   // pattern clip whose pattern is gone
@@ -631,13 +627,16 @@ export class Renderer extends RendererBase {
   // where a clip is drawn and what of its source it shows: as it is, or as
   // the trim being dragged would leave it
   viewOf = (obj: PlaylistObject): ClipView | null => {
-    const clip = this.trimClipOf(obj)
+    const { id } = obj.playlistItem
+    // while its edge is dragged (and until that's settled), a clip is
+    // measured as it was when the edge was pressed
+    const clip = this.#trimClips?.get(id) ?? this.trimClipOf(obj)
     if(!clip) return null
 
-    const span = this.#trimSpans?.get(clip.id) ?? clip
+    const span = this.#trimSpans?.get(id) ?? clip
     // a clip being stretched shows what it showed, squeezed or spread out
-    const shows = this.#stretchRates?.has(clip.id) ? clip : span
-    const perBeat = this.#sourcePerBeat(obj)
+    const shows = this.#stretchRates?.has(id) ? clip : span
+    const { perBeat } = clip
     return {
       startBeat: span.startBeat,
       seconds: (span.endBeat - span.startBeat) * this.#beatSeconds(),
@@ -700,23 +699,23 @@ export class Renderer extends RendererBase {
     const grabbed = clips.find(clip => clip.id === item.playlistItem.id)
     if(!grabbed) return
 
-    // pattern clips are left as they are by a stretch
-    const isSample = (id: number) =>
-      this.playlistObjects.find(o => o.playlistItem.id === id)?.playlistItem.patternId === undefined
-    const stretching = !stretch ? null : clips.filter(clip => isSample(clip.id)).map(clip => ({
+    // pattern clips are left as they are by a stretch (see stretchSet)
+    const isPattern = (id: number) =>
+      this.playlistObjects.find(o => o.playlistItem.id === id)?.playlistItem.patternId !== undefined
+    const stretching = !stretch ? null : stretchSet(clips.map(clip => ({
       id: clip.id,
       startBeat: clip.startBeat,
       endBeat: clip.endBeat,
       rate: this.clipOverrides[clip.id]?.rate ?? 1,
       minBeats: clip.minBeats,
-    }))
+      pattern: isPattern(clip.id),
+    })), grabbed.id)
 
     const edgeBeat = edge === 'left' ? grabbed.startBeat : grabbed.endBeat
     this.edgeDrag = {
       edge,
       grabbedId: grabbed.id,
-      // (stretching a pattern clip stretches nothing, whatever's selected)
-      stretch: stretching && (isSample(grabbed.id) ? stretching : []),
+      stretch: stretching,
       clips,
       grabBeats: edgeBeat - this.screenXToBeat(p.mouseX),
       pressX: p.mouseX,
@@ -743,6 +742,7 @@ export class Renderer extends RendererBase {
       playheadBeat: this.playing ? null : this.playheadBeat(),
       bypass: this.#altHeld,
     })
+    this.#trimClips = new Map(drag.clips.map(clip => [clip.id, clip]))
     if(drag.stretch) {
       const spans = stretchAll(drag.stretch, drag.grabbedId, drag.edge, target)
       this.#trimSpans = new Map(spans.map(({ id, startBeat, endBeat }) => [id, { startBeat, endBeat }]))
@@ -758,6 +758,7 @@ export class Renderer extends RendererBase {
   // the clips are drawn as they are again
   #clearTrimPreview = () => {
     this.#trimSpans = null
+    this.#trimClips = null
     this.#stretchRates = null
   }
 
@@ -766,6 +767,9 @@ export class Renderer extends RendererBase {
   #endEdgeDrag = () => {
     const drag = this.edgeDrag
     if(!drag) return
+    // (once more, to where the mouse was let go: a quick drag can end
+    // before a frame has been drawn)
+    if(this.#p) this.#followEdgeDrag(this.#p)
     this.edgeDrag = null
 
     // shift+click on an edge, without dragging, is shift+click on the clip
@@ -783,9 +787,8 @@ export class Renderer extends RendererBase {
     // an edge that didn't move leaves its clip alone
     const edits: WindowEdit[] = drag.stretch || !drag.active || !spans ? [] : drag.clips.flatMap(clip => {
       const span = spans.get(clip.id)
-      const obj = this.playlistObjects.find(o => o.playlistItem.id === clip.id)
-      if(!span || !obj || (span.startBeat === clip.startBeat && span.endBeat === clip.endBeat)) return []
-      return [{ id: clip.id, ...windowOf(clip, span, this.#sourcePerBeat(obj)) }]
+      if(!span || (span.startBeat === clip.startBeat && span.endBeat === clip.endBeat)) return []
+      return [{ id: clip.id, ...trimmedWindow(clip, span, drag.edge, this.clipWindows[clip.id]) }]
     })
     const stretches: StretchEdit[] = !drag.stretch || !rates ? [] : drag.stretch.flatMap(clip => {
       const rate = rates.get(clip.id)
@@ -1359,7 +1362,15 @@ export class Renderer extends RendererBase {
   secondsToWidth = (seconds: number): number =>
     this.beatToX(seconds * this.tempo / 60)
 
+  // whether something on the playlist is being dragged, or pressed: keys
+  // that change the clips wait until it's let go
+  isDragging = (): boolean =>
+    !!this.edgeDrag || !!this.clipDrag?.active || !!this.lasso || this.#shiftPress !== null
+
   #handleRightClick = (ev: MouseEvent, p: P5CanvasInstance<CanvasProps>) => {
+    // not in the middle of dragging an edge
+    if(this.edgeDrag) return
+
     // the clip on top, as for clicks (not one hidden under the timeline)
     const item = this.clipUnderMouse()
     if(item) {
@@ -1415,6 +1426,7 @@ export class Renderer extends RendererBase {
 
       // handle mouse press, and pick up a clip if one was pressed on
       canvas.mousePressed((ev: MouseEvent) => {
+        this.#altHeld = ev.altKey
         if(ev.button === 0) {
           // the scrollbar: grab the thumb, or jump to where the track was pressed
           const bar = this.scrollbar()
@@ -1494,7 +1506,9 @@ export class Renderer extends RendererBase {
       // the canvas has already been dropped by canvas.mouseReleased (element
       // listeners run before window listeners), so a drag still in progress
       // here was released outside the canvas and is cancelled
-      p.mouseReleased = () => {
+      p.mouseReleased = (ev?: MouseEvent) => {
+        // another button let go while an edge is dragged isn't the end of it
+        if(this.edgeDrag && ev && ev.button !== 0) return
         this.#endSeek()
         // (a trim is applied wherever the mouse is let go)
         this.#endEdgeDrag()
@@ -1541,7 +1555,8 @@ export class Renderer extends RendererBase {
       })
 
       // drop a dragged clip where the phantom shows
-      canvas.mouseReleased(() => {
+      canvas.mouseReleased((ev?: MouseEvent) => {
+        if(this.edgeDrag && ev && ev.button !== 0) return
         this.#endEdgeDrag()
         const drag = this.clipDrag
         const target = this.dropTarget(p.mouseX, p.mouseY, drag?.grabX)
@@ -1572,6 +1587,8 @@ export class Renderer extends RendererBase {
 
       // handle mouse drag
       canvas.mouseMoved((ev: MouseEvent) => {
+        // (as well as the keys: Option may have gone down in another app)
+        this.#altHeld = ev.altKey
         if(this.isMouseDown) {
           const dist = p.dist(mousePressedX ?? 0, mousePressedY ?? 0, p.mouseX, p.mouseY)
           if(dist > staticDefaults.mouseDragDetectionThreshold) {

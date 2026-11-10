@@ -664,7 +664,12 @@ impl ClipWindow {
   // as lengths of a sample, a number that makes no sense read as the
   // sample's start (or, for the end, its end)
   pub fn sample_times(&self) -> (std::time::Duration, Option<std::time::Duration>) {
-    let time = |secs: f64| std::time::Duration::try_from_secs_f64(secs).ok();
+    // (a time too far off to count is past any sample's end)
+    let time = |secs: f64| match std::time::Duration::try_from_secs_f64(secs) {
+      Ok(time) => Some(time),
+      Err(_) if secs.is_finite() && secs > 0. => Some(std::time::Duration::MAX),
+      Err(_) => None,
+    };
     (time(self.start).unwrap_or_default(), self.end.and_then(time))
   }
 }

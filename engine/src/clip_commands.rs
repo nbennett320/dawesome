@@ -383,9 +383,12 @@ mod tests {
     let state = state();
     let id = add_clip(&state, KICK.to_string(), 0, Some(0.)).unwrap().id;
     // four times as long, from its end: its start can't go before beat 0
+    let was = state.playlist.audiograph.lock().unwrap().get_node_by_id(id).unwrap().duration();
     let changed = stretch(&state, &[StretchEdit { id, pitch: -24., keep: Keep::End }]).unwrap();
     assert_eq!(changed.clips[0].start_beat, 0.);
     assert_eq!(changed.clips[0].info.settings.pitch, -24.);
+    // so it's its end that moved: it's four times as long from beat 0
+    assert!((changed.clips[0].info.played_duration - was.as_secs_f32() * 4.).abs() < 1e-4);
   }
 
   #[test]

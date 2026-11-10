@@ -432,7 +432,7 @@ pub fn apply(
         // where it starts
         if let Some(window) = clip.window {
           let (start, end) = window.sample_times();
-          node.set_window(start, end);
+          node.restore_window(start, end);
         }
 
         clips.push(LoadedClip {

@@ -68,6 +68,9 @@ export interface TrimClip {
   sourceEndBeat: number
   // the shortest it can be
   minBeats: number
+  // how much of its source goes by in a beat: seconds of the sample (at
+  // the clip's speed), or steps of the pattern
+  perBeat: number
 }
 
 // where a clip starts and ends
@@ -89,6 +92,10 @@ export const trimmed = (clip: TrimClip, edge: Edge, delta: number): Span => {
       endBeat: clip.endBeat,
     }
   }
+
+  // (a pattern clip whose pattern now ends before the clip starts has no
+  // end to drag: it stays a step long, and keeps the window it had)
+  if(clip.sourceEndBeat <= clip.startBeat) return { startBeat: clip.startBeat, endBeat: clip.endBeat }
 
   const earliest = Math.min(clip.startBeat + clip.minBeats, clip.sourceEndBeat)
   return {
@@ -157,6 +164,19 @@ export const stretched = (clip: StretchClip, edge: Edge, ratio: number): Span & 
   }
 }
 
+// the clips a shift+drag on a clip's edge stretches: the grabbed clip and
+// the clips trimmed with it (see #startEdgeDrag), less the pattern clips,
+// which can't be stretched. none at all when it's a pattern clip's edge
+export const stretchSet = (
+  clips: ReadonlyArray<StretchClip & { pattern: boolean }>,
+  grabbedId: number,
+): StretchClip[] => {
+  const grabbed = clips.find(clip => clip.id === grabbedId)
+  if(!grabbed || grabbed.pattern) return []
+
+  return clips.filter(clip => !clip.pattern).map(({ pattern: _, ...clip }) => clip)
+}
+
 // every clip of a stretch: the grabbed clip's edge goes to `target` (where
 // the mouse is, after snapping), and each of the others is stretched by as
 // much: the same number of times its own length. each stops at its own
@@ -179,17 +199,32 @@ export const stretchAll = (
 
 // the part of its source a clip plays once it's trimmed to `span`, as the
 // engine takes it (see set_clip_windows in engine/src/clip_commands.rs)
-// - perBeat: how much of the source goes by in a beat: seconds of the
-//   sample (at the clip's speed), or steps of the pattern
-export const windowOf = (clip: TrimClip, span: Span, perBeat: number): ClipWindow => {
+export const windowOf = (clip: TrimClip, span: Span): ClipWindow => {
   // (a beat's billionth: less than a nanosecond of sound)
   const close = 1e-9
-  const start = (span.startBeat - clip.sourceStartBeat) * perBeat
+  const start = (span.startBeat - clip.sourceStartBeat) * clip.perBeat
 
   return {
     start: span.startBeat - clip.sourceStartBeat < close ? 0 : start,
-    end: span.endBeat > clip.sourceEndBeat - close ? null : (span.endBeat - clip.sourceStartBeat) * perBeat,
+    end: span.endBeat > clip.sourceEndBeat - close
+      ? null
+      : (span.endBeat - clip.sourceStartBeat) * clip.perBeat,
   }
+}
+
+// the same, after one edge was dragged: the other edge keeps exactly the
+// window it had, rather than one worked back out from where the clip is
+// drawn (which is only as exact as its start beat is)
+export const trimmedWindow = (
+  clip: TrimClip,
+  span: Span,
+  edge: Edge,
+  window: ClipWindow | null | undefined,
+): ClipWindow => {
+  const dragged = windowOf(clip, span)
+  return edge === 'left'
+    ? { start: dragged.start, end: window?.end ?? null }
+    : { start: window?.start ?? 0, end: dragged.end }
 }
 
 // a sample clip, for trimming
@@ -217,6 +252,7 @@ export const sampleTrimClip = (
     sourceStartBeat,
     sourceEndBeat: sourceStartBeat + sampleSeconds / perBeat,
     minBeats: MIN_CLIP_SECONDS / beatSeconds,
+    perBeat,
   }
 }
 
@@ -249,16 +285,21 @@ export const patternTrimClip = (
     sourceStartBeat,
     sourceEndBeat: sourceStartBeat + length / STEPS_PER_BEAT,
     minBeats: MIN_PATTERN_CLIP_STEPS / STEPS_PER_BEAT,
+    perBeat: STEPS_PER_BEAT,
   }
 }
 
 // which of a clip's edges hide some of its source beyond them (and get a
 // triangle, see PlaylistObject)
-// - sourceLength: the sample's seconds, or the pattern's steps
+// - from, to: the part of its source the clip shows
+// - sourceLength: all of it: the sample's seconds, or the pattern's steps
 export const hiddenBeyond = (
-  window: ClipWindow | null | undefined,
+  from: number,
+  to: number,
   sourceLength: number,
-): { left: boolean, right: boolean } => ({
-  left: !!window && window.start > 0,
-  right: !!window && window.end !== null && window.end < sourceLength,
-})
+): { left: boolean, right: boolean } => {
+  if(!(sourceLength > 0)) return { left: false, right: false }
+  // (a billionth of it is rounding, not trimming)
+  const close = sourceLength * 1e-9
+  return { left: from > close, right: to < sourceLength - close }
+}

@@ -7,6 +7,7 @@ import { PlaylistItem } from '../../../types/playlist'
 import { P5BoundingBox, State as ComponentState } from '../../../render/P5Component'
 import { theme } from './theme'
 import { STEPS_PER_BEAT, litRows, patternLabel } from '../../../types/sequencer'
+import { hiddenBeyond } from './edges'
 
 interface Props extends PlaylistComponentProps {
   playlistItem: PlaylistItem
@@ -106,10 +107,7 @@ class PlaylistObject extends PlaylistComponent<State> {
   // which edges hide some of the sample or pattern beyond them
   #hidden = (): { left: boolean, right: boolean } => {
     const view = this.#view
-    if(!view || !(view.length > 0)) return { left: false, right: false }
-    // (a billionth of it: rounding, not trimming)
-    const close = view.length * 1e-9
-    return { left: view.from > close, right: view.to < view.length - close }
+    return view ? hiddenBeyond(view.from, view.to, view.length) : { left: false, right: false }
   }
 
   // the pattern a pattern clip plays (undefined for a sample clip, or a

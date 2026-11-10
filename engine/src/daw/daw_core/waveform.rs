@@ -36,7 +36,7 @@ impl WaveformData {
 // - sample_rate: the sample file's own rate
 // returns None if the samples are empty or too short to draw
 pub fn calc_waveform_from_samples(
-  samples: Vec<i16>,
+  samples: &[i16],
   channels: u16,
   sample_rate: u32,
 ) -> Option<Vec<f32>> {
@@ -83,7 +83,7 @@ pub fn calc_waveform_from_file_path(sample_path: &str) -> Option<Vec<f32>> {
     samples.push(sample);
   }
 
-  calc_waveform_from_samples(samples, channels, sample_rate)
+  calc_waveform_from_samples(&samples, channels, sample_rate)
 }
 
 #[cfg(test)]
@@ -104,7 +104,7 @@ mod tests {
   fn test_points_follow_the_sample_rate() {
     // a second of stereo sound gets 2000 points, whatever its rate
     let noise = |n: usize| (0..n).map(|i| ((i * 7919) % 2001) as i16 - 1000).collect::<Vec<_>>();
-    assert_eq!(calc_waveform_from_samples(noise(44_100 * 2), 2, 44_100).unwrap().len(), 2_000);
-    assert_eq!(calc_waveform_from_samples(noise(48_000 * 2), 2, 48_000).unwrap().len(), 2_000);
+    assert_eq!(calc_waveform_from_samples(&noise(44_100 * 2), 2, 44_100).unwrap().len(), 2_000);
+    assert_eq!(calc_waveform_from_samples(&noise(48_000 * 2), 2, 48_000).unwrap().len(), 2_000);
   }
 }

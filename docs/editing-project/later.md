@@ -44,8 +44,12 @@ Things worth fixing that this project does not touch unless a design answer brin
 
 ## Found while building M4 (2026-11-10)
 
-- **Two clips of the same file each hold their own decoded copy** when the file is dropped in twice (`AudioNode::new`, `engine/src/daw/daw_core/audiograph.rs`). Only cuts, copies and the undo history share one. A cache by path would fix it.
 - **Each new clip's whole-file waveform is fetched again** by the canvas, including the second half of a cut (`fetchNodeData`, `src/views/playlist/sketch/index.ts`).
 - **`ClipSettings::apply`, `Envelope` and `Pan` in `engine/src/daw/daw_core/clip.rs` are now only used by tests,** as the reference the new reader is compared against.
 - **`AudioNode.duration` (a sample's length) is worked out in single precision,** so for a long file it can be off by tens of microseconds (`duration_and_waveform`, `audiograph.rs`). Windows work around it by treating "to the end" as its own case.
 - **rodio's `size_hint` can overflow** on a converted stereo source (it panics in debug builds if something collects such a source into a `Vec`). Nothing in the app does.
+- **A pitched file is played at a whole number of samples per second** (`pitched_rate`, `engine/src/daw/daw_core/clip_reader.rs`, as rodio's `Speed` did), but lengths and positions are worked out from the exact pitch. A clip's sound and its drawn length can differ by up to about 1 ms per 10 s. Working everything out from the whole-number rate, in the engine and on the canvas, would close the gap.
+- **Raising a trimmed clip's pitch in the Sample tab can make it shorter than the 10 ms a trim allows** (`AudioNode::set_settings`). Nothing breaks.
+- **`set_clip_windows` and `split_clips` check ids before changing anything, but not that every pattern clip's pattern still exists.** A pattern's clips are removed with it, so that should not happen.
+- **Pressing an edge reads the mouse position p5 last saw,** which is one event old (`edgeUnderMouse`, `src/views/playlist/sketch/index.ts`). A press with no mouse movement before it could judge the zone from the wrong place. The lasso reads the event itself.
+- **Starting a second edge drag before the engine has answered the first** (a few milliseconds) measures the clip from where it was before the first trim.

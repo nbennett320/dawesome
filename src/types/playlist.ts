@@ -39,3 +39,6 @@ export type PlaylistWindow = {
   scrollPositionLeft: number,
   scaleFactor: number,
 }
+
+// what the mouse does to clips in the playlist: move and trim them, or cut them
+export type PlaylistTool = 'select' | 'cut'

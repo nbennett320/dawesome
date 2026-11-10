@@ -113,27 +113,27 @@ pub struct ClipReader {
 }
 
 // the clip's fade in and out, along the sample's own frames
+//
+// times are counted from the sample's start, at the clip's speed, whatever
+// part of the sample the clip plays: a frame's time is worked out the same
+// way in every clip of the sample, so the half of a cut clip that keeps a
+// fade plays it exactly as the uncut clip did
 struct Fades {
   attack: f32,
   decay: f32,
-  // how long the clip plays for
-  length: f32,
+  // where the clip starts and ends
+  start: f32,
+  end: f32,
   // frames a second, at the clip's pitch
   rate: f32,
-  // where the clip starts, in seconds of played time from the sample's start
-  start: f64,
 }
 
 impl Fades {
   // the level, 0 to 1, of a frame of the sample
   fn level(&self, frame: u64) -> f32 {
-    let t = if self.start == 0. {
-      frame as f32 / self.rate
-    } else {
-      (frame as f64 / self.rate as f64 - self.start) as f32
-    };
-    let fade_in = if self.attack > 0. { t / self.attack } else { 1. };
-    let fade_out = if self.decay > 0. { (self.length - t) / self.decay } else { 1. };
+    let t = frame as f32 / self.rate;
+    let fade_in = if self.attack > 0. { (t - self.start) / self.attack } else { 1. };
+    let fade_out = if self.decay > 0. { (self.end - t) / self.decay } else { 1. };
 
     fade_in.min(fade_out).clamp(0., 1.)
   }
@@ -141,8 +141,8 @@ impl Fades {
 
 impl ClipReader {
   // - rate: the rate to read it out at (the engine's)
-  // - window: the part of the sample the clip plays, and how long that is
-  //   once the clip's speed is changed
+  // - fades: where the clip starts and ends, in played time from the
+  //   sample's start: what its fades are measured from
   // - lead: output frames from the clip's origin to where reading starts
   // - end: the output frame, from the origin, it stops before. None for a
   //   clip that plays to the sample's end
@@ -150,8 +150,7 @@ impl ClipReader {
     pcm: Arc<Pcm>,
     settings: &ClipSettings,
     rate: u32,
-    window: Window,
-    length: Duration,
+    fades: (Duration, Duration),
     lead: u64,
     end: Option<u64>,
   ) -> Self {
@@ -173,9 +172,9 @@ impl ClipReader {
       fades: Fades {
         attack: secs(settings.attack_ms),
         decay: secs(settings.decay_ms),
-        length: length.as_secs_f32(),
+        start: fades.0.as_secs_f32(),
+        end: fades.1.as_secs_f32(),
         rate: pitched as f32,
-        start: settings.played_exactly(window.start).as_secs_f64(),
       },
       pending_right: None,
       held: None,
@@ -273,8 +272,6 @@ mod tests {
   use rodio::buffer::SamplesBuffer;
   use rodio::source::UniformSourceIterator;
 
-  const WHOLE: Window = Window { start: Duration::ZERO, end: None };
-
   // a sample that's different at every frame: a sweep with some noise on
   // it, the right side not the left
   fn pcm(channels: u16, rate: u32, frames: usize) -> Arc<Pcm> {
@@ -311,7 +308,7 @@ mod tests {
   }
 
   fn new_way(pcm: &Arc<Pcm>, settings: &ClipSettings, rate: u32) -> Vec<f32> {
-    ClipReader::new(pcm.clone(), settings, rate, WHOLE, length(pcm, settings), 0, None).collect()
+    ClipReader::new(pcm.clone(), settings, rate, (Duration::ZERO, length(pcm, settings)), 0, None).collect()
   }
 
   fn pitched(pitch: f32) -> ClipSettings {
@@ -369,7 +366,7 @@ mod tests {
 
   // the output frames [lead, end) of a clip
   fn part(pcm: &Arc<Pcm>, settings: &ClipSettings, rate: u32, lead: u64, end: Option<u64>) -> Vec<f32> {
-    ClipReader::new(pcm.clone(), settings, rate, WHOLE, length(pcm, settings), lead, end).collect()
+    ClipReader::new(pcm.clone(), settings, rate, (Duration::ZERO, length(pcm, settings)), lead, end).collect()
   }
 
   #[test]
@@ -399,6 +396,29 @@ mod tests {
   }
 
   #[test]
+  fn test_parts_keep_the_whole_clips_fades_exactly() {
+    for (file, engine) in [(44_100, 48_000), (48_000, 48_000)] {
+      let pcm = pcm(2, file, 20_000);
+      for pitch in [-7., 0., 5.] {
+        let settings = ClipSettings { pitch, attack_ms: 30., decay_ms: 45., ..Default::default() };
+        let whole = new_way(&pcm, &settings, engine);
+        let ends = length(&pcm, &settings);
+
+        // cut past the fade in and before the fade out: the first part
+        // keeps the one and the second the other, measured from where the
+        // whole clip's were
+        let cut = 9_000u64;
+        let at = Duration::from_secs_f64(cut as f64 / engine as f64);
+        let first = ClipSettings { decay_ms: 0., ..settings };
+        let second = ClipSettings { attack_ms: 0., ..settings };
+        let mut parts: Vec<f32> = ClipReader::new(pcm.clone(), &first, engine, (Duration::ZERO, at), 0, Some(cut)).collect();
+        parts.extend(ClipReader::new(pcm.clone(), &second, engine, (at, ends), cut, None));
+        assert!(parts == whole, "{}Hz to {}Hz, pitch {}", file, engine, pitch);
+      }
+    }
+  }
+
+  #[test]
   fn test_a_part_past_the_sample_is_silent() {
     let pcm = pcm(2, 44_100, 500);
     assert!(part(&pcm, &ClipSettings::default(), 48_000, 10_000, None).is_empty());
@@ -415,8 +435,8 @@ mod tests {
     let rate = 1_000;
     let pcm = Arc::new(Pcm::new(vec![i16::MAX; 1_000], 1, rate));
     let settings = ClipSettings { attack_ms: 100., decay_ms: 100., ..Default::default() };
-    let window = Window { start: Duration::from_millis(250), end: Some(Duration::from_millis(750)) };
-    let out: Vec<f32> = ClipReader::new(pcm, &settings, rate, window, Duration::from_millis(500), 250, Some(750))
+    let window = (Duration::from_millis(250), Duration::from_millis(750));
+    let out: Vec<f32> = ClipReader::new(pcm, &settings, rate, window, 250, Some(750))
       .step_by(2)
       .collect();
 
