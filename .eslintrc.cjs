@@ -12,7 +12,7 @@ module.exports = {
     'jest.config.ts',
     'jest.setup.ts',
     '.eslintrc.cjs',
-    'vite.config.ts',
+    'vite.config.mts',
     'postcss.config.js',
     'tailwind.config.js',
     'engine/**',
