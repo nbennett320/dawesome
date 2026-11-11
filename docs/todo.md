@@ -76,3 +76,27 @@
     - Recordings browser!!!
 - infra
     - what is the difference between audio_commands and bind_functions?
+
+---
+2026-11-10
+Big ideas
+- Effects tab
+  - VST support (fx)
+- Piano roll
+  - VST support
+  - velocity
+- midi file import -> sequencer
+- automation clips/automation tracks
+  - volume  
+Easy to add ideas for improvements:
+- right click on metronome -> user can change the metronome tick sound (or select from a few options)
+- dark mode 
+  - theme panel? color scheme? high contrast for accessibility?
+- cmd 1-9 shortcuts
+- favorites (sounds, samples)
+- loop selection controlls in playlist
+- deep copy -> make distinct?
+- Bug: playlist pans when zoomed but try to drag/resize a vertically split window
+
+Medium:
+- live show something is being recorded to a track (wave form, low res at first maybe
