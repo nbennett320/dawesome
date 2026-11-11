@@ -21,6 +21,7 @@ export const defaultPreferences: Preferences = {
   appearance: 'system',
   lightTheme: defaultThemeId('light'),
   darkTheme: defaultThemeId('dark'),
+  pluginView: 'window',
 }
 
 const initialState: AppearanceState = {

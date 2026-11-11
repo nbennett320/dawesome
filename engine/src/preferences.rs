@@ -21,6 +21,15 @@ pub enum AppearanceSetting {
   Dark,
 }
 
+// where a plugin's own interface opens: a floating window, or a tab
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum PluginView {
+  #[default]
+  Window,
+  Tab,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Preferences {
@@ -28,6 +37,7 @@ pub struct Preferences {
   // the theme used when the appearance is light, and when it's dark
   pub light_theme: String,
   pub dark_theme: String,
+  pub plugin_view: PluginView,
 }
 
 impl Default for Preferences {
@@ -36,6 +46,7 @@ impl Default for Preferences {
       appearance: AppearanceSetting::System,
       light_theme: theme::DEFAULT_LIGHT.to_string(),
       dark_theme: theme::DEFAULT_DARK.to_string(),
+      plugin_view: PluginView::Window,
     }
   }
 }
@@ -76,6 +87,7 @@ impl Preferences {
       appearance: self.appearance,
       light_theme: pick(&self.light_theme, Appearance::Light, theme::DEFAULT_LIGHT),
       dark_theme: pick(&self.dark_theme, Appearance::Dark, theme::DEFAULT_DARK),
+      plugin_view: self.plugin_view,
     }
   }
 }
@@ -132,11 +144,13 @@ mod tests {
       appearance: AppearanceSetting::Dark,
       light_theme: "charcoal-light".to_string(),
       dark_theme: "slate-dark".to_string(),
+      plugin_view: PluginView::Tab,
     };
     prefs.save(&file).unwrap();
     assert_eq!(Preferences::load(&file), prefs);
     let json = fs::read_to_string(&file).unwrap();
     assert!(json.contains("\"lightTheme\"") && json.contains("\"dark\""), "{}", json);
+    assert!(json.contains("\"pluginView\": \"tab\""), "{}", json);
     fs::remove_dir_all(file.parent().unwrap()).ok();
   }
 
@@ -158,6 +172,8 @@ mod tests {
     let prefs = Preferences::load(&file);
     assert_eq!(prefs.appearance, AppearanceSetting::Light);
     assert_eq!(prefs.dark_theme, theme::DEFAULT_DARK);
+    // plugins open in windows unless a tab is asked for
+    assert_eq!(prefs.plugin_view, PluginView::Window);
     fs::remove_dir_all(file.parent().unwrap()).ok();
   }
 
@@ -168,6 +184,7 @@ mod tests {
       appearance: AppearanceSetting::System,
       light_theme: "charcoal-light".to_string(),
       dark_theme: "slate-dark".to_string(),
+      plugin_view: PluginView::Tab,
     };
     assert_eq!(ok.sanitize(&themes), ok);
 
@@ -175,6 +192,7 @@ mod tests {
       appearance: AppearanceSetting::Dark,
       light_theme: "no-such-theme".to_string(),
       dark_theme: "slate-light".to_string(),
+      plugin_view: PluginView::Window,
     };
     let fixed = bad.sanitize(&themes);
     assert_eq!(fixed.light_theme, theme::DEFAULT_LIGHT);

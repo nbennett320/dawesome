@@ -244,6 +244,18 @@ export const showPluginTab = (slotId: number) => (dispatch: Dispatch, getState: 
   dispatch(openPluginTab({ slotId, paneId: rack?.id }))
 }
 
+// open an effect's own interface where the preferences say plugins open: a
+// window of its own, or a tab
+export const openPlugin = (slotId: number) =>
+  async (dispatch: Dispatch, getState: () => RootState): Promise<void> => {
+    if(getState().appearance.preferences.pluginView === 'tab') {
+      showPluginTab(slotId)(dispatch, getState)
+      return
+    }
+
+    await openEffectWindow(slotId)(dispatch)
+  }
+
 // an effect from the browser dropped on a mixer channel: it goes at the end
 // of the chain, and the rack opens on that channel with it pointed out
 export const dropEffectOnChannel = (channel: ChannelId, pluginId: string) =>

@@ -3,11 +3,10 @@ import { useAppDispatch, useAppSelector } from '../../hooks/redux'
 import { beginSampleDrag, onSampleDrag } from '../../state/sampleDrag'
 import {
   highlightSlot,
-  openEffectWindow,
+  openPlugin,
   removeEffect,
   selectHighlightSlotId,
   setEffectBypassed,
-  showPluginTab,
 } from '../../state/slices/effectsSlice'
 import { ChannelId, EffectSlot, hasTab, isInstrument } from '../../types/effects'
 import { KeysIcon } from '../../components/toolbars/browser/icons'
@@ -71,6 +70,8 @@ interface RowProps {
 // instrument stays first, and can only be dragged onto another track
 const RackRow = ({ slot, highlighted, dragging }: RowProps) => {
   const dispatch = useAppDispatch()
+  // where Preferences say a plugin's interface opens
+  const inTab = useAppSelector(state => state.appearance.preferences.pluginView === 'tab')
   const ref = React.useRef<HTMLDivElement>(null)
   const instrument = isInstrument(slot)
 
@@ -112,22 +113,13 @@ const RackRow = ({ slot, highlighted, dragging }: RowProps) => {
       {instrument && <span className='ft-label shrink-0'>Instrument</span>}
 
       {hasTab(slot) && (
-        <>
-          <SmallKey
-            aria-label={`Open ${slot.name} in a tab`}
-            title='Open its interface in a tab of its own'
-            onPress={() => dispatch(showPluginTab(slot.id))}
-          >
-            <TabIcon />
-          </SmallKey>
-          <SmallKey
-            aria-label={`Open ${slot.name} in a window`}
-            title='Open its interface in a window'
-            onPress={() => { dispatch(openEffectWindow(slot.id)).catch(() => {}) }}
-          >
-            <PopOutIcon />
-          </SmallKey>
-        </>
+        <SmallKey
+          aria-label={`Open ${slot.name}`}
+          title={`Open its interface in a ${inTab ? 'tab' : 'window'} of its own (Preferences choose which)`}
+          onPress={() => { dispatch(openPlugin(slot.id)).catch(() => {}) }}
+        >
+          {inTab ? <TabIcon /> : <PopOutIcon />}
+        </SmallKey>
       )}
       <SmallKey
         aria-label={`Remove ${slot.name}`}

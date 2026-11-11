@@ -9,6 +9,7 @@ import projectReducer from '../../state/slices/projectSlice'
 import mixerReducer, { setName } from '../../state/slices/mixerSlice'
 import windowReducer from '../../state/slices/windowSlice'
 import effectsReducer, { setRacks, showRack } from '../../state/slices/effectsSlice'
+import appearanceReducer, { defaultPreferences, setPreferences } from '../../state/slices/appearanceSlice'
 import { paneWithTab } from '../../state/paneTree'
 import { EffectSlot, Racks } from '../../types/effects'
 import { tabKey, View } from '../../types/ui'
@@ -41,6 +42,7 @@ const makeStore = () => configureStore({
     mixer: mixerReducer,
     window: windowReducer,
     effects: effectsReducer,
+    appearance: appearanceReducer,
   },
 })
 
@@ -76,11 +78,10 @@ describe('the Effects Rack’s stack', () => {
     expect(rows.map(row => row.getAttribute('aria-label'))).toEqual(['Effect 1', 'Effect 2', 'Effect 3', 'Verb'])
     expect(screen.getByText('Not installed')).toBeTruthy()
     expect((screen.getByRole('button', { name: 'Effect 3 on' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.queryByRole('button', { name: 'Open Effect 3 in a tab' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Open Effect 3' })).toBeNull()
     expect((screen.getByRole('button', { name: 'Remove Effect 3' }) as HTMLButtonElement).disabled).toBe(false)
     // without an interface of its own: no tab or pop out
-    expect(screen.queryByRole('button', { name: 'Open Effect 2 in a tab' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Open Effect 2 in a window' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Open Effect 2' })).toBeNull()
   })
 
   it('bypasses an effect', async () => {
@@ -109,18 +110,27 @@ describe('the Effects Rack’s stack', () => {
 })
 
 describe('an effect’s own interface', () => {
-  it('opens in a tab of its own, in the rack’s pane, and pops out into a window', async () => {
+  it('opens in a window of its own unless Preferences say a tab', async () => {
     const store = setup()
-    fireEvent.click(screen.getByRole('button', { name: 'Open Verb in a tab' }))
+    // one key to open it, then the one to remove it
+    const keys = screen.getAllByRole('listitem')[3].querySelectorAll('button')
+    expect([...keys].slice(-2).map(key => key.getAttribute('aria-label'))).toEqual(['Open Verb', 'Remove Verb'])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Verb' }))
+    await waitFor(() => expect(calls('open_effect_window')).toEqual([['open_effect_window', { slotId: 4 }]]))
+    expect(paneWithTab(store.getState().window.windowPane.root, tabKey(View.Plugin, 4))).toBeUndefined()
+  })
+
+  it('opens in a tab of its own, in the rack’s pane, when Preferences say so', () => {
+    const store = setup()
+    act(() => { store.dispatch(setPreferences({ ...defaultPreferences, pluginView: 'tab' })) })
+    fireEvent.click(screen.getByRole('button', { name: 'Open Verb' }))
 
     const root = store.getState().window.windowPane.root
     expect(paneWithTab(root, tabKey(View.Plugin, 4))?.id).toBe(paneWithTab(root, tabKey(View.EffectsRack))?.id)
+    expect(calls('open_effect_window')).toEqual([])
     // the stack stays as it is
     expect(screen.getAllByRole('listitem')).toHaveLength(4)
-
-    fireEvent.click(screen.getByRole('button', { name: 'Open Verb in a window' }))
-    await waitFor(() => expect(calls('open_effect_window')).toEqual([['open_effect_window', { slotId: 4 }]]))
-    expect(paneWithTab(store.getState().window.windowPane.root, tabKey(View.Plugin, 4))).toBeUndefined()
   })
 })
 
@@ -174,7 +184,7 @@ describe('a track’s instrument', () => {
     expect(screen.getByText('Instrument, 2 effects')).toBeTruthy()
     // it can be switched off, shown and removed like an effect
     expect(screen.getByRole('button', { name: 'Synth 1 on' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Open Synth 1 in a tab' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Open Synth 1' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Remove Synth 1' })).toBeTruthy()
   })
 
