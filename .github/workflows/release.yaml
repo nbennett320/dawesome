@@ -1,0 +1,109 @@
+name: Release
+
+# Push a tag like v0.2.0 to build the macOS and Linux apps and attach them to
+# a draft release; publish the draft by hand once it looks right. "Run
+# workflow" on the Actions tab builds the same apps without a tag, as a test.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write # creating the release and uploading the apps
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Apple Silicon runners build the Intel app too by cross-compiling
+          - name: macOS (Apple Silicon)
+            runner: macos-latest
+            target: aarch64-apple-darwin
+            bundles: dmg
+          - name: macOS (Intel)
+            runner: macos-latest
+            target: x86_64-apple-darwin
+            bundles: dmg
+          # an AppImage runs on distros with this glibc or newer, so build on
+          # an older Ubuntu to reach more of them
+          - name: Linux
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: appimage,deb
+    steps:
+      - uses: actions/checkout@v4
+
+      # a tag that doesn't match tauri.conf.json would name the files wrongly
+      - name: Check the tag matches the app's version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(node -p "require('./engine/tauri.conf.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME doesn't match version $version in engine/tauri.conf.json"
+            exit 1
+          fi
+
+      # Tauri 2's Linux prerequisites and the audio libraries, plus what
+      # bundling an AppImage needs (Lua is built into the app)
+      - name: Install system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
+            libxdo-dev libssl-dev \
+            libasound2-dev libpulse-dev pkg-config \
+            patchelf file
+
+      # pnpm's version comes from packageManager in package.json
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # the oldest Rust the engine supports (rust-version in Cargo.toml)
+      - uses: dtolnay/rust-toolchain@1.86
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+          key: ${{ matrix.target }}
+
+      # runs `tauri build` (which runs `pnpm ui:build` first); with a tag it
+      # makes or reuses the draft release and uploads this job's apps to it
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: Dawesome ${{ github.ref_name }}
+          releaseDraft: true
+          releaseBody: |
+            **macOS:** pick `aarch64` for Apple Silicon (M1 and later), `x64` for Intel. These builds aren't signed yet, so macOS will falsely say the app "is damaged" or "can't be opened". After dragging Dawesome into Applications, run this once in Terminal:
+
+            ```
+            xattr -dr com.apple.quarantine /Applications/Dawesome.app
+            ```
+
+            **Linux:** the `.AppImage` runs on most distros (`chmod +x` it first); the `.deb` is for Debian and Ubuntu.
+
+      # a manual run has no release to upload to, so keep the apps as artifacts
+      - uses: actions/upload-artifact@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        with:
+          name: Dawesome-${{ matrix.target }}
+          path: |
+            engine/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            engine/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
+            engine/target/${{ matrix.target }}/release/bundle/deb/*.deb

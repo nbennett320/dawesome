@@ -122,6 +122,8 @@ docs
  - design philosophy
 - sidebar resizable
 
+---
+
 
 
 
