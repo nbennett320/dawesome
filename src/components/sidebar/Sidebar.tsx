@@ -38,7 +38,7 @@ const Sidebar = () => {
           />
         </div>
         {open && (
-          <div className={`${styles.SidebarBody} w-60 bg-white border-r border-slate-200`}>
+          <div className={`${styles.SidebarBody} w-60 bg-surface border-r border-line`}>
             <Page />
           </div>
         )}

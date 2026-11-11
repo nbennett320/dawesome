@@ -23,7 +23,7 @@ const keys: Array<{ page: SidebarPage, name: string, Icon: React.ComponentType<R
 // the rail down the left: a key per sidebar page, latched while it's showing.
 // pressing the latched key closes the sidebar
 const SidebarList = ({ open, page, onPress }: Props) => (
-  <div className='ft-panel flex flex-col items-center gap-1 px-1.5 pt-3 border-r border-slate-200'>
+  <div className='ft-panel flex flex-col items-center gap-1 px-1.5 pt-3 border-r border-line'>
     {keys.map(({ page: key, name, Icon }) => {
       const showing = open && page === key
 

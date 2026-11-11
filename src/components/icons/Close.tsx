@@ -16,7 +16,7 @@ const Close = (props: React.SVGAttributes<Props>) => (
     />
     <path 
       d="M12 10.586l4.95-4.95 1.414 1.414-4.95 4.95 4.95 4.95-1.414 1.414-4.95-4.95-4.95 4.95-1.414-1.414 4.95-4.95-4.95-4.95L7.05 5.636z" 
-      fill={props?.fill ?? 'rgba(0, 0, 0, 1)'}
+      fill={props?.fill ?? 'currentColor'}
     />
   </svg>
 )

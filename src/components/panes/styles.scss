@@ -1,11 +1,4 @@
 .react-tabs {
-  -webkit-tap-highlight-color: transparent;
-
-  &__tab-list {
-    margin: 0;
-    padding: 0;
-  }
-
   &__tab {
     display: inline-block;
     border-left: 1px solid transparent;
@@ -14,26 +7,19 @@
     // bottom: -1px;
     position: relative;
     list-style: none;
-    padding: 6px 12px;
     cursor: pointer;
 
-    // the selected tab is white, and sits over the bar's bottom line so it
-    // joins the view below
+    // the selected tab is the surface colour, and sits over the bar's bottom
+    // line so it joins the view below
     margin-bottom: -1px;
 
     &--selected {
-      background: #fff;
-      border-color: #e2e8f0; // slate-200
+      background: rgb(var(--c-surface));
     }
 
     &--disabled {
-      color: GrayText;
+      color: rgb(var(--c-ink-faint));
       cursor: default;
-    }
-
-    &:focus-visible {
-      outline: 2px solid #38bdf8; // sky-400
-      outline-offset: -2px;
     }
 
     &:focus {
@@ -61,7 +47,6 @@
 // split pane styles: a thin line, with a wider grab area either side that
 // shows sky blue on hover
 .Resizer {
-  background: #e2e8f0; // slate-200
   z-index: 1;
   box-sizing: border-box;
   background-clip: padding-box;
@@ -71,8 +56,6 @@
 .Resizer.horizontal {
   height: 11px;
   margin: -5px 0;
-  border-top: 5px solid transparent;
-  border-bottom: 5px solid transparent;
   cursor: row-resize;
   width: 100%;
 }
@@ -80,13 +63,11 @@
 .Resizer.vertical {
   width: 11px;
   margin: 0 -5px;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
   cursor: col-resize;
 }
 
 .Resizer:hover {
-  background-color: #38bdf8; // sky-400
+  background-color: rgb(var(--c-accent-focus));
 }
 
 .Resizer.disabled {
@@ -94,5 +75,5 @@
 }
 
 .Resizer.disabled:hover {
-  background-color: #e2e8f0;
+  background-color: rgb(var(--c-line));
 }

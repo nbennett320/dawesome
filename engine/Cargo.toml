@@ -24,7 +24,9 @@ rodio = "0.19"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 svg = "0.10.0"
-tauri = { version = "2", features = [] }
+# macos-private-api: lets the webview skip its own white background, so the
+# window opens in the theme's color (not allowed in the Mac App Store)
+tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 # where settings and recent projects are saved (Tauri 1's tauri::api::path)

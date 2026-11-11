@@ -48,10 +48,10 @@ const SequencerRow = ({ row, pattern, beatsPerBar, playingStep, paint, onStep }:
     const firstOfBeat = step % STEPS_PER_BEAT === 0
     const firstOfBar = step % stepsPerBar === 0
 
-    let tone = 'bg-white'
-    if(lit) tone = row.muted ? 'bg-sky-300' : 'bg-sky-500'
+    let tone = 'bg-raised'
+    if(lit) tone = row.muted ? 'bg-accent-soft' : 'bg-accent'
     // every other beat a little darker, so the beats read at a glance
-    else if(beat % 2 === 1) tone = 'bg-slate-100'
+    else if(beat % 2 === 1) tone = 'bg-panel'
 
     let gap = ''
     if(step > 0 && firstOfBar) gap = 'ml-3'
@@ -66,8 +66,8 @@ const SequencerRow = ({ row, pattern, beatsPerBar, playingStep, paint, onStep }:
         title={`Step ${step + 1}`}
         className={[
           'shrink-0 w-5 h-7 rounded-sm border',
-          lit ? 'border-sky-600 shadow-inner' : 'border-slate-300 hover:border-slate-400',
-          step === playingStep ? 'ring-2 ring-amber-400' : '',
+          lit ? 'border-accent-strong shadow-inner' : 'border-line-strong hover:border-ink-faint',
+          step === playingStep ? 'ring-2 ring-led' : '',
           tone,
           gap,
         ].join(' ')}
@@ -98,7 +98,7 @@ const SequencerRow = ({ row, pattern, beatsPerBar, playingStep, paint, onStep }:
       <div className='ft-strip shrink-0 w-64 h-11 flex flex-row items-center gap-1.5 px-1.5'>
         <button
           type='button'
-          className={`ft-scribble flex-1 min-w-0 truncate text-left text-xs font-medium px-1 py-0.5 hover:bg-slate-50 ${row.muted ? 'text-slate-400 italic' : ''}`}
+          className={`ft-scribble flex-1 min-w-0 truncate text-left text-xs font-medium px-1 py-0.5 hover:bg-surface-alt ${row.muted ? 'text-ink-faint italic' : ''}`}
           title={`${row.path}. Click to hear it`}
           onClick={() => dispatch(previewSequencerRow(row.id))}
         >

@@ -73,7 +73,7 @@ const NameLabel = ({ label, silenced, onRename }: {
         aria-label='Track name'
         placeholder='Track name'
         maxLength={MAX_NAME_CHARS}
-        className='ft-scribble w-full h-full text-xs text-center px-1 outline-none ring-2 ring-sky-400'
+        className='ft-scribble w-full h-full text-xs text-center px-1 outline-none ring-2 ring-accent-focus'
         value={draft}
         onFocus={e => e.currentTarget.select()}
         onChange={e => setDraft(e.currentTarget.value)}
@@ -92,7 +92,7 @@ const NameLabel = ({ label, silenced, onRename }: {
 
   return (
     <div
-      className={`ft-scribble h-full leading-5 px-1 text-xs font-medium truncate text-center ${silenced ? 'text-slate-400 italic' : ''}`}
+      className={`ft-scribble h-full leading-5 px-1 text-xs font-medium truncate text-center ${silenced ? 'text-ink-faint italic' : ''}`}
       title={title}
       onDoubleClick={() => { if(onRename) setDraft(label) }}
     >

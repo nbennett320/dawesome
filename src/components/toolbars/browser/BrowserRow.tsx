@@ -15,7 +15,7 @@ interface Props extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 const UsedDot = ({ used }: { used: boolean }) => (
   <span className='w-3 shrink-0 flex justify-center'>
     <span
-      className={`w-1.5 h-1.5 rounded-full ${used ? 'bg-sky-500' : 'bg-transparent'}`}
+      className={`w-1.5 h-1.5 rounded-full ${used ? 'bg-accent' : 'bg-transparent'}`}
       role='img'
       aria-label={used ? 'In use' : 'Not used'}
     />
@@ -28,8 +28,8 @@ const UsedDot = ({ used }: { used: boolean }) => (
 const BrowserRow = ({
   selected, used, grab = true, className = '', children, ...rest
 }: React.PropsWithChildren<Props>) => {
-  let tone = 'text-slate-600'
-  if(used === false) tone = 'text-slate-400'
+  let tone = 'text-ink-mid'
+  if(used === false) tone = 'text-ink-faint'
 
   return (
     // eslint-disable-next-line jsx-a11y/role-supports-aria-props -- callers give it a role
@@ -37,10 +37,10 @@ const BrowserRow = ({
       type='button'
       aria-selected={selected}
       className={`group w-full h-6 flex flex-row items-center gap-1.5 pl-2 pr-3 text-left text-xs outline-none
-        border-l-2 focus-visible:bg-sky-50 ${
+        border-l-2 focus-visible:bg-accent-tint ${
           selected
-            ? 'border-sky-500 bg-sky-50 text-slate-800'
-            : `border-transparent hover:bg-slate-100 hover:text-slate-800 ${tone}`
+            ? 'border-accent bg-accent-tint text-ink-strong'
+            : `border-transparent hover:bg-panel hover:text-ink-strong ${tone}`
         } ${grab ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} ${className}`}
       {...rest}
     >
@@ -52,7 +52,7 @@ const BrowserRow = ({
 
 // faint text on the right of a row: a length, a date, a folder
 export const RowHint = ({ children, className = '' }: React.PropsWithChildren<{ className?: string }>) => (
-  <span className={`shrink-0 text-[10px] text-slate-400 truncate ${className}`}>{children}</span>
+  <span className={`shrink-0 text-[10px] text-ink-faint truncate ${className}`}>{children}</span>
 )
 
 export default BrowserRow

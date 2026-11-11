@@ -100,3 +100,20 @@ Easy to add ideas for improvements:
 
 Medium:
 - live show something is being recorded to a track (wave form, low res at first maybe
+
+Refactor:
+- bind_function.rs -> rename or break out functionality into function specific command files
+- move files to more relevant crates
+- create assets/sound/ and move all sound sampels into theree
+  - move icons and themes/ into assets/ after that
+
+
+
+
+
+
+
+
+
+
+

@@ -114,7 +114,7 @@ const SettingControl = ({
         {unit && <span className='ft-label normal-case tracking-normal w-5'>{unit}</span>}
       </div>
 
-      <span className='h-4 text-[10px] text-slate-400 truncate max-w-full' title={hint}>{hint}</span>
+      <span className='h-4 text-[10px] text-ink-faint truncate max-w-full' title={hint}>{hint}</span>
     </div>
   )
 }

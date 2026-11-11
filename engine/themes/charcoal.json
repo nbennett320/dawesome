@@ -1,0 +1,29 @@
+{
+  "name": "Charcoal",
+  "appearance": "dark",
+  "colors": {
+    "surface": "#18181b",
+    "panel": "#27272a",
+    "raised": "#303036",
+    "sunken": "#111113",
+    "line": "#3f3f46",
+    "lineStrong": "#52525b",
+    "inkStrong": "#f4f4f5",
+    "ink": "#d4d4d8",
+    "inkSoft": "#a1a1aa",
+    "inkFaint": "#71717a",
+    "accent": "#38bdf8",
+    "accentSoft": "#0369a1",
+    "accentTint": "#0c2a3d",
+    "accentInk": "#7dd3fc",
+    "led": "#f59e0b",
+    "ledTint": "#2b2111",
+    "ledInk": "#fcd34d",
+    "danger": "#f87171",
+    "dangerTint": "#2a1215",
+    "shadow": "#000000"
+  },
+  "playlist": {
+    "beatLine": "mix(line, surface, 0.5)"
+  }
+}

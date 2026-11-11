@@ -71,13 +71,13 @@ const ClipMenu = ({ x, y, items: given, onClose }: Props) => {
       ref={ref}
       role='menu'
       tabIndex={-1}
-      className='absolute z-50 min-w-[11rem] py-1 rounded-md bg-white text-xs text-slate-700 shadow-lg ring-1 ring-slate-300 select-none'
+      className='absolute z-50 min-w-[11rem] py-1 rounded-md bg-raised text-xs text-ink shadow-lg ring-1 ring-line-strong select-none'
       style={{ left: x + shift.x, top: y + shift.y }}
       onContextMenu={e => e.preventDefault()}
     >
       {items.map((item, i) => (item === 'divider' ? (
         // eslint-disable-next-line react/no-array-index-key
-        <div key={`divider-${i}`} role='separator' className='my-1 border-t border-slate-200' />
+        <div key={`divider-${i}`} role='separator' className='my-1 border-t border-line' />
       ) : (
         <button
           key={item.label}
@@ -87,8 +87,8 @@ const ClipMenu = ({ x, y, items: given, onClose }: Props) => {
           title={item.title}
           className={`w-full flex flex-row items-center justify-between gap-4 px-3 py-1.5 text-left ${
             item.disabled
-              ? 'text-slate-300 cursor-default'
-              : `hover:bg-sky-50 ${item.danger ? 'text-red-600 hover:bg-red-50' : ''}`
+              ? 'text-line-strong cursor-default'
+              : `hover:bg-accent-tint ${item.danger ? 'text-danger hover:bg-danger-tint' : ''}`
           }`}
           onClick={() => {
             onClose()
@@ -96,7 +96,7 @@ const ClipMenu = ({ x, y, items: given, onClose }: Props) => {
           }}
         >
           <span>{item.label}</span>
-          {item.shortcut && <span className='text-slate-400 font-mono'>{item.shortcut}</span>}
+          {item.shortcut && <span className='text-ink-faint font-mono'>{item.shortcut}</span>}
         </button>
       )))}
     </div>

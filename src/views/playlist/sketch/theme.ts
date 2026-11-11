@@ -1,62 +1,12 @@
-// the playlist's colours, as [r, g, b]. they match the four-track controls
-// (components/fourtrack/fourtrack.scss): Tailwind slate, with sky accents
+import { painter } from '../../../theme/canvas'
 
-type RGB = [number, number, number]
+// the playlist's colours come from the theme (engine/themes/base.json,
+// 'playlist' section); draw with paint.fill(p, 'clip') and the like
+export const paint = painter('playlist')
 
 export const theme = {
   font: 'system-ui',
 
-  // the canvas, and every other track lane
-  background: [255, 255, 255] as RGB,
-  laneAlt: [248, 250, 252] as RGB, // slate-50
-  // between tracks
-  laneLine: [226, 232, 240] as RGB, // slate-200
-
   // the grid: a line per beat, darker on each bar
-  beatLine: [226, 232, 240] as RGB, // slate-200
-  barLine: [203, 213, 225] as RGB, // slate-300
   beatsPerBar: 4,
-
-  // the ruler along the top
-  ruler: [241, 245, 249] as RGB, // slate-100
-  rulerLine: [203, 213, 225] as RGB, // slate-300
-  rulerText: [148, 163, 184] as RGB, // slate-400
-  rulerBarText: [71, 85, 105] as RGB, // slate-600
-
-  // the playhead, while playing and while stopped
-  playhead: [14, 165, 233] as RGB, // sky-500
-  playheadStopped: [148, 163, 184] as RGB, // slate-400
-  // where the loop ends, on the ruler
-  loopEnd: [71, 85, 105] as RGB, // slate-600
-
-  // clips
-  clip: [255, 255, 255] as RGB,
-  clipBorder: [203, 213, 225] as RGB, // slate-300
-  clipLabel: [241, 245, 249] as RGB, // slate-100
-  clipText: [51, 65, 85] as RGB, // slate-700
-  clipWave: [100, 116, 139] as RGB, // slate-500
-  // the dot on a clip whose settings were changed, like an amber LED
-  modified: [245, 158, 11] as RGB, // amber-500
-
-  // pattern clips (from the Sequencer): amber, like its keys' LEDs, with a
-  // cell for each lit step
-  patternClip: [255, 251, 235] as RGB, // amber-50
-  patternLabel: [254, 243, 199] as RGB, // amber-100
-  patternBorder: [251, 191, 36] as RGB, // amber-400
-  patternHit: [217, 119, 6] as RGB, // amber-600
-  patternBeat: [253, 230, 138] as RGB, // amber-200
-
-  // selected clips, and the box dragged out to select them
-  selectedClip: [240, 249, 255] as RGB, // sky-50
-  selectedLabel: [224, 242, 254] as RGB, // sky-100
-  selectedBorder: [14, 165, 233] as RGB, // sky-500
-  lassoFill: [14, 165, 233] as RGB, // sky-500, drawn faint
-
-  // drops, the new-track area
-  accent: [14, 165, 233] as RGB, // sky-500
-  accentSoft: [125, 211, 252] as RGB, // sky-300
-  idle: [148, 163, 184] as RGB, // slate-400
-
-  // the scrollbar's thumb
-  scrollbar: [100, 116, 139] as RGB, // slate-500
 }

@@ -143,14 +143,14 @@ const Mixer = () => {
           header={(
             <button
               type='button'
-              className='mt-auto flex flex-row items-center gap-1.5 rounded px-1 py-0.5 hover:bg-slate-100'
+              className='mt-auto flex flex-row items-center gap-1.5 rounded px-1 py-0.5 hover:bg-panel'
               title={clipped
                 ? 'The mix went over 0 dB, and the limiter rounded off its peaks. Click to clear'
                 : 'Lights up if the mix goes over 0 dB'}
               onClick={clearClip}
             >
               <Led color='red' state={clipped ? 'on' : 'off'} />
-              <span className={`ft-label ${clipped ? 'text-red-600' : ''}`}>Clip</span>
+              <span className={`ft-label ${clipped ? 'text-danger' : ''}`}>Clip</span>
             </button>
           )}
           footer={<ResetAll />}

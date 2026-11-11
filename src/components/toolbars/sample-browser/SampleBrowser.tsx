@@ -129,7 +129,7 @@ const SampleBrowser = () => {
       <div className='flex-1 min-h-0 overflow-y-auto overflow-x-hidden pb-2' role='tree' aria-label='Samples'>
         {rows}
         {search && !rows.length && (
-          <div className='px-3 py-2 text-xs text-slate-400'>
+          <div className='px-3 py-2 text-xs text-ink-faint'>
             No samples match. Only folders opened so far are searched.
           </div>
         )}

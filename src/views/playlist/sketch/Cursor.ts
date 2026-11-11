@@ -3,7 +3,7 @@ import { P5CanvasInstance } from 'react-p5-wrapper'
 import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import { Renderer, CanvasProps } from './index'
 import { P5BoundingBox } from '../../../render/P5Component'
-import { theme } from './theme'
+import { paint } from './theme'
 
 interface Props extends PlaylistComponentProps {}
 
@@ -45,17 +45,17 @@ class Cursor extends PlaylistComponent {
 
     // sky while playing or being moved, grey while stopped
     const colour = playlist.playing || playlist.seekBeat !== null
-      ? theme.playhead
-      : theme.playheadStopped
+      ? 'playhead'
+      : 'playheadStopped'
 
     this.p.push()
-    this.p.stroke(...colour)
+    paint.stroke(this.p, colour)
     this.p.strokeWeight(1.5)
     // the last track's bottom, scrolled (the tracks are drawn 1px down)
     const bottom = Math.min(this.p.height, playlist.newTrackAreaTop() + 1 - playlist.scrollY)
     this.p.line(x, 0, x, bottom)
     this.p.noStroke()
-    this.p.fill(...colour)
+    paint.fill(this.p, colour)
     this.p.triangle(x - 5, 0, x + 5, 0, x, 8)
     this.p.pop()
   }

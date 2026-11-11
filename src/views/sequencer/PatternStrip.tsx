@@ -42,7 +42,7 @@ const PatternKey = ({ pattern, selected, playing }: {
         aria-label='Pattern name'
         placeholder={String(pattern.id + 1)}
         maxLength={MAX_NAME_CHARS}
-        className='ft-scribble h-7 w-28 text-xs text-center px-1 outline-none ring-2 ring-sky-400'
+        className='ft-scribble h-7 w-28 text-xs text-center px-1 outline-none ring-2 ring-accent-focus'
         value={draft}
         onFocus={e => e.currentTarget.select()}
         onChange={e => setDraft(e.currentTarget.value)}

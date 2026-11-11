@@ -6,6 +6,7 @@ import {
   gainFactor,
   windowedDuration,
 } from '../../types/clip'
+import { painter, useThemeChange } from '../../theme/canvas'
 import { Region, playedRegion, timeAtX } from './region'
 
 export interface WaveformData {
@@ -25,22 +26,8 @@ interface Props {
   onEnvelopeChange: (change: Partial<Pick<ClipSettings, 'attackMs' | 'decayMs'>>) => void
 }
 
-// matches the playlist (views/playlist/sketch/theme.ts)
-const COLORS = {
-  background: '#ffffff',
-  ruler: '#f1f5f9', // slate-100
-  rulerLine: '#cbd5e1', // slate-300
-  grid: '#e2e8f0', // slate-200
-  beat: '#94a3b8', // slate-400
-  centre: '#cbd5e1', // slate-300
-  wave: 'rgb(2, 132, 199)', // sky-600
-  dimmed: '#cbd5e1', // slate-300
-  wash: 'rgba(241, 245, 249, 0.6)', // slate-100
-  fill: 'rgba(14, 165, 233, 0.12)',
-  // amber, like the dot on a clip whose settings were changed
-  envelope: 'rgb(245, 158, 11)', // amber-500
-  fade: 'rgba(245, 158, 11, 0.07)',
-}
+// the colours come from the theme's waveform section
+const paint = painter('waveform')
 
 // space for the beat labels along the top
 const RULER_HEIGHT = 16
@@ -100,11 +87,11 @@ const draw = (
   const windowed = region.left > 0 || region.width < width
 
   ctx.clearRect(0, 0, width, height)
-  ctx.fillStyle = COLORS.background
+  ctx.fillStyle = paint.css('background')
   ctx.fillRect(0, 0, width, height)
-  ctx.fillStyle = COLORS.ruler
+  ctx.fillStyle = paint.css('ruler')
   ctx.fillRect(0, 0, width, RULER_HEIGHT)
-  ctx.strokeStyle = COLORS.rulerLine
+  ctx.strokeStyle = paint.css('rulerLine')
   ctx.lineWidth = 1
   ctx.beginPath()
   ctx.moveTo(0, RULER_HEIGHT - 0.5)
@@ -118,7 +105,7 @@ const draw = (
   const decayX = handleX('decay', settings, layout)
 
   // shade the fades
-  ctx.fillStyle = COLORS.fade
+  ctx.fillStyle = paint.css('fade')
   ctx.fillRect(region.left, top, attackX - region.left, height - top)
   ctx.fillRect(decayX, top, region.left + region.width - decayX, height - top)
 
@@ -140,21 +127,21 @@ const draw = (
     for(let b = firstBeat; b <= lastBeat; b++) {
       const x = Math.round(region.left + b * beatWidth) + 0.5
 
-      ctx.strokeStyle = COLORS.grid
+      ctx.strokeStyle = paint.css('grid')
       ctx.beginPath()
       ctx.moveTo(x, top)
       ctx.lineTo(x, height)
       ctx.stroke()
 
       if(b >= 0 && b % labelEvery === 0 && x < width - 8) {
-        ctx.fillStyle = COLORS.beat
+        ctx.fillStyle = paint.css('beat')
         ctx.fillText(String(b + 1), x + 3, RULER_HEIGHT / 2)
       }
     }
   }
 
   // centre line
-  ctx.strokeStyle = COLORS.centre
+  ctx.strokeStyle = paint.css('centre')
   ctx.lineWidth = 1
   ctx.beginPath()
   ctx.moveTo(0, Math.round(mid) + 0.5)
@@ -183,7 +170,7 @@ const draw = (
       ctx.rect(0, top, region.left, height - top)
       ctx.rect(region.left + region.width, top, width - region.left - region.width, height - top)
       ctx.clip()
-      ctx.strokeStyle = COLORS.dimmed
+      ctx.strokeStyle = paint.css('dimmed')
       strokeWave(i => heightAt(levels[i] * gain))
       ctx.restore()
 
@@ -195,7 +182,7 @@ const draw = (
     }
 
     // shade between the wave and the centre line
-    ctx.fillStyle = COLORS.fill
+    ctx.fillStyle = paint.css('fill')
     ctx.beginPath()
     ctx.moveTo(0, mid)
     levels.forEach((_, i) => ctx.lineTo(xAt(i), yAt(i)))
@@ -203,7 +190,7 @@ const draw = (
     ctx.closePath()
     ctx.fill()
 
-    ctx.strokeStyle = COLORS.wave
+    ctx.strokeStyle = paint.css('wave')
     strokeWave(yAt)
 
     if(windowed) ctx.restore()
@@ -211,11 +198,11 @@ const draw = (
 
   if(windowed) {
     // dim what the clip doesn't play, and mark where it starts and ends
-    ctx.fillStyle = COLORS.wash
+    ctx.fillStyle = paint.css('wash')
     ctx.fillRect(0, top, region.left, height - top)
     ctx.fillRect(region.left + region.width, top, width - region.left - region.width, height - top)
 
-    ctx.strokeStyle = COLORS.rulerLine
+    ctx.strokeStyle = paint.css('rulerLine')
     ctx.lineWidth = 1
     const edges = [region.left, region.left + region.width]
     edges.filter(x => x > 0 && x < width).forEach(x => {
@@ -234,7 +221,7 @@ const draw = (
   const peakX = Math.min(attackX, decayX)
   const peakLevel = played > 0 ? envelopeAt(settings, timeAtX(region, played, peakX), played) : 1
 
-  ctx.strokeStyle = COLORS.envelope
+  ctx.strokeStyle = paint.css('envelope')
   ctx.lineWidth = 1.5
   ctx.beginPath()
   ctx.moveTo(region.left, envelopeY(settings.attackMs > 0 ? 0 : 1))
@@ -257,9 +244,9 @@ const draw = (
       0,
       Math.PI * 2,
     )
-    ctx.fillStyle = handle === active ? COLORS.envelope : '#fff'
+    ctx.fillStyle = handle === active ? paint.css('envelope') : paint.css('background')
     ctx.fill()
-    ctx.strokeStyle = COLORS.envelope
+    ctx.strokeStyle = paint.css('envelope')
     ctx.stroke()
   })
 }
@@ -269,6 +256,7 @@ const draw = (
 const ClipWaveform = ({ data, settings, tempo, window: clipWindow, onEnvelopeChange }: Props) => {
   const boxRef = React.useRef<HTMLDivElement>(null)
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
+  const themeChange = useThemeChange()
   const [size, setSize] = React.useState({ width: 0, height: 0 })
   // the handle being dragged, or under the mouse
   const [dragging, setDragging] = React.useState<Handle | null>(null)
@@ -309,7 +297,7 @@ const ClipWaveform = ({ data, settings, tempo, window: clipWindow, onEnvelopeCha
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
     draw(ctx, layout, levels, settings, tempo, dragging ?? hovered)
-  }, [size, levels, settings, data.duration, clipWindow, tempo, dragging, hovered])
+  }, [size, levels, settings, data.duration, clipWindow, tempo, dragging, hovered, themeChange])
 
   // pointer position on the canvas
   const pointerX = (ev: { clientX: number }) =>

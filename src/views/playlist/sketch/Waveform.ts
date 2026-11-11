@@ -3,7 +3,7 @@ import { P5CanvasInstance } from 'react-p5-wrapper'
 import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import { CanvasProps, Renderer, staticDefaults } from './index'
 import { PlaylistItemPixelOffset } from '../../../types/playlist'
-import { theme } from './theme'
+import { paint } from './theme'
 import { Peaks, buildPeaks, peakRange } from './peaks'
 
 // each waveform's levels, summarised for drawing a pixel column at a time.
@@ -157,7 +157,7 @@ class Waveform extends PlaylistComponent {
       const columnWidth = 1 / scaleX
 
       p.noStroke()
-      p.fill(...theme.clipWave)
+      paint.fill(p, 'clipWave')
       ctx.beginPath()
       for(let column = first; column < last; column++) {
         // the points either side of the column too, since the line from
@@ -181,7 +181,7 @@ class Waveform extends PlaylistComponent {
       const end = Math.min(count - 1, Math.ceil(pointAt(last)))
       const pointX = (i: number) => left + (i - firstPoint) / pointsPerUnit
 
-      p.stroke(...theme.clipWave)
+      paint.stroke(p, 'clipWave')
       p.noFill()
       ctx.beginPath()
       ctx.moveTo(pointX(start), y(this.soundData[start]))

@@ -383,7 +383,7 @@ const RecordingsBrowser = ({ library = 'recordings' }: BrowserProps) => {
     list = (
       <div className='pb-2'>
         {found.map(take => <React.Fragment key={take.path}>{renderTake(take, 0)}</React.Fragment>)}
-        {!found.length && <div className='px-3 py-2 text-xs text-slate-400'>No {w.nouns} match.</div>}
+        {!found.length && <div className='px-3 py-2 text-xs text-ink-faint'>No {w.nouns} match.</div>}
       </div>
     )
   } else {
@@ -406,7 +406,7 @@ const RecordingsBrowser = ({ library = 'recordings' }: BrowserProps) => {
         itemKey={take => take.path}
         renderItem={renderTake}
       >
-        {empty && <div className='px-3 py-2 text-xs text-slate-400'>{empty}</div>}
+        {empty && <div className='px-3 py-2 text-xs text-ink-faint'>{empty}</div>}
       </FolderTree>
     )
   }

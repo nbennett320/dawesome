@@ -25,7 +25,7 @@ const RenameField = ({ initial, label, depth = 0, maxLength = 120, onDone }: Pro
 
   return (
     <div
-      className='h-6 flex flex-row items-center pr-3 border-l-2 border-sky-500 bg-sky-50'
+      className='h-6 flex flex-row items-center pr-3 border-l-2 border-accent bg-accent-tint'
       style={{ paddingLeft: depth * 12 + 8 }}
     >
       <input
@@ -34,7 +34,7 @@ const RenameField = ({ initial, label, depth = 0, maxLength = 120, onDone }: Pro
         autoFocus
         aria-label={label}
         maxLength={maxLength}
-        className='ft-scribble w-full h-5 text-xs px-1 outline-none ring-2 ring-sky-400'
+        className='ft-scribble w-full h-5 text-xs px-1 outline-none ring-2 ring-accent-focus'
         value={draft}
         onFocus={e => e.currentTarget.select()}
         onChange={e => setDraft(e.currentTarget.value)}
