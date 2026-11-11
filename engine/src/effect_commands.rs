@@ -4,10 +4,8 @@
 //
 // every change returns all of the racks, which the frontend replaces its
 // copy with, and is recorded so it can be undone. knob turns inside a
-// plugin's own window aren't undoable
-//
-// and a track's instrument played by hand: play_note and stop_note (the
-// Piano Roll's keys)
+// plugin's own window aren't undoable. instruments aren't effects: they're
+// the Note Sequencer's synths (see synth_commands.rs)
 use serde::Serialize;
 
 use crate::daw::{self, Channel};
@@ -46,9 +44,7 @@ pub struct AddedEffect {
 }
 
 pub fn add(state: &daw::InnerState, track: Option<u32>, plugin_id: &str, index: Option<usize>) -> Result<AddedEffect, String> {
-  // an instrument replacing the track's comes back with its settings on undo
-  let replaced = state.playlist.effects.replaced_by(channel(track), plugin_id);
-  let slot_id = edit(state, replaced, |effects| effects.add(channel(track), plugin_id, index))?;
+  let slot_id = edit(state, None, |effects| effects.add(channel(track), plugin_id, index))?;
   Ok(AddedEffect { racks: state.playlist.effects.racks(), slot_id })
 }
 
@@ -65,38 +61,6 @@ pub fn move_to(state: &daw::InnerState, slot_id: u64, track: Option<u32>, index:
 pub fn set_bypassed(state: &daw::InnerState, slot_id: u64, bypassed: bool) -> Result<Racks, String> {
   edit(state, None, |effects| effects.set_bypassed(slot_id, bypassed))?;
   Ok(state.playlist.effects.racks())
-}
-
-// start a note on a track's instrument, now (it's ended by stop_note, not
-// by playback stopping). opens the audio output if it isn't
-pub fn play_note_on(state: &daw::InnerState, engine: &daw::Engine, track: u32, pitch: u8, velocity: f32) -> Result<(), String> {
-  if pitch > 127 { return Err(format!("there's no note {}", pitch)); }
-  let velocity = if velocity.is_finite() { velocity.clamp(0., 1.) } else { 1. };
-  let route = state.playlist.mixer.track_route(track);
-  let Some(instrument) = engine.track_instrument(track) else { return Ok(()) };
-  engine.play_notes(&route, instrument, None, vec![daw::TimedNote::on(0, pitch, velocity)])
-}
-
-pub fn stop_note_on(state: &daw::InnerState, engine: &daw::Engine, track: u32, pitch: u8) -> Result<(), String> {
-  let route = state.playlist.mixer.track_route(track);
-  let Some(instrument) = engine.track_instrument(track) else { return Ok(()) };
-  engine.play_notes(&route, instrument, None, vec![daw::TimedNote::off(0, pitch.min(127))])
-}
-
-#[tauri::command]
-pub fn play_note(state: daw::TState<'_>, track: u32, pitch: u8, velocity: f32) -> Result<(), String> {
-  let engine = daw::engine()?;
-  play_note_on(&state, &engine, track, pitch, velocity)
-}
-
-#[tauri::command]
-pub fn stop_note(state: daw::TState<'_>, track: u32, pitch: u8) {
-  // (with no output open there's nothing sounding)
-  if let Some(engine) = daw::engine_if_open() {
-    if let Err(e) = stop_note_on(&state, &engine, track, pitch) {
-      println!("could not stop note {} on track {}: {}", pitch, track + 1, e);
-    }
-  }
 }
 
 #[tauri::command]
@@ -301,49 +265,13 @@ mod tests {
   }
 
   #[test]
-  fn test_undoing_a_replaced_instrument_brings_back_the_old_one_as_it_was() {
+  fn test_an_instrument_isnt_an_effect() {
     let rig = rig();
     let state = rig.state.clone();
-    let old = add(&state, Some(0), &synth().id, None).unwrap().slot_id;
-    rig.turn(old, 0.375);
-    let e = add(&state, Some(0), &gain().id, None).unwrap().slot_id;
-    let had = steps(&state);
-
-    let new = add(&state, Some(0), &synth().id, None).unwrap().slot_id;
-    assert_eq!(steps(&state), had + 1);
-    assert_eq!(rig.layout(), vec![(Some(0), vec![new, e])]);
-
-    undo(&state);
-    assert_eq!(rig.layout(), vec![(Some(0), vec![old, e])]);
-    assert!(close(rig.gain_of(old), 0.375));
-    assert_eq!(state.playlist.effects.racks()[0].slots[0].kind, crate::plugin::PluginKind::Instrument);
-    redo(&state);
-    assert_eq!(rig.layout(), vec![(Some(0), vec![new, e])]);
-    undo(&state);
-    assert!(close(rig.gain_of(old), 0.375));
-
-    // a refused move is no step
-    assert!(move_to(&state, old, None, 0).is_err());
-    assert_eq!(steps(&state), had);
-  }
-
-  #[test]
-  fn test_a_key_plays_a_tracks_instrument_until_its_let_go() {
-    let mut rig = rig();
-    let state = rig.state.clone();
-    let s = add(&state, Some(1), &synth().id, None).unwrap().slot_id;
-    rig.turn(s, 0.25);
-    let engine = rig.engine.clone();
-
-    play_note_on(&state, &engine, 1, 60, 0.9).unwrap();
-    let mut out = vec![0f32; 100 * 2];
-    rig.renderer.render(&mut out, std::time::Instant::now(), std::time::Duration::ZERO);
-    assert!(out.iter().all(|&s| close(s, 0.25)));
-
-    stop_note_on(&state, &engine, 1, 60).unwrap();
-    rig.renderer.render(&mut out, std::time::Instant::now(), std::time::Duration::ZERO);
-    assert!(out.iter().all(|&s| s == 0.));
-    assert!(play_note_on(&state, &engine, 1, 128, 0.9).is_err());
+    let err = add(&state, Some(0), &synth().id, None).unwrap_err();
+    assert!(err.contains("is an instrument"), "{}", err);
+    assert!(rig.layout().is_empty());
+    assert_eq!(steps(&state), 0);
   }
 
   #[test]

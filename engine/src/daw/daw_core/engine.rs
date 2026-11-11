@@ -561,9 +561,6 @@ pub struct Engine {
   shared: Arc<Shared>,
   // locked before `commands`, never after
   buses: Mutex<Buses>,
-  // the ids of the instruments in each chain sent, in order. locked before
-  // `commands`, never after, so it's in the order they were sent
-  instruments: Mutex<HashMap<Channel, Vec<u64>>>,
   sample_rate: u32,
   // the output device it plays through
   device_name: String,
@@ -595,7 +592,6 @@ impl Engine {
       garbage: Mutex::new(garbage_rx),
       shared: shared.clone(),
       buses: Mutex::new(Buses { tracks: HashMap::new(), room: BUS_ROOM }),
-      instruments: Mutex::new(HashMap::new()),
       sample_rate,
       device_name: "no device".into(),
     };
@@ -728,17 +724,10 @@ impl Engine {
     self.send(Command::Notes { channel: Channel::Track(route.number), instrument, run, notes })
   }
 
-  // the same, for an instrument on the master bus (nothing plays one yet)
-  #[allow(dead_code)]
+  // the same, for an instrument on the master bus (a synth's master copy)
   pub fn play_master_notes(&self, instrument: u64, run: Option<u64>, notes: Vec<TimedNote>) -> Result<(), String> {
     if notes.is_empty() { return Ok(()); }
     self.send(Command::Notes { channel: Channel::Master, instrument, run, notes })
-  }
-
-  // the first instrument in the chain last sent for a track, if it has one
-  // (for callers that address a track's one instrument)
-  pub fn track_instrument(&self, number: u32) -> Option<u64> {
-    self.instruments.lock().unwrap().get(&Channel::Track(number))?.first().copied()
   }
 
   // play a sound once, straight to the output
@@ -770,14 +759,11 @@ impl Engine {
 
   fn send_chain(&self, channel: Channel, slots: Vec<Arc<Slot>>) -> Result<(), String> {
     self.collect_garbage();
-    let instruments: Vec<u64> = slots.iter().filter(|slot| slot.instrument()).map(|slot| slot.id()).collect();
-    let mut sent = self.instruments.lock().unwrap();
     let mut commands = self.commands.lock().unwrap();
     commands
       .push(Command::Chain { channel, slots })
       .map_err(|_| "the audio engine is busy (its queue is full)".to_string())?;
     self.shared.chains_sent.fetch_add(1, Ordering::AcqRel);
-    sent.insert(channel, instruments);
     Ok(())
   }
 
@@ -2213,7 +2199,6 @@ mod tests {
     // set before it first plays, so it starts there rather than ramping
     b.set_gain(2.);
     engine.set_track_chain(&route, vec![a, b, Slot::new(3, Box::new(Gain(0.5)))]).unwrap();
-    assert_eq!(engine.track_instrument(0), Some(1));
 
     // the same pitch on both: a's note-off doesn't end b's note
     engine.start_run(1, mixer.master(), vec![]).unwrap();

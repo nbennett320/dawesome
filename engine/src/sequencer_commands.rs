@@ -13,9 +13,7 @@ use crate::history;
 use crate::event_dispatch::{beat_to_offset, node_beat, PlacedNode};
 use crate::project::LoadedPatternClip;
 
-fn sequencer_state(state: &daw::InnerState) -> daw::SequencerState {
-  state.playlist.sequencer.lock().unwrap().state()
-}
+use crate::synth_commands::sequencer_state;
 
 // run an edit on the sequencer, as a step that can be undone, then return
 // the whole sequencer
@@ -33,11 +31,8 @@ fn edit_in(
   gesture: Option<u64>,
   f: impl FnOnce(&mut daw::Sequencer) -> Result<(), String>,
 ) -> Result<daw::SequencerState, String> {
-  history::sequencer_edit(state, &[], gesture, || {
-    let mut sequencer = state.playlist.sequencer.lock().unwrap();
-    f(&mut sequencer)?;
-    Ok(sequencer.state())
-  })
+  history::sequencer_edit(state, &[], gesture, || f(&mut state.playlist.sequencer.lock().unwrap()))?;
+  Ok(sequencer_state(state))
 }
 
 fn beats_per_bar(state: &daw::InnerState) -> u16 {
@@ -113,19 +108,18 @@ pub struct AddedPattern {
   sequencer: daw::SequencerState,
 }
 
-// a new, empty pattern `bars` long, at the end
+// a new, empty pattern of `kind`, `bars` long, at the end
 #[tauri::command]
-pub fn add_pattern(state: daw::TState<'_>, bars: u32) -> Result<AddedPattern, String> {
-  add_pattern_of(&state, bars)
+pub fn add_pattern(state: daw::TState<'_>, bars: u32, kind: Option<daw::PatternKind>) -> Result<AddedPattern, String> {
+  add_pattern_of(&state, bars, kind.unwrap_or_default())
 }
 
-fn add_pattern_of(state: &daw::InnerState, bars: u32) -> Result<AddedPattern, String> {
+fn add_pattern_of(state: &daw::InnerState, bars: u32, kind: daw::PatternKind) -> Result<AddedPattern, String> {
   let beats = beats_per_bar(state);
-  history::sequencer_edit(state, &[], None, || {
-    let mut sequencer = state.playlist.sequencer.lock().unwrap();
-    let id = sequencer.add_pattern(bars, beats)?;
-    Ok(AddedPattern { id, sequencer: sequencer.state() })
-  })
+  let id = history::sequencer_edit(state, &[], None, || {
+    state.playlist.sequencer.lock().unwrap().add_pattern(bars, beats, kind)
+  })?;
+  Ok(AddedPattern { id, sequencer: sequencer_state(state) })
 }
 
 // a copy of a pattern, straight after it
@@ -135,11 +129,10 @@ pub fn duplicate_pattern(state: daw::TState<'_>, pattern_id: u64) -> Result<Adde
 }
 
 fn duplicate_pattern_of(state: &daw::InnerState, pattern_id: u64) -> Result<AddedPattern, String> {
-  history::sequencer_edit(state, &[], None, || {
-    let mut sequencer = state.playlist.sequencer.lock().unwrap();
-    let id = sequencer.duplicate_pattern(pattern_id)?;
-    Ok(AddedPattern { id, sequencer: sequencer.state() })
-  })
+  let id = history::sequencer_edit(state, &[], None, || {
+    state.playlist.sequencer.lock().unwrap().duplicate_pattern(pattern_id)
+  })?;
+  Ok(AddedPattern { id, sequencer: sequencer_state(state) })
 }
 
 // a pattern that was deleted: the sequencer without it, and the playlist
@@ -164,15 +157,14 @@ fn remove_pattern_of(state: &daw::InnerState, pattern_id: u64) -> Result<Removed
     .map(|node| node.id)
     .collect();
 
-  history::sequencer_edit(state, &clips, None, || {
+  let removed_clips = history::sequencer_edit(state, &clips, None, || {
     // the graph is locked before the sequencer, as everywhere
     let mut audiograph = state.playlist.audiograph.lock().unwrap();
     let mut sequencer = state.playlist.sequencer.lock().unwrap();
     sequencer.remove_pattern(pattern_id)?;
-    let removed_clips = audiograph.remove_pattern_nodes_of(pattern_id);
-
-    Ok(RemovedPattern { removed_clips, sequencer: sequencer.state() })
-  })
+    Ok(audiograph.remove_pattern_nodes_of(pattern_id))
+  })?;
+  Ok(RemovedPattern { removed_clips, sequencer: sequencer_state(state) })
 }
 
 // a folder that was just made, and the sequencer with it
@@ -183,18 +175,17 @@ pub struct AddedFolder {
   sequencer: daw::SequencerState,
 }
 
-// a new, empty folder of patterns in `parent` (none: the top)
+// a new, empty folder of `kind` patterns in `parent` (none: the top)
 #[tauri::command]
-pub fn add_pattern_folder(state: daw::TState<'_>, name: String, parent: Option<u64>) -> Result<AddedFolder, String> {
-  add_pattern_folder_to(&state, &name, parent)
+pub fn add_pattern_folder(state: daw::TState<'_>, name: String, parent: Option<u64>, kind: Option<daw::PatternKind>) -> Result<AddedFolder, String> {
+  add_pattern_folder_to(&state, &name, parent, kind.unwrap_or_default())
 }
 
-fn add_pattern_folder_to(state: &daw::InnerState, name: &str, parent: Option<u64>) -> Result<AddedFolder, String> {
-  history::sequencer_edit(state, &[], None, || {
-    let mut sequencer = state.playlist.sequencer.lock().unwrap();
-    let id = sequencer.add_folder(name, parent)?;
-    Ok(AddedFolder { id, sequencer: sequencer.state() })
-  })
+fn add_pattern_folder_to(state: &daw::InnerState, name: &str, parent: Option<u64>, kind: daw::PatternKind) -> Result<AddedFolder, String> {
+  let id = history::sequencer_edit(state, &[], None, || {
+    state.playlist.sequencer.lock().unwrap().add_folder(name, parent, kind)
+  })?;
+  Ok(AddedFolder { id, sequencer: sequencer_state(state) })
 }
 
 #[tauri::command]
@@ -234,9 +225,9 @@ fn remove_pattern_folder_of(state: &daw::InnerState, folder_id: u64) -> Result<d
         placed, if placed == 1 { "is" } else { "are" },
       ));
     }
-    sequencer.remove_folder(folder_id)?;
-    Ok(sequencer.state())
-  })
+    sequencer.remove_folder(folder_id).map(|_| ())
+  })?;
+  Ok(sequencer_state(state))
 }
 
 // name a pattern. a blank name shows its number again
@@ -245,7 +236,8 @@ pub fn rename_pattern(state: daw::TState<'_>, pattern_id: u64, name: String) -> 
   edit(&state, |seq| seq.rename_pattern(pattern_id, &name))
 }
 
-// make a pattern `bars` long. its clips in the playlist get longer or shorter
+// make a pattern `bars` long (1, 2 or 4 for a drum pattern, 1 to 64 for a
+// note pattern). its clips in the playlist get longer or shorter
 #[tauri::command]
 pub fn set_pattern_bars(state: daw::TState<'_>, pattern_id: u64, bars: u32) -> Result<daw::SequencerState, String> {
   let beats = beats_per_bar(&state);
@@ -276,46 +268,48 @@ fn set_step(
   edit_in(state, gesture, |seq| seq.set_step(pattern_id, row_id, step, on))
 }
 
-// replace a pattern's notes (the Piano Roll), kept in the order given. one
-// drag of the mouse (the same gesture) is one step to undo
+// replace a synth's notes in a note pattern (the Piano Roll), kept in the
+// order given. one drag of the mouse (the same gesture) is one step to undo
 #[tauri::command]
 pub fn set_pattern_notes(
   state: daw::TState<'_>,
   pattern_id: u64,
+  synth_id: u64,
   notes: Vec<daw::PatternNote>,
   gesture: Option<u64>,
 ) -> Result<daw::SequencerState, String> {
-  set_notes(&state, pattern_id, notes, gesture)
+  set_notes(&state, pattern_id, synth_id, notes, gesture)
 }
 
-fn set_notes(
+pub(crate) fn set_notes(
   state: &daw::InnerState,
   pattern_id: u64,
+  synth_id: u64,
   notes: Vec<daw::PatternNote>,
   gesture: Option<u64>,
 ) -> Result<daw::SequencerState, String> {
-  edit_in(state, gesture, |seq| seq.set_pattern_notes(pattern_id, notes))
+  edit_in(state, gesture, |seq| seq.set_pattern_notes(pattern_id, synth_id, notes))
 }
 
 // loop a pattern on its own, from its start, stopping whatever was playing.
-// its notes are played by `track`'s instrument (none: they aren't heard)
+// a note pattern's notes play on its synths' master copies
 #[tauri::command]
-pub fn t_play_pattern(state: daw::TState<'_>, pattern_id: u64, track: Option<u32>) -> Result<(), String> {
-  daw::start_pattern(state.inner(), pattern_id, track)
+pub fn t_play_pattern(state: daw::TState<'_>, pattern_id: u64) -> Result<(), String> {
+  daw::start_pattern(state.inner(), pattern_id)
 }
 
 // pause whatever is playing, or loop the pattern if nothing is
 #[tauri::command]
-pub fn t_toggle_pattern(state: daw::TState<'_>, pattern_id: u64, track: Option<u32>) -> Result<(), String> {
-  toggle_pattern(state.inner(), pattern_id, track)
+pub fn t_toggle_pattern(state: daw::TState<'_>, pattern_id: u64) -> Result<(), String> {
+  toggle_pattern(state.inner(), pattern_id)
 }
 
-fn toggle_pattern(state: &Arc<daw::InnerState>, pattern_id: u64, track: Option<u32>) -> Result<(), String> {
+fn toggle_pattern(state: &Arc<daw::InnerState>, pattern_id: u64) -> Result<(), String> {
   if state.playlist.playing() {
     daw::pause_playlist(state);
     Ok(())
   } else {
-    daw::start_pattern(state, pattern_id, track)
+    daw::start_pattern(state, pattern_id)
   }
 }
 
@@ -404,11 +398,16 @@ fn explode_each(state: &daw::InnerState, ids: &[u64], touched: &mut Vec<u64>) ->
   }
 
   let mixer = state.playlist.mixer.settings(audiograph.track_count());
-  let sequencer = state.playlist.sequencer.lock().unwrap().state();
-  Ok(Exploded { removed, clips, sequencer, mixer })
+  drop(audiograph);
+  Ok(Exploded { removed, clips, sequencer: sequencer_state(state), mixer })
 }
 
 // (for other modules' tests)
+#[cfg(test)]
+pub(crate) fn add_pattern_clip_for_tests(state: &daw::InnerState, pattern_id: u64, track_number: u32, drop_beat: Option<f32>) -> u64 {
+  add_pattern_clip_to(state, pattern_id, track_number, drop_beat).unwrap().id
+}
+
 #[cfg(test)]
 pub(crate) fn remove_pattern_for_tests(state: &daw::InnerState, pattern_id: u64) {
   // without its clips going with it, as the clipboard's copies don't
@@ -427,7 +426,7 @@ mod tests {
   fn test_a_pattern_follows_the_time_signature() {
     let state = daw::InnerState::default();
     state.playlist.time_signature.lock().unwrap().numerator = 3;
-    let added = add_pattern_of(&state, 2).unwrap();
+    let added = add_pattern_of(&state, 2, daw::PatternKind::Drum).unwrap();
     assert_eq!(added.sequencer.patterns[0].length, 24);
     assert_eq!(added.sequencer.patterns[0].id, added.id);
   }
@@ -435,7 +434,7 @@ mod tests {
   #[test]
   fn test_pattern_clips_snap_and_report_their_beat() {
     let state = daw::InnerState::default();
-    let pattern = add_pattern_of(&state, 1).unwrap().id;
+    let pattern = add_pattern_of(&state, 1, daw::PatternKind::Drum).unwrap().id;
 
     // default snap is one beat
     let placed = add_pattern_clip_to(&state, pattern, 1, Some(2.4)).unwrap();
@@ -450,8 +449,8 @@ mod tests {
   #[test]
   fn test_removing_a_pattern_removes_its_clips() {
     let state = daw::InnerState::default();
-    let pattern = add_pattern_of(&state, 1).unwrap().id;
-    let other = add_pattern_of(&state, 1).unwrap().id;
+    let pattern = add_pattern_of(&state, 1, daw::PatternKind::Drum).unwrap().id;
+    let other = add_pattern_of(&state, 1, daw::PatternKind::Drum).unwrap().id;
     let a = add_pattern_clip_to(&state, pattern, 0, Some(0.)).unwrap().id;
     add_pattern_clip_to(&state, other, 0, Some(4.)).unwrap();
 
@@ -465,9 +464,9 @@ mod tests {
   #[test]
   fn test_a_folder_in_use_isnt_removed() {
     let state = daw::InnerState::default();
-    let placed = add_pattern_of(&state, 1).unwrap().id;
-    let unplaced = add_pattern_of(&state, 1).unwrap().id;
-    let folder = add_pattern_folder_to(&state, "Drums", None).unwrap().id;
+    let placed = add_pattern_of(&state, 1, daw::PatternKind::Drum).unwrap().id;
+    let unplaced = add_pattern_of(&state, 1, daw::PatternKind::Drum).unwrap().id;
+    let folder = add_pattern_folder_to(&state, "Drums", None, daw::PatternKind::Drum).unwrap().id;
     {
       let mut seq = state.playlist.sequencer.lock().unwrap();
       seq.move_pattern(placed, Some(folder)).unwrap();
@@ -497,14 +496,14 @@ mod tests {
   #[test]
   fn test_a_pattern_needs_steps_to_play() {
     let state = Arc::new(daw::InnerState::default());
-    assert!(daw::start_pattern(&state, 7, None).is_err());
+    assert!(daw::start_pattern(&state, 7).is_err());
     assert!(!state.playlist.playing());
   }
 
   #[test]
   fn test_pattern_length_in_the_transport_math() {
     let state = daw::InnerState::default();
-    let pattern = add_pattern_of(&state, 2).unwrap().id;
+    let pattern = add_pattern_of(&state, 2, daw::PatternKind::Drum).unwrap().id;
     // two bars of 4/4 at 120bpm
     assert_eq!(daw::pattern_len(&state, pattern), Some(Duration::from_millis(4_000)));
   }
@@ -521,23 +520,32 @@ mod tests {
   }
 
   // a sequencer with two rows, a pattern with steps in a folder, and a clip
-  // of the pattern: (state, kick row, snare row, pattern, folder, clip)
+  // of the pattern: (state, kick row, snare row, pattern, folder, clip). its
+  // plugins are fakes (see effects.rs)
   fn drums() -> (Arc<daw::InnerState>, u64, u64, u64, u64, u64) {
-    let state = Arc::new(daw::InnerState::default());
+    let state = crate::effects::testing::rig().state;
     let kick = add_row(&state, KICK).unwrap().rows[0].id;
     let snare = add_row(&state, SNARE).unwrap().rows[1].id;
-    let pattern = add_pattern_of(&state, 1).unwrap().id;
+    let pattern = add_pattern_of(&state, 1, daw::PatternKind::Drum).unwrap().id;
     set_step(&state, pattern, kick, 0, true, None).unwrap();
     set_step(&state, pattern, snare, 4, true, None).unwrap();
-    let folder = add_pattern_folder_to(&state, "Drums", None).unwrap().id;
+    let folder = add_pattern_folder_to(&state, "Drums", None, daw::PatternKind::Drum).unwrap().id;
     edit(&state, |seq| seq.move_pattern(pattern, Some(folder))).unwrap();
     let clip = add_pattern_clip_to(&state, pattern, 1, Some(4.)).unwrap().id;
     (state, kick, snare, pattern, folder, clip)
   }
 
+  // a synth (the fake one) and a one bar note pattern, in `state`
+  fn synth_and_pattern(state: &daw::InnerState) -> (u64, u64) {
+    let synth = crate::synth_commands::add(state, &crate::effects::testing::synth().id).unwrap().synth_id;
+    let pattern = add_pattern_of(state, 1, daw::PatternKind::Note).unwrap().id;
+    (synth, pattern)
+  }
+
   #[test]
   fn test_every_sequencer_edit_can_be_undone_and_redone() {
     let (state, kick, snare, pattern, folder, _) = drums();
+    let (synth, notes) = synth_and_pattern(&state);
     let s: &daw::InnerState = &state;
 
     // each edit is made on top of the ones before it
@@ -548,11 +556,15 @@ mod tests {
       ("light a step", Box::new(|| set_step(s, pattern, kick, 8, true, None).map(|_| ()))),
       ("clear a step", Box::new(|| set_step(s, pattern, kick, 0, false, None).map(|_| ()))),
       ("rename a pattern", Box::new(|| edit(s, |seq| seq.rename_pattern(pattern, "verse")).map(|_| ()))),
-      ("set the notes", Box::new(|| set_notes(s, pattern, vec![note(60, 1.), note(64, 2.)], None).map(|_| ()))),
+      ("set the notes", Box::new(|| set_notes(s, notes, synth, vec![note(60, 1.), note(64, 2.)], None).map(|_| ()))),
+      ("note pattern length", Box::new(|| edit(s, |seq| seq.set_pattern_bars(notes, 7, 4)).map(|_| ()))),
+      ("synth volume", Box::new(|| crate::synth_commands::set_volume(s, synth, 0.5, None).map(|_| ()))),
+      ("mute a synth", Box::new(|| crate::synth_commands::set_muted(s, synth, true).map(|_| ()))),
       ("pattern length", Box::new(|| edit(s, |seq| seq.set_pattern_bars(pattern, 2, 4)).map(|_| ()))),
-      ("add a pattern", Box::new(|| add_pattern_of(s, 4).map(|_| ()))),
+      ("add a pattern", Box::new(|| add_pattern_of(s, 4, daw::PatternKind::Drum).map(|_| ()))),
       ("duplicate a pattern", Box::new(|| duplicate_pattern_of(s, pattern).map(|_| ()))),
-      ("add a folder", Box::new(|| add_pattern_folder_to(s, "Fills", Some(folder)).map(|_| ()))),
+      ("add a folder", Box::new(|| add_pattern_folder_to(s, "Fills", Some(folder), daw::PatternKind::Drum).map(|_| ()))),
+      ("add a note folder", Box::new(|| add_pattern_folder_to(s, "Keys", None, daw::PatternKind::Note).map(|_| ()))),
       ("rename a folder", Box::new(|| edit(s, |seq| seq.rename_folder(folder, "Kit")).map(|_| ()))),
       // (the folder just added, out to the top)
       ("move a folder", Box::new(|| edit(s, |seq| seq.move_folder(folder + 1, None)).map(|_| ()))),
@@ -562,6 +574,8 @@ mod tests {
       ("remove a row", Box::new(|| edit(s, |seq| seq.remove_row(snare)).map(|_| ()))),
       // with its clip in the playlist
       ("remove a pattern", Box::new(|| remove_pattern_of(s, pattern).map(|_| ()))),
+      // with its notes
+      ("remove a synth", Box::new(|| crate::synth_commands::remove(s, synth).map(|_| ()))),
     ];
 
     let start = saved(&state);
@@ -592,14 +606,15 @@ mod tests {
 
   #[test]
   fn test_a_drag_of_notes_is_one_step() {
-    let (state, _, _, pattern, _, _) = drums();
+    let (state, _, _, _, _, _) = drums();
+    let (synth, pattern) = synth_and_pattern(&state);
     let before = saved(&state);
     let had = steps(&state);
 
     // a note drawn, then dragged along, without letting go of the mouse
     for n in 0..10 {
-      let seq = set_notes(&state, pattern, vec![note(60, 0.), note(62, n as f64 * 0.5)], Some(31)).unwrap();
-      assert_eq!(seq.patterns.iter().find(|p| p.id == pattern).unwrap().notes[1].start, n as f64 * 0.5);
+      let seq = set_notes(&state, pattern, synth, vec![note(60, 0.), note(62, n as f64 * 0.5)], Some(31)).unwrap();
+      assert_eq!(seq.pattern(pattern).unwrap().notes[&synth][1].start, n as f64 * 0.5);
     }
     assert_eq!(steps(&state), had + 1);
     let after = saved(&state);
@@ -611,10 +626,10 @@ mod tests {
     assert_eq!(saved(&state), after);
 
     // the next drag is a step of its own; one that changes nothing isn't one
-    set_notes(&state, pattern, vec![note(60, 0.)], Some(32)).unwrap();
-    set_notes(&state, pattern, vec![note(60, 0.)], Some(33)).unwrap();
+    set_notes(&state, pattern, synth, vec![note(60, 0.)], Some(32)).unwrap();
+    set_notes(&state, pattern, synth, vec![note(60, 0.)], Some(33)).unwrap();
     assert_eq!(steps(&state), had + 2);
-    assert!(set_notes(&state, 99, vec![], None).is_err());
+    assert!(set_notes(&state, 99, synth, vec![], None).is_err());
     assert_eq!(steps(&state), had + 2);
   }
 
@@ -711,7 +726,7 @@ mod tests {
     let rows = add_row(&state, KICK).unwrap().rows;
     let ids: std::collections::BTreeSet<u64> = rows.iter().map(|row| row.id).collect();
     assert_eq!(ids.len(), rows.len());
-    let added = add_pattern_of(&state, 1).unwrap();
+    let added = add_pattern_of(&state, 1, daw::PatternKind::Drum).unwrap();
     assert_ne!(added.id, pattern);
   }
 
@@ -777,7 +792,7 @@ mod tests {
   #[test]
   fn test_explode_skips_sample_clips() {
     let state = daw::InnerState::default();
-    let pattern = add_pattern_of(&state, 1).unwrap().id;
+    let pattern = add_pattern_of(&state, 1, daw::PatternKind::Drum).unwrap().id;
     let row = add_row(&state, KICK).unwrap().rows[0].id;
     state.playlist.sequencer.lock().unwrap().set_step(pattern, row, 4, true).unwrap();
     let clip = add_pattern_clip_to(&state, pattern, 2, Some(4.)).unwrap().id;

@@ -38,7 +38,7 @@ pub fn project_view(state: &daw::InnerState) -> ProjectView {
     clips,
     pattern_clips,
     mixer: mixer_settings(state),
-    sequencer: state.playlist.sequencer.lock().unwrap().state(),
+    sequencer: crate::synth_commands::sequencer_state(state),
     effects: state.playlist.effects.racks(),
   }
 }

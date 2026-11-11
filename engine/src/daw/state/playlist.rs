@@ -84,9 +84,6 @@ pub struct Playlist {
   pub effects: Arc<crate::effects::Effects>,
   // what the current (or last) run plays. set before each run starts
   pub mode: Mutex<PlayMode>,
-  // the track whose instrument plays the notes of a pattern playing on its
-  // own (none: they aren't heard). set with the mode
-  pub pattern_track: Mutex<Option<u32>>,
   pub ui: Arc<Mutex<PlaylistUI>>,
 }
 
@@ -126,7 +123,6 @@ impl Playlist {
       sequencer,
       effects,
       mode: Mutex::new(PlayMode::Playlist),
-      pattern_track: Mutex::new(None),
 
       ui: Arc::new(Mutex::from(PlaylistUI::new())),
     }

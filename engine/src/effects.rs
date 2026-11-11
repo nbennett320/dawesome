@@ -1,10 +1,9 @@
 // the mixer's effects: every channel (each track, and the master) has a rack,
-// its effects in the order the sound goes through them
+// its effects in the order the sound goes through them. racks hold effects
+// only
 //
-// a track's rack can start with an instrument (a plugin whose kind is
-// instrument), which plays the notes of the pattern clips on that track. a
-// track has at most one, always first, and the master none. adding another
-// to a track replaces the one there
+// and the synths' plugins (see synths.rs): instruments the note patterns
+// play, kept here as the copies of each that the channels' chains start with
 //
 // an effect is a loaded plugin (its main-thread half lives here, its audio
 // half in a Slot in the engine's chain for that channel) or, if its plugin
@@ -35,6 +34,9 @@ use std::time::{Duration, Instant};
 use crate::daw::{self, Channel, Slot};
 use crate::main_thread::{self, DropOnMain};
 use crate::plugin::{self, PluginKind, Processor};
+
+mod synths;
+
 use crate::plugin_catalog::Plugins;
 
 // how long to wait for the engine to take a chain before carrying on (with
@@ -64,6 +66,8 @@ pub trait Hosted: Send {
   fn set_sample_rate(&mut self, rate: u32) -> Result<(), String>;
   fn has_editor(&self) -> bool;
   fn idle(&mut self);
+  // whether its interface is showing
+  fn editor_open(&self) -> bool;
   // the real plugin, for its window
   fn plugin(&mut self) -> Option<&mut plugin::Plugin>;
 }
@@ -91,6 +95,10 @@ impl Hosted for plugin::Plugin {
 
   fn idle(&mut self) {
     plugin::Plugin::idle(self)
+  }
+
+  fn editor_open(&self) -> bool {
+    plugin::Plugin::editor_open(self)
   }
 
   fn plugin(&mut self) -> Option<&mut plugin::Plugin> {
@@ -148,8 +156,6 @@ pub struct EffectSlot {
   pub plugin_id: String,
   pub name: String,
   pub vendor: String,
-  // "effect" or "instrument" (first in a track's chain)
-  pub kind: PluginKind,
   pub bypassed: bool,
   // its plugin couldn't be loaded: sound passes straight through, and its
   // saved settings are kept
@@ -183,10 +189,6 @@ pub struct SavedEffect {
   pub path: String,
   #[serde(default)]
   pub bypassed: bool,
-  // an instrument is saved as one, so it's known as one even when it can't
-  // be loaded (left out for effects, as projects had it before)
-  #[serde(default = "effect_kind", skip_serializing_if = "is_effect")]
-  pub kind: PluginKind,
   // the plugin's settings, base64
   #[serde(default)]
   pub state: String,
@@ -215,24 +217,16 @@ pub struct SavedRack {
 }
 
 // an effect a project has whose plugin couldn't be loaded. it's in its rack,
-// marked missing
+// marked missing (or a synth, in the synth list)
 #[derive(Serialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct MissingEffect {
-  // none is the master
+  // none is the master (and a synth)
   pub track: Option<u32>,
   pub name: String,
   pub vendor: String,
   pub path: String,
   pub reason: String,
-}
-
-fn effect_kind() -> PluginKind {
-  PluginKind::Effect
-}
-
-fn is_effect(kind: &PluginKind) -> bool {
-  *kind == PluginKind::Effect
 }
 
 fn channel_of(track: Option<u32>) -> Channel {
@@ -254,14 +248,7 @@ struct Desc {
   path: String,
   name: String,
   vendor: String,
-  kind: PluginKind,
   bypassed: bool,
-}
-
-impl Desc {
-  fn instrument(&self) -> bool {
-    self.kind == PluginKind::Instrument
-  }
 }
 
 struct Loaded {
@@ -280,6 +267,15 @@ enum Instance {
   Missing { state: Vec<u8>, reason: String },
 }
 
+impl Instance {
+  fn loaded(&self) -> Option<&Loaded> {
+    match self {
+      Instance::Loaded(loaded) => Some(loaded),
+      Instance::Missing { .. } => None,
+    }
+  }
+}
+
 struct Effect {
   desc: Desc,
   instance: Instance,
@@ -287,8 +283,13 @@ struct Effect {
 
 impl Effect {
   fn loaded(&self) -> Option<&Loaded> {
-    match &self.instance {
-      Instance::Loaded(loaded) => Some(loaded),
+    self.instance.loaded()
+  }
+
+  // its plugin, to be torn down (see unload)
+  fn into_loaded(self) -> Option<(u64, Loaded)> {
+    match self.instance {
+      Instance::Loaded(loaded) => Some((self.desc.id, loaded)),
       Instance::Missing { .. } => None,
     }
   }
@@ -299,7 +300,6 @@ impl Effect {
       plugin_id: self.desc.plugin_id.clone(),
       name: self.desc.name.clone(),
       vendor: self.desc.vendor.clone(),
-      kind: self.desc.kind,
       bypassed: self.desc.bypassed,
       missing: self.loaded().is_none(),
       has_editor: self.loaded().map_or(false, |l| l.has_editor),
@@ -360,6 +360,8 @@ impl RackSnap {
 // second instances of the live effects, for a mixdown's own engine
 pub struct MixdownEffects {
   pub chains: Vec<(Channel, Vec<Arc<Slot>>)>,
+  // the synths' copies in them, by (synth, track)
+  pub copies: daw::CopyIds,
   // torn down on the main thread when the mixdown's done with them
   pub plugins: DropOnMain<Vec<Box<dyn Hosted>>>,
   // how long they're played before the render, to set themselves up (see
@@ -389,6 +391,11 @@ struct Inner {
   held_by: Option<Arc<daw::Engine>>,
   // the rate plugins are loaded at while no output is open
   rate: u32,
+  // the synths, by id (see synths.rs), and their order in the list
+  synths: BTreeMap<u64, synths::LiveSynth>,
+  synth_order: Vec<u64>,
+  // the synth list and the copies wanted when they were last followed
+  followed: Option<synths::Followed>,
 }
 
 pub struct Effects {
@@ -409,6 +416,11 @@ pub struct Effects {
   // again and is saved with the project. kept after an effect goes, so
   // undoing its removal brings it back with its window's place
   windows: Mutex<HashMap<u64, WindowPosition>>,
+  // the settings of synths that have left the list, by id, so one that
+  // comes back (undo) comes back with them
+  kept_synths: Mutex<HashMap<u64, Vec<u8>>>,
+  // while above zero, the synths aren't followed (a project is loading)
+  synth_pauses: AtomicUsize,
 }
 
 impl Effects {
@@ -421,6 +433,9 @@ impl Effects {
         paused: false,
         held_by: None,
         rate: DEFAULT_RATE,
+        synths: BTreeMap::new(),
+        synth_order: Vec::new(),
+        followed: None,
       }),
       next_id: AtomicU64::new(1),
       loaded: AtomicUsize::new(0),
@@ -430,6 +445,8 @@ impl Effects {
       on_unload: Mutex::new(None),
       unloading: Mutex::new(HashMap::new()),
       windows: Mutex::new(HashMap::new()),
+      kept_synths: Mutex::new(HashMap::new()),
+      synth_pauses: AtomicUsize::new(0),
     }
   }
 
@@ -468,14 +485,18 @@ impl Effects {
     self.loaded.load(Ordering::SeqCst) > 0
   }
 
-  // an effect's name, if it's in a rack
+  // an effect's name, if it's in a rack (or a synth's)
   pub fn slot_name(&self, slot_id: u64) -> Option<String> {
     let inner = self.inner.lock().unwrap();
-    find(&inner, slot_id).map(|(channel, i)| inner.racks[&channel][i].desc.name.clone())
+    match find(&inner, slot_id) {
+      Some((channel, i)) => Some(inner.racks[&channel][i].desc.name.clone()),
+      None => inner.synths.get(&slot_id).map(|synth| synth.desc.name.clone()),
+    }
   }
 
   // call `f` with an effect's plugin, if it's in a rack and loaded (and is a
-  // real VST3 plugin). on the main thread only. the racks aren't locked
+  // real VST3 plugin), or a synth's (its master copy's). on the main thread
+  // only. the racks aren't locked
   // while `f` runs, so it may read them (slot_name), but it mustn't change
   // them: the plugin is locked meanwhile
   pub fn with_plugin<R>(&self, slot_id: u64, f: impl FnOnce(&mut plugin::Plugin) -> R) -> Option<R> {
@@ -502,69 +523,57 @@ impl Effects {
     self.windows.lock().unwrap().insert(slot_id, position);
   }
 
-  // an effect's plugin, while it's in a rack or being unloaded
+  // an effect's plugin (or a synth's master copy's), while it's in a rack
+  // or the synth list, or being unloaded
   fn hosted(&self, slot_id: u64) -> Option<Arc<Mutex<Box<dyn Hosted>>>> {
     {
       let inner = self.inner.lock().unwrap();
       if let Some((channel, i)) = find(&inner, slot_id) {
         return inner.racks[&channel][i].loaded().map(|l| l.plugin.clone());
       }
+      if let Some(synth) = inner.synths.get(&slot_id) {
+        return synth.master.loaded().map(|l| l.plugin.clone());
+      }
     }
     self.unloading.lock().unwrap().get(&slot_id).cloned()
   }
 
-  // ---- changes (each one undoable: see effect_commands.rs)
-
-  // the instrument that adding this plugin to this channel would replace,
-  // if it's an instrument and the channel has one
-  pub fn replaced_by(&self, channel: Channel, plugin_id: &str) -> Option<u64> {
-    let info = self.plugins.find(plugin_id)?;
-    if info.kind != PluginKind::Instrument { return None; }
-    let inner = self.inner.lock().unwrap();
-    inner.racks.get(&channel)?.first().filter(|e| e.desc.instrument()).map(|e| e.desc.id)
+  // a new slot id (an effect's, a synth's or a copy's): unique in the
+  // session, never reused
+  pub fn new_id(&self) -> u64 {
+    self.next_id.fetch_add(1, Ordering::SeqCst)
   }
 
-  // add an installed plugin to a channel, at `index` (or the end), but
-  // never above an instrument. an instrument goes first, replacing the
-  // track's instrument if it has one (`index` doesn't matter). gives the new
-  // effect's id. if the plugin can't be loaded nothing changes
+  // ---- changes (each one undoable: see effect_commands.rs)
+
+  // add an installed effect to a channel, at `index` (or the end). gives the
+  // new effect's id. if the plugin can't be loaded, or is an instrument
+  // (those are synths: see synths.rs), nothing changes
   pub fn add(&self, channel: Channel, plugin_id: &str, index: Option<usize>) -> Result<u64, String> {
     main_thread::run(|| {
       let info = self.plugins.find(plugin_id)
         .ok_or_else(|| "That plugin isn't among the installed plugins. Try scanning for plugins again".to_string())?;
-      if info.kind == PluginKind::Instrument && channel == Channel::Master {
-        return Err(NO_MASTER_INSTRUMENT.into());
+      if info.kind == PluginKind::Instrument {
+        return Err(format!("{} is an instrument: add it to the Note Sequencer's synths", info.name));
       }
       let desc = Desc {
-        id: self.next_id.fetch_add(1, Ordering::SeqCst),
+        id: self.new_id(),
         plugin_id: info.id.clone(),
         path: info.path.clone(),
         name: info.name.clone(),
         vendor: info.vendor.clone(),
-        kind: info.kind,
         bypassed: false,
       };
       let rate = self.load_rate();
-      let instance = self.load(&desc, None, rate)
+      let instance = self.load(&desc, None, rate, false)
         .map_err(|e| format!("{} couldn't be loaded: {}", info.name, e))?;
       let id = desc.id;
 
       let mut inner = self.inner.lock().unwrap();
       let rack = inner.racks.entry(channel).or_default();
-      let has_instrument = rack.first().map_or(false, |e| e.desc.instrument());
-      let mut replaced = Vec::new();
-      if desc.instrument() {
-        if has_instrument { replaced.push(rack.remove(0)); }
-        rack.insert(0, Effect { desc, instance });
-      } else {
-        let lowest = if has_instrument { 1 } else { 0 };
-        let at = index.unwrap_or(rack.len()).clamp(lowest, rack.len());
-        rack.insert(at, Effect { desc, instance });
-      }
+      let at = index.unwrap_or(rack.len()).min(rack.len());
+      rack.insert(at, Effect { desc, instance });
       self.sync(&mut inner);
-      let engine = inner.engine.clone();
-      drop(inner);
-      self.unload(engine, replaced);
       Ok(id)
     })?
   }
@@ -577,35 +586,20 @@ impl Effects {
       self.sync(&mut inner);
       let engine = inner.engine.clone();
       drop(inner);
-      self.unload(engine, vec![effect]);
+      self.unload(engine, effect.into_loaded().into_iter().collect());
       Ok(())
     })?
   }
 
   // move an effect within its channel or to another, keeping its plugin
-  // and settings. `index` is where it ends up in that channel's chain, but
-  // never above an instrument. an instrument stays first: moved to another
-  // track it becomes that track's instrument, if it hasn't one already
+  // and settings. `index` is where it ends up in that channel's chain
   pub fn move_to(&self, slot_id: u64, channel: Channel, index: usize) -> Result<(), String> {
     main_thread::run(|| {
       let mut inner = self.inner.lock().unwrap();
       let (from, i) = find(&inner, slot_id).ok_or_else(gone)?;
-      let instrument = inner.racks[&from][i].desc.instrument();
-      if instrument && from != channel {
-        let taken = inner.racks.get(&channel).and_then(|rack| rack.first()).map_or(false, |e| e.desc.instrument());
-        match channel {
-          Channel::Master => return Err(NO_MASTER_INSTRUMENT.into()),
-          Channel::Track(n) if taken => return Err(format!("Track {} already has an instrument", n + 1)),
-          Channel::Track(_) => {}
-        }
-      }
-
       let effect = inner.racks.get_mut(&from).unwrap().remove(i);
       let rack = inner.racks.entry(channel).or_default();
-      let at = if instrument { 0 } else {
-        let lowest = if rack.first().map_or(false, |e| e.desc.instrument()) { 1 } else { 0 };
-        index.clamp(lowest, rack.len())
-      };
+      let at = index.min(rack.len());
       rack.insert(at, effect);
       self.sync(&mut inner);
       Ok(())
@@ -643,8 +637,11 @@ impl Effects {
   fn state_here(&self, slot_id: u64) -> Option<Vec<u8>> {
     let hosted = {
       let inner = self.inner.lock().unwrap();
-      let (channel, i) = find(&inner, slot_id)?;
-      match &inner.racks[&channel][i].instance {
+      let instance = match find(&inner, slot_id) {
+        Some((channel, i)) => &inner.racks[&channel][i].instance,
+        None => &inner.synths.get(&slot_id)?.master,
+      };
+      match instance {
         Instance::Loaded(loaded) => loaded.plugin.clone(),
         Instance::Missing { state, .. } => return Some(state.clone()),
       }
@@ -675,7 +672,7 @@ impl Effects {
         .collect();
       let rate = if coming.is_empty() { DEFAULT_RATE } else { self.load_rate() };
       let mut fresh: HashMap<u64, Effect> = coming.into_iter().map(|snap| {
-        let instance = self.load(&snap.desc, snap.state.as_deref(), rate).unwrap_or_else(|reason| Instance::Missing {
+        let instance = self.load(&snap.desc, snap.state.as_deref(), rate, false).unwrap_or_else(|reason| Instance::Missing {
           state: snap.state.clone().unwrap_or_default(),
           reason,
         });
@@ -698,7 +695,7 @@ impl Effects {
       self.sync(&mut inner);
       let engine = inner.engine.clone();
       drop(inner);
-      self.unload(engine, here.into_values().collect());
+      self.unload(engine, here.into_values().filter_map(Effect::into_loaded).collect());
     });
     if let Err(e) = done {
       println!("the effects weren't put back: {}", e);
@@ -739,7 +736,6 @@ impl Effects {
             vendor: desc.vendor,
             path: desc.path,
             bypassed: desc.bypassed,
-            kind: desc.kind,
             window: self.window_position(desc.id),
             state: base64::encode(state),
           }
@@ -752,9 +748,10 @@ impl Effects {
     })
   }
 
-  // replace every rack with a project's. a plugin is found in the catalog
-  // by its id (or at the path it was saved with); one that can't be loaded
-  // is kept as missing, and listed
+  // replace every rack with a project's (and take out every synth: see
+  // load_synths). a plugin is found in the catalog by its id (or at the path
+  // it was saved with); one that can't be loaded is kept as missing, and
+  // listed. an instrument isn't an effect, and is left out
   pub fn load_saved(&self, saved: &[SavedRack]) -> Vec<MissingEffect> {
     let done = main_thread::run(|| {
       self.clear_here();
@@ -766,20 +763,22 @@ impl Effects {
       for rack in saved {
         for effect in &rack.slots {
           let found = self.plugins.find(&effect.plugin_id);
+          if found.as_ref().map_or(false, |info| info.kind == PluginKind::Instrument) {
+            println!("left out {} from a rack: it's an instrument", effect.name);
+            continue;
+          }
           let path = found.as_ref().map_or_else(|| effect.path.clone(), |info| info.path.clone());
           let desc = Desc {
-            id: self.next_id.fetch_add(1, Ordering::SeqCst),
+            id: self.new_id(),
             plugin_id: effect.plugin_id.clone(),
             path,
             name: effect.name.clone(),
             vendor: effect.vendor.clone(),
-            // (the catalog knows best, but a missing plugin is as it was saved)
-            kind: found.map_or(effect.kind, |info| info.kind),
             bypassed: effect.bypassed,
           };
           let state = base64::decode(&effect.state);
           let loaded = match &state {
-            Ok(state) => self.load(&desc, Some(state).filter(|s| !s.is_empty()).map(|s| &s[..]), rate),
+            Ok(state) => self.load(&desc, Some(state).filter(|s| !s.is_empty()).map(|s| &s[..]), rate, false),
             Err(_) => Err("its saved settings are damaged".to_string()),
           };
           let instance = loaded.unwrap_or_else(|reason| {
@@ -804,12 +803,6 @@ impl Effects {
           racks.entry(channel_of(rack.track)).or_default().push(Effect { desc, instance });
         }
       }
-      // a track's instrument first, whatever order the file has (sort_by_key
-      // keeps the rest in order)
-      for effects in racks.values_mut() {
-        effects.sort_by_key(|e| !e.desc.instrument());
-      }
-
       *self.windows.lock().unwrap() = windows;
       let mut inner = self.inner.lock().unwrap();
       inner.racks = racks;
@@ -822,7 +815,7 @@ impl Effects {
     })
   }
 
-  // take every effect out
+  // take every effect and synth out
   pub fn clear(&self) {
     if let Err(e) = main_thread::run(|| self.clear_here()) {
       println!("the effects weren't cleared: {}", e);
@@ -831,10 +824,16 @@ impl Effects {
 
   fn clear_here(&self) {
     let mut inner = self.inner.lock().unwrap();
-    let doomed: Vec<Effect> = std::mem::take(&mut inner.racks).into_values().flatten().collect();
+    let mut doomed: Vec<(u64, Loaded)> = std::mem::take(&mut inner.racks).into_values().flatten()
+      .filter_map(Effect::into_loaded)
+      .collect();
+    doomed.extend(std::mem::take(&mut inner.synths).into_values().flat_map(synths::LiveSynth::into_loaded));
+    inner.synth_order.clear();
+    inner.followed = None;
     self.sync(&mut inner);
     let engine = inner.engine.clone();
     drop(inner);
+    self.kept_synths.lock().unwrap().clear();
     self.unload(engine, doomed);
   }
 
@@ -842,8 +841,10 @@ impl Effects {
 
   // a second instance of every effect that's loaded and switched on, made at
   // `rate` with the live one's settings copied over, in chains for another
-  // engine. the live effects aren't touched
-  pub fn mixdown_chains(&self, rate: u32) -> Result<MixdownEffects, String> {
+  // engine; and one of each synth for each track that plays it (`synths`:
+  // (synth, track)), with its master copy's settings, first in that track's
+  // chain. the live plugins aren't touched
+  pub fn mixdown_chains(&self, rate: u32, synths: &BTreeSet<(u64, u32)>) -> Result<MixdownEffects, String> {
     // a plugin loaded just now may not have set itself up yet, and its
     // settings then may not be the ones it'll have (a sampler that hasn't
     // loaded its sounds says it's empty, and a copy given that stays empty).
@@ -852,9 +853,11 @@ impl Effects {
     let settle = self.backend().settle;
     let youngest = {
       let inner = self.inner.lock().unwrap();
+      let synths = synths.iter().filter_map(|(id, _)| inner.synths.get(id)?.master.loaded().map(|l| l.since));
       inner.racks.values().flatten()
         .filter(|e| !e.desc.bypassed)
         .filter_map(|e| e.loaded().map(|l| l.since))
+        .chain(synths)
         .max()
     };
     if let Some(since) = youngest {
@@ -863,33 +866,47 @@ impl Effects {
     }
 
     main_thread::run(|| {
-      let live: Vec<(Channel, Desc, Arc<Mutex<Box<dyn Hosted>>>)> = {
+      // the synths' copies (one that's muted isn't heard: none), then the
+      // effects, in their channels' order
+      let live: Vec<(Channel, Desc, Arc<Mutex<Box<dyn Hosted>>>, Option<(u64, f32)>)> = {
         let inner = self.inner.lock().unwrap();
-        inner.racks.iter()
+        let copies = synths.iter().filter_map(|&(id, track)| {
+          let synth = inner.synths.get(&id).filter(|synth| !synth.muted)?;
+          let loaded = synth.master.loaded()?;
+          Some((Channel::Track(track), synth.desc.clone(), loaded.plugin.clone(), Some((id, synth.volume))))
+        });
+        let effects = inner.racks.iter()
           .flat_map(|(channel, effects)| effects.iter().map(move |e| (*channel, e)))
           .filter(|(_, e)| !e.desc.bypassed)
-          .filter_map(|(channel, e)| e.loaded().map(|l| (channel, e.desc.clone(), l.plugin.clone())))
-          .collect()
+          .filter_map(|(channel, e)| e.loaded().map(|l| (channel, e.desc.clone(), l.plugin.clone(), None)));
+        copies.chain(effects).collect()
       };
 
       let loader = self.backend().loader;
       let mut plugins = Vec::new();
-      let mut chains: Vec<(Channel, Vec<Arc<Slot>>)> = Vec::new();
-      for (channel, desc, hosted) in live {
+      let mut chains: BTreeMap<Channel, Vec<Arc<Slot>>> = BTreeMap::new();
+      let mut copies = daw::CopyIds::new();
+      for (channel, desc, hosted, synth) in live {
         let failed = |e: String| format!("{} couldn't be loaded for the mixdown: {}", desc.name, e);
         let state = hosted.lock().unwrap().state().map_err(failed)?;
         let mut copy = loader.load_offline(Path::new(&desc.path), &desc.plugin_id, rate).map_err(failed)?;
         copy.set_state(&state).map_err(failed)?;
         let processor = copy.take_processor().ok_or_else(|| failed("it has no audio processor".into()))?;
-        let slot = if desc.instrument() { Slot::new_instrument(desc.id, processor) } else { Slot::new(desc.id, processor) };
-        match chains.last_mut() {
-          Some((c, slots)) if *c == channel => slots.push(slot),
-          _ => chains.push((channel, vec![slot])),
-        }
+        let slot = match synth {
+          Some((synth, volume)) => {
+            // (an id of its own: a synth has a copy on each of its tracks)
+            let slot = Slot::new_instrument(self.new_id(), processor);
+            slot.set_gain(volume);
+            copies.insert((synth, track_of(channel)), slot.id());
+            slot
+          }
+          None => Slot::new(desc.id, processor),
+        };
+        chains.entry(channel).or_default().push(slot);
         plugins.push(copy);
       }
       let settle = if plugins.is_empty() { Duration::ZERO } else { settle };
-      Ok(MixdownEffects { chains, plugins: DropOnMain::new(plugins), settle })
+      Ok(MixdownEffects { chains: chains.into_iter().collect(), copies, plugins: DropOnMain::new(plugins), settle })
     })?
   }
 
@@ -950,7 +967,7 @@ impl Effects {
     let _ = main_thread::run(|| {
       let plugins: Vec<Arc<Mutex<Box<dyn Hosted>>>> = {
         let inner = self.inner.lock().unwrap();
-        inner.racks.values().flatten().filter_map(|e| e.loaded().map(|l| l.plugin.clone())).collect()
+        all_loaded(&inner).map(|l| l.plugin.clone()).collect()
       };
       for plugin in plugins {
         // (one busy elsewhere on this thread, its window say, waits for
@@ -976,27 +993,28 @@ impl Effects {
     }
   }
 
-  // load an effect's plugin, ready for a chain
-  fn load(&self, desc: &Desc, state: Option<&[u8]>, rate: u32) -> Result<Instance, String> {
+  // load an effect's plugin (or an instrument's: a synth's copy), ready for
+  // a chain
+  fn load(&self, desc: &Desc, state: Option<&[u8]>, rate: u32, instrument: bool) -> Result<Instance, String> {
     let loader = self.backend().loader;
     let mut hosted = loader.load(Path::new(&desc.path), &desc.plugin_id, rate)?;
     if let Some(state) = state {
       hosted.set_state(state).map_err(|e| format!("its settings couldn't be put back ({})", e))?;
     }
     let processor = hosted.take_processor().ok_or_else(|| "it has no audio processor".to_string())?;
-    let slot = if desc.instrument() { Slot::new_instrument(desc.id, processor) } else { Slot::new(desc.id, processor) };
+    let slot = if instrument { Slot::new_instrument(desc.id, processor) } else { Slot::new(desc.id, processor) };
     slot.set_bypassed(desc.bypassed);
     let has_editor = hosted.has_editor();
     Ok(Instance::Loaded(Loaded { plugin: Arc::new(Mutex::new(hosted)), slot, has_editor, rate, since: Instant::now() }))
   }
 
-  // tear down effects that have left the racks, once the engine has let go
-  // of their slots. the unload callbacks run first, while with_plugin can
-  // still reach each plugin (through `unloading`), so a window showing one
-  // is closed with its plugin there to let go of it
-  fn unload(&self, engine: Option<Arc<daw::Engine>>, effects: Vec<Effect>) {
+  // tear down plugins that have left the racks (or the synths), by id, once
+  // the engine has let go of their slots. the unload callbacks run first,
+  // while with_plugin can still reach each plugin (through `unloading`), so
+  // a window showing one is closed with its plugin there to let go of it
+  fn unload(&self, engine: Option<Arc<daw::Engine>>, effects: Vec<(u64, Loaded)>) {
     let leaving: Vec<(u64, Arc<Mutex<Box<dyn Hosted>>>)> = effects.iter()
-      .filter_map(|e| e.loaded().map(|l| (e.desc.id, l.plugin.clone())))
+      .map(|(id, loaded)| (*id, loaded.plugin.clone()))
       .collect();
     if leaving.is_empty() { return; }
     self.unloading.lock().unwrap().extend(leaving.iter().cloned());
@@ -1025,7 +1043,11 @@ impl Effects {
 
   fn send_chain(&self, engine: &daw::Engine, channel: Channel, ids: Vec<u64>, inner: &mut Inner) {
     let slots: Vec<Arc<Slot>> = ids.iter().filter_map(|id| {
-      inner.racks.get(&channel)?.iter().find(|e| e.desc.id == *id)?.loaded().map(|l| l.slot.clone())
+      let in_rack = inner.racks.get(&channel).and_then(|rack| rack.iter().find(|e| e.desc.id == *id));
+      match in_rack {
+        Some(effect) => effect.loaded().map(|l| l.slot.clone()),
+        None => synths::slot_in(inner, *id),
+      }
     }).collect();
     let sent = match channel {
       Channel::Track(n) => engine.set_track_chain(&self.mixer.track_route(n), slots),
@@ -1043,7 +1065,7 @@ impl Effects {
   // for, before it's put in the second
   fn sync(&self, inner: &mut Inner) {
     inner.racks.retain(|_, effects| !effects.is_empty());
-    let loaded = inner.racks.values().flatten().filter(|e| e.loaded().is_some()).count();
+    let loaded = all_loaded(inner).count();
     self.loaded.store(loaded, Ordering::SeqCst);
     if inner.paused { return; }
 
@@ -1087,20 +1109,20 @@ impl Effects {
     // every plugin prepared for the engine's rate
     let rate = engine.sample_rate();
     inner.rate = rate;
-    for effect in inner.racks.values_mut().flatten() {
-      if let Instance::Loaded(loaded) = &mut effect.instance {
-        if loaded.rate != rate {
-          if let Err(e) = loaded.plugin.lock().unwrap().set_sample_rate(rate) {
-            println!("{} can't run at {} Hz: {}", effect.desc.name, rate, e);
-          }
-          loaded.rate = rate;
+    for loaded in all_loaded_mut(inner) {
+      if loaded.rate != rate {
+        if let Err(e) = loaded.plugin.lock().unwrap().set_sample_rate(rate) {
+          println!("a plugin can't run at {} Hz: {}", rate, e);
         }
+        loaded.rate = rate;
       }
     }
 
-    let wanted: BTreeMap<Channel, Vec<u64>> = inner.racks.iter()
-      .map(|(channel, effects)| (*channel, effects.iter().filter(|e| e.loaded().is_some()).map(|e| e.desc.id).collect()))
-      .collect();
+    // each chain: the synths' copies first, then the rack's effects
+    let mut wanted: BTreeMap<Channel, Vec<u64>> = synths::chains(inner);
+    for (channel, effects) in &inner.racks {
+      wanted.entry(*channel).or_default().extend(effects.iter().filter(|e| e.loaded().is_some()).map(|e| e.desc.id));
+    }
     let was_in: HashMap<u64, Channel> = inner.sent.iter()
       .flat_map(|(channel, ids)| ids.iter().map(move |id| (*id, *channel)))
       .collect();
@@ -1140,10 +1162,21 @@ fn find(inner: &Inner, slot_id: u64) -> Option<(Channel, usize)> {
   })
 }
 
-pub const NO_MASTER_INSTRUMENT: &str = "The master can't hold an instrument";
+// every plugin loaded: the racks', and the synths' copies
+fn all_loaded(inner: &Inner) -> impl Iterator<Item = &Loaded> {
+  inner.racks.values().flatten().filter_map(Effect::loaded)
+    .chain(inner.synths.values().flat_map(synths::LiveSynth::loaded))
+}
+
+fn all_loaded_mut(inner: &mut Inner) -> impl Iterator<Item = &mut Loaded> {
+  let racks = inner.racks.values_mut().flatten().filter_map(|e| match &mut e.instance {
+    Instance::Loaded(loaded) => Some(loaded),
+    Instance::Missing { .. } => None,
+  });
+  racks.chain(inner.synths.values_mut().flat_map(synths::LiveSynth::loaded_mut))
+}
 
 fn gone() -> String {
-
   "That effect isn't in the mixer any more".to_string()
 }
 
@@ -1266,6 +1299,8 @@ pub mod testing {
     // its settings are empty
     ready_at: Instant,
     empty: Arc<AtomicBool>,
+    // whether its interface is showing (the loader's, for every fake)
+    open: Arc<AtomicBool>,
   }
 
   impl Drop for FakeGain {
@@ -1302,6 +1337,10 @@ pub mod testing {
 
     fn idle(&mut self) {}
 
+    fn editor_open(&self) -> bool {
+      self.open.load(Ordering::SeqCst)
+    }
+
     fn plugin(&mut self) -> Option<&mut plugin::Plugin> {
       None
     }
@@ -1318,6 +1357,8 @@ pub mod testing {
     pub alive: Arc<AtomicUsize>,
     // the rates they were loaded at
     pub rates: Mutex<Vec<u32>>,
+    // whether every fake's interface is showing
+    pub editors_open: Arc<AtomicBool>,
   }
 
   impl Loader for FakeLoader {
@@ -1336,7 +1377,7 @@ pub mod testing {
       } else {
         Box::new(GainProcessor(gain.clone()))
       };
-      Ok(Box::new(FakeGain { processor: Some(processor), gain, alive: self.alive.clone(), ready_at, empty }))
+      Ok(Box::new(FakeGain { processor: Some(processor), gain, alive: self.alive.clone(), ready_at, empty, open: self.editors_open.clone() }))
     }
   }
 
@@ -1360,7 +1401,7 @@ pub mod testing {
     pub engine: Arc<daw::Engine>,
     pub renderer: daw::Renderer,
     pub loader: Arc<FakeLoader>,
-    run: u64,
+    pub run: u64,
   }
 
   pub fn rig() -> Rig {
@@ -1396,21 +1437,35 @@ pub mod testing {
       out[200]
     }
 
-    // what a track's instrument plays, rendered: `notes` (pitch, from, to,
-    // in frames) on track `track`, as a run, `frames` long. the left side
-    pub fn hear_notes(&mut self, track: u32, notes: &[(u8, u64, u64)], frames: usize) -> Vec<f32> {
+    // what a synth's copy on `track` (none: its master copy) plays,
+    // rendered: `notes` (pitch, from, to, in frames), as a run, `frames`
+    // long. the left side. silence if there's no such copy
+    pub fn hear_notes(&mut self, synth: u64, track: Option<u32>, notes: &[(u8, u64, u64)], frames: usize) -> Vec<f32> {
       self.run += 1;
-      let route = self.state.playlist.mixer.track_route(track);
       self.engine.start_run(self.run, self.state.playlist.mixer.master(), vec![]).unwrap();
-      let timed = notes.iter()
+      let timed: Vec<daw::TimedNote> = notes.iter()
         .flat_map(|&(pitch, from, to)| [daw::TimedNote::on(from, pitch, 1.), daw::TimedNote::off(to, pitch)])
         .collect();
-      if let Some(instrument) = self.engine.track_instrument(track) {
-        self.engine.play_notes(&route, instrument, Some(self.run), timed).unwrap();
+      if let Some(&copy) = self.effects().copy_ids().get(&(synth, track)) {
+        match track {
+          Some(n) => self.engine.play_notes(&self.state.playlist.mixer.track_route(n), copy, Some(self.run), timed).unwrap(),
+          None => self.engine.play_master_notes(copy, Some(self.run), timed).unwrap(),
+        }
       }
       let mut out = vec![0f32; frames * 2];
       self.renderer.render(&mut out, std::time::Instant::now(), Duration::ZERO);
       out.chunks(2).map(|f| f[0]).collect()
+    }
+
+    // a fake synth's copy's gain (its settings), on a track (none: the
+    // master copy)
+    pub fn copy_gain(&self, synth: u64, track: Option<u32>) -> Option<f32> {
+      let copy = *self.effects().copy_ids().get(&(synth, track))?;
+      let inner = self.effects().inner.lock().unwrap();
+      let plugin = inner.synths.get(&synth)?.loaded().find(|l| l.slot.id() == copy)?.plugin.clone();
+      drop(inner);
+      let state = plugin.lock().unwrap().state().ok()?;
+      Some(f32::from_le_bytes(state.try_into().ok()?))
     }
 
     // a fake plugin's gain, through its settings
@@ -1462,7 +1517,6 @@ mod tests {
       plugin_id: gain().id,
       name: "Gain".into(),
       vendor: "Fake Audio".into(),
-      kind: PluginKind::Effect,
       bypassed: false,
       missing: false,
       has_editor: false,
@@ -1587,9 +1641,12 @@ mod tests {
     // removed
     let a = effects.add(Channel::Track(0), &gain().id, None).unwrap();
     effects.remove(a).unwrap();
-    // replaced by another instrument
-    let s = effects.add(Channel::Track(0), &synth().id, None).unwrap();
-    effects.add(Channel::Track(0), &synth().id, None).unwrap();
+    // a synth that's left the list
+    let s = effects.load_synth(&synth().id).unwrap();
+    effects.follow_synths(&[s.clone()], &BTreeSet::new());
+    effects.follow_synths(&[], &BTreeSet::new());
+    let s = s.id;
+    effects.add(Channel::Track(0), &gain().id, None).unwrap();
     // undone away
     let before = effects.snapshot();
     let b = effects.add(Channel::Master, &gain().id, None).unwrap();
@@ -1705,117 +1762,19 @@ mod tests {
   }
 
   #[test]
-  fn test_an_instrument_goes_first_and_replaces_the_one_there() {
+  fn test_an_instrument_isnt_an_effect_and_one_in_a_saved_rack_is_left_out() {
     let rig = rig();
     let effects = rig.effects();
-    let a = effects.add(Channel::Track(1), &gain().id, None).unwrap();
-    let s = effects.add(Channel::Track(1), &synth().id, Some(5)).unwrap();
-    assert_eq!(rig.layout(), vec![(Some(1), vec![s, a])]);
-    let json = serde_json::to_value(effects.racks()).unwrap();
-    assert_eq!(json[0]["slots"][0]["kind"], "instrument");
-    assert_eq!(json[0]["slots"][1]["kind"], "effect");
-
-    // an effect can't go above it
-    let b = effects.add(Channel::Track(1), &gain().id, Some(0)).unwrap();
-    assert_eq!(rig.layout(), vec![(Some(1), vec![s, b, a])]);
-
-    // another instrument replaces it, and it's torn down
-    assert_eq!(effects.replaced_by(Channel::Track(1), &synth().id), Some(s));
-    assert_eq!(effects.replaced_by(Channel::Track(1), &gain().id), None);
-    assert_eq!(effects.replaced_by(Channel::Track(2), &synth().id), None);
-    let alive = rig.loader.alive.load(Ordering::SeqCst);
-    let t = effects.add(Channel::Track(1), &synth().id, None).unwrap();
-    assert_eq!(rig.layout(), vec![(Some(1), vec![t, b, a])]);
-    assert_eq!(rig.loader.alive.load(Ordering::SeqCst), alive);
-
-    assert_eq!(effects.add(Channel::Master, &synth().id, None).unwrap_err(), NO_MASTER_INSTRUMENT);
-  }
-
-  #[test]
-  fn test_moving_keeps_an_instrument_first_and_one_to_a_track() {
-    let rig = rig();
-    let effects = rig.effects();
-    let s = effects.add(Channel::Track(0), &synth().id, None).unwrap();
-    let a = effects.add(Channel::Track(0), &gain().id, None).unwrap();
-    let t = effects.add(Channel::Track(2), &synth().id, None).unwrap();
-    let m = effects.add(Channel::Master, &gain().id, None).unwrap();
-
-    // within its chain it stays first; an effect can't go above it
-    effects.move_to(s, Channel::Track(0), 1).unwrap();
-    effects.move_to(a, Channel::Track(0), 0).unwrap();
-    assert_eq!(rig.layout()[0], (Some(0), vec![s, a]));
-
-    // not to the master, nor to a track that has one
-    assert_eq!(effects.move_to(s, Channel::Master, 0).unwrap_err(), NO_MASTER_INSTRUMENT);
-    assert_eq!(effects.move_to(s, Channel::Track(2), 0).unwrap_err(), "Track 3 already has an instrument");
-    // to a track without one, it becomes that track's, first
-    effects.move_to(m, Channel::Track(4), 0).unwrap();
-    effects.move_to(s, Channel::Track(4), 1).unwrap();
-    // an effect moved in goes after it
-    effects.move_to(a, Channel::Track(2), 0).unwrap();
-    assert_eq!(rig.layout(), vec![(Some(2), vec![t, a]), (Some(4), vec![s, m])]);
-  }
-
-  #[test]
-  fn test_an_instrument_plays_notes_over_the_tracks_clips() {
-    let mut rig = rig();
-    let s = rig.effects().add(Channel::Track(0), &synth().id, None).unwrap();
-    rig.turn(s, 0.3);
-    // a clip on the track passes through it
-    assert!(close(rig.level(Some(0)), 0.2));
-
-    let out = rig.hear_notes(0, &[(60, 100, 300)], 400);
-    assert_eq!(out.iter().position(|&s| s != 0.), Some(100));
-    assert!(close(out[200], 0.3));
-    assert!(out[300..].iter().all(|&s| s == 0.));
-    // only its own track
-    assert!(rig.hear_notes(1, &[(60, 0, 300)], 400).iter().all(|&s| s == 0.));
-    // and through the effects after it
-    rig.effects().add(Channel::Track(0), &gain().id, None).unwrap();
-    assert!(close(rig.hear_notes(0, &[(60, 0, 300)], 400)[200], 0.3 * START_GAIN));
-  }
-
-  #[test]
-  fn test_an_instrument_is_saved_and_one_that_cant_load_stays_first_and_an_instrument() {
-    let rig = rig();
-    let effects = rig.effects();
-    let a = effects.add(Channel::Track(0), &gain().id, None).unwrap();
-    let s = effects.add(Channel::Track(0), &synth().id, None).unwrap();
-    rig.turn(s, 0.125);
-    let saved = effects.saved();
-    let json = serde_json::to_value(&saved).unwrap();
-    assert_eq!(json[0]["slots"][0]["kind"], "instrument");
-    // effects are saved as they were before instruments
-    assert!(json[0]["slots"][1].get("kind").is_none());
-    assert_eq!(saved[0].slots[1].plugin_id, gain().id);
-    let _ = (a, s);
-
-    // loaded back: the instrument first, with its settings
-    let missing = effects.load_saved(&saved);
-    assert!(missing.is_empty());
-    let racks = effects.racks();
-    assert_eq!(racks[0].slots[0].kind, PluginKind::Instrument);
-    assert!(close(rig.gain_of(racks[0].slots[0].id), 0.125));
-
-    // a file with it second, whose instrument isn't installed (nor in the
-    // catalog): it's put first, still an instrument, and kept as saved
-    let mut odd = saved.clone();
-    odd[0].slots.reverse();
-    odd[0].slots[1].plugin_id = "vst3:unknown".into();
-    odd[0].slots[1].path = "/gone/Other.vst3".into();
-    let missing = effects.load_saved(&odd);
-    assert_eq!(missing.len(), 1);
-    let racks = effects.racks();
-    assert_eq!(racks[0].slots[0].kind, PluginKind::Instrument);
-    assert!(racks[0].slots[0].missing);
-    assert_eq!(racks[0].slots[1].kind, PluginKind::Effect);
-    assert_eq!(effects.saved()[0].slots[0], odd[0].slots[1]);
-
-    // a project from before instruments loads its effects as effects
-    let old: Vec<SavedRack> = serde_json::from_value(serde_json::json!([
-      { "track": 0, "slots": [{ "pluginId": "vst3:unknown", "name": "Old", "path": "/gone/Old.vst3" }] },
+    let err = effects.add(Channel::Track(1), &synth().id, None).unwrap_err();
+    assert!(err.contains("is an instrument"), "{}", err);
+    let saved: Vec<SavedRack> = serde_json::from_value(serde_json::json!([
+      { "track": 0, "slots": [
+        { "pluginId": synth().id, "name": "Synth" },
+        { "pluginId": gain().id, "name": "Gain" },
+      ] },
     ])).unwrap();
-    assert_eq!(old[0].slots[0].kind, PluginKind::Effect);
+    assert!(effects.load_saved(&saved).is_empty());
+    assert_eq!(effects.racks()[0].slots.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), vec!["Gain"]);
   }
 
   #[test]
@@ -1931,7 +1890,7 @@ mod tests {
     assert!((rms(&hear(&rig, 1)) - dry).abs() > 1e-3);
     rig.effects().idle();
 
-    let mixdown = rig.effects().mixdown_chains(96_000).unwrap();
+    let mixdown = rig.effects().mixdown_chains(96_000, &BTreeSet::new()).unwrap();
     assert_eq!(mixdown.chains.len(), 1);
     drop(mixdown);
 

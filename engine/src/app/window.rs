@@ -212,7 +212,8 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     &item("view-sample", "Sample", None)?,
     &item("view-mixer", "Mixer", Some("CmdOrCtrl+Shift+M"))?,
     &item("view-transport", "Transport", None)?,
-    &item("view-sequencer", "Sequencer", Some("CmdOrCtrl+Shift+E"))?,
+    &item("view-sequencer", "Drum Sequencer", Some("CmdOrCtrl+Shift+E"))?,
+    &item("view-note-sequencer", "Note Sequencer", None)?,
     &item("view-piano-roll", "Piano Roll", None)?,
     &item("view-effects-rack", "Effects Rack", None)?,
   ])?;

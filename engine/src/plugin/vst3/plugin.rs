@@ -554,6 +554,11 @@ impl Plugin {
     }
   }
 
+  // whether its interface is open (in a window or a tab)
+  pub fn editor_open(&self) -> bool {
+    self.editor.is_some()
+  }
+
   pub fn editor_size(&self) -> Option<(u32, u32)> {
     let view = self.editor.as_ref()?;
     let mut rect = ViewRect { left: 0, top: 0, right: 0, bottom: 0 };

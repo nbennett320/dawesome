@@ -29,6 +29,7 @@ mod main_thread;
 mod effects;
 mod effect_commands;
 mod effect_windows;
+mod synth_commands;
 
 use std::env;
 use std::sync::{Arc, Mutex};
@@ -89,6 +90,7 @@ fn init_tauri() {
   use history_commands::{undo, redo};
   use effect_commands::*;
   use effect_windows::*;
+  use synth_commands::*;
 
   // read before the menu is built, which lists them
   let recent_projects = recent::RecentProjects::load();
@@ -112,6 +114,7 @@ fn init_tauri() {
   plugins.scan(false);
 
   let racks = state.playlist.effects.clone();
+  let following = state.clone();
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
@@ -121,6 +124,7 @@ fn init_tauri() {
       effects::keep_idling(racks.clone());
       effects::follow_output(&racks);
       effect_windows::init(&racks);
+      synth_commands::keep_following(following.clone());
       app::window::setup(app)
     })
     .manage(state)
@@ -259,6 +263,11 @@ fn init_tauri() {
       move_effect,
       set_effect_bypassed,
       set_pattern_notes,
+      add_synth,
+      remove_synth,
+      set_synth_volume,
+      set_synth_muted,
+      add_synth_on_track,
       play_note,
       stop_note
     ])

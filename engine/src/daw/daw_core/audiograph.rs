@@ -7,6 +7,7 @@ use std::sync::{
   Mutex,
 };
 use std::marker::{PhantomData};
+use std::collections::BTreeSet;
 use std::time::{Duration};
 use std::vec::{Vec};
 use std::fs::{File};
@@ -568,7 +569,7 @@ impl Track {
 // a pattern placed in the playlist. it stays linked to its pattern, so it
 // plays whatever the pattern holds now, and is as long as the pattern is
 // (or as the part of it that it plays). its hits go to its track's bus, and
-// its notes to its track's instrument (see run_notes)
+// its notes to its track's copy of each synth (see run_notes)
 #[derive(Clone, Debug, PartialEq)]
 pub struct PatternNode {
   pub id: u64,
@@ -700,40 +701,51 @@ pub fn schedule_in_window(
 // and where it's heard
 pub type SliceSound = (Duration, daw::VoiceSource, daw::Route);
 
-// a note in a slice of a run, for a track's instrument: how far into the
-// slice it starts, and ends (which can be in a later slice: the note-off is
-// sent with the note-on, so an edit made while it sounds can't leave it
-// hanging)
+// a note in a slice of a run, for a synth: how far into the slice it
+// starts, and ends (which can be in a later slice: the note-off is sent with
+// the note-on, so an edit made while it sounds can't leave it hanging), and
+// where it's heard: on a track (that track's copy of the synth) or, with
+// none, straight on the master (the master's copy: a pattern on its own)
 #[derive(Clone, Debug)]
 pub struct SliceNote {
   pub on: Duration,
   pub off: Duration,
-  pub route: daw::TrackRoute,
+  pub synth: u64,
+  pub route: Option<daw::TrackRoute>,
   pub pitch: u8,
   pub velocity: f32,
 }
 
 impl SliceNote {
   // - on, off: nanoseconds into the slice
-  fn new(on: i128, off: i128, route: daw::TrackRoute, note: &daw::PatternNote) -> SliceNote {
+  fn new(on: i128, off: i128, synth: u64, route: Option<daw::TrackRoute>, note: &daw::PatternNote) -> SliceNote {
     let at = |ns: i128| Duration::from_nanos(ns.max(0) as u64);
-    SliceNote { on: at(on), off: at(off), route, pitch: note.pitch, velocity: note.velocity }
+    SliceNote { on: at(on), off: at(off), synth, route, pitch: note.pitch, velocity: note.velocity }
   }
 }
 
+// the slot id of each copy of a synth that plays: by (synth, track), none
+// being the master's copy (see effects.rs)
+pub type CopyIds = std::collections::HashMap<(u64, Option<u32>), u64>;
+
 // send a slice's notes to the engine, as part of run `run`, the slice
-// starting `at` into the run
-pub fn play_slice_notes(engine: &daw::Engine, run: u64, at: Duration, notes: Vec<SliceNote>) -> Result<(), String> {
-  let mut by_track: std::collections::BTreeMap<u32, (daw::TrackRoute, Vec<daw::TimedNote>)> = Default::default();
+// starting `at` into the run: each to its synth's copy where it's heard. a
+// note for a copy that isn't there (its plugin is missing, or still being
+// loaded) isn't heard
+pub fn play_slice_notes(engine: &daw::Engine, run: u64, at: Duration, notes: Vec<SliceNote>, copies: &CopyIds) -> Result<(), String> {
+  let mut by_copy: std::collections::BTreeMap<(Option<u32>, u64), (Option<daw::TrackRoute>, Vec<daw::TimedNote>)> = Default::default();
   for note in notes {
-    let (_, timed) = by_track.entry(note.route.number).or_insert_with(|| (note.route.clone(), Vec::new()));
+    let track = note.route.as_ref().map(|route| route.number);
+    let Some(&copy) = copies.get(&(note.synth, track)) else { continue };
+    let (_, timed) = by_copy.entry((track, copy)).or_insert_with(|| (note.route.clone(), Vec::new()));
     timed.push(daw::TimedNote::on(engine.frames_in(at + note.on), note.pitch, note.velocity));
     timed.push(daw::TimedNote::off(engine.frames_in(at + note.off), note.pitch));
   }
-  // (to the track's instrument, if it has one)
-  for (number, (route, timed)) in by_track {
-    let Some(instrument) = engine.track_instrument(number) else { continue };
-    engine.play_notes(&route, instrument, Some(run), timed)?;
+  for ((_, copy), (route, timed)) in by_copy {
+    match route {
+      Some(route) => engine.play_notes(&route, copy, Some(run), timed)?,
+      None => engine.play_master_notes(copy, Some(run), timed)?,
+    }
   }
   Ok(())
 }
@@ -939,9 +951,9 @@ impl AudioGraph<'static> {
   }
 
   // the notes that start in the next `dur` of a run of the graph, for the
-  // instruments of the pattern clips' tracks: each pattern clip's notes that
-  // start in the part of its pattern it plays, each ending where it ends or
-  // at the clip's end, whichever comes first. a note that started before the
+  // synths' copies on the pattern clips' tracks: each pattern clip's notes
+  // that start in the part of its pattern it plays, each ending where it
+  // ends or at the clip's end, whichever comes first. a note that started before the
   // slice isn't played (an instrument can't start partway through a note),
   // so a run from the middle of one leaves it out
   //
@@ -965,23 +977,36 @@ impl AudioGraph<'static> {
       };
       let (from, to) = node.span(pattern.length);
       let route = self.mixer.track_route(node.track_number);
-      for note in pattern.notes.iter().filter(|note| note.start >= from && note.start < to) {
-        let on = node.heard_at(note.start, beat);
-        if on < window_start || on >= window_end || on >= loop_end { continue; }
-        let off = node.heard_at(note.end().min(to), beat).min(loop_end);
-        notes.push(SliceNote::new(on - window_start, off - window_start, route.clone(), note));
+      for (&synth, synth_notes) in &pattern.notes {
+        for note in synth_notes.iter().filter(|note| note.start >= from && note.start < to) {
+          let on = node.heard_at(note.start, beat);
+          if on < window_start || on >= window_end || on >= loop_end { continue; }
+          let off = node.heard_at(note.end().min(to), beat).min(loop_end);
+          notes.push(SliceNote::new(on - window_start, off - window_start, synth, Some(route.clone()), note));
+        }
       }
     }
     notes
   }
 
+  // which synths each track plays: (synth, track) for every pattern clip
+  // with notes of that synth that it plays some of (or would, were its
+  // pattern longer). each needs a copy of the synth on that track
+  pub fn synth_tracks(&self) -> BTreeSet<(u64, u32)> {
+    let sequencer = self.sequencer.lock().unwrap();
+    let mut pairs = BTreeSet::new();
+    for node in &self.pattern_nodes {
+      let Some(pattern) = sequencer.pattern(node.pattern_id) else { continue };
+      for (&synth, notes) in &pattern.notes {
+        if !notes.is_empty() { pairs.insert((synth, node.track_number)); }
+      }
+    }
+    pairs
+  }
+
   // the notes of the next `dur` of a pattern played on its own (see
-  // pattern_sounds), for `track`'s instrument. none without a track
-  pub fn pattern_notes(&self, pattern_id: u64, track: Option<u32>, dur: Duration) -> Vec<SliceNote> {
-    let track = match track {
-      Some(track) => track,
-      None => return Vec::new(),
-    };
+  // pattern_sounds), for the synths' copies on the master
+  pub fn pattern_notes(&self, pattern_id: u64, dur: Duration) -> Vec<SliceNote> {
     let window_start = self.current_offset.unwrap_or(Duration::ZERO).as_nanos() as i128;
     let window_end = window_start + dur.as_nanos() as i128;
     let beat = self.beat_interval();
@@ -990,15 +1015,15 @@ impl AudioGraph<'static> {
       Some(pattern) => pattern,
       None => return Vec::new(),
     };
-    let route = self.mixer.track_route(track);
     let end = pattern.length as f64;
     pattern.notes.iter()
-      .filter(|note| note.start < end)
-      .filter_map(|note| {
+      .flat_map(|(&synth, notes)| notes.iter().map(move |note| (synth, note)))
+      .filter(|(_, note)| note.start < end)
+      .filter_map(|(synth, note)| {
         let on = steps_time(note.start, beat).as_nanos() as i128;
         if on < window_start || on >= window_end { return None; }
         let off = steps_time(note.end().min(end), beat).as_nanos() as i128;
-        Some(SliceNote::new(on - window_start, off - window_start, route.clone(), note))
+        Some(SliceNote::new(on - window_start, off - window_start, synth, None, note))
       })
       .collect()
   }
@@ -2384,7 +2409,7 @@ mod tests {
     let (row, pattern) = {
       let mut seq = graph.sequencer.lock().unwrap();
       let row = seq.add_row(KICK).unwrap();
-      let pattern = seq.add_pattern(1, 4).unwrap();
+      let pattern = seq.add_pattern(1, 4, daw::PatternKind::Drum).unwrap();
       seq.set_step(pattern, row, 0, true).unwrap();
       seq.set_step(pattern, row, 8, true).unwrap();
       (row, pattern)
@@ -2453,15 +2478,27 @@ mod tests {
     assert_eq!(graph.end(), ms(7_000));
   }
 
+  // a graph with a synth (id 7) and a one bar note pattern of its notes
+  fn graph_with_notes(notes: Vec<daw::PatternNote>) -> (AudioGraph<'static>, u64) {
+    let graph = AudioGraph::new(44_100, 120., 16);
+    let pattern = {
+      let mut seq = graph.sequencer.lock().unwrap();
+      seq.add_synth(daw::Synth {
+        id: 7, plugin_id: "vst3:synth".into(), path: String::new(), name: "Synth".into(),
+        vendor: String::new(), volume: 1., muted: false,
+      }).unwrap();
+      let pattern = seq.add_pattern(1, 4, daw::PatternKind::Note).unwrap();
+      seq.set_pattern_notes(pattern, 7, notes).unwrap();
+      pattern
+    };
+    (graph, pattern)
+  }
+
   #[test]
   fn test_a_note_still_sounding_at_the_loops_end_ends_there() {
-    let (mut graph, _, pattern) = graph_with_pattern();
-    {
-      // a step is 125ms at 120bpm: 60 from 1.5s to 2s, 62 from 1.875s
-      let note = |pitch, start, length| daw::PatternNote { pitch, start, length, velocity: 1. };
-      let mut seq = graph.sequencer.lock().unwrap();
-      seq.set_pattern_notes(pattern, vec![note(60, 12., 4.), note(62, 15., 1.)]).unwrap();
-    }
+    // a step is 125ms at 120bpm: 60 from 1.5s to 2s, 62 from 1.875s
+    let note = |pitch, start, length| daw::PatternNote { pitch, start, length, velocity: 1. };
+    let (mut graph, pattern) = graph_with_notes(vec![note(60, 12., 4.), note(62, 15., 1.)]);
     graph.add_pattern_node::<daw::timing::QuarterNote>(pattern, ms(0), 0, None).unwrap();
     graph.init();
     graph.set_current_offset(Some(ms(1_500)));
@@ -2474,12 +2511,36 @@ mod tests {
     // looping at 1.75s (a loop held while recording, say): 60 ends at the
     // loop's end, where the next time round starts, and 62 is past it
     assert_eq!(heard(graph.run_notes(ms(500), Some(ms(1_750)))), vec![(60, ms(0), ms(250))]);
+    assert!(graph.run_notes(ms(500), None).iter().all(|n| n.synth == 7 && n.route.as_ref().map(|r| r.number) == Some(0)));
+  }
+
+  #[test]
+  fn test_the_synths_each_track_plays() {
+    let note = |pitch, start, length| daw::PatternNote { pitch, start, length, velocity: 1. };
+    let (mut graph, pattern) = graph_with_notes(vec![note(60, 20., 4.)]);
+    let empty = graph.sequencer.lock().unwrap().add_pattern(1, 4, daw::PatternKind::Note).unwrap();
+    graph.add_pattern_node::<daw::timing::QuarterNote>(pattern, ms(0), 2, None).unwrap();
+    graph.add_pattern_node::<daw::timing::QuarterNote>(pattern, ms(4_000), 5, None).unwrap();
+    graph.add_pattern_node::<daw::timing::QuarterNote>(empty, ms(0), 3, None).unwrap();
+    // (a note past the pattern's end still needs its copy: lengthening the
+    // pattern brings it in)
+    assert_eq!(graph.synth_tracks(), BTreeSet::from([(7, 2), (7, 5)]));
+
+    // past the end, it isn't played: on its own, nor in the playlist
+    graph.init();
+    graph.set_current_offset(Some(ms(0)));
+    assert!(graph.pattern_notes(pattern, ms(2_000)).is_empty());
+    assert!(graph.run_notes(ms(8_000), None).is_empty());
+    graph.sequencer.lock().unwrap().set_pattern_bars(pattern, 2, 4).unwrap();
+    let solo = graph.pattern_notes(pattern, ms(4_000));
+    assert_eq!(solo.len(), 1);
+    assert!(solo[0].route.is_none() && solo[0].synth == 7);
   }
 
   #[test]
   fn test_deleting_a_pattern_takes_its_clips() {
     let (mut graph, _, pattern) = graph_with_pattern();
-    let other = graph.sequencer.lock().unwrap().add_pattern(1, 4).unwrap();
+    let other = graph.sequencer.lock().unwrap().add_pattern(1, 4, daw::PatternKind::Drum).unwrap();
     let a = graph.add_pattern_node::<daw::timing::QuarterNote>(pattern, ms(0), 0, None).unwrap();
     let b = graph.add_pattern_node::<daw::timing::QuarterNote>(pattern, ms(2_000), 0, None).unwrap();
     let keep = graph.add_pattern_node::<daw::timing::QuarterNote>(other, ms(0), 1, None).unwrap();
@@ -2574,7 +2635,7 @@ mod tests {
   #[test]
   fn test_an_empty_pattern_clip_stays() {
     let mut graph = AudioGraph::new(44_100, 120., 16);
-    let pattern = graph.sequencer.lock().unwrap().add_pattern(1, 4).unwrap();
+    let pattern = graph.sequencer.lock().unwrap().add_pattern(1, 4, daw::PatternKind::Drum).unwrap();
     let clip = graph.add_pattern_node::<daw::timing::QuarterNote>(pattern, ms(0), 0, None).unwrap();
     assert!(graph.explode_pattern_node(clip).is_err());
     assert!(graph.get_pattern_node_by_id(clip).is_some());

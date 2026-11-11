@@ -211,7 +211,7 @@ fn join_patterns(state: &daw::InnerState, clips: Vec<daw::PatternNode>) -> Resul
   let (first, rest) = (ids[0], ids[1..].to_vec());
   let before = history::picture(state, &ids);
 
-  let joined = (|| -> Result<Option<daw::SequencerState>, String> {
+  let joined = (|| -> Result<Option<()>, String> {
     // the graph is locked before the sequencer, as everywhere
     let mut audiograph = state.playlist.audiograph.lock().unwrap();
     let beat = audiograph.beat_interval();
@@ -238,7 +238,8 @@ fn join_patterns(state: &daw::InnerState, clips: Vec<daw::PatternNode>) -> Resul
     let mut sequencer = audiograph.sequencer.lock().unwrap();
     let beats_per_bar = state.playlist.time_signature.lock().unwrap().numerator;
     let mut steps: BTreeMap<u64, BTreeSet<u32>> = BTreeMap::new();
-    let mut notes = Vec::new();
+    let mut notes: BTreeMap<u64, Vec<daw::PatternNote>> = BTreeMap::new();
+    let mut kinds = BTreeSet::new();
     let mut names = Vec::new();
     // how many steps the clips span, from the first's start
     let mut span = 0f64;
@@ -246,6 +247,8 @@ fn join_patterns(state: &daw::InnerState, clips: Vec<daw::PatternNode>) -> Resul
     for clip in &clips {
       let pattern = sequencer.pattern(clip.pattern_id)
         .ok_or_else(|| format!("no pattern with id {}", clip.pattern_id))?;
+      kinds.insert(pattern.kind);
+      if kinds.len() > 1 { return Err("Drum patterns and note patterns can't be joined".into()); }
       names.push(label(pattern));
       let (from, to) = clip.span(pattern.length);
       // where its steps go in the new pattern: it has to start a whole
@@ -260,12 +263,14 @@ fn join_patterns(state: &daw::InnerState, clips: Vec<daw::PatternNode>) -> Resul
       }
       // and its notes, as the clip plays them: those that start in it, cut
       // at its end
-      for note in pattern.notes.iter().filter(|note| note.start >= from && note.start < to) {
-        notes.push(daw::PatternNote {
-          start: note.start - from + at as f64,
-          length: note.end().min(to) - note.start,
-          ..*note
-        });
+      for (synth, synth_notes) in &pattern.notes {
+        for note in synth_notes.iter().filter(|note| note.start >= from && note.start < to) {
+          notes.entry(*synth).or_default().push(daw::PatternNote {
+            start: note.start - from + at as f64,
+            length: note.end().min(to) - note.start,
+            ..*note
+          });
+        }
       }
       span = span.max(after + (to - from));
     }
@@ -275,7 +280,6 @@ fn join_patterns(state: &daw::InnerState, clips: Vec<daw::PatternNode>) -> Resul
     let length = ((span - 1e-6) / bar as f64).ceil().max(1.) as u32 * bar;
     let made = sequencer.add_pattern_after(clips[0].pattern_id, joined_name(&names), length, steps, notes)?;
 
-    let state_after = sequencer.state();
     drop(sequencer);
 
     for &id in &rest { audiograph.remove_node(id)?; }
@@ -287,13 +291,13 @@ fn join_patterns(state: &daw::InnerState, clips: Vec<daw::PatternNode>) -> Resul
     } else {
       None
     };
-    Ok(Some(state_after))
+    Ok(Some(()))
   })();
 
   // (recorded whatever happened: on a refusal nothing changed, and that's
   // no step)
   history::record_between(state, None, before, history::picture(state, &ids));
-  let sequencer = joined?;
+  let sequencer = joined?.map(|_| crate::synth_commands::sequencer_state(state));
   Ok(Joined { clips: changed_clips(state, &[first]), removed: rest, sequencer })
 }
 
@@ -532,7 +536,7 @@ mod tests {
     let pattern = {
       let mut sequencer = state.playlist.sequencer.lock().unwrap();
       let row = sequencer.add_row(KICK).unwrap();
-      let pattern = sequencer.add_pattern(1, 4).unwrap();
+      let pattern = sequencer.add_pattern(1, 4, daw::PatternKind::Drum).unwrap();
       sequencer.set_step(pattern, row, 0, true).unwrap();
       pattern
     };
@@ -560,8 +564,8 @@ mod tests {
     let mut sequencer = state.playlist.sequencer.lock().unwrap();
     let kick = sequencer.add_row(KICK).unwrap();
     let snare = sequencer.add_row(SNARE).unwrap();
-    let a = sequencer.add_pattern(1, 4).unwrap();
-    let b = sequencer.add_pattern(1, 4).unwrap();
+    let a = sequencer.add_pattern(1, 4, daw::PatternKind::Drum).unwrap();
+    let b = sequencer.add_pattern(1, 4, daw::PatternKind::Drum).unwrap();
     sequencer.rename_pattern(a, "a").unwrap();
     for (pattern, row, step) in [(a, kick, 0), (a, kick, 8), (b, snare, 4), (b, snare, 12), (b, kick, 15)] {
       sequencer.set_step(pattern, row, step, true).unwrap();
@@ -584,7 +588,7 @@ mod tests {
     // a bar of "a" on bar 2, a bar's gap, then the other on bar 4
     let (first, second) = (pattern_clip(&state, a, 4.), pattern_clip(&state, b, 12.));
     let original = play(&state, rate, total);
-    let patterns_before = state.playlist.sequencer.lock().unwrap().state();
+    let patterns_before = crate::synth_commands::sequencer_state(&state);
     state.history.lock().unwrap().clear();
     let before = saved(&state);
 
@@ -617,7 +621,7 @@ mod tests {
     let undone = history::undo(&state).unwrap().unwrap();
     assert_eq!(undone.clips, Some(vec![first, second]));
     assert_eq!(saved(&state), before);
-    assert_eq!(state.playlist.sequencer.lock().unwrap().state(), patterns_before);
+    assert_eq!(crate::synth_commands::sequencer_state(&state), patterns_before);
     assert!(play(&state, rate, total) == original);
     history::redo(&state).unwrap();
     assert!(play(&state, rate, total) == original);
@@ -653,13 +657,19 @@ mod tests {
   #[test]
   fn test_joined_pattern_clips_keep_the_notes_they_play() {
     let state = Arc::new(daw::InnerState::default());
-    let (_, _, a, b) = two_patterns(&state);
     let note = |pitch, start, length| daw::PatternNote { pitch, start, length, velocity: 0.5 };
-    {
+    let (a, b, s) = {
       let mut sequencer = state.playlist.sequencer.lock().unwrap();
-      sequencer.set_pattern_notes(a, vec![note(60, 2., 4.), note(61, 13., 3.)]).unwrap();
-      sequencer.set_pattern_notes(b, vec![note(62, 0.5, 1.)]).unwrap();
-    }
+      sequencer.add_synth(daw::Synth {
+        id: 40, plugin_id: "vst3:synth".into(), path: String::new(), name: "Synth".into(),
+        vendor: String::new(), volume: 1., muted: false,
+      }).unwrap();
+      let a = sequencer.add_pattern(1, 4, daw::PatternKind::Note).unwrap();
+      let b = sequencer.add_pattern(1, 4, daw::PatternKind::Note).unwrap();
+      sequencer.set_pattern_notes(a, 40, vec![note(60, 2., 4.), note(61, 13., 3.)]).unwrap();
+      sequencer.set_pattern_notes(b, 40, vec![note(62, 0.5, 1.)]).unwrap();
+      (a, b, 40)
+    };
     let first = pattern_clip(&state, a, 4.);
     let second = pattern_clip(&state, b, 8.);
     // the first plays up to step 14: its second note is cut there
@@ -668,7 +678,14 @@ mod tests {
     let joined = join(&state, &[first, second], Some(44_100)).unwrap();
     let sequencer = joined.sequencer.expect("a new pattern");
     let made = sequencer.patterns.iter().find(|p| p.id == joined.clips.pattern_clips[0].pattern_id).unwrap();
-    assert_eq!(made.notes, vec![note(60, 2., 4.), note(61, 13., 1.), note(62, 16.5, 1.)]);
+    assert_eq!(made.kind, daw::PatternKind::Note);
+    assert_eq!(made.notes[&s], vec![note(60, 2., 4.), note(61, 13., 1.), note(62, 16.5, 1.)]);
+
+    // a drum pattern's clip and a note pattern's aren't joined
+    let (_, _, drums, _) = two_patterns(&state);
+    let third = pattern_clip(&state, drums, 16.);
+    let fourth = pattern_clip(&state, a, 20.);
+    assert!(join(&state, &[third, fourth], Some(44_100)).unwrap_err().contains("can't be joined"));
   }
 
   #[test]
@@ -678,7 +695,7 @@ mod tests {
     let (_, _, a, _) = two_patterns(&state);
     let clip = pattern_clip(&state, a, 4.);
     let before = saved(&state);
-    let patterns = state.playlist.sequencer.lock().unwrap().state();
+    let patterns = crate::synth_commands::sequencer_state(&state);
     // cut between steps, and again
     let right = crate::clip_commands::split(&state, &[clip], 5.375).unwrap().pattern_clips[1].id;
     let last = crate::clip_commands::split(&state, &[right], 7.).unwrap().pattern_clips[1].id;
@@ -689,7 +706,7 @@ mod tests {
     assert_eq!(joined.clips.pattern_clips[0].window, None);
     assert_eq!(joined.clips.pattern_clips[0].pattern_id, a);
     // no new pattern
-    assert_eq!(state.playlist.sequencer.lock().unwrap().state(), patterns);
+    assert_eq!(crate::synth_commands::sequencer_state(&state), patterns);
     assert_eq!(saved(&state), before);
   }
 

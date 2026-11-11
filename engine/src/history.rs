@@ -407,6 +407,8 @@ fn apply(state: &Arc<daw::InnerState>, step: &mut Step, way: Way) -> Applied {
     let (target, left) = if pick(true) { (&*before, after) } else { (&*after, before) };
     state.playlist.effects.restore(target, left);
   }
+  // the synths' plugins follow the list and the clips put back
+  crate::synth_commands::follow(state);
 
   Applied { clips: if step.clips.is_empty() { None } else { Some(clips) } }
 }
@@ -428,6 +430,8 @@ pub fn clip_edit<T>(
   all.extend(made(&result));
   let after = clips(state, &all);
   record(state, Step::new().in_gesture(gesture).with_clips(before, after));
+  // a clip of a note pattern on a track that hasn't its synths yet
+  crate::synth_commands::follow(state);
 
   Ok(result)
 }
@@ -449,13 +453,15 @@ pub fn picture(state: &daw::InnerState, ids: &[u64]) -> Picture {
   }
 }
 
-// record what changed between two pictures as one step
+// record what changed between two pictures as one step (and bring the
+// synths' plugins in line with what it changed)
 pub fn record_between(state: &daw::InnerState, gesture: Option<u64>, before: Picture, after: Picture) {
   record(state, Step::new()
     .in_gesture(gesture)
     .with_clips(before.clips, after.clips)
     .with_sequencer(before.sequencer, after.sequencer)
     .with_mixer(before.mixer, after.mixer));
+  crate::synth_commands::follow(state);
 }
 
 // run something that changes the sequencer, and record it as a step

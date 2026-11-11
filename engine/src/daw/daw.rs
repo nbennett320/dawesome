@@ -186,8 +186,9 @@ const SCHEDULE_AHEAD: Duration = Duration::from_millis(50);
 // on. this thread only decides what plays in each slice (a beat), and keeps
 // the beat counters in step with what's heard
 //
-// a slice's notes (pattern clips', for their tracks' instruments) go with
-// its sounds, each note's end with its start. a stop, a seek or the run
+// a slice's notes (pattern clips', for their tracks' copies of the synths,
+// or a pattern's on its own, for the master's) go with its sounds, each
+// note's end with its start. a stop, a seek or the run
 // coming to the end of the song ends the run in the engine, which ends any
 // note still held
 // the clicks of a count-in: one on each beat of the bar before playback
@@ -228,9 +229,6 @@ pub fn run_playlist(
       state::PlayMode::Playlist => *state.playlist.start_offset.lock().unwrap(),
       state::PlayMode::Pattern(_) => Duration::ZERO,
     };
-    // the track whose instrument plays a pattern's notes, while it plays on its own
-    let pattern_track = *state.playlist.pattern_track.lock().unwrap();
-
     // the sounds of the slice `dur` long, `at` into the run, as voices, and
     // its notes. while the playlist loops (`loop_len`), its notes end by the
     // loop's end (see run_notes). a pattern's notes already end at its length
@@ -246,7 +244,7 @@ pub fn run_playlist(
         ),
         state::PlayMode::Pattern(id) => (
           audiograph_ref.pattern_sounds(id, dur, metronome, resume),
-          audiograph_ref.pattern_notes(id, pattern_track, dur),
+          audiograph_ref.pattern_notes(id, dur),
         ),
       };
 
@@ -257,7 +255,9 @@ pub fn run_playlist(
       (voices, notes)
     };
     let send_notes = |at: Duration, notes: Vec<daw_core::SliceNote>| {
-      if let Err(e) = daw_core::play_slice_notes(&engine, run, at, notes) {
+      if notes.is_empty() { return; }
+      let copies = state.playlist.effects.copy_ids();
+      if let Err(e) = daw_core::play_slice_notes(&engine, run, at, notes, &copies) {
         println!("could not schedule a beat's notes: {}", e);
       }
     };
@@ -537,6 +537,10 @@ pub fn start_playlist_after(state: &Arc<state::InnerState>, count_in: Duration) 
 // open and the start time is set, so a `get_playlist_playing` right after
 // this sees the new run
 fn start_run(state: &Arc<state::InnerState>, count_in: Duration) {
+  // every synth's copies there, and in step with it, before anything plays
+  // (here, as the run's thread can't reach the main thread: this one may be
+  // it, waiting below)
+  crate::synth_commands::before_playing(state);
   let (ready_tx, ready_rx) = mpsc::channel();
   run_playlist(state, ready_tx, count_in);
 
@@ -547,11 +551,11 @@ fn start_run(state: &Arc<state::InnerState>, count_in: Duration) {
   }
 }
 
-// loop a pattern on its own from its start (Play in the Sequencer tab, or
-// the Piano Roll), stopping whatever was playing. its notes are played by
-// `track`'s instrument (none: they aren't heard). the playlist's playhead
-// stays where it is
-pub fn start_pattern(state: &Arc<state::InnerState>, id: u64, track: Option<u32>) -> Result<(), String> {
+// loop a pattern on its own from its start (Play in a sequencer tab, or the
+// Piano Roll), stopping whatever was playing. a note pattern's notes are
+// played by the synths' copies on the master. the playlist's playhead stays
+// where it is
+pub fn start_pattern(state: &Arc<state::InnerState>, id: u64) -> Result<(), String> {
   println!("playing pattern {}", id);
   if pattern_len(state, id).is_none() {
     return Err(format!("no pattern with id {}", id));
@@ -566,7 +570,6 @@ pub fn start_pattern(state: &Arc<state::InnerState>, id: u64, track: Option<u32>
     }
   }
   *state.playlist.mode.lock().unwrap() = state::PlayMode::Pattern(id);
-  *state.playlist.pattern_track.lock().unwrap() = track;
   start_run(state, Duration::ZERO);
   Ok(())
 }
@@ -646,7 +649,7 @@ pub fn set_playlist_tempo(state: &Arc<state::InnerState>, tempo: f32) -> Result<
   match retime(state, tempo)? {
     Retimed::Playlist => start_playlist(state),
     // (the tempo's changed even if the pattern has gone meanwhile)
-    Retimed::Pattern(id) => if let Err(e) = start_pattern(state, id, *state.playlist.pattern_track.lock().unwrap()) {
+    Retimed::Pattern(id) => if let Err(e) = start_pattern(state, id) {
 
       println!("could not carry on with pattern {}: {}", id, e);
     },

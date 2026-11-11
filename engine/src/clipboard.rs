@@ -312,7 +312,7 @@ mod tests {
     let pattern = {
       let mut sequencer = state.playlist.sequencer.lock().unwrap();
       let row = sequencer.add_row(KICK).unwrap();
-      let pattern = sequencer.add_pattern(1, 4).unwrap();
+      let pattern = sequencer.add_pattern(1, 4, daw::PatternKind::Drum).unwrap();
       sequencer.set_step(pattern, row, 0, true).unwrap();
       pattern
     };

@@ -54,6 +54,7 @@ fn main() {
     ("nyasynth_plays_and_decays", nyasynth_plays_and_decays),
     ("every_instrument_loads_and_plays", every_instrument_loads_and_plays),
     ("decent_sampler_copy_plays_once_settled", decent_sampler_copy_plays_once_settled),
+    ("decent_sampler_synth_copies_on_two_tracks", decent_sampler_synth_copies_on_two_tracks),
     ("twenty_instances", twenty_instances),
     ("processor_dropped_before_plugin", processor_dropped_before_plugin),
     ("processor_dropped_after_plugin_on_another_thread", processor_dropped_after_plugin_on_another_thread),
@@ -61,6 +62,7 @@ fn main() {
     ("editors_float_in_their_own_windows", editors_float_in_their_own_windows),
     ("pancake_docks_over_the_page", pancake_docks_over_the_page),
     ("plugins_dock_side_by_side", plugins_dock_side_by_side),
+    ("editors_reopen_in_windows_and_docks", editors_reopen_in_windows_and_docks),
   ];
 
   let mut failed = 0;
@@ -506,6 +508,73 @@ fn decent_sampler_copy_plays_once_settled() -> Result<Outcome, String> {
   let live_level = rms(&run_blocks(live_processor.as_mut(), 40, RATE, true, &note).0);
   ensure(live_level > 1e-3, "the first instance went quiet")?;
   Ok(Outcome::Pass(format!("rms {:.4} unsettled, {:.4} settled, {:.4} the first", levels[0], levels[1], live_level)))
+}
+
+// a synth played by two tracks, as effects/synths.rs keeps it: its master
+// copy, and a copy for each track given the master's settings, live and then
+// as a mixdown's offline copies. each copy sounds once it's settled, plays
+// only the notes it's sent, sounds again after the master's settings are
+// passed on to it again, and is safe to tear down while the others live on
+fn decent_sampler_synth_copies_on_two_tracks() -> Result<Outcome, String> {
+  let Some((path, info)) = plugin_in("DecentSampler.vst3")? else { return not_installed("DecentSampler") };
+  // played silence while the run loop turns, as the app does
+  let settle = |copies: &mut [(Plugin, Box<dyn plugin::Processor>)], seconds: f64| {
+    let started = Instant::now();
+    while started.elapsed().as_secs_f64() < seconds {
+      for (plugin, processor) in copies.iter_mut() {
+        run_blocks(processor.as_mut(), 1, RATE, true, &[]);
+        plugin.idle();
+      }
+      pump(0.01);
+    }
+  };
+  let take = |mut plugin: Plugin| -> Result<(Plugin, Box<dyn plugin::Processor>), String> {
+    let processor = plugin.take_processor().ok_or("no processor")?;
+    Ok((plugin, processor))
+  };
+  let mut master = vec![take(Plugin::load(&path, &info.id, RATE)?)?];
+  settle(&mut master, 2.);
+  let state = master[0].0.state()?;
+  let note = |pitch| [Event::NoteOn { offset: 0, pitch, velocity: 0.9 }];
+
+  let mut report = vec![];
+  for offline in [false, true] {
+    let mut tracks = vec![];
+    for _ in 0..2 {
+      let mut copy = if offline { Plugin::load_offline(&path, &info.id, RATE)? } else { Plugin::load(&path, &info.id, RATE)? };
+      copy.set_state(&state)?;
+      tracks.push(take(copy)?);
+    }
+    settle(&mut tracks, 2.);
+    // each hears only what it's sent: the second nothing, then its own note
+    let first = rms(&run_blocks(tracks[0].1.as_mut(), 40, RATE, true, &note(60)).0);
+    let quiet = rms(&run_blocks(tracks[1].1.as_mut(), 40, RATE, true, &[]).0);
+    let second = rms(&run_blocks(tracks[1].1.as_mut(), 40, RATE, true, &note(64)).0);
+    let kind = if offline { "offline" } else { "live" };
+    ensure(first > 1e-3, format!("the first {} copy was silent ({})", kind, first))?;
+    ensure(quiet < 1e-4, format!("the second {} copy sounded without a note ({})", kind, quiet))?;
+    ensure(second > 1e-3, format!("the second {} copy was silent ({})", kind, second))?;
+
+    // the master's settings passed on again (a preset or library changed)
+    let (plugin, _) = &mut tracks[0];
+    plugin.set_state(&state)?;
+    settle(&mut tracks, 2.);
+    let again = rms(&run_blocks(tracks[0].1.as_mut(), 40, RATE, true, &note(62)).0);
+    ensure(again > 1e-3, format!("the first {} copy was silent once given the settings again ({})", kind, again))?;
+    report.push(format!("{} {:.4} {:.4} {:.4}", kind, first, second, again));
+
+    // one torn down while the master and the other live on
+    let gone = tracks.remove(0);
+    drop(gone);
+    pump(2.);
+    let left = rms(&run_blocks(tracks[0].1.as_mut(), 40, RATE, true, &note(67)).0);
+    ensure(left > 1e-3, format!("the other {} copy went quiet when one was torn down", kind))?;
+    drop(tracks);
+    pump(2.);
+  }
+  let level = rms(&run_blocks(master[0].1.as_mut(), 40, RATE, true, &note(60)).0);
+  ensure(level > 1e-3, "the master copy went quiet")?;
+  Ok(Outcome::Pass(format!("rms {} (first, second, again), master {:.4}", report.join("; "), level)))
 }
 
 fn twenty_instances() -> Result<Outcome, String> {
@@ -1104,4 +1173,107 @@ fn plugins_dock_side_by_side() -> Result<Outcome, String> {
 #[cfg(not(target_os = "macos"))]
 fn plugins_dock_side_by_side() -> Result<Outcome, String> {
   Ok(Outcome::Skip("only checked on macOS".into()))
+}
+
+
+// an editor reopened as the app does it: in a floating window, then docked,
+// then in a window again, with the run loop turning in between (DecentSampler
+// crashed the app a moment after its second opening). CHOW, Addictive Keys,
+// Addictive Drums 2 and DecentSampler, those installed
+//
+// DecentSampler is skipped while its update check is on: when its editor
+// opens, its own timer starts the check, and its loading thread writes the
+// version into a text box of the editor directly, while the main thread's
+// JUCE message for that box's Value writes it too. no host call is involved,
+// and either thread can crash (2026-11-11: about every run here, with the
+// check on; none in nine with it off)
+#[cfg(target_os = "macos")]
+fn editors_reopen_in_windows_and_docks() -> Result<Outcome, String> {
+  use objc2::{MainThreadMarker, MainThreadOnly};
+  use objc2_app_kit::NSView;
+  use objc2_foundation::{NSPoint, NSRect, NSSize};
+  use plugin::window::{self, Rect};
+  use screen::{ptr, run};
+  use std::cell::RefCell;
+  use std::rc::Rc;
+
+  let Some(mtm) = MainThreadMarker::new() else { return Ok(Outcome::Skip("needs the main thread".into())) };
+  let app = screen::app(mtm);
+  let host = screen::hidden_host_window(mtm, 1600., 1000.);
+  let content = host.contentView().ok_or("no content view")?;
+  let page = NSView::initWithFrame(NSView::alloc(mtm), NSRect::new(NSPoint::ZERO, NSSize::new(1600., 1000.)));
+  content.addSubview(&page);
+  let mut lines = vec![];
+  for name in ["CHOWTapeModel.vst3", "Addictive Keys.vst3", "Addictive Drums 2.vst3", "DecentSampler.vst3"] {
+    if name == "DecentSampler.vst3" && decent_sampler_checks_for_updates() {
+      lines.push(format!("\n          skipped {}: its update check is on (see above)", name));
+      continue;
+    }
+    let plugin = match load(name, RATE) {
+      Ok(Some(p)) => Rc::new(RefCell::new(p)),
+      Ok(None) => continue,
+      Err(e) => {
+        lines.push(format!("\n          skipped {}: {}", name, e));
+        continue;
+      }
+    };
+    let mut processor = plugin.borrow_mut().take_processor().ok_or("no processor")?;
+    // the app plays it and calls idle while the run loop turns
+    let mut turn = |seconds: f64| {
+      let started = Instant::now();
+      while started.elapsed().as_secs_f64() < seconds {
+        run_blocks(processor.as_mut(), 1, RATE, true, &[]);
+        plugin.borrow_mut().idle();
+        run(&app, 0.01);
+      }
+    };
+    turn(2.);
+    let reach = {
+      let plugin = plugin.clone();
+      move || -> window::WithPlugin {
+        let plugin = plugin.clone();
+        Box::new(move |f| {
+          if let Ok(mut p) = plugin.try_borrow_mut() {
+            f(&mut p)
+          }
+        })
+      }
+    };
+    let open = |title: &str| {
+      window::open_window(&mut plugin.borrow_mut(), title, ptr(&*host), None, reach(), Box::new(|| {}))
+    };
+    let first = open(name)?;
+    turn(1.5);
+    first.close(&mut plugin.borrow_mut());
+    let pane = Rect { x: 0., y: 0., width: 1200., height: 900. };
+    let dock = window::dock(&mut plugin.borrow_mut(), ptr(&*page), pane, 0., 0., Some((1200, 900)))?;
+    turn(1.5);
+    ensure(plugin.borrow().editor_open(), format!("{}'s docked editor closed", name))?;
+    dock.undock(&mut plugin.borrow_mut());
+    let again = open(name)?;
+    turn(5.);
+    ensure(plugin.borrow().editor_open(), format!("{}'s editor closed", name))?;
+    again.close(&mut plugin.borrow_mut());
+    turn(1.);
+    lines.push(format!("\n          {}: window, dock, window", name));
+  }
+  host.close();
+  if lines.is_empty() {
+    return not_installed("CHOW, Addictive Keys, Addictive Drums 2 or DecentSampler");
+  }
+  Ok(Outcome::Pass(lines.concat()))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn editors_reopen_in_windows_and_docks() -> Result<Outcome, String> {
+  Ok(Outcome::Skip("only checked on macOS".into()))
+}
+
+// whether DecentSampler will check for its updates when its editor opens:
+// its own preference, unless it's been turned off (it's on until then)
+fn decent_sampler_checks_for_updates() -> bool {
+  let Some(home) = std::env::var_os("HOME") else { return true };
+  let prefs = Path::new(&home).join("Music/Audio Music Apps/Decidedly/DecentSampler/DecentSampler.xml");
+  let text = std::fs::read_to_string(prefs).unwrap_or_default();
+  !text.contains(r#"name="dontQueryForUpdate" val="1""#)
 }
