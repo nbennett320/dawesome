@@ -148,6 +148,8 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
   // laid out again at that width
   const stepWidthNow = React.useRef(stepWidth)
   const pendingScroll = React.useRef<number | null>(null)
+  // the scroll the last zoom asked for, to the fraction of a pixel
+  const exactScroll = React.useRef<number | null>(null)
   const audition = React.useMemo(createAuditioner, [])
 
   // the latest of these, for listeners on the window. the notes and the
@@ -620,11 +622,17 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
     if(!scroller) return
     const rect = scroller.getBoundingClientRect()
     const aroundX = Math.min(Math.max(clientX - rect.left, 0), scroller.clientWidth)
-    const next = zoomGrid(stepWidthNow.current, pendingScroll.current ?? scroller.scrollLeft, factor, aroundX)
+    // (the scroller keeps whole pixels. zooming on from what it kept, the
+    // step under the mouse would creep a fraction of a pixel each time)
+    const kept = scroller.scrollLeft
+    const asked = exactScroll.current
+    const from = pendingScroll.current ?? (asked !== null && Math.abs(asked - kept) < 1 ? asked : kept)
+    const next = zoomGrid(stepWidthNow.current, from, factor, aroundX)
     if(next.stepWidth === stepWidthNow.current) return
 
     stepWidthNow.current = next.stepWidth
     pendingScroll.current = next.scrollLeft
+    exactScroll.current = next.scrollLeft
     setStepWidth(next.stepWidth)
   }, [])
 
