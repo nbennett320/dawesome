@@ -1,7 +1,9 @@
 import { createSlice, Dispatch, PayloadAction } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api/core'
 import { RootState } from 'state/store'
-import { PlaylistItem, PlaylistItemPixelOffset, PlaylistTool } from '../../types/playlist'
+import { PlaylistItem, PlaylistItemPixelOffset } from '../../types/playlist'
+import { Tool } from '../../editing/tools'
+import { SnapNote } from '../../editing/snap'
 import { View } from '../../types/ui'
 import {
   ClipInfo,
@@ -23,12 +25,7 @@ import { Synth } from '../../types/sequencer'
 import { openTab } from './windowSlice'
 
 // mirrors daw::timing::Note in the engine
-export type SnapNote =
-  | 'WholeNote'
-  | 'HalfNote'
-  | 'QuarterNote'
-  | 'EighthNote'
-  | 'SixteenthNote'
+export type { SnapNote }
 
 // mirrors SnapSetting in engine/src/event_dispatch.rs
 interface SnapSetting {
@@ -53,7 +50,7 @@ export interface PlaylistState {
   snapEnabled: boolean,
   snapNote: SnapNote,
   // the playlist's mouse tool. not saved with the project
-  tool: PlaylistTool
+  tool: Tool
   playlistItems: Array<PlaylistItem>
   // counts projects opened (or started), so the playlist goes back to how
   // it opens: its first bars
@@ -352,7 +349,7 @@ export const playlistSlice = createSlice({
     setSnapNote: (state, action) => {
       state.snapNote = action.payload
     },
-    setTool: (state, action: PayloadAction<PlaylistTool>) => {
+    setTool: (state, action: PayloadAction<Tool>) => {
       state.tool = action.payload
     },
     // replace the playlist with a project the engine just loaded (or a new,

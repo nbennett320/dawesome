@@ -15,18 +15,21 @@ import { ClipOverride, ClipWindow } from '../../../types/clip'
 import {
   PlaylistItem,
   PlaylistItemPixelOffset,
-  PlaylistTool,
   PlaylistWindow
 } from '../../../types/playlist'
-import { CutClip, canCut, cutPoint, cutTargets } from './cut'
+import { CutItem, canCut, cutPoint, cutTargets } from '../../../editing/cut'
 import { onThemeChange } from '../../../theme/apply'
 import { paint, theme } from './theme'
 import { PlaylistTransport } from '../../../types/transport'
 import { positionAt } from '../../transport/tape'
 import {
-  Lasso, ShiftPress, clipAt, groupLanding, keepExisting, lassoFrom, lassoRect, lassoSelection, shiftRelease, startsLasso,
+  Lasso, ShiftPress, itemAt, keepExisting, lassoFrom, lassoRect, lassoSelection, shiftRelease, startsLasso,
   toggleSelected,
-} from './selection'
+} from '../../../editing/lasso'
+import { groupLanding } from '../../../editing/move'
+import { drawCutLine, drawLasso } from '../../../editing/look'
+import { Tool } from '../../../editing/tools'
+import { DRAG_THRESHOLD_PX, wheelIntent, zoomAround } from '../../../editing/view'
 import { PlaceableItem as DragItem, dragItemKey } from '../../../state/sampleDrag'
 import { Pattern, SequencerState, patternSeconds } from '../../../types/sequencer'
 import { decodeLevels } from '../../../util/waveform'
@@ -98,8 +101,7 @@ export interface ClipView {
 }
 
 export const staticDefaults = {
-  zoomSensitivity: .035,
-  mouseDragDetectionThreshold: 10,
+  mouseDragDetectionThreshold: DRAG_THRESHOLD_PX,
   timelineHeight: 24,
   trackHeight: 100,
   playing: false,
@@ -150,11 +152,6 @@ const AUTO_SCROLL = {
 // Renderer.wake), so whatever follows from it (a hover, a scroll settling)
 // is drawn too
 const IDLE_MS = 500
-
-const WHEEL_LINE_PIXELS = 16
-// how much zoom one pixel of ⌘+wheel gives, before limiting to
-// staticDefaults.zoomSensitivity per event
-const WHEEL_ZOOM_PER_PIXEL = 0.01
 
 // WebKit (the macOS webview) reports trackpad pinches as gesture events,
 // not ⌘+wheel. not in the DOM typings
@@ -367,7 +364,7 @@ export class Renderer extends RendererBase {
   // whether Option is held: an edge being dragged doesn't snap
   #altHeld = false
   // what the mouse does to clips: move and trim them, or cut them
-  tool: PlaylistTool = 'select'
+  tool: Tool = 'select'
   // a clip pressed with the Cut tool, and where: let go there, it's cut
   #cutPress: { x: number, y: number, id: number } | null = null
   // the cut a click would make now, with the Cut tool: the clips it would
@@ -648,16 +645,16 @@ export class Renderer extends RendererBase {
   // what an edge being dragged, or a cut, snaps to just now
   #snapping = (): Snapping => ({
     enabled: this.snap.enabled,
-    beats: this.snap.beats,
+    every: this.snap.beats,
     // the playhead too, while it isn't moving
-    playheadBeat: this.playing ? null : this.playheadBeat(),
+    playhead: this.playing ? null : this.playheadBeat(),
     bypass: this.#altHeld,
   })
 
   // ---- the Cut tool ----
 
   // (called on every store update, so only a change does anything)
-  setTool = (tool: PlaylistTool) => {
+  setTool = (tool: Tool) => {
     if(tool === this.tool) return
     this.tool = tool
     // whatever the other tool was in the middle of is dropped
@@ -669,7 +666,7 @@ export class Renderer extends RendererBase {
   }
 
   // every clip that can be cut, as far as cutting goes
-  #cutClips = (): CutClip[] => this.playlistObjects.flatMap(obj => {
+  #cutClips = (): CutItem[] => this.playlistObjects.flatMap(obj => {
     const clip = this.trimClipOf(obj)
     return clip ? [clip] : []
   })
@@ -710,19 +707,13 @@ export class Renderer extends RendererBase {
 
     const ctx = p.drawingContext as CanvasRenderingContext2D
     const x = this.beatToX(cut.beat)
-    p.push()
-    paint.stroke(p, 'accent')
-    // (x is stretched by the zoom, so the line's width is given without it)
-    p.strokeWeight(1.5 / this.currentScale)
-    ctx.setLineDash([4, 3])
     this.playlistObjects
       .filter(obj => cut.ids.includes(obj.playlistItem.id))
       .forEach(obj => {
         const { top, bottom } = obj.boundingBox()
-        p.line(x, top + 2, x, bottom - 2)
+        // (x is stretched by the zoom, so the line's width is given without it)
+        drawCutLine(ctx, x, top + 2, bottom - 2, 1.5 / this.currentScale)
       })
-    ctx.setLineDash([])
-    p.pop()
   }
 
   // the playhead's beat, if a clip can be cut there ("Split at playhead"):
@@ -770,11 +761,11 @@ export class Renderer extends RendererBase {
     const shows = this.#stretchRates?.has(id) ? clip : span
     const { perBeat } = clip
     return {
-      startBeat: span.startBeat,
-      seconds: (span.endBeat - span.startBeat) * this.#beatSeconds(),
-      from: (shows.startBeat - clip.sourceStartBeat) * perBeat,
-      to: (shows.endBeat - clip.sourceStartBeat) * perBeat,
-      length: (clip.sourceEndBeat - clip.sourceStartBeat) * perBeat,
+      startBeat: span.start,
+      seconds: (span.end - span.start) * this.#beatSeconds(),
+      from: (shows.start - clip.sourceStart) * perBeat,
+      to: (shows.end - clip.sourceStart) * perBeat,
+      length: (clip.sourceEnd - clip.sourceStart) * perBeat,
     }
   }
 
@@ -836,14 +827,14 @@ export class Renderer extends RendererBase {
       this.playlistObjects.find(o => o.playlistItem.id === id)?.playlistItem.patternId !== undefined
     const stretching = !stretch ? null : stretchSet(clips.map(clip => ({
       id: clip.id,
-      startBeat: clip.startBeat,
-      endBeat: clip.endBeat,
+      start: clip.start,
+      end: clip.end,
       rate: this.clipOverrides[clip.id]?.rate ?? 1,
-      minBeats: clip.minBeats,
+      minLength: clip.minLength,
       pattern: isPattern(clip.id),
     })), grabbed.id)
 
-    const edgeBeat = edge === 'left' ? grabbed.startBeat : grabbed.endBeat
+    const edgeBeat = edge === 'left' ? grabbed.start : grabbed.end
     this.edgeDrag = {
       edge,
       grabbedId: grabbed.id,
@@ -872,7 +863,7 @@ export class Renderer extends RendererBase {
     this.#trimClips = new Map(drag.clips.map(clip => [clip.id, clip]))
     if(drag.stretch) {
       const spans = stretchAll(drag.stretch, drag.grabbedId, drag.edge, target)
-      this.#trimSpans = new Map(spans.map(({ id, startBeat, endBeat }) => [id, { startBeat, endBeat }]))
+      this.#trimSpans = new Map(spans.map(({ id, start, end }) => [id, { start, end }]))
       this.#stretchRates = new Map(spans.map(({ id, rate }) => [id, rate]))
       return
     }
@@ -914,7 +905,7 @@ export class Renderer extends RendererBase {
     // an edge that didn't move leaves its clip alone
     const edits: WindowEdit[] = drag.stretch || !drag.active || !spans ? [] : drag.clips.flatMap(clip => {
       const span = spans.get(clip.id)
-      if(!span || (span.startBeat === clip.startBeat && span.endBeat === clip.endBeat)) return []
+      if(!span || (span.start === clip.start && span.end === clip.end)) return []
       return [{ id: clip.id, ...trimmedWindow(clip, span, drag.edge, this.clipWindows[clip.id]) }]
     })
     const stretches: StretchEdit[] = !drag.stretch || !rates ? [] : drag.stretch.flatMap(clip => {
@@ -970,15 +961,7 @@ export class Renderer extends RendererBase {
     const x = this.transformX + left * this.currentScale
     const y = top - this.scrollY + 1
 
-    p.push()
-    paint.fill(p, 'lassoFill', 0.08)
-    paint.stroke(p, 'selectedBorder')
-    p.strokeWeight(1)
-    const ctx = p.drawingContext as CanvasRenderingContext2D
-    ctx.setLineDash([4, 3])
-    p.rect(x, y, width * this.currentScale, height)
-    ctx.setLineDash([])
-    p.pop()
+    drawLasso(p.drawingContext as CanvasRenderingContext2D, x, y, width * this.currentScale, height)
   }
 
   // the playlist draws only while something on it can change: while it's
@@ -1463,12 +1446,9 @@ export class Renderer extends RendererBase {
   // zoom the timeline by `factor`, keeping the point at canvas x `aroundX`
   // in place. never zooms out past the whole playlist
   #zoomBy = (factor: number, aroundX: number) => {
-    if(!Number.isFinite(factor) || factor <= 0) return
-
-    const scale = Math.max(1, this.currentScale * factor)
-    const applied = scale / this.currentScale
-    this.currentScale = scale
-    this.transformX = aroundX - (aroundX - this.transformX) * applied
+    const zoom = zoomAround({ scale: this.currentScale, pan: this.transformX }, factor, aroundX, 1)
+    this.currentScale = zoom.scale
+    this.transformX = zoom.pan
 
     this.playlistObjects.forEach(obj => {
       obj.currentScale = this.currentScale
@@ -1606,7 +1586,7 @@ export class Renderer extends RendererBase {
             this.#shiftPress = {
               screen: { x: ev.offsetX, y: ev.offsetY },
               point,
-              clipId: clipAt(point, this.#clipBoxes()),
+              itemId: itemAt(point, this.#clipBoxes()),
             }
             return
           }
@@ -1683,29 +1663,15 @@ export class Renderer extends RendererBase {
       canvas.mouseWheel((ev: WheelEvent) => {
         ev.preventDefault()
 
-        let unit = 1
-        if(ev.deltaMode === WheelEvent.DOM_DELTA_LINE) unit = WHEEL_LINE_PIXELS
-        else if(ev.deltaMode === WheelEvent.DOM_DELTA_PAGE) unit = this.height
-
-        let dx = ev.deltaX * unit
-        let dy = ev.deltaY * unit
-
-        if(ev.metaKey || ev.ctrlKey) {
-          const { zoomSensitivity } = staticDefaults
-          const factor = Math.exp(-dy * WHEEL_ZOOM_PER_PIXEL)
-          this.#zoomBy(Math.min(1 + zoomSensitivity, Math.max(1 - zoomSensitivity, factor)), p.mouseX)
+        const wheel = wheelIntent(ev, this.height)
+        if(wheel.kind === 'zoom') {
+          this.#zoomBy(wheel.factor, p.mouseX)
           return
         }
 
-        // a mouse wheel with shift held (some systems already swap these)
-        if(ev.shiftKey && dx === 0) {
-          dx = dy
-          dy = 0
-        }
-
         // kept in range when drawn
-        this.transformX -= dx
-        this.scrollTo(this.scrollY + dy)
+        this.transformX -= wheel.dx
+        this.scrollTo(this.scrollY + wheel.dy)
       })
 
       // drop a dragged clip where the phantom shows
