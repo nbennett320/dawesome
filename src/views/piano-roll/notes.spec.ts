@@ -1,4 +1,4 @@
-import { Note, Pattern, clipNoteBars, notesOf, stepsPerBar } from '../../types/sequencer'
+import { Note, Pattern, clipNoteBars, stepsPerBar, synthNotes, withNotes } from '../../types/sequencer'
 import {
   DEFAULT_LENGTH, NEW_VELOCITY, allIndices, centrePitch, clampNote, deleteNotes, drawnLength, fitSelection,
   hitNote, isBlackKey, moveNotes, newNote, notesInBox, pitchName, resizeNotes, sameNotes, toggleSelected,
@@ -136,15 +136,23 @@ describe('the grid', () => {
 })
 
 describe('a pattern’s notes', () => {
-  const pattern = (notes?: Note[]): Pattern => ({ id: 0, name: null, length: 16, steps: {}, notes })
+  const pattern = (notes?: Record<string, Note[]>): Pattern =>
+    ({ id: 0, name: null, kind: 'note', length: 16, steps: {}, notes })
 
-  it('are none when an older engine leaves them out', () => {
-    expect(notesOf(pattern())).toEqual([])
-    expect(notesOf(pattern())).toBe(notesOf(pattern()))
+  it('are none for a synth without any, or when an older engine leaves them out', () => {
+    expect(synthNotes(pattern(), 3)).toEqual([])
+    expect(synthNotes(pattern({ 4: [note(60, 0)] }), 3)).toBe(synthNotes(pattern(), 3))
+    expect(synthNotes(pattern({ 4: [note(60, 0)] }), 4)).toEqual([note(60, 0)])
   })
 
-  it('show in a clip as bars: those starting in its part, cut at its end', () => {
-    const p = pattern([note(60, 0, 4), note(64, 6, 8), note(72, 12, 2)])
+  it('are replaced a synth at a time, a synth left without any left out', () => {
+    const p = withNotes(pattern({ 4: [note(60, 0)] }), 5, [note(62, 1)])
+    expect(p.notes).toEqual({ 4: [note(60, 0)], 5: [note(62, 1)] })
+    expect(withNotes(p, 4, []).notes).toEqual({ 5: [note(62, 1)] })
+  })
+
+  it('show in a clip as bars, every synth’s: those starting in its part, cut at its end', () => {
+    const p = pattern({ 1: [note(60, 0, 4), note(64, 6, 8)], 2: [note(72, 12, 2)] })
     expect(clipNoteBars(p, 0, 16)).toEqual({
       rows: 13,
       bars: [{ start: 0, end: 4, row: 12 }, { start: 6, end: 14, row: 8 }, { start: 12, end: 14, row: 0 }],

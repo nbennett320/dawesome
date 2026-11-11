@@ -36,6 +36,7 @@ const initialState = {
         { component: View.Mixer },
         { component: View.Transport },
         { component: View.Sequencer },
+        { component: View.NoteSequencer },
       ],
       activeTab: tabKey(View.Playlist),
     },
@@ -216,12 +217,17 @@ export const selectFocusedView = (state: RootState): View | undefined => {
 export const selectTabShowing = (key: TabKey) => (state: RootState): boolean =>
   paneTree.paneWithTab(state.window.windowPane.root, key)?.activeTab === key
 
-// a tab's name. a plugin's is worked out from the racks each time, since
-// it depends on the other effects (see pluginTabLabel)
+// a plugin's tab's name: an effect's is worked out from the racks each
+// time, since it depends on the other effects (see pluginTabLabel). a
+// synth's is its name, which is unique
+const pluginLabel = (state: RootState, slotId: number): string =>
+  pluginTabLabel(state.effects.racks, state.mixer.names, slotId)
+  ?? state.sequencer.synths.find(synth => synth.id === slotId)?.name
+  ?? viewLabels[View.Plugin]
+
+// a tab's name
 export const selectTabLabel = (tab: PaneTab) => (state: RootState): string => (
-  tab.component === View.Plugin
-    ? pluginTabLabel(state.effects.racks, state.mixer.names, tab.slotId as number) ?? viewLabels[View.Plugin]
-    : viewLabels[tab.component]
+  tab.component === View.Plugin ? pluginLabel(state, tab.slotId as number) : viewLabels[tab.component]
 )
 
 export const selectCassetteVisible =(state: RootState) => state.window.cassetteVisible

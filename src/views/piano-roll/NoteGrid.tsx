@@ -6,7 +6,7 @@ import { PatternRun, flushNoteSends, setPatternNotes } from '../../state/slices/
 import { selectFocusedView } from '../../state/slices/windowSlice'
 import { setNoteSelectAllRunner } from '../../state/noteCommands'
 import { useThemeChange } from '../../theme/canvas'
-import { Note, Pattern, STEPS_PER_BEAT, notesOf } from '../../types/sequencer'
+import { Note, Pattern, STEPS_PER_BEAT, synthNotes } from '../../types/sequencer'
 import { View } from '../../types/ui'
 import { isDeleteKey, isTypingTarget } from '../../util/keys'
 import { editShortcut } from '../../util/shortcuts'
@@ -43,21 +43,23 @@ const DRAW_THRESHOLD_PX = 3
 
 interface Props {
   pattern: Pattern
+  // the synth whose notes are edited, which auditions pitches
+  synthId: number
+  // the other synths' notes, shown faintly behind
+  ghosts: Note[]
   stepsPerBar: number
-  // the track whose instrument auditions pitches, or null
-  track: number | null
   // the pattern playing on its own, if any (for the playhead)
   run: PatternRun | null
 }
 
-// a pattern's notes against a piano keyboard: draw, move, resize, select
-// and delete them. every change replaces the pattern's notes in the engine,
-// a drag being one step to undo
-const NoteGrid = ({ pattern, stepsPerBar, track, run }: Props) => {
+// a synth's notes in a pattern against a piano keyboard: draw, move,
+// resize, select and delete them. every change replaces that synth's notes
+// in the engine, a drag being one step to undo
+const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
   const dispatch = useAppDispatch()
   const store = useStore<RootState>()
   const themeChange = useThemeChange()
-  const notes = notesOf(pattern)
+  const notes = synthNotes(pattern, synthId)
   const { length } = pattern
 
   // the notes as they're being dragged, shown ahead of the engine's answers
@@ -82,15 +84,15 @@ const NoteGrid = ({ pattern, stepsPerBar, track, run }: Props) => {
   const lastLength = React.useRef(DEFAULT_LENGTH)
   const audition = React.useMemo(createAuditioner, [])
   // the latest of these, for listeners on the window
-  const latest = React.useRef({ notes, selected, patternId: pattern.id })
-  latest.current = { notes, selected, patternId: pattern.id }
+  const latest = React.useRef({ notes, selected, patternId: pattern.id, synthId })
+  latest.current = { notes, selected, patternId: pattern.id, synthId }
 
-  // nothing selected in another pattern, and nothing left sounding
+  // nothing selected in another pattern or synth, and nothing left sounding
   React.useEffect(() => {
     setSelection([])
     setDraft(null)
     drag.current = null
-  }, [pattern.id])
+  }, [pattern.id, synthId])
   React.useEffect(() => () => audition.stop(), [audition])
 
   // follow the grid's size: window resizes, split pane dividers
@@ -111,26 +113,27 @@ const NoteGrid = ({ pattern, stepsPerBar, track, run }: Props) => {
     return () => observer.disconnect()
   }, [])
 
-  // a pattern opens with its notes in the middle, or C3 to C5 when it has
-  // none
-  const centred = React.useRef<number | null>(null)
+  // a pattern (or another synth's notes) opens with its notes in the
+  // middle, or C3 to C5 when it has none
+  const centred = React.useRef<string | null>(null)
   React.useEffect(() => {
     const scroller = scrollerRef.current
-    if(!scroller || !size.height || centred.current === pattern.id) return
-    centred.current = pattern.id
+    const shown = `${pattern.id}:${synthId}`
+    if(!scroller || !size.height || centred.current === shown) return
+    centred.current = shown
     scroller.scrollTop = Math.max(0, rowTop(centrePitch(notes)) + ROW_HEIGHT / 2 - size.height / 2)
     scroller.scrollLeft = 0
     setScroll({ x: scroller.scrollLeft, y: scroller.scrollTop })
-  }, [pattern.id, size.height, notes])
+  }, [pattern.id, synthId, size.height, notes])
 
   // drawn again whenever something shown changes (not every frame)
   React.useEffect(() => {
     const view = { width: size.width, height: size.height, scrollX: scroll.x, scrollY: scroll.y }
     const grid = fitCanvas(gridRef.current, size.width, size.height)
-    if(grid) drawGrid(grid, view, { length, stepsPerBar, notes: shown, selected: selectedSet, box })
+    if(grid) drawGrid(grid, view, { length, stepsPerBar, notes: shown, ghosts, selected: selectedSet, box })
     const ruler = fitCanvas(rulerRef.current, size.width, RULER_HEIGHT)
     if(ruler) drawRuler(ruler, view, length, stepsPerBar)
-  }, [size, scroll, length, stepsPerBar, shown, selectedSet, box, themeChange])
+  }, [size, scroll, length, stepsPerBar, shown, ghosts, selectedSet, box, themeChange])
 
   React.useEffect(() => {
     const keys = fitCanvas(keysRef.current, KEYS_WIDTH, size.height)
@@ -165,17 +168,17 @@ const NoteGrid = ({ pattern, stepsPerBar, track, run }: Props) => {
   // while dragging; see setPatternNotes)
   const change = (next: Note[]) => {
     setDraft(next)
-    dispatch(setPatternNotes(pattern.id, next))
+    dispatch(setPatternNotes(pattern.id, synthId, next))
   }
 
   // a change that's finished: sent now
   const commit = (next: Note[]) => {
-    dispatch(setPatternNotes(pattern.id, next))
+    dispatch(setPatternNotes(pattern.id, synthId, next))
     flushNoteSends()
   }
 
   const sound = (pitch: number) => {
-    if(track !== null) audition.play(track, pitch, true)
+    audition.play(synthId, pitch, true)
   }
 
   // the keys: Delete removes the selection, Escape clears it, ⌘A selects
@@ -186,14 +189,14 @@ const NoteGrid = ({ pattern, stepsPerBar, track, run }: Props) => {
 
     const onKeyDown = (ev: KeyboardEvent) => {
       if(!focused() || isTypingTarget(ev.target) || drag.current) return
-      const { notes: current, selected: chosen, patternId } = latest.current
+      const { notes: current, selected: chosen, patternId, synthId: synth } = latest.current
 
       if(isDeleteKey(ev)) {
         if(!chosen.length || ev.repeat) return
         // Backspace would otherwise navigate back in some webviews
         ev.preventDefault()
         setSelection([])
-        dispatch(setPatternNotes(patternId, deleteNotes(current, chosen)))
+        dispatch(setPatternNotes(patternId, synth, deleteNotes(current, chosen)))
         flushNoteSends()
       } else if(ev.key === 'Escape') {
         setSelection([])
@@ -360,7 +363,7 @@ const NoteGrid = ({ pattern, stepsPerBar, track, run }: Props) => {
   }
   const pressKey = (pitch: number) => {
     setPressedKey(pitch)
-    if(track !== null) audition.play(track, pitch, false)
+    audition.play(synthId, pitch, false)
   }
   const releaseKey = () => {
     if(pressedKey === null) return
@@ -392,7 +395,7 @@ const NoteGrid = ({ pattern, stepsPerBar, track, run }: Props) => {
         ref={keysRef}
         className='absolute left-0 cursor-pointer touch-none'
         style={{ top: RULER_HEIGHT, width: KEYS_WIDTH, height: size.height }}
-        title={track === null ? 'Drag an instrument onto a track in the Mixer to hear the keys' : 'Click a key to hear it'}
+        title='Click a key to hear it'
         onPointerDown={ev => { if(ev.button === 0) pressKey(keyAt(ev)) }}
         onPointerMove={ev => {
           // sliding along the keys plays each in turn

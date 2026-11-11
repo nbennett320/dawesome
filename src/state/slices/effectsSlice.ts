@@ -8,7 +8,6 @@ import {
   EffectSlot,
   findSlot,
   fxLit,
-  isInstrument,
   PluginCatalog,
   Racks,
   Rect,
@@ -98,9 +97,6 @@ export const selectChannelSlots = (channel: ChannelId) => (state: RootState): Ef
   slotsOf(state.effects.racks, channel)
 export const selectChannelCount = (channel: ChannelId) => (state: RootState): number =>
   slotsOf(state.effects.racks, channel).length
-// whether a channel has an instrument (loaded or not)
-export const selectChannelHasInstrument = (channel: ChannelId) => (state: RootState): boolean =>
-  slotsOf(state.effects.racks, channel).some(isInstrument)
 // whether any of a channel's effects is on (not bypassed, and loaded)
 export const selectChannelActive = (channel: ChannelId) => (state: RootState): boolean =>
   fxLit(slotsOf(state.effects.racks, channel))
@@ -237,14 +233,17 @@ export const showInRack = (slotId: number) => (dispatch: Dispatch, getState: () 
   dispatch(highlightSlot(slotId))
 }
 
-// open an effect's own tab in the pane the rack is in (or select it where
-// it's open). docking it there closes its window
+// open an effect's own tab in the pane the rack is in, or a synth's in the
+// Note Sequencer's (or select it where it's open). docking it there closes
+// its window
 export const showPluginTab = (slotId: number) => (dispatch: Dispatch, getState: () => RootState) => {
-  const rack = paneWithTab(getState().window.windowPane.root, tabKey(View.EffectsRack))
-  dispatch(openPluginTab({ slotId, paneId: rack?.id }))
+  const state = getState()
+  const synth = state.sequencer.synths.some(s => s.id === slotId)
+  const home = paneWithTab(state.window.windowPane.root, tabKey(synth ? View.NoteSequencer : View.EffectsRack))
+  dispatch(openPluginTab({ slotId, paneId: home?.id }))
 }
 
-// open an effect's own interface where the preferences say plugins open: a
+// open an effect's (or a synth's) own interface where the preferences say plugins open: a
 // window of its own, or a tab
 export const openPlugin = (slotId: number) =>
   async (dispatch: Dispatch, getState: () => RootState): Promise<void> => {

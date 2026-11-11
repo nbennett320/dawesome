@@ -5,6 +5,7 @@ import { readDir } from '@tauri-apps/plugin-fs'
 import { dirname, documentDir, join } from '@tauri-apps/api/path'
 import type { RootState } from 'state/store'
 import { MissingEffect, MissingSample, PROJECT_EXTENSION } from '../../types/project'
+import { Synth } from '../../types/sequencer'
 import { newProject, openProject, saveProject } from './playlistSlice'
 import { clearPendingMixerSends } from './mixerSlice'
 import { setSequencer } from './sequencerSlice'
@@ -15,7 +16,9 @@ export type ProjectCommand = 'new' | 'open' | 'save' | 'save-as'
 
 // shown above the workspace after a project command
 export type ProjectNotice =
-  | { kind: 'missing', samples: MissingSample[], effects: MissingEffect[] }
+  // what a project couldn't find, or left out. (older notices may not have
+  // the synths and what was dropped)
+  | { kind: 'missing', samples: MissingSample[], effects: MissingEffect[], synths?: Synth[], dropped?: string[] }
   | { kind: 'error', message: string }
   // something worth knowing, like where a take was saved
   | { kind: 'info', message: string }
@@ -142,10 +145,11 @@ const openFrom = async (dispatch: Dispatch, path: string): Promise<boolean> => {
   try {
     // fader moves not sent yet belong to the old project
     clearPendingMixerSends()
-    const { samples, effects } = await openProject(path)(dispatch)
+    const missing = await openProject(path)(dispatch)
+    const { samples, effects, synths, dropped } = missing
     dispatch(setProjectPath(path))
     dispatch(setProjectNotice(
-      samples.length > 0 || effects.length > 0 ? { kind: 'missing', samples, effects } : null,
+      [samples, effects, synths, dropped].some(list => list.length > 0) ? { kind: 'missing', ...missing } : null,
     ))
     await noteRecent(path)
     return true

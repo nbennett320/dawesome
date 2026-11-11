@@ -15,10 +15,11 @@ import {
   windowedDuration,
 } from '../../types/clip'
 import {
-  ChangedClips, LoadedClip, LoadedPatternClip, LoadedProject, Joined, MissingEffect, MissingSample, MovedClip, Placed, ProjectView, SavedProject,
+  ChangedClips, LoadedClip, LoadedPatternClip, LoadedProject, Joined, MissingEffect, MissingSample, MovedClip, Placed, ProjectView, SavedProject, splitMissing,
 } from '../../types/project'
 import { currentGesture } from '../gesture'
 import { Wind } from '../../types/transport'
+import { Synth } from '../../types/sequencer'
 import { openTab } from './windowSlice'
 
 // mirrors daw::timing::Note in the engine
@@ -1192,10 +1193,12 @@ export const dropQueuedClipSettings = (): void => {
   queuedSettings.clear()
 }
 
-// what a project couldn't find when it was loaded
+// what a project couldn't find when it was loaded, and what it left out
 export interface LoadedMissing {
   samples: MissingSample[]
   effects: MissingEffect[]
+  synths: Synth[]
+  dropped: string[]
 }
 
 // show a project the engine just loaded. returns the samples and plugins it
@@ -1211,7 +1214,8 @@ const showLoadedProject = async (
   // the playlist's length depends on its clips
   await initPlaylist()(dispatch)
 
-  return { samples: project.missing, effects: project.missingEffects ?? [] }
+  const { effects, synths } = splitMissing(project.missingEffects ?? [], project.sequencer?.synths ?? [])
+  return { samples: project.missing, effects, synths, dropped: project.dropped ?? [] }
 }
 
 // save the playlist to a project file. saved somewhere new (a first save, or

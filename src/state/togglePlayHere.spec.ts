@@ -2,10 +2,8 @@ import type { Mock } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import { store } from './store'
 import {
-  playPattern, selectPattern, selectPlaysOn, setPlaysOn, setSequencer, togglePlayHere,
+  playPattern, selectPattern, setSequencer, togglePlayHere,
 } from './slices/sequencerSlice'
-import { setRacks } from './slices/effectsSlice'
-import { EffectSlot, Racks } from '../types/effects'
 import { openTab } from './slices/windowSlice'
 import { listenForTransportKey } from '../util/keys'
 import { View } from '../types/ui'
@@ -26,9 +24,14 @@ const sent = () => mockInvoke.mock.calls
   .map(([command, args]) => [command, args])
   .filter(([command]) => (command as string).startsWith('t_'))
 
-const patterns = (ids: number[]) => ({
+// drum patterns, and note patterns 13 and 15
+const patterns = (ids: number[], noteIds: number[] = []) => ({
   rows: [],
-  patterns: ids.map(id => ({ id, name: null, length: 16, steps: {} })),
+  synths: [],
+  patterns: [
+    ...ids.map(id => ({ id, name: null, length: 16, steps: {} })),
+    ...noteIds.map(id => ({ id, name: null, kind: 'note' as const, length: 16, steps: {} })),
+  ],
   folders: [],
 })
 
@@ -40,10 +43,9 @@ describe('the Play key and Space', () => {
     mockInvoke.mockReset()
     mockInvoke.mockImplementation(async (command: string) =>
       (command === 'get_playlist_transport' ? stopped : undefined))
-    store.dispatch(setSequencer(patterns([3, 5])))
+    store.dispatch(setSequencer(patterns([3, 5], [13, 15])))
     store.dispatch(selectPattern(5))
-    store.dispatch(setRacks([]))
-    store.dispatch(setPlaysOn(null))
+    store.dispatch(selectPattern(15))
   })
 
   it('plays the playlist when the playlist has the focus', async () => {
@@ -58,16 +60,23 @@ describe('the Play key and Space', () => {
     expect(sent()).toEqual([['t_toggle_playlist', {}]])
   })
 
-  it('loops the selected pattern when the Sequencer has the focus', async () => {
+  it('loops the selected drum pattern when the Drum Sequencer has the focus', async () => {
     store.dispatch(openTab(View.Sequencer))
     await pressPlay()
-    expect(sent()).toEqual([['t_toggle_pattern', { patternId: 5, track: null }]])
+    expect(sent()).toEqual([['t_toggle_pattern', { patternId: 5 }]])
   })
 
-  it('loops the selected pattern from the Piano Roll too', async () => {
+  it('loops the selected note pattern from the Note Sequencer and the Piano Roll', async () => {
+    store.dispatch(openTab(View.NoteSequencer))
+    await pressPlay()
     store.dispatch(openTab(View.PianoRoll))
     await pressPlay()
-    expect(sent()).toEqual([['t_toggle_pattern', { patternId: 5, track: null }]])
+    expect(sent()).toEqual([['t_toggle_pattern', { patternId: 15 }], ['t_toggle_pattern', { patternId: 15 }]])
+  })
+
+  it('loops a pattern from its start, by its id alone', async () => {
+    await store.dispatch(playPattern(3))
+    expect(sent()).toEqual([['t_play_pattern', { patternId: 3 }]])
   })
 
   it('plays the playlist from the Sequencer when there is no pattern', async () => {
@@ -75,53 +84,6 @@ describe('the Play key and Space', () => {
     store.dispatch(setSequencer(patterns([])))
     await pressPlay()
     expect(sent()).toEqual([['t_toggle_playlist', {}]])
-  })
-})
-
-const slot = (id: number, kind: 'effect' | 'instrument', missing = false): EffectSlot => ({
-  id, pluginId: `vst3:${id}`, name: `Plugin ${id}`, vendor: 'Acme', bypassed: false, missing, hasEditor: true, kind,
-})
-
-describe('the track a pattern’s notes play on', () => {
-  const racks: Racks = [
-    { track: null, slots: [slot(1, 'effect')] },
-    { track: 4, slots: [slot(2, 'instrument'), slot(3, 'effect')] },
-    { track: 1, slots: [slot(4, 'effect')] },
-    { track: 2, slots: [slot(5, 'instrument')] },
-    // not loaded: it can't play
-    { track: 0, slots: [slot(6, 'instrument', true)] },
-  ]
-
-  beforeEach(() => {
-    mockInvoke.mockReset()
-    mockInvoke.mockImplementation(async (command: string) =>
-      (command === 'get_playlist_transport' ? stopped : undefined))
-    store.dispatch(setSequencer(patterns([3, 5])))
-    store.dispatch(selectPattern(5))
-    store.dispatch(setRacks(racks))
-    store.dispatch(setPlaysOn(null))
-  })
-
-  it('is the first track with an instrument that loaded, unless another is picked', () => {
-    expect(selectPlaysOn(store.getState())).toBe(2)
-    store.dispatch(setPlaysOn(4))
-    expect(selectPlaysOn(store.getState())).toBe(4)
-    // the picked track loses its instrument: back to the first
-    store.dispatch(setRacks(racks.filter(rack => rack.track !== 4)))
-    expect(selectPlaysOn(store.getState())).toBe(2)
-    store.dispatch(setRacks([]))
-    expect(selectPlaysOn(store.getState())).toBeNull()
-  })
-
-  it('is sent when the pattern plays on its own', async () => {
-    store.dispatch(setPlaysOn(4))
-    store.dispatch(openTab(View.Sequencer))
-    await pressPlay()
-    await store.dispatch(playPattern(3))
-    expect(sent()).toEqual([
-      ['t_toggle_pattern', { patternId: 5, track: 4 }],
-      ['t_play_pattern', { patternId: 3, track: 4 }],
-    ])
   })
 })
 

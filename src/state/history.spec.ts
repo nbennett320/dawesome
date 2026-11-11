@@ -39,6 +39,7 @@ const travelled: Travelled = {
     },
     sequencer: {
       rows: [{ id: 0, path: '/drums/kick.wav', volume: 1, muted: false }],
+      synths: [],
       patterns: [{ id: 2, name: 'verse', length: 16, steps: { 0: [0, 8] } }],
       folders: [],
     },
@@ -81,7 +82,7 @@ describe('undo and redo', () => {
     expect(mixer.names[0]).toBe('drums')
     expect(mixer.master.volumeDb).toBe(-3)
     expect(sequencer.patterns.map(p => p.name)).toEqual(['verse'])
-    expect(sequencer.selectedPatternId).toBe(2)
+    expect(sequencer.selected.drum).toBe(2)
   })
 
   it('leaves the selection alone when the step was not about clips', async () => {

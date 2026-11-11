@@ -19,10 +19,12 @@ const ProjectNotice = () => {
   const info = notice.kind === 'info'
   const listed = missing ? notice.samples.slice(0, LIST_AT_MOST) : []
   const more = missing ? notice.samples.length - listed.length : 0
-  // (older notices may not have the effects)
+  // (older notices may not have the effects, synths or what was dropped)
   const effects = missing ? notice.effects ?? [] : []
   const listedEffects = effects.slice(0, LIST_AT_MOST)
   const moreEffects = effects.length - listedEffects.length
+  const synths = missing ? notice.synths ?? [] : []
+  const dropped = missing ? notice.dropped ?? [] : []
 
   const shape = 'flex flex-row items-start gap-3 px-4 py-2 text-xs border-b'
   const body = (
@@ -65,6 +67,28 @@ const ProjectNotice = () => {
                 {moreEffects > 0 && <p className='mt-1'>…and {moreEffects} more.</p>}
               </>
             )}
+            {synths.length > 0 && (
+              <>
+                <p className={notice.samples.length > 0 || effects.length > 0 ? 'mt-2' : undefined}>
+                  {synths.length === 1
+                    ? 'This instrument isn’t installed, so its notes are silent (its settings are kept):'
+                    : 'These instruments aren’t installed, so their notes are silent (their settings are kept):'}
+                </p>
+                <ul className='mt-1 list-disc pl-5'>
+                  {synths.map(synth => (
+                    <li key={synth.id} className='truncate'>
+                      {`${synth.name}${synth.vendor ? ` (${synth.vendor})` : ''} in the Note Sequencer`}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {dropped.map((sentence, i) => (
+              // eslint-disable-next-line react/no-array-index-key
+              <p key={i} className={i === 0 && notice.samples.length + effects.length + synths.length > 0 ? 'mt-2' : undefined}>
+                {sentence}
+              </p>
+            ))}
           </>
         ) : (
           <p>{notice.message}</p>

@@ -3,6 +3,7 @@ import { configureStore } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api/core'
 import playlistReducer, { reduceLoadedProject, reduceProjectView } from './playlistSlice'
 import projectReducer from './projectSlice'
+import sequencerReducer from './sequencerSlice'
 import windowReducer, { openPluginTab, openTab, splitPane } from './windowSlice'
 import effectsReducer, {
   addEffect,
@@ -40,6 +41,7 @@ const makeStore = () => configureStore({
     project: projectReducer,
     window: windowReducer,
     effects: effectsReducer,
+    sequencer: sequencerReducer,
   },
 })
 
@@ -77,7 +79,7 @@ const project = (effects?: Racks): LoadedProject => ({
   clips: [],
   missing: [],
   mixer: { tracks: [], master: { volumeDb: 0, pan: 0, mute: false, solo: false } },
-  sequencer: { rows: [], patterns: [], folders: [] },
+  sequencer: { rows: [], synths: [], patterns: [], folders: [] },
   patternClips: [],
   ...(effects ? { effects } : {}),
 })

@@ -2,10 +2,10 @@ import React from 'react'
 import { useStore } from 'react-redux'
 import type { RootState } from 'state/store'
 import { useAppDispatch } from '../../hooks/redux'
-import { draggedInstrument, EffectDragItem, isEffectItem, onSampleDrag } from '../../state/sampleDrag'
+import { EffectDragItem, isEffectItem, onSampleDrag } from '../../state/sampleDrag'
 import { addEffect, highlightSlot, moveEffect } from '../../state/slices/effectsSlice'
 import {
-  ChannelId, findSlot, fitGap, isInstrument, reorderIndex, slotsOf,
+  ChannelId, findSlot, reorderIndex, slotsOf,
 } from '../../types/effects'
 
 // marks a row of the stack, so a drop can tell which gap it's in
@@ -16,40 +16,19 @@ export const RACK_ROW = 'data-rack-row'
 export const gapAt = (mids: number[], clientY: number): number =>
   mids.filter(mid => mid < clientY).length
 
-// the gap a drop would go in, where the mouse is in `gap`: an effect can't
-// go above a track's instrument, and an instrument only goes first
-export const rackGap = (
-  racks: RootState['effects']['racks'],
-  channel: ChannelId,
-  item: EffectDragItem,
-  gap: number,
-): number => fitGap(slotsOf(racks, channel), gap, draggedInstrument(racks, item))
-
 // what dropping `item` in `gap` of a channel's chain does: insert an effect
-// there, or move a slot there. an instrument is added as the track's (the
-// engine puts it first: `index` null), or moved to the head of another
-// track's chain. null when it'd change nothing or be refused: an instrument
-// on the master, moved within its own chain, or onto a track that has one
+// there, or move a slot there. null when it'd change nothing
 export const rackDrop = (
   racks: RootState['effects']['racks'],
   channel: ChannelId,
   item: EffectDragItem,
-  mouseGap: number,
-): { kind: 'add', index: number | null } | { kind: 'move', index: number } | null => {
-  const instrument = draggedInstrument(racks, item)
-  if(instrument && channel === 'master') return null
-
+  gap: number,
+): { kind: 'add', index: number } | { kind: 'move', index: number } | null => {
   const slots = slotsOf(racks, channel)
-  const gap = rackGap(racks, channel, item, mouseGap)
-  if(item.kind === 'effect') return { kind: 'add', index: instrument ? null : gap }
+  if(item.kind === 'effect') return { kind: 'add', index: gap }
 
   const from = findSlot(racks, item.slotId)
   if(!from) return null
-
-  if(instrument) {
-    if(from.channel === channel || slots.some(isInstrument)) return null
-    return { kind: 'move', index: 0 }
-  }
 
   if(from.channel === channel) {
     const index = reorderIndex(slots, item.slotId, gap)
@@ -59,8 +38,7 @@ export const rackDrop = (
 }
 
 // effects dropped into the stack: one from the sidebar goes where it's
-// dropped (an instrument at the top, as the track's), and a row moves
-// there. returns the gap it'd go in, to show it
+// dropped, and a row moves there. returns the gap it'd go in, to show it
 export const useRackDrop = (ref: React.RefObject<HTMLElement>, channel: ChannelId): number | null => {
   const dispatch = useAppDispatch()
   const store = useStore<RootState>()
@@ -83,7 +61,7 @@ export const useRackDrop = (ref: React.RefObject<HTMLElement>, channel: ChannelI
     const drop = over ? rackDrop(racks, channel, item, gap) : null
 
     if(type === 'move') {
-      setTarget(drop ? rackGap(racks, channel, item, gap) : null)
+      setTarget(drop ? gap : null)
       return
     }
 

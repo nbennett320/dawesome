@@ -81,6 +81,8 @@ export interface GridScene {
   length: number
   stepsPerBar: number
   notes: Note[]
+  // other synths' notes in the pattern, drawn faintly behind
+  ghosts: Note[]
   selected: Set<number>
   // a rubber band being dragged, from corner to corner on the grid
   box: { x0: number, y0: number, x1: number, y1: number } | null
@@ -88,7 +90,7 @@ export interface GridScene {
 
 export const drawGrid = (ctx: CanvasRenderingContext2D, view: Viewport, scene: GridScene) => {
   const { width, height, scrollX, scrollY } = view
-  const { length, stepsPerBar, notes, selected, box } = scene
+  const { length, stepsPerBar, notes, ghosts, selected, box } = scene
   const right = Math.min(width, contentWidth(length) - scrollX)
 
   ctx.clearRect(0, 0, width, height)
@@ -138,17 +140,29 @@ export const drawGrid = (ctx: CanvasRenderingContext2D, view: Viewport, scene: G
   ctx.stroke()
   columns(lanes.css('barLine'), bar)
 
-  // the notes, the selected ones in the accent colour
+  // the notes, the selected ones in the accent colour, over the other
+  // synths' faintly
   const left = scrollX - STEP_WIDTH
   const leftStep = left / STEP_WIDTH
   const rightStep = (scrollX + width) / STEP_WIDTH
-  notes.forEach((note, i) => {
-    if(note.pitch < low || note.pitch > high) return
-    if(note.start + note.length < leftStep || note.start > rightStep) return
+  const inView = (note: Note) => note.pitch >= low && note.pitch <= high
+    && note.start + note.length >= leftStep && note.start <= rightStep
+  const place = (note: Note) => ({
+    x: note.start * STEP_WIDTH - scrollX,
+    y: rowTop(note.pitch) - scrollY,
+    w: Math.max(3, note.length * STEP_WIDTH - 1),
+  })
 
-    const x = note.start * STEP_WIDTH - scrollX
-    const y = rowTop(note.pitch) - scrollY
-    const w = Math.max(3, note.length * STEP_WIDTH - 1)
+  ctx.fillStyle = lanes.css('patternHit', 0.25)
+  ghosts.forEach(note => {
+    if(!inView(note)) return
+    const { x, y, w } = place(note)
+    ctx.fillRect(x + 0.5, y + 1, w, ROW_HEIGHT - 2)
+  })
+
+  notes.forEach((note, i) => {
+    if(!inView(note)) return
+    const { x, y, w } = place(note)
     const on = selected.has(i)
 
     ctx.fillStyle = on ? lanes.css('selectedBorder') : lanes.css('patternHit')

@@ -58,7 +58,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 //
 // it's docked while `active` (its tab is showing, and no tab is being
 // dragged), and undocked when that stops or this goes away
-const DockedEditor = ({ slot, active }: { slot: EffectSlot, active: boolean }) => {
+const DockedEditor = ({ slot, active }: { slot: Pick<EffectSlot, 'id' | 'name'>, active: boolean }) => {
   const dispatch = useAppDispatch()
   const areaRef = React.useRef<HTMLDivElement>(null)
   const boxRef = React.useRef<HTMLDivElement>(null)

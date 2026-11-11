@@ -6,7 +6,8 @@ export enum View {
   Mixer,
   // the tape deck: a cassette and its play, pause, stop and wind keys
   Transport,
-  // the drum machine: rows of samples, and patterns of 16th note steps
+  // the Drum Sequencer: rows of samples, and drum patterns of 16th note
+  // steps
   Sequencer,
   // which devices the engine plays and records through, and its buffer size
   AudioSettings,
@@ -18,8 +19,11 @@ export enum View {
   EffectsRack,
   // a pattern's notes on a grid of steps, against a piano keyboard
   PianoRoll,
-  // one effect's own interface. any number can be open, one per slot
+  // one plugin's own interface (an effect's or a synth's). any number can
+  // be open, one per slot
   Plugin,
+  // the Note Sequencer: a row per synth, and note patterns of their notes
+  NoteSequencer,
 }
 
 // the label a view's tab gets when it's opened
@@ -28,7 +32,7 @@ export const viewLabels: Record<View, string> = {
   [View.SamplePreview]: 'Sample',
   [View.Mixer]: 'Mixer',
   [View.Transport]: 'Transport',
-  [View.Sequencer]: 'Sequencer',
+  [View.Sequencer]: 'Drum Sequencer',
   [View.AudioSettings]: 'Audio',
   [View.Mixdown]: 'Mixdown',
   [View.Preferences]: 'Preferences',
@@ -36,6 +40,7 @@ export const viewLabels: Record<View, string> = {
   [View.PianoRoll]: 'Piano Roll',
   // (a plugin's tab is named after it, see pluginTabLabel)
   [View.Plugin]: 'Plugin',
+  [View.NoteSequencer]: 'Note Sequencer',
 }
 
 // how a split pane lays out its children:
@@ -44,7 +49,7 @@ export type SplitDirection = 'vertical' | 'horizontal'
 
 export type PaneTab = {
   component: View
-  // the effect a View.Plugin tab shows
+  // the effect or synth a View.Plugin tab shows
   slotId?: number
 }
 
@@ -77,12 +82,17 @@ export type WindowPane = {
 export enum SidebarPage {
   // the samples folder, to hear samples and drag them into the playlist
   Samples = 'samples',
-  // the Sequencer's patterns, to drag into the playlist
+  // the Drum Sequencer's patterns, to drag into the playlist
   Patterns = 'patterns',
+  // the Note Sequencer's patterns, likewise
+  NotePatterns = 'note-patterns',
   // the project's recorded takes
   Recordings = 'recordings',
   // files the app wrote out itself: Deep copy's and Join's
   Clips = 'clips',
   // the effect plugins found, to drag onto a mixer channel
   Effects = 'effects',
+  // the instrument plugins found, to drag into the Note Sequencer (or onto
+  // a track's mixer strip)
+  Instruments = 'instruments',
 }

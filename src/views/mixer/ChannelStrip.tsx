@@ -177,9 +177,8 @@ interface Props {
   silenced?: boolean
   // renaming (track strips). an empty name goes back to the default
   onRename?: (name: string) => void
-  // the channel's effects: how many, whether any is on, whether one is the
-  // track's instrument, and opening the rack
-  fx?: { count: number, lit: boolean, instrument?: boolean, onOpen: () => void }
+  // the channel's effects: how many, whether any is on, and opening the rack
+  fx?: { count: number, lit: boolean, onOpen: () => void }
   // the channel as dropped effects see it (see useChannelDrop)
   dropKey?: string
   // an effect dragged over the strip would go on it
@@ -277,7 +276,7 @@ const ChannelStrip = ({
       {!(mute && solo) && footer}
     </div>
 
-    {fx && <FxJack channel={label} count={fx.count} lit={fx.lit} instrument={fx.instrument} onOpen={fx.onOpen} />}
+    {fx && <FxJack channel={label} count={fx.count} lit={fx.lit} onOpen={fx.onOpen} />}
   </div>
 )
 

@@ -1,11 +1,12 @@
 import { createSelector, createSlice, Dispatch, PayloadAction } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api/core'
 import type { RootState } from '../store'
-import { Note, Pattern, SequencerState, withStep } from '../../types/sequencer'
-import { instrumentTracks } from '../../types/effects'
+import {
+  Note, Pattern, PatternKind, SequencerState, kindOf, withNotes, withStep,
+} from '../../types/sequencer'
 import { PlaylistTransport } from '../../types/transport'
 import { View } from '../../types/ui'
-import { LoadedPatternClip } from '../../types/project'
+import { LoadedPatternClip, ProjectView } from '../../types/project'
 import { MixerSettings } from '../../types/mixer'
 import { setMixer } from './mixerSlice'
 import {
@@ -19,6 +20,7 @@ import {
   setPlaylistTempo,
   reduceProjectView,
 } from './playlistSlice'
+import { setProjectNotice } from './projectSlice'
 import { openTab, selectFocusedView } from './windowSlice'
 import { currentGesture } from '../gesture'
 
@@ -31,31 +33,46 @@ export interface PatternRun {
 }
 
 export interface SequencerSliceState extends SequencerState {
-  // the pattern the Sequencer and Piano Roll tabs show, which their Play
-  // loops
-  selectedPatternId: number | null
+  // the pattern of each kind that's shown, which Play loops: the Drum
+  // Sequencer's drum pattern, and the Note Sequencer's and Piano Roll's
+  // note pattern
+  selected: Record<PatternKind, number | null>
+  // the synth whose notes the Piano Roll edits
+  pianoRollSynthId: number | null
   run: PatternRun | null
-  // the track whose instrument plays a pattern's notes while it plays on
-  // its own (the Piano Roll's "Plays on"), as picked. null, or a track that
-  // has lost its instrument, means the first track with one (see
-  // selectPlaysOn)
-  playsOn: number | null
 }
 
 const initialState: SequencerSliceState = {
   rows: [],
+  synths: [],
   patterns: [],
   folders: [],
-  selectedPatternId: null,
+  selected: { drum: null, note: null },
+  pianoRollSynthId: null,
   run: null,
-  playsOn: null,
 }
 
-// keep a pattern selected while there are any: the one that was, or the
-// first
+const KINDS: PatternKind[] = ['drum', 'note']
+
+// keep a pattern of each kind selected while there are any: the one that
+// was, or the first. and a synth for the Piano Roll while there are any
 const fixSelection = (state: SequencerSliceState) => {
-  if(state.patterns.some(p => p.id === state.selectedPatternId)) return
-  state.selectedPatternId = state.patterns[0]?.id ?? null
+  KINDS.forEach(kind => {
+    const ofKind = state.patterns.filter(p => kindOf(p) === kind)
+    if(ofKind.some(p => p.id === state.selected[kind])) return
+    state.selected[kind] = ofKind[0]?.id ?? null
+  })
+  if(!state.synths.some(s => s.id === state.pianoRollSynthId)) {
+    state.pianoRollSynthId = state.synths[0]?.id ?? null
+  }
+}
+
+const take = (state: SequencerSliceState, sequencer: Partial<SequencerState> | null | undefined) => {
+  state.rows = sequencer?.rows ?? []
+  // (left out by older engines)
+  state.synths = sequencer?.synths ?? []
+  state.patterns = sequencer?.patterns ?? []
+  state.folders = sequencer?.folders ?? []
 }
 
 export const sequencerSlice = createSlice({
@@ -64,13 +81,17 @@ export const sequencerSlice = createSlice({
   reducers: {
     // the sequencer as the engine has it, after any edit
     setSequencer: (state, action: PayloadAction<SequencerState>) => {
-      state.rows = action.payload.rows
-      state.patterns = action.payload.patterns
-      state.folders = action.payload.folders ?? []
+      take(state, action.payload)
       fixSelection(state)
     },
+    // show a pattern in the sequencer of its kind
     selectPattern: (state, action: PayloadAction<number>) => {
-      if(state.patterns.some(p => p.id === action.payload)) state.selectedPatternId = action.payload
+      const pattern = state.patterns.find(p => p.id === action.payload)
+      if(pattern) state.selected[kindOf(pattern)] = pattern.id
+    },
+    // the synth whose notes the Piano Roll edits
+    setPianoRollSynth: (state, action: PayloadAction<number>) => {
+      if(state.synths.some(s => s.id === action.payload)) state.pianoRollSynthId = action.payload
     },
     // show a step changed straight away, before the engine answers, so
     // painting across a row keeps up with the mouse
@@ -82,37 +103,29 @@ export const sequencerSlice = createSlice({
       const i = state.patterns.findIndex(p => p.id === patternId)
       if(i >= 0) state.patterns[i] = withStep(state.patterns[i], rowId, step, on)
     },
-    // and a pattern's notes, as they're drawn and dragged
-    reduceNotes: (state, action: PayloadAction<{ patternId: number, notes: Note[] }>) => {
-      const pattern = state.patterns.find(p => p.id === action.payload.patternId)
-      if(pattern) pattern.notes = action.payload.notes
+    // and a synth's notes in a pattern, as they're drawn and dragged
+    reduceNotes: (state, action: PayloadAction<{ patternId: number, synthId: number, notes: Note[] }>) => {
+      const { patternId, synthId, notes } = action.payload
+      const i = state.patterns.findIndex(p => p.id === patternId)
+      if(i >= 0) state.patterns[i] = withNotes(state.patterns[i], synthId, notes)
     },
     setRun: (state, action: PayloadAction<PatternRun | null>) => {
       state.run = action.payload
-    },
-    setPlaysOn: (state, action: PayloadAction<number | null>) => {
-      state.playsOn = action.payload
     },
   },
   extraReducers: builder => {
     builder
       .addCase(reduceLoadedProject, (state, action) => {
-        const { sequencer } = action.payload
-        state.rows = sequencer?.rows ?? []
-        state.patterns = sequencer?.patterns ?? []
-        state.folders = sequencer?.folders ?? []
-        state.selectedPatternId = null
+        take(state, action.payload.sequencer)
+        state.selected = { drum: null, note: null }
+        state.pianoRollSynthId = null
         state.run = null
-        state.playsOn = null
         fixSelection(state)
       })
-      // an undo or redo may have changed the rows and patterns. the selected
-      // pattern stays selected while it's there
+      // an undo or redo may have changed the rows, synths and patterns. the
+      // selected ones stay selected while they're there
       .addCase(reduceProjectView, (state, action) => {
-        const { sequencer } = action.payload.project
-        state.rows = sequencer.rows
-        state.patterns = sequencer.patterns
-        state.folders = sequencer.folders
+        take(state, action.payload.project.sequencer)
         fixSelection(state)
       })
       // nothing plays once the engine has stopped
@@ -122,7 +135,7 @@ export const sequencerSlice = createSlice({
   },
 })
 
-export const { selectPattern, setSequencer, setPlaysOn } = sequencerSlice.actions
+export const { selectPattern, setPianoRollSynth, setSequencer } = sequencerSlice.actions
 const { reduceStep, reduceNotes, setRun } = sequencerSlice.actions
 
 export default sequencerSlice.reducer
@@ -144,9 +157,9 @@ export const loadSequencer = () => (dispatch: Dispatch) =>
     .then(sequencer => { dispatch(setSequencer(sequencer)) })
     .catch(sequencerError('load the sequencer'))
 
-// a new empty pattern at the end, selected
-export const addPattern = (bars: number) => (dispatch: Dispatch) =>
-  invoke<{ id: number, sequencer: SequencerState }>('add_pattern', { bars })
+// a new empty pattern of a kind at the end, selected
+export const addPattern = (bars: number, kind: PatternKind) => (dispatch: Dispatch) =>
+  invoke<{ id: number, sequencer: SequencerState }>('add_pattern', { bars, kind })
     .then(({ id, sequencer }) => {
       dispatch(setSequencer(sequencer))
       dispatch(selectPattern(id))
@@ -157,7 +170,7 @@ export const addPattern = (bars: number) => (dispatch: Dispatch) =>
 // pattern to put steps in, so the first row brings one along
 export const addSequencerRow = (path: string) => async (dispatch: Dispatch, getState: () => RootState) => {
   await edit(`add ${path} to the sequencer`, 'add_sequencer_row', { path })(dispatch)
-  if(!getState().sequencer.patterns.length) await addPattern(1)(dispatch)
+  if(getState().sequencer.selected.drum === null) await addPattern(1, 'drum')(dispatch)
 }
 
 export const removeSequencerRow = (rowId: number) =>
@@ -202,11 +215,11 @@ const folderEdit = (command: string, args: Record<string, unknown>) => async (di
   dispatch(setSequencer(await invoke<SequencerState>(command, args)))
 }
 
-// a new, empty folder in `parent` (null: the top). returns its id
-export const addPatternFolder = (name: string, parent: number | null) =>
+// a new, empty folder of a kind in `parent` (null: the top). returns its id
+export const addPatternFolder = (name: string, parent: number | null, kind: PatternKind) =>
   async (dispatch: Dispatch): Promise<number> => {
     const { id, sequencer } = await invoke<{ id: number, sequencer: SequencerState }>(
-      'add_pattern_folder', { name, parent })
+      'add_pattern_folder', { name, parent, kind })
     dispatch(setSequencer(sequencer))
     return id
   }
@@ -244,27 +257,32 @@ export const setPatternStep = (patternId: number, rowId: number, step: number, o
 // how often a pattern's notes are sent while they're being dragged
 const SEND_NOTES_EVERY_MS = 30
 
-// per pattern: the notes waiting to be sent, while a send was recent
+// per pattern and synth: the notes waiting to be sent, while a send was
+// recent
 interface QueuedNotes {
+  patternId: number
+  synthId: number
   notes: Note[]
   // the gesture they were changed in, taken when they were (it may be over
   // by the time they're sent)
   gesture: number | null
   dispatch: Dispatch
 }
-const queuedNotes = new Map<number, QueuedNotes | null>()
+const queuedNotes = new Map<string, QueuedNotes | null>()
+
+const queueKey = (patternId: number, synthId: number) => `${patternId}:${synthId}`
 
 // counts the sends, so only the answer to the latest is kept: an earlier
 // one arriving late would put back notes since dragged elsewhere. nor is an
 // answer kept while newer notes are waiting to be sent
 let noteSends = 0
 
-const sendNotes = (patternId: number, { notes, gesture, dispatch }: QueuedNotes): Promise<void> => {
+const sendNotes = ({ patternId, synthId, notes, gesture, dispatch }: QueuedNotes): Promise<void> => {
   noteSends += 1
   const send = noteSends
-  return invoke<SequencerState>('set_pattern_notes', { patternId, notes, gesture })
+  return invoke<SequencerState>('set_pattern_notes', { patternId, synthId, notes, gesture })
     .then(sequencer => {
-      if(send === noteSends && !queuedNotes.get(patternId)) dispatch(setSequencer(sequencer))
+      if(send === noteSends && !queuedNotes.get(queueKey(patternId, synthId))) dispatch(setSequencer(sequencer))
     })
     .catch(e => {
       sequencerError('change the notes')(e)
@@ -273,42 +291,44 @@ const sendNotes = (patternId: number, { notes, gesture, dispatch }: QueuedNotes)
     })
 }
 
-// replace a pattern's notes. shown straight away, and sent at most every
-// SEND_NOTES_EVERY_MS, the latest always last (flushNoteSends sends it
-// now). every change made in one drag is one step to undo: see
+// replace a synth's notes in a pattern. shown straight away, and sent at
+// most every SEND_NOTES_EVERY_MS, the latest always last (flushNoteSends
+// sends it now). every change made in one drag is one step to undo: see
 // state/gesture.ts
-export const setPatternNotes = (patternId: number, notes: Note[]) => (dispatch: Dispatch): Promise<void> => {
-  dispatch(reduceNotes({ patternId, notes }))
-  const change = { notes, gesture: currentGesture(), dispatch }
+export const setPatternNotes = (patternId: number, synthId: number, notes: Note[]) =>
+  (dispatch: Dispatch): Promise<void> => {
+    dispatch(reduceNotes({ patternId, synthId, notes }))
+    const key = queueKey(patternId, synthId)
+    const change = { patternId, synthId, notes, gesture: currentGesture(), dispatch }
 
-  if(queuedNotes.has(patternId)) {
-    queuedNotes.set(patternId, change)
-    return Promise.resolve()
-  }
-
-  queuedNotes.set(patternId, null)
-  const flush = () => {
-    const next = queuedNotes.get(patternId)
-    if(next) {
-      queuedNotes.set(patternId, null)
-      sendNotes(patternId, next)
-      setTimeout(flush, SEND_NOTES_EVERY_MS)
-    } else {
-      queuedNotes.delete(patternId)
+    if(queuedNotes.has(key)) {
+      queuedNotes.set(key, change)
+      return Promise.resolve()
     }
-  }
-  setTimeout(flush, SEND_NOTES_EVERY_MS)
 
-  return sendNotes(patternId, change)
-}
+    queuedNotes.set(key, null)
+    const flush = () => {
+      const next = queuedNotes.get(key)
+      if(next) {
+        queuedNotes.set(key, null)
+        sendNotes(next)
+        setTimeout(flush, SEND_NOTES_EVERY_MS)
+      } else {
+        queuedNotes.delete(key)
+      }
+    }
+    setTimeout(flush, SEND_NOTES_EVERY_MS)
+
+    return sendNotes(change)
+  }
 
 // send the notes still waiting, now: when a drag ends, and before an undo
 // (a change has to have reached the engine to be undone)
 export const flushNoteSends = (): Promise<unknown> =>
-  Promise.all(Array.from(queuedNotes.entries()).map(([patternId, next]) => {
+  Promise.all(Array.from(queuedNotes.entries()).map(([key, next]) => {
     if(!next) return undefined
-    queuedNotes.set(patternId, null)
-    return sendNotes(patternId, next)
+    queuedNotes.set(key, null)
+    return sendNotes(next)
   }))
 
 // forget notes still waiting to be sent, and answers still to come, e.g.
@@ -318,28 +338,20 @@ export const clearPendingNoteSends = () => {
   noteSends += 1
 }
 
-// the tabs that show the selected pattern, and loop it with Play while
-// they're the focused pane's
-export const PATTERN_VIEWS = [View.Sequencer, View.PianoRoll]
+// the tabs that show a selected pattern, and loop it with Play while
+// they're the focused pane's: which kind of pattern each shows
+const PATTERN_VIEWS: Partial<Record<View, PatternKind>> = {
+  [View.Sequencer]: 'drum',
+  [View.NoteSequencer]: 'note',
+  [View.PianoRoll]: 'note',
+}
 
 export const isPatternView = (view: View | undefined): boolean =>
-  view !== undefined && PATTERN_VIEWS.includes(view)
+  view !== undefined && PATTERN_VIEWS[view] !== undefined
 
-// the tracks with an instrument to play notes on, in order
-export const selectInstrumentTracks = createSelector(
-  [(state: RootState) => state.effects.racks],
-  racks => instrumentTracks(racks),
-)
-
-// the track whose instrument plays a pattern's notes while it plays on its
-// own: the one picked, while it has an instrument, or else the first track
-// with one. null when no track has one (its notes aren't heard)
-export const selectPlaysOn = (state: RootState): number | null => {
-  const tracks = selectInstrumentTracks(state)
-  const picked = state.sequencer.playsOn
-  if(picked !== null && tracks.includes(picked)) return picked
-  return tracks[0] ?? null
-}
+// the sequencer tab for a kind of pattern
+export const sequencerView = (kind: PatternKind): View =>
+  (kind === 'drum' ? View.Sequencer : View.NoteSequencer)
 
 // after a transport command: whether the engine plays, and which pattern
 export const syncRun = async (dispatch: Dispatch) => {
@@ -380,52 +392,62 @@ export const explodePatternClips = (ids: number[]) => async (dispatch: Dispatch)
   }
 }
 
-// open a pattern in the Sequencer tab (double-clicking its clip)
-export const showPattern = (patternId: number) => (dispatch: Dispatch) => {
+// open a pattern in the sequencer of its kind (double-clicking its clip)
+export const showPattern = (patternId: number) => (dispatch: Dispatch, getState: () => RootState) => {
+  const pattern = getState().sequencer.patterns.find(p => p.id === patternId)
+  if(!pattern) return
   dispatch(selectPattern(patternId))
-  dispatch(openTab(View.Sequencer))
+  dispatch(openTab(sequencerView(kindOf(pattern))))
 }
 
-// loop a pattern on its own, its notes on the "Plays on" track's
-// instrument, or stop it (or pause what's playing)
-export const togglePattern = (patternId: number) => async (dispatch: Dispatch, getState: () => RootState) => {
+// open the Piano Roll on a synth's notes in a note pattern
+export const showNotes = (patternId: number, synthId: number) => (dispatch: Dispatch) => {
+  dispatch(selectPattern(patternId))
+  dispatch(setPianoRollSynth(synthId))
+  dispatch(openTab(View.PianoRoll))
+}
+
+// loop a pattern on its own (a note pattern's notes on its synths, straight
+// to the master), or stop it (or pause what's playing)
+export const togglePattern = (patternId: number) => async (dispatch: Dispatch) => {
   try {
-    await invoke('t_toggle_pattern', { patternId, track: selectPlaysOn(getState()) })
+    await invoke('t_toggle_pattern', { patternId })
   } catch(e) {
     sequencerError('play the pattern')(e)
   }
   await syncRun(dispatch)
 }
 
-// the Play key: with the Sequencer or the Piano Roll the focused pane's
-// tab, loop its pattern (or pause what's playing); anywhere else, play the
+// the Play key: with a sequencer or the Piano Roll the focused pane's tab,
+// loop its pattern (or pause what's playing); anywhere else, play the
 // playlist as always
 export const togglePlayHere = () => async (dispatch: Dispatch, getState: () => RootState) => {
   const state = getState()
-  const patternId = state.sequencer.selectedPatternId
+  const view = selectFocusedView(state)
+  const kind = view === undefined ? undefined : PATTERN_VIEWS[view]
+  const patternId = kind ? state.sequencer.selected[kind] : null
 
-  if(!isPatternView(selectFocusedView(state)) || patternId === null) {
+  if(patternId === null) {
     await togglePlay()(dispatch)
     dispatch(setRun(null))
     return
   }
 
-  await togglePattern(patternId)(dispatch, getState)
+  await togglePattern(patternId)(dispatch)
 }
 
 // loop a pattern from its start, stopping whatever was playing
-export const playPattern = (patternId: number) => async (dispatch: Dispatch, getState: () => RootState) => {
+export const playPattern = (patternId: number) => async (dispatch: Dispatch) => {
   try {
-    await invoke('t_play_pattern', { patternId, track: selectPlaysOn(getState()) })
+    await invoke('t_play_pattern', { patternId })
   } catch(e) {
     sequencerError('play the pattern')(e)
   }
   await syncRun(dispatch)
 }
 
-// stop a pattern playing on its own (focus left the Sequencer and the
-// Piano Roll). the
-// playlist's playhead stays where it was
+// stop a pattern playing on its own (focus left the sequencers and the
+// Piano Roll). the playlist's playhead stays where it was
 export const stopPattern = () => async (dispatch: Dispatch) => {
   try {
     await invoke('t_pause_playlist', {})
@@ -435,10 +457,106 @@ export const stopPattern = () => async (dispatch: Dispatch) => {
   await syncRun(dispatch)
 }
 
+// synths, the Note Sequencer's rows. a synth's id is also a slot id, so
+// its interface opens as an effect's does (see effectsSlice's openPlugin)
+
+const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
+// a synth command that failed is shown above the workspace, like an
+// effect's
+const synthFail = (dispatch: Dispatch, what: string) => (e: unknown) => {
+  dispatch(setProjectNotice({ kind: 'error', message: `${what}: ${message(e)}` }))
+}
+
+const synthEdit = (what: string, command: string, args: Record<string, unknown>) =>
+  async (dispatch: Dispatch): Promise<void> => {
+    try {
+      dispatch(setSequencer(await invoke<SequencerState>(command, args)))
+    } catch(e) {
+      synthFail(dispatch, what)(e)
+    }
+  }
+
+// an instrument dropped on the Note Sequencer: a synth at the end of the
+// list. a project needs a note pattern to draw notes in, so the first synth
+// brings one along. resolves to the synth's id, or null when it couldn't be
+// added (which is shown)
+export const addSynth = (pluginId: string) =>
+  async (dispatch: Dispatch, getState: () => RootState): Promise<number | null> => {
+    try {
+      const { synthId, sequencer } = await invoke<{ synthId: number, sequencer: SequencerState }>(
+        'add_synth', { pluginId })
+      dispatch(setSequencer(sequencer))
+      if(getState().sequencer.selected.note === null) await addPattern(1, 'note')(dispatch)
+      return synthId
+    } catch(e) {
+      synthFail(dispatch, 'Couldn’t add the instrument')(e)
+      return null
+    }
+  }
+
+// its notes go from every pattern too (one undo brings both back)
+export const removeSynth = (synthId: number) =>
+  synthEdit('Couldn’t remove the instrument', 'remove_synth', { synthId })
+
+// (one drag of the knob is one step to undo: see state/gesture.ts)
+export const setSynthVolume = (synthId: number, volume: number) =>
+  edit("set the synth's volume", 'set_synth_volume', { synthId, volume, gesture: currentGesture() })
+
+export const setSynthMuted = (synthId: number, muted: boolean) =>
+  synthEdit('Couldn’t mute the instrument', 'set_synth_muted', { synthId, muted })
+
+// the playhead's beat, from the engine (null if it can't be asked)
+const playheadBeat = async (): Promise<number | null> => {
+  try {
+    const t = await invoke<PlaylistTransport>('get_playlist_transport', {})
+    return t.beatIntervalMs > 0 ? t.positionMs / t.beatIntervalMs : null
+  } catch {
+    return null
+  }
+}
+
+// an instrument dropped on a track's mixer strip: a synth, a blank note
+// pattern, and a clip of it on that track at the playhead, all one step to
+// undo. the Piano Roll opens on it
+export const addSynthOnTrack = (pluginId: string, trackNumber: number) =>
+  async (dispatch: Dispatch): Promise<void> => {
+    try {
+      const dropBeat = await playheadBeat()
+      const { synthId, patternId, project } = await invoke<{ synthId: number, patternId: number, project: ProjectView }>(
+        'add_synth_on_track', { pluginId, trackNumber, dropBeat })
+      dispatch(reduceProjectView({ project, selected: null }))
+      showNotes(patternId, synthId)(dispatch)
+    } catch(e) {
+      synthFail(dispatch, 'Couldn’t add the instrument')(e)
+    }
+  }
+
 export const selectSequencerRows = (state: RootState) => state.sequencer.rows
+export const selectSynths = (state: RootState) => state.sequencer.synths
 export const selectPatterns = (state: RootState) => state.sequencer.patterns
 export const selectPatternFolders = (state: RootState) => state.sequencer.folders
-export const selectSelectedPatternId = (state: RootState) => state.sequencer.selectedPatternId
-export const selectSelectedPattern = (state: RootState): Pattern | null =>
-  state.sequencer.patterns.find(p => p.id === state.sequencer.selectedPatternId) ?? null
+
+// a kind's patterns and folders, each the same list until they change
+const ofKind = <T extends { kind?: PatternKind }>(kind: PatternKind, pick: (state: RootState) => T[]) =>
+  createSelector([pick], list => list.filter(item => (item.kind ?? 'drum') === kind))
+
+const patternsByKind: Record<PatternKind, (state: RootState) => Pattern[]> = {
+  drum: ofKind('drum', selectPatterns),
+  note: ofKind('note', selectPatterns),
+}
+const foldersByKind: Record<PatternKind, (state: RootState) => SequencerState['folders']> = {
+  drum: ofKind('drum', selectPatternFolders),
+  note: ofKind('note', selectPatternFolders),
+}
+
+export const selectPatternsOf = (kind: PatternKind) => patternsByKind[kind]
+export const selectFoldersOf = (kind: PatternKind) => foldersByKind[kind]
+
+export const selectSelectedPatternId = (kind: PatternKind) => (state: RootState) =>
+  state.sequencer.selected[kind]
+export const selectSelectedPattern = (kind: PatternKind) => (state: RootState): Pattern | null =>
+  state.sequencer.patterns.find(p => p.id === state.sequencer.selected[kind]) ?? null
+export const selectPianoRollSynth = (state: RootState) =>
+  state.sequencer.synths.find(s => s.id === state.sequencer.pianoRollSynthId) ?? null
 export const selectPatternRun = (state: RootState) => state.sequencer.run

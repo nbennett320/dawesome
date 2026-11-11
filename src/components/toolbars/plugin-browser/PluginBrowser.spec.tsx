@@ -7,7 +7,7 @@ import { invoke } from '@tauri-apps/api/core'
 import effectsReducer from '../../../state/slices/effectsSlice'
 import { PluginCatalog, PluginInfo } from '../../../types/effects'
 import { beginSampleDrag } from '../../../state/sampleDrag'
-import EffectsBrowser, { POLL_MS } from './EffectsBrowser'
+import PluginBrowser, { POLL_MS } from './PluginBrowser'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('../../../state/sampleDrag', () => ({ beginSampleDrag: vi.fn() }))
@@ -37,9 +37,9 @@ const catalog = (change: Partial<PluginCatalog> = {}): PluginCatalog => ({
 
 let answers: PluginCatalog[]
 
-const setup = async () => {
+const setup = async (kind: PluginInfo['kind'] = 'effect') => {
   const store = configureStore({ reducer: { effects: effectsReducer } })
-  render(<Provider store={store}><EffectsBrowser /></Provider>)
+  render(<Provider store={store}><PluginBrowser kind={kind} /></Provider>)
   // the catalog is asked for straight away
   await act(async () => {})
 }
@@ -57,7 +57,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('the effects browser', () => {
+describe('the Effects page', () => {
   it('shows categories as closed folders, and opens one', async () => {
     await setup()
     expect(mockInvoke).toHaveBeenCalledWith('get_plugins', {})
@@ -73,13 +73,13 @@ describe('the effects browser', () => {
 
   it('searches by vendor, opening the folders with a match', async () => {
     await setup()
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search plugins' }), { target: { value: 'tidewater' } })
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search effects' }), { target: { value: 'tidewater' } })
 
     expect(screen.getByText('Verb')).toBeTruthy()
     expect(screen.getByText('Tidewater')).toBeTruthy()
     expect(screen.queryByText('Dynamics')).toBeNull()
 
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search plugins' }), { target: { value: 'zzz' } })
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search effects' }), { target: { value: 'zzz' } })
     expect(screen.getByText('No effects match.')).toBeTruthy()
   })
 
@@ -133,37 +133,59 @@ describe('the effects browser', () => {
     expect(mockInvoke.mock.calls.length).toBe(asked)
   })
 
-  it('lists instruments in a section of their own, searched with the effects', async () => {
-    answers = [catalog({
-      plugins: [plugin('Verb', 'Reverb'), plugin('Pad Synth', 'Synth', 'Tidewater', 'instrument'), plugin('Keys', 'Piano', 'Acme', 'instrument')],
-    })]
+  it('lists effects only, dragged as effects', async () => {
+    answers = [catalog({ plugins: [plugin('Verb', 'Reverb'), plugin('Pad Synth', 'Synth', 'Acme', 'instrument')] })]
     await setup()
+    fireEvent.click(screen.getByRole('treeitem', { name: /Reverb/ }))
+    expect(screen.queryByText('Synth')).toBeNull()
 
-    const effects = screen.getByRole('region', { name: 'Effects' })
-    const instruments = screen.getByRole('region', { name: 'Instruments' })
-    expect(effects.textContent).toContain('Reverb')
-    expect(instruments.textContent).toContain('Piano')
-    expect(instruments.textContent).toContain('Synth')
-    expect(instruments.textContent).not.toContain('Reverb')
+    fireEvent.mouseDown(screen.getByText('Verb'), { button: 0 })
+    expect(beginSampleDrag).toHaveBeenCalledWith(
+      { kind: 'effect', pluginId: 'vst3:Verb', label: 'Verb' },
+      expect.anything(),
+    )
+  })
+})
 
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search plugins' }), { target: { value: 'tidewater' } })
-    expect(screen.getByText('No effects match.')).toBeTruthy()
+describe('the Instruments page', () => {
+  const both = () => catalog({
+    plugins: [plugin('Verb', 'Reverb'), plugin('Pad Synth', 'Synth', 'Tidewater', 'instrument'), plugin('Keys', 'Piano', 'Acme', 'instrument')],
+  })
+
+  it('lists instruments only, by category, searched the same way', async () => {
+    answers = [both()]
+    await setup('instrument')
+
+    const tree = screen.getByRole('tree', { name: 'Instruments' })
+    expect(tree.textContent).toContain('Piano')
+    expect(tree.textContent).toContain('Synth')
+    expect(tree.textContent).not.toContain('Reverb')
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search instruments' }), { target: { value: 'tidewater' } })
     expect(screen.getByText('Pad Synth')).toBeTruthy()
     expect(screen.queryByText('Keys')).toBeNull()
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search instruments' }), { target: { value: 'verb' } })
+    expect(screen.getByText('No instruments match.')).toBeTruthy()
+  })
 
-    // dragged as a plugin, marked as an instrument
+  it('drags an instrument as an instrument, for the Note Sequencer', async () => {
+    answers = [both()]
+    await setup('instrument')
+    fireEvent.click(screen.getByRole('treeitem', { name: /Synth/ }))
     fireEvent.mouseDown(screen.getByText('Pad Synth'), { button: 0 })
     expect(beginSampleDrag).toHaveBeenCalledWith(
-      { kind: 'effect', pluginId: 'vst3:Pad Synth', label: 'Pad Synth', instrument: true },
+      { kind: 'instrument', pluginId: 'vst3:Pad Synth', label: 'Pad Synth' },
       expect.anything(),
     )
   })
 
-  it('says when there are no instruments, and where it looked only once', async () => {
-    answers = [catalog({ plugins: [] })]
-    await setup()
-    expect(screen.getByText('No VST3 effects found')).toBeTruthy()
+  it('says where it looked when there are none, and rescans', async () => {
+    answers = [catalog()]
+    await setup('instrument')
     expect(screen.getByText('No VST3 instruments found')).toBeTruthy()
-    expect(screen.getAllByText('Looked in:')).toHaveLength(1)
+    expect(screen.getByText('Looked in:')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Rescan plugins' }))
+    await act(async () => {})
+    expect(mockInvoke).toHaveBeenCalledWith('scan_plugins', { everything: true })
   })
 })

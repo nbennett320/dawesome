@@ -6,16 +6,17 @@ import {
   removePattern,
   renamePattern,
   selectPattern,
-  selectPatterns,
+  selectPatternsOf,
   selectSelectedPattern,
   setPatternBars,
+  togglePattern,
 } from '../../state/slices/sequencerSlice'
 import { selectPlaylistItems } from '../../state/slices/playlistSlice'
-import { openTab } from '../../state/slices/windowSlice'
-import { View } from '../../types/ui'
 import { beginSampleDrag } from '../../state/sampleDrag'
-import { BAR_CHOICES, Pattern, patternBars, patternLabel } from '../../types/sequencer'
-import { AnalogButton, Led } from '../../components/fourtrack'
+import {
+  BAR_CHOICES, MAX_NOTE_BARS, Pattern, PatternKind, patternBars, patternLabel,
+} from '../../types/sequencer'
+import { AnalogButton, Led, PlayIcon, StopIcon } from '../../components/fourtrack'
 
 const MAX_NAME_CHARS = 24
 
@@ -119,11 +120,91 @@ const DeletePattern = ({ pattern }: { pattern: Pattern }) => {
   )
 }
 
-// the patterns along the top, and the selected one's length and keys
-const PatternStrip = ({ beatsPerBar, playingId }: { beatsPerBar: number, playingId: number | null }) => {
+// a drum pattern's length: 1, 2 or 4 bars
+const BarChoices = ({ pattern, bars }: { pattern: Pattern, bars: number | null }) => {
   const dispatch = useAppDispatch()
-  const patterns = useAppSelector(selectPatterns)
-  const selected = useAppSelector(selectSelectedPattern)
+
+  return (
+    <div className='flex flex-row gap-1'>
+      {BAR_CHOICES.map(n => (
+        <AnalogButton
+          key={n}
+          variant='text'
+          size='sm'
+          latched={bars === n}
+          title={`Make the pattern ${n} bar${n === 1 ? '' : 's'} long`}
+          onPress={() => dispatch(setPatternBars(pattern.id, n))}
+        >
+          {n}
+        </AnalogButton>
+      ))}
+    </div>
+  )
+}
+
+// whether a typed length is one a note pattern can be
+const validBars = (bars: number) => Number.isInteger(bars) && bars >= 1 && bars <= MAX_NOTE_BARS
+
+// a note pattern's length: any number of bars up to MAX_NOTE_BARS, typed.
+// taken up on Enter or when the field is left
+const BarsField = ({ pattern, bars }: { pattern: Pattern, bars: number | null }) => {
+  const dispatch = useAppDispatch()
+  const [draft, setDraft] = React.useState<string | null>(null)
+
+  const takeUp = (value: string) => {
+    setDraft(null)
+    const typed = Number(value)
+    if(validBars(typed) && typed !== bars) dispatch(setPatternBars(pattern.id, typed))
+  }
+
+  return (
+    <input
+      type='number'
+      min={1}
+      max={MAX_NOTE_BARS}
+      step={1}
+      className='ft-readout text-sm py-0.5 w-14 h-7'
+      aria-label='Bars'
+      title={`How many bars long the pattern is, 1 to ${MAX_NOTE_BARS}. Notes past its end are kept, but don’t play`}
+      value={draft ?? (bars ?? '')}
+      onChange={e => setDraft(e.currentTarget.value)}
+      onBlur={e => takeUp(e.currentTarget.value)}
+      onKeyDown={e => {
+        if(e.key === 'Enter') takeUp(e.currentTarget.value)
+        if(e.key === 'Escape') setDraft(null)
+      }}
+    />
+  )
+}
+
+// a pattern's play key: loops it on its own, or stops it
+const PlayKey = ({ pattern, playing }: { pattern: Pattern, playing: boolean }) => {
+  const dispatch = useAppDispatch()
+
+  return (
+    <AnalogButton
+      size='sm'
+      latched={playing}
+      aria-label={playing ? 'Stop the pattern' : 'Play the pattern'}
+      title={playing ? 'Stop' : 'Loop this pattern on its own'}
+      onPress={() => { dispatch(togglePattern(pattern.id)).catch(() => {}) }}
+    >
+      {playing ? <StopIcon /> : <PlayIcon />}
+    </AnalogButton>
+  )
+}
+
+// the patterns of a kind along the top, and the selected one's length and
+// keys. a sequencer's own: the Drum Sequencer's drum patterns, or the Note
+// Sequencer's note patterns
+const PatternStrip = ({ kind, beatsPerBar, playingId }: {
+  kind: PatternKind
+  beatsPerBar: number
+  playingId: number | null
+}) => {
+  const dispatch = useAppDispatch()
+  const patterns = useAppSelector(selectPatternsOf(kind))
+  const selected = useAppSelector(selectSelectedPattern(kind))
   const bars = selected ? patternBars(selected, beatsPerBar) : null
 
   return (
@@ -144,7 +225,7 @@ const PatternStrip = ({ beatsPerBar, playingId }: { beatsPerBar: number, playing
             variant='text'
             title='A new, empty pattern'
             aria-label='New pattern'
-            onPress={() => dispatch(addPattern(bars ?? 1))}
+            onPress={() => dispatch(addPattern(bars ?? 1, kind))}
           >
             +
           </AnalogButton>
@@ -155,31 +236,17 @@ const PatternStrip = ({ beatsPerBar, playingId }: { beatsPerBar: number, playing
         <>
           <div className='flex flex-col gap-1'>
             <span className='ft-label'>Bars</span>
-            <div className='flex flex-row gap-1'>
-              {BAR_CHOICES.map(n => (
-                <AnalogButton
-                  key={n}
-                  variant='text'
-                  size='sm'
-                  latched={bars === n}
-                  title={`Make the pattern ${n} bar${n === 1 ? '' : 's'} long`}
-                  onPress={() => dispatch(setPatternBars(selected.id, n))}
-                >
-                  {n}
-                </AnalogButton>
-              ))}
-            </div>
+            {kind === 'drum'
+              ? <BarChoices pattern={selected} bars={bars} />
+              : <BarsField key={selected.id} pattern={selected} bars={bars} />}
+          </div>
+
+          <div className='flex flex-col gap-1'>
+            <span className='ft-label'>Play</span>
+            <PlayKey pattern={selected} playing={selected.id === playingId} />
           </div>
 
           <div className='flex flex-row gap-1 ml-auto'>
-            <AnalogButton
-              variant='text'
-              size='sm'
-              title='Edit this pattern’s notes in the Piano Roll'
-              onPress={() => dispatch(openTab(View.PianoRoll))}
-            >
-              Piano roll
-            </AnalogButton>
             <AnalogButton
               variant='text'
               size='sm'
@@ -196,6 +263,6 @@ const PatternStrip = ({ beatsPerBar, playingId }: { beatsPerBar: number, playing
   )
 }
 
-// memo: the Sequencer re-renders as the playing step moves, which doesn't
-// change the strip
+// memo: the Drum Sequencer re-renders as the playing step moves, which
+// doesn't change the strip
 export default React.memo(PatternStrip)

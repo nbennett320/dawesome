@@ -23,7 +23,7 @@ import {
   setTrackArmed,
 } from '../../state/slices/recordingSlice'
 import {
-  fetchEffects, selectChannelActive, selectChannelCount, selectChannelHasInstrument, showRack,
+  fetchEffects, selectChannelActive, selectChannelCount, showRack,
 } from '../../state/slices/effectsSlice'
 import { ChannelId, channelKey } from '../../types/effects'
 import ChannelStrip from './ChannelStrip'
@@ -36,15 +36,14 @@ const useFx = (channel: ChannelId) => {
   const dispatch = useAppDispatch()
   const count = useAppSelector(selectChannelCount(channel))
   const lit = useAppSelector(selectChannelActive(channel))
-  const instrument = useAppSelector(selectChannelHasInstrument(channel))
 
-  return { count, lit, instrument, onOpen: () => dispatch(showRack(channel)) }
+  return { count, lit, onOpen: () => dispatch(showRack(channel)) }
 }
 
 const TrackStrip = ({ trackNumber, register, dropping }: {
   trackNumber: number
   register: RegisterMeter
-  // an effect dragged over it would go on it
+  // an effect or instrument dragged over it would go on it
   dropping: boolean
 }) => {
   const dispatch = useAppDispatch()
@@ -129,7 +128,7 @@ const Mixer = () => {
   const master = useAppSelector(selectMasterMix)
   const { register, clipped, clearClip } = useMixerMeters(playing)
   const masterFx = useFx('master')
-  // effects dragged onto the strips
+  // effects and instruments dragged onto the strips
   const boxRef = React.useRef<HTMLDivElement>(null)
   const dropTarget = useChannelDrop(boxRef)
 

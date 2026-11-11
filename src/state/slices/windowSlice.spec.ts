@@ -127,7 +127,7 @@ describe('plugin tabs', () => {
     state = reducer(state, keepPluginTabs([7]))
     expect(pluginTabs(state)).toEqual([{ component: View.Plugin, slotId: 7 }])
     // ordinary tabs stay
-    expect(leaves(root(state)).flatMap(pane => pane.tabs)).toHaveLength(6)
+    expect(leaves(root(state)).flatMap(pane => pane.tabs)).toHaveLength(7)
   })
 
   it('tells the focused pane’s view, a plugin’s tab or not', () => {

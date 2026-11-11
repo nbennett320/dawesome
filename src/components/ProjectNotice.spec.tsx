@@ -48,6 +48,22 @@ describe('the project notice', () => {
     expect(screen.queryByText(PLUGINS)).toBeNull()
   })
 
+  it('lists missing synths alongside missing effects', () => {
+    const synth = { id: 4, pluginId: 'vst3:pad', name: 'Pad 2', vendor: 'Acme', volume: 1, muted: false, missing: true, hasEditor: true }
+    setup({ kind: 'missing', samples: [], effects: [effect(0, 'Verb')], synths: [synth] })
+    expect(screen.getByText(PLUGINS)).toBeTruthy()
+    expect(screen.getByText(/This instrument isn’t installed, so its notes are silent/)).toBeTruthy()
+    expect(screen.getByText('Pad 2 (Acme) in the Note Sequencer')).toBeTruthy()
+  })
+
+  it('says what the project left out', () => {
+    const dropped = ['Track 2’s instrument was saved the old way, and was left out.', 'Notes in 3 drum patterns were left out.']
+    setup({ kind: 'missing', samples: [], effects: [], synths: [], dropped })
+    expect(screen.getByText(dropped[0])).toBeTruthy()
+    expect(screen.getByText(dropped[1])).toBeTruthy()
+    expect(screen.queryByText(PLUGINS)).toBeNull()
+  })
+
   it('is dismissed', () => {
     const store = setup({ kind: 'missing', samples: [], effects: [effect(0, 'Verb')] })
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))

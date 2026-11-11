@@ -37,15 +37,4 @@ describe('the FX jack', () => {
     expect(led(container)).toBe('off')
     expect(jack.getAttribute('title')).toMatch(/^3 effects, all off\./)
   })
-
-  it('marks a track with an instrument, counted with its effects', () => {
-    const { container, rerender } = render(<FxJack channel='Track 1' count={2} lit instrument onOpen={() => {}} />)
-    const count = screen.getByTestId('fx-count')
-    expect(count.textContent).toBe('2')
-    expect(count.querySelector('svg')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Track 1 effects' }).getAttribute('title')).toMatch(/^An instrument and 1 effect\./)
-
-    rerender(<FxJack channel='Track 1' count={2} lit onOpen={() => {}} />)
-    expect(container.querySelector('[data-testid="fx-count"] svg')).toBeNull()
-  })
 })

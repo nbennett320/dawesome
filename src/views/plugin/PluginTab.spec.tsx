@@ -7,10 +7,14 @@ import { invoke } from '@tauri-apps/api/core'
 import playlistReducer from '../../state/slices/playlistSlice'
 import projectReducer from '../../state/slices/projectSlice'
 import mixerReducer, { setName } from '../../state/slices/mixerSlice'
-import windowReducer, { closeTab, openPluginTab, openTab } from '../../state/slices/windowSlice'
+import windowReducer, {
+  closeTab, openPluginTab, openTab, selectFocusedView, selectTabLabel,
+} from '../../state/slices/windowSlice'
 import effectsReducer, { setRacks } from '../../state/slices/effectsSlice'
+import sequencerReducer, { setSequencer } from '../../state/slices/sequencerSlice'
 import { paneWithTab } from '../../state/paneTree'
 import { EditorInfo, EffectSlot, Racks } from '../../types/effects'
+import { SequencerState, Synth } from '../../types/sequencer'
 import { tabKey, View } from '../../types/ui'
 import PluginTab from './PluginTab'
 import { usePluginTabsFollowRacks } from './usePluginTabsFollowRacks'
@@ -47,6 +51,7 @@ const makeStore = () => configureStore({
     mixer: mixerReducer,
     window: windowReducer,
     effects: effectsReducer,
+    sequencer: sequencerReducer,
   },
 })
 
@@ -242,5 +247,65 @@ describe('a plugin’s tab', () => {
     act(() => { store.dispatch(openPluginTab({ slotId: 9 })) })
     act(() => { store.dispatch(setRacks([])) })
     expect(paneWithTab(store.getState().window.windowPane.root, tabKey(View.Plugin, 9))).toBeUndefined()
+  })
+})
+
+describe('a synth’s tab', () => {
+  const synth = (id: number, change: Partial<Synth> = {}): Synth => ({
+    id, pluginId: `vst3:${id}`, name: `Synth ${id}`, vendor: 'Acme', volume: 1, muted: false, missing: false, hasEditor: true, ...change,
+  })
+  const sequencer = (synths: Synth[]): SequencerState => ({ rows: [], synths, patterns: [], folders: [] })
+
+  const setupSynth = () => {
+    const store = makeStore()
+    store.dispatch(setRacks(racks))
+    store.dispatch(setSequencer(sequencer([synth(20, { name: 'Pad' }), synth(21)])))
+    store.dispatch(openPluginTab({ slotId: 20 }))
+    render(<Provider store={store}><Harness slotId={20} /></Provider>)
+    return store
+  }
+
+  beforeEach(() => {
+    const docked = mockInvoke.getMockImplementation()
+    mockInvoke.mockImplementation(async (command: string, args: { synthId: number, muted: boolean }) => {
+      if(command === 'set_synth_muted') return sequencer([synth(20, { name: 'Pad', muted: args.muted }), synth(21)])
+      return docked?.(command, args)
+    })
+  })
+
+  it('is named after the synth, and docks its interface by its id', async () => {
+    const store = setupSynth()
+    expect(selectTabLabel({ component: View.Plugin, slotId: 20 })(store.getState() as never)).toBe('Pad')
+    await waitFor(() => expect(calls('dock_effect')[0]?.[1]).toMatchObject({ slotId: 20 }))
+  })
+
+  it('has mute, a key to the Note Sequencer, and pop out in its bar', async () => {
+    const store = setupSynth()
+    expect(screen.queryByRole('button', { name: 'Pad on' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mute Pad' }))
+    await waitFor(() => expect(calls('set_synth_muted')).toEqual([['set_synth_muted', { synthId: 20, muted: true }]]))
+    await waitFor(() => expect(store.getState().sequencer.synths[0].muted).toBe(true))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Note Sequencer' }))
+    expect(selectFocusedView(store.getState() as never)).toBe(View.NoteSequencer)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Pad in a window' }))
+    await waitFor(() => expect(calls('open_effect_window')).toEqual([['open_effect_window', { slotId: 20 }]]))
+    expect(paneWithTab(store.getState().window.windowPane.root, tabKey(View.Plugin, 20))).toBeUndefined()
+  })
+
+  it('closes when the synth goes, or isn’t installed', () => {
+    const store = setupSynth()
+    const open = (id: number) => !!paneWithTab(store.getState().window.windowPane.root, tabKey(View.Plugin, id))
+    act(() => { store.dispatch(openPluginTab({ slotId: 21 })) })
+    expect(open(20) && open(21)).toBe(true)
+
+    act(() => { store.dispatch(setSequencer(sequencer([synth(21, { missing: true })]))) })
+    expect(open(20)).toBe(false)
+    expect(open(21)).toBe(false)
+    // effects' tabs are left alone
+    act(() => { store.dispatch(openPluginTab({ slotId: 1 })) })
+    expect(open(1)).toBe(true)
   })
 })
