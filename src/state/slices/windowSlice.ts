@@ -184,7 +184,12 @@ export const selectFocusedPaneId = (state: RootState) => state.window.focusedPan
 export const selectFocusedView = (state: RootState): View | undefined =>
   paneTree.findPane(state.window.windowPane.root, state.window.focusedPaneId)?.activeView
 
-export const selectCassetteVisible = (state: RootState) => state.window.cassetteVisible
+// whether a view's tab is open and the selected one of its pane, so it's on
+// screen (the others stay mounted, but hidden)
+export const selectViewShowing = (view: View) => (state: RootState): boolean =>
+  paneTree.paneWithView(state.window.windowPane.root, view)?.activeView === view
+
+export const selectCassetteVisible =(state: RootState) => state.window.cassetteVisible
 
 export const selectTapePathVisible = (state: RootState) => state.window.tapePathVisible
 // end window layout methods

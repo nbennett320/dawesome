@@ -1,5 +1,6 @@
 import { ArmedTrack } from './audio'
 import { ClipInfo, ClipWindow } from './clip'
+import { Racks } from './effects'
 import { MixerSettings } from './mixer'
 import { SequencerState } from './sequencer'
 import type { SnapNote } from '../state/slices/playlistSlice'
@@ -102,6 +103,8 @@ export interface LoadedProject extends ProjectSettings {
   patternClips: LoadedPatternClip[]
   // the tracks armed to record (left out by older engines)
   armed?: ArmedTrack[]
+  // each channel's effects (left out by older engines: none)
+  effects?: Racks
 }
 
 // the clips recorded since the engine was last asked (see collect_recording
@@ -120,6 +123,8 @@ export interface ProjectView {
   patternClips: LoadedPatternClip[]
   mixer: MixerSettings
   sequencer: SequencerState
+  // each channel's effects (left out by older engines: none)
+  effects?: Racks
 }
 
 // what the engine's undo and redo return

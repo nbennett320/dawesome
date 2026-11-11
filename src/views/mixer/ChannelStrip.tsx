@@ -6,6 +6,8 @@ import {
 } from '../../types/audio'
 import Fader, { THUMB_HEIGHT } from './Fader'
 import Meter from './Meter'
+import FxButton from './FxButton'
+import { DROP_CHANNEL } from './useChannelDrop'
 import { RegisterMeter } from './useMixerMeters'
 
 // the volume in dB, typed in. "-inf" or "-∞" is silent
@@ -175,6 +177,12 @@ interface Props {
   silenced?: boolean
   // renaming (track strips). an empty name goes back to the default
   onRename?: (name: string) => void
+  // the channel's effects: how many, whether any is on, and opening the rack
+  fx?: { count: number, lit: boolean, onOpen: () => void }
+  // the channel as dropped effects see it (see useChannelDrop)
+  dropKey?: string
+  // an effect dragged over the strip would go on it
+  dropping?: boolean
   // under the fader, in place of mute and solo (the master strip)
   footer?: React.ReactNode
   // above the fader, in place of the pan control (the master strip)
@@ -182,7 +190,8 @@ interface Props {
   wide?: boolean
 }
 
-// one column of the mixer: name, pan, fader and meter, volume, mute and solo
+// one column of the mixer: name, effects, pan, fader and meter, volume, mute
+// and solo
 const ChannelStrip = ({
   label,
   volumeDb,
@@ -195,18 +204,25 @@ const ChannelStrip = ({
   record,
   silenced = false,
   onRename,
+  fx,
+  dropKey,
+  dropping = false,
   footer,
   header,
   wide = false,
 }: Props) => (
   <div
-    className={`ft-strip flex flex-col items-stretch gap-2 h-full p-2 ${wide ? 'w-28' : 'w-24'}`}
+    className={`ft-strip flex flex-col items-stretch gap-2 h-full p-2 ${wide ? 'w-28' : 'w-24'} ${
+      dropping ? 'ring-2 ring-inset ring-accent-focus bg-accent-tint' : ''}`}
     aria-label={label}
     role='group'
+    {...(dropKey === undefined ? {} : { [DROP_CHANNEL]: dropKey })}
   >
     <div className='h-5'>
       <NameLabel label={label} silenced={silenced} onRename={onRename} />
     </div>
+
+    {fx && <FxButton channel={label} count={fx.count} lit={fx.lit} onOpen={fx.onOpen} />}
 
     <div className='flex flex-col items-center h-16'>
       {pan && (

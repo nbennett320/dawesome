@@ -14,6 +14,8 @@ export enum View {
   Mixdown,
   // Dawesome › Preferences…: how the app looks
   Preferences,
+  // one channel's effects, in the order the sound goes through them
+  EffectsRack,
 }
 
 // the label a view's tab gets when it's opened
@@ -26,6 +28,7 @@ export const viewLabels: Record<View, string> = {
   [View.AudioSettings]: 'Audio',
   [View.Mixdown]: 'Mixdown',
   [View.Preferences]: 'Preferences',
+  [View.EffectsRack]: 'Effects Rack',
 }
 
 // how a split pane lays out its children:
@@ -64,4 +67,6 @@ export enum SidebarPage {
   Recordings = 'recordings',
   // files the app wrote out itself: Deep copy's and Join's
   Clips = 'clips',
+  // the effect plugins found, to drag onto a mixer channel
+  Effects = 'effects',
 }
