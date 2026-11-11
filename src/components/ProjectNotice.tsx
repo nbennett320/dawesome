@@ -1,13 +1,14 @@
 import React from 'react'
 import { useAppDispatch, useAppSelector } from '../hooks/redux'
 import { Notice } from './common'
+import { trackLabel } from '../types/mixer'
 import { selectProjectNotice, setProjectNotice } from '../state/slices/projectSlice'
 
 // how many missing samples to list before summarising the rest
 const LIST_AT_MOST = 5
 
-// a dismissable banner for samples a project couldn't find, or a project
-// command that failed
+// a dismissable banner for samples and plugins a project couldn't find, or a
+// project command that failed
 const ProjectNotice = () => {
   const notice = useAppSelector(selectProjectNotice)
   const dispatch = useAppDispatch()
@@ -18,6 +19,10 @@ const ProjectNotice = () => {
   const info = notice.kind === 'info'
   const listed = missing ? notice.samples.slice(0, LIST_AT_MOST) : []
   const more = missing ? notice.samples.length - listed.length : 0
+  // (older notices may not have the effects)
+  const effects = missing ? notice.effects ?? [] : []
+  const listedEffects = effects.slice(0, LIST_AT_MOST)
+  const moreEffects = effects.length - listedEffects.length
 
   const shape = 'flex flex-row items-start gap-3 px-4 py-2 text-xs border-b'
   const body = (
@@ -25,21 +30,41 @@ const ProjectNotice = () => {
       <div className='flex-1 min-w-0'>
         {missing ? (
           <>
-            <p>
-              {notice.samples.length === 1
-                ? '1 clip was left out because its sample couldn’t be loaded:'
-                : `${notice.samples.length} clips were left out because their samples couldn’t be loaded:`}
-            </p>
-            <ul className='mt-1 list-disc pl-5'>
-              {listed.map((sample, i) => (
-                // eslint-disable-next-line react/no-array-index-key
-                <li key={i} className='truncate' title={sample.path}>
-                  <span className='font-mono'>{sample.path}</span>
-                  <span className='text-led-ink'> ({sample.reason})</span>
-                </li>
-              ))}
-            </ul>
-            {more > 0 && <p className='mt-1'>…and {more} more.</p>}
+            {notice.samples.length > 0 && (
+              <>
+                <p>
+                  {notice.samples.length === 1
+                    ? '1 clip was left out because its sample couldn’t be loaded:'
+                    : `${notice.samples.length} clips were left out because their samples couldn’t be loaded:`}
+                </p>
+                <ul className='mt-1 list-disc pl-5'>
+                  {listed.map((sample, i) => (
+                    // eslint-disable-next-line react/no-array-index-key
+                    <li key={i} className='truncate' title={sample.path}>
+                      <span className='font-mono'>{sample.path}</span>
+                      <span className='text-led-ink'> ({sample.reason})</span>
+                    </li>
+                  ))}
+                </ul>
+                {more > 0 && <p className='mt-1'>…and {more} more.</p>}
+              </>
+            )}
+            {effects.length > 0 && (
+              <>
+                <p className={notice.samples.length > 0 ? 'mt-2' : undefined}>
+                  These plugins aren’t installed, so their effects are passing sound straight through (their settings are kept):
+                </p>
+                <ul className='mt-1 list-disc pl-5'>
+                  {listedEffects.map((effect, i) => (
+                    // eslint-disable-next-line react/no-array-index-key
+                    <li key={i} className='truncate' title={`${effect.path} (${effect.reason})`}>
+                      {`${effect.name}${effect.vendor ? ` (${effect.vendor})` : ''} on ${effect.track === null ? 'the master' : trackLabel(effect.track)}`}
+                    </li>
+                  ))}
+                </ul>
+                {moreEffects > 0 && <p className='mt-1'>…and {moreEffects} more.</p>}
+              </>
+            )}
           </>
         ) : (
           <p>{notice.message}</p>

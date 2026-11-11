@@ -28,6 +28,8 @@ export interface FailedPlugin {
 export interface PluginCatalog {
   plugins: PluginInfo[]
   failed: FailedPlugin[]
+  // the folders the engine looked in
+  searched: string[]
   scanning: boolean
   // bundles scanned so far and in all, while scanning
   done: number

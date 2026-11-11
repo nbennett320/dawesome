@@ -15,7 +15,7 @@ import {
   windowedDuration,
 } from '../../types/clip'
 import {
-  ChangedClips, LoadedClip, LoadedPatternClip, LoadedProject, Joined, MissingSample, MovedClip, Placed, ProjectView, SavedProject,
+  ChangedClips, LoadedClip, LoadedPatternClip, LoadedProject, Joined, MissingEffect, MissingSample, MovedClip, Placed, ProjectView, SavedProject,
 } from '../../types/project'
 import { currentGesture } from '../gesture'
 import { Wind } from '../../types/transport'
@@ -1192,11 +1192,18 @@ export const dropQueuedClipSettings = (): void => {
   queuedSettings.clear()
 }
 
-// show a project the engine just loaded. returns the samples it couldn't find
+// what a project couldn't find when it was loaded
+export interface LoadedMissing {
+  samples: MissingSample[]
+  effects: MissingEffect[]
+}
+
+// show a project the engine just loaded. returns the samples and plugins it
+// couldn't find
 const showLoadedProject = async (
   dispatch: Dispatch,
   project: LoadedProject,
-): Promise<MissingSample[]> => {
+): Promise<LoadedMissing> => {
   // settings still waiting to be sent belong to clips that are gone
   queuedSettings.clear()
   settingsGesture.clear()
@@ -1204,7 +1211,7 @@ const showLoadedProject = async (
   // the playlist's length depends on its clips
   await initPlaylist()(dispatch)
 
-  return project.missing
+  return { samples: project.missing, effects: project.missingEffects ?? [] }
 }
 
 // save the playlist to a project file. saved somewhere new (a first save, or
@@ -1224,9 +1231,9 @@ export const saveProject = (path: string, somewhereNew: boolean) => async (
 }
 
 // replace the playlist with a project file. returns the samples it couldn't
-// find, which were left out. if the file can't be opened, this throws and
+// find, which were left out, and the plugins it couldn't load. if the file can't be opened, this throws and
 // the playlist is unchanged
-export const openProject = (path: string) => async (dispatch: Dispatch): Promise<MissingSample[]> => {
+export const openProject = (path: string) => async (dispatch: Dispatch): Promise<LoadedMissing> => {
   const project = await invoke<LoadedProject>('load_project', { path })
   return showLoadedProject(dispatch, project)
 }

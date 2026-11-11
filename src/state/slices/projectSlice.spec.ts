@@ -195,7 +195,21 @@ describe('runProjectCommand', () => {
 
     expect(store.getState().project.path).toBe('/songs/old.dawesome')
     expect(store.getState().playlist.tempo).toBe(90)
-    expect(store.getState().project.notice).toEqual({ kind: 'missing', samples: missing })
+    expect(store.getState().project.notice).toEqual({ kind: 'missing', samples: missing, effects: [] })
+  })
+
+  it('lists the plugins it couldn’t load, with or without missing samples', async () => {
+    const store = makeStore()
+    const missingEffects = [
+      { track: 2, name: 'Verb', vendor: 'Acme', path: '/x/Verb.vst3', reason: 'not installed' },
+      { track: null, name: 'Limit', vendor: 'Acme', path: '/x/Limit.vst3', reason: 'not installed' },
+    ]
+    engine({ load_project: { ...emptyProject, missingEffects } })
+    mockOpen.mockResolvedValue('/songs/old.dawesome')
+
+    await run(store, 'open')
+
+    expect(store.getState().project.notice).toEqual({ kind: 'missing', samples: [], effects: missingEffects })
   })
 
   it('keeps the current project when one can’t be opened', async () => {

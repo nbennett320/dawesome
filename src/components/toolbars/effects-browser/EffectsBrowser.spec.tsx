@@ -28,6 +28,7 @@ const plugin = (name: string, category: string, vendor = 'Acme', kind: PluginInf
 const catalog = (change: Partial<PluginCatalog> = {}): PluginCatalog => ({
   plugins: [plugin('Verb', 'Reverb', 'Tidewater'), plugin('Comp', 'Dynamics'), plugin('Gate', 'Dynamics')],
   failed: [],
+  searched: ['/Library/Audio/Plug-Ins/VST3', '/opt/more/vst3'],
   scanning: false,
   done: 0,
   total: 0,
@@ -87,6 +88,15 @@ describe('the effects browser', () => {
     await setup()
     expect(screen.getByText('No VST3 effects found')).toBeTruthy()
     expect(screen.getByText('Looked in:')).toBeTruthy()
+    expect(screen.getByText('/Library/Audio/Plug-Ins/VST3')).toBeTruthy()
+    expect(screen.getByText('/opt/more/vst3')).toBeTruthy()
+  })
+
+  it('lists no folders when the engine didn’t say where it looked', async () => {
+    answers = [catalog({ plugins: [], searched: undefined })]
+    await setup()
+    expect(screen.getByText('No VST3 effects found')).toBeTruthy()
+    expect(screen.queryByText('Looked in:')).toBeNull()
   })
 
   it('lists what couldn’t be read, closed', async () => {

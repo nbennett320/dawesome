@@ -3,7 +3,6 @@ import { useAppDispatch, useAppSelector } from '../../../hooks/redux'
 import { fetchPlugins, scanPlugins, selectCatalog } from '../../../state/slices/effectsSlice'
 import { beginSampleDrag } from '../../../state/sampleDrag'
 import { FailedPlugin, groupPlugins, PluginInfo, PluginKind } from '../../../types/effects'
-import { isMac } from '../../../util/shortcuts'
 import { AnalogButton, ResetIcon } from '../../fourtrack'
 import { Bar } from '../../common'
 import BrowserSearch from '../browser/BrowserSearch'
@@ -17,15 +16,6 @@ export const POLL_MS = 300
 const logError = (what: string) => (e: unknown) =>
   // eslint-disable-next-line no-console
   console.error(`could not ${what}:`, e)
-
-// where VST3 plugins are installed, on this system (where the engine looks)
-const pluginFolders = (): string[] => {
-  if(isMac()) return ['/Library/Audio/Plug-Ins/VST3', '~/Library/Audio/Plug-Ins/VST3']
-  if(typeof navigator !== 'undefined' && /win/i.test(navigator.platform)) {
-    return ['C:\\Program Files\\Common Files\\VST3']
-  }
-  return ['~/.vst3', '/usr/lib/vst3', '/usr/local/lib/vst3']
-}
 
 const fileName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path
 
@@ -179,6 +169,7 @@ const EffectsBrowser = () => {
 
   const plugins = catalog?.plugins ?? []
   const failed = catalog?.failed ?? []
+  const searched = catalog?.searched ?? []
   const searching = !!query.trim()
 
   return (
@@ -230,11 +221,11 @@ const EffectsBrowser = () => {
               body = (
                 <div className='px-3 py-2 text-xs text-ink-faint'>
                   <p className='text-ink-soft'>No VST3 {plural} found</p>
-                  {first?.kind === kind && (
+                  {first?.kind === kind && searched.length > 0 && (
                     <>
                       <p className='mt-1'>Looked in:</p>
                       <ul className='mt-0.5'>
-                        {pluginFolders().map(folder => (
+                        {searched.map(folder => (
                           <li key={folder} className='font-mono text-[10px] break-all'>{folder}</li>
                         ))}
                       </ul>

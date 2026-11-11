@@ -75,6 +75,16 @@ export interface MissingSample {
   reason: string
 }
 
+// an effect or instrument whose plugin couldn't be loaded. it stays in its
+// rack as a placeholder with its settings kept. track is null for the master
+export interface MissingEffect {
+  track: number | null
+  name: string
+  vendor: string
+  path: string
+  reason: string
+}
+
 // what the engine's load_project and new_project return
 // a clip whose take was brought into the project's folder, and where it is now
 export interface MovedClip {
@@ -105,6 +115,8 @@ export interface LoadedProject extends ProjectSettings {
   armed?: ArmedTrack[]
   // each channel's effects (left out by older engines: none)
   effects?: Racks
+  // plugins that couldn't be loaded (left out by older engines: none)
+  missingEffects?: MissingEffect[]
 }
 
 // the clips recorded since the engine was last asked (see collect_recording
