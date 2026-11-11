@@ -30,7 +30,7 @@ import {
 import { PlaceableItem as DragItem, dragItemKey } from '../../../state/sampleDrag'
 import { Pattern, SequencerState, patternSeconds } from '../../../types/sequencer'
 import { decodeLevels } from '../../../util/waveform'
-import { gridSteps, openingScale, visibleBeats } from './grid'
+import { gridSteps, openingScale, panForWidth, visibleBeats } from './grid'
 import {
   Edge, MAX_PITCH, Snapping, Span, StretchClip, TrimClip, edgeAt, patternTrimClip, pitchOf, sampleTrimClip,
   snapPoint, stretchAll, stretchSet, trimAll, trimmedWindow,
@@ -296,6 +296,13 @@ export class Renderer extends RendererBase {
   // drawing (see setVisible)
   #visible = true
   
+  // resizing (dragging a pane's divider) keeps the beat at the left edge
+  // where it was, rather than panning the timeline
+  setWidth = (width: number) => {
+    this.transformX = panForWidth(this.transformX, this.width, width)
+    this.width = width
+  }
+
   isMouseDown = false
   isMouseDragged = false
   mousePressedX: number | null = null
@@ -1833,7 +1840,7 @@ export class Renderer extends RendererBase {
       // pane remounts the playlist). keep the last good size: an undefined
       // width would turn the pan offset into NaN in draw
       if(props.height > 0) this.height = props.height
-      if(props.width > 0) this.width = props.width
+      if(props.width > 0) this.setWidth(props.width)
       this.maxPlaylistBeats = props.maxPlaylistBeats
       const tracksChanged = props.trackCount !== this.trackCount
       this.trackCount = props.trackCount

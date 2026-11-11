@@ -151,6 +151,9 @@ fn foo() {
 The development environment uses [Tauri](https://tauri.studio/) for the backend, and 
 [Vite](https://vitejs.dev/) and [pnpm](https://pnpm.io/) for the frontend.
 
+The frontend needs Node 22 (see `.nvmrc`) and pnpm 8 (pinned by `packageManager`
+in `package.json`; `corepack enable` picks it up).
+
 To learn React, see the [React documentation](https://reactjs.org/).
 
 ### Available Scripts
@@ -187,8 +190,12 @@ for getting compiled binaries working properly.
 
 #### `pnpm ui:test`
 
-Launches the test runner in the interactive watch mode.\
-See the [Jest docs](https://jestjs.io/) for more information.
+Runs the frontend tests once.\
+See the [Vitest docs](https://vitest.dev/) for more information.
+
+#### `pnpm lint`
+
+Lints the frontend with ESLint (`eslint.config.mjs`).
 
 ## Resources
 

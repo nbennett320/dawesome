@@ -3,9 +3,9 @@ import { painter } from './canvas'
 import { slateLightTheme } from './fixture'
 
 const mockP = () => ({
-  fill: jest.fn(),
-  stroke: jest.fn(),
-  background: jest.fn(),
+  fill: vi.fn(),
+  stroke: vi.fn(),
+  background: vi.fn(),
 })
 
 beforeEach(() => applyTheme(slateLightTheme))

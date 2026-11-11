@@ -1,3 +1,4 @@
+import type { Mock } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import reducer, {
   changeTempo, sequencerSlice, selectPattern, setPatternStep, setSequencer, setSequencerRowMuted,
@@ -8,7 +9,7 @@ import { reduceLoadedProject, setPlaying } from './playlistSlice'
 import { LoadedProject } from '../../types/project'
 import { SequencerState } from '../../types/sequencer'
 
-jest.mock('@tauri-apps/api/core', () => ({ invoke: jest.fn() }))
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 
 const sequencer: SequencerState = {
   rows: [{ id: 0, path: '/drums/kick.wav', volume: 1, muted: false }],
@@ -79,7 +80,7 @@ describe('sequencerSlice', () => {
 })
 
 describe('changeTempo', () => {
-  const mockInvoke = invoke as jest.Mock
+  const mockInvoke = invoke as Mock
   // a pattern playing on its own, as the engine reports it after starting
   // it over at the new tempo
   const transport = {
@@ -102,14 +103,14 @@ describe('changeTempo', () => {
   })
 
   it('asks nothing more when the tempo was not changed', async () => {
-    const dispatch = jest.fn()
+    const dispatch = vi.fn()
     expect(await changeTempo(NaN)(dispatch)).toBe(false)
     expect(mockInvoke).not.toHaveBeenCalled()
   })
 })
 
 describe('sequencer edits and undo', () => {
-  const mockInvoke = invoke as jest.Mock
+  const mockInvoke = invoke as Mock
 
   beforeEach(() => {
     mockInvoke.mockReset()
@@ -120,7 +121,7 @@ describe('sequencer edits and undo', () => {
   const sent = () => mockInvoke.mock.calls.map(([command, args]) => [command, args.gesture])
 
   it('sends every step of one stroke, and every value of one knob drag, as one gesture', async () => {
-    const dispatch = jest.fn()
+    const dispatch = vi.fn()
 
     // the mouse goes down on a step, and is dragged along the row
     const stroke = beginGesture()
@@ -140,7 +141,7 @@ describe('sequencer edits and undo', () => {
   })
 
   it('sends a step toggled from the keyboard, and a mute, as steps of their own', async () => {
-    const dispatch = jest.fn()
+    const dispatch = vi.fn()
     await setPatternStep(0, 0, 4, true)(dispatch)
     // a click is a press too, but a mute is always its own step
     beginGesture()

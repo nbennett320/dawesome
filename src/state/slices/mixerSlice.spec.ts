@@ -1,3 +1,4 @@
+import type { Mock } from 'vitest'
 import { configureStore } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api/core'
 import playlistReducer, { reduceLoadedProject } from './playlistSlice'
@@ -20,9 +21,9 @@ import { defaultChannelSettings, MixerSettings } from '../../types/mixer'
 import { LoadedProject } from '../../types/project'
 import { beginGesture, resetGestures } from '../gesture'
 
-jest.mock('@tauri-apps/api/core', () => ({ invoke: jest.fn() }))
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 
-const mockInvoke = invoke as jest.Mock
+const mockInvoke = invoke as Mock
 
 const makeStore = () => configureStore({
   reducer: { playlist: playlistReducer, mixer: mixerReducer },
@@ -38,15 +39,15 @@ const flat = (trackCount: number): MixerSettings => ({
 })
 
 beforeEach(() => {
-  jest.resetAllMocks()
-  jest.useFakeTimers()
+  vi.resetAllMocks()
+  vi.useFakeTimers()
   clearPendingMixerSends()
   resetGestures()
   mockInvoke.mockResolvedValue(undefined)
 })
 
 afterEach(() => {
-  jest.useRealTimers()
+  vi.useRealTimers()
 })
 
 describe('mixerSlice', () => {
@@ -74,7 +75,7 @@ describe('mixerSlice', () => {
     expect(mockInvoke).toHaveBeenCalledTimes(1)
     expect(mockInvoke).toHaveBeenLastCalledWith('set_track_volume', { trackNumber: 1, volumeDb: -3, gesture: null })
 
-    jest.runOnlyPendingTimers()
+    vi.runOnlyPendingTimers()
     expect(mockInvoke).toHaveBeenCalledTimes(2)
     expect(mockInvoke).toHaveBeenLastCalledWith('set_track_volume', { trackNumber: 1, volumeDb: -5, gesture: null })
 
@@ -91,7 +92,7 @@ describe('mixerSlice', () => {
     const drag = beginGesture()
     store.dispatch(setTrackVolume(1, -3))
     store.dispatch(setTrackVolume(1, -5))
-    jest.runOnlyPendingTimers()
+    vi.runOnlyPendingTimers()
     store.dispatch(setTrackPan(1, 0.5))
     store.dispatch(setMasterVolume(-2))
 
@@ -105,8 +106,8 @@ describe('mixerSlice', () => {
     // the next press is another gesture
     const next = beginGesture()
     expect(next).not.toBe(drag)
-    jest.runOnlyPendingTimers()
-    jest.runOnlyPendingTimers()
+    vi.runOnlyPendingTimers()
+    vi.runOnlyPendingTimers()
     store.dispatch(setTrackVolume(1, 0))
     expect(mockInvoke).toHaveBeenLastCalledWith('set_track_volume', { trackNumber: 1, volumeDb: 0, gesture: next })
   })
@@ -126,8 +127,8 @@ describe('mixerSlice', () => {
     expect(mockInvoke).toHaveBeenLastCalledWith('set_track_volume', { trackNumber: 0, volumeDb: -9, gesture: drag })
 
     // and not again when its turn would have come
-    jest.runOnlyPendingTimers()
-    jest.runOnlyPendingTimers()
+    vi.runOnlyPendingTimers()
+    vi.runOnlyPendingTimers()
     expect(mockInvoke).toHaveBeenCalledTimes(3)
   })
 
@@ -137,7 +138,7 @@ describe('mixerSlice', () => {
     store.dispatch(setTrackVolume(0, -9))
 
     clearPendingMixerSends()
-    jest.runOnlyPendingTimers()
+    vi.runOnlyPendingTimers()
 
     expect(mockInvoke).toHaveBeenCalledTimes(1)
   })

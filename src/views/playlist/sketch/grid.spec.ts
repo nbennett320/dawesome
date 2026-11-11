@@ -1,4 +1,4 @@
-import { BEATS_IN_VIEW, gridSteps, openingScale, visibleBeats } from './grid'
+import { BEATS_IN_VIEW, gridSteps, openingScale, panForWidth, visibleBeats } from './grid'
 
 describe('gridSteps', () => {
   it('draws every beat when there is room', () => {
@@ -76,5 +76,24 @@ describe('openingScale', () => {
 
   it('never zooms out past the whole playlist', () => {
     expect(openingScale(8)).toBe(1)
+  })
+})
+
+describe('panForWidth', () => {
+  it('keeps the beat at the left edge when the canvas is resized', () => {
+    // zoomed 4x: the left edge is a quarter of the way along a 800px canvas
+    const scale = 4
+    const leftFraction = (transformX: number, width: number) => -transformX / (width * scale)
+    const pan = panForWidth(-800, 800, 1000)
+    expect(leftFraction(pan, 1000)).toBeCloseTo(leftFraction(-800, 800))
+  })
+
+  it('leaves the pan alone without a width to scale from', () => {
+    expect(panForWidth(-120, 0, 600)).toBe(-120)
+    expect(panForWidth(-120, 600, 0)).toBe(-120)
+  })
+
+  it('leaves an unpanned playlist unpanned', () => {
+    expect(panForWidth(0, 600, 900)).toBe(0)
   })
 })

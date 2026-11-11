@@ -1,11 +1,11 @@
 import { menuViews } from './window'
 import { View } from '../types/ui'
 
-jest.mock('@tauri-apps/api/event', () => ({ listen: jest.fn() }))
-jest.mock('@tauri-apps/api/core', () => ({ invoke: jest.fn() }))
-jest.mock('@tauri-apps/plugin-dialog', () => ({ ask: jest.fn(), open: jest.fn(), save: jest.fn() }))
-jest.mock('@tauri-apps/api/path', () => ({ dirname: jest.fn(), documentDir: jest.fn(), join: jest.fn() }))
-jest.mock('@tauri-apps/plugin-fs', () => ({ readDir: jest.fn() }))
+vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn() }))
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
+vi.mock('@tauri-apps/plugin-dialog', () => ({ ask: vi.fn(), open: vi.fn(), save: vi.fn() }))
+vi.mock('@tauri-apps/api/path', () => ({ dirname: vi.fn(), documentDir: vi.fn(), join: vi.fn() }))
+vi.mock('@tauri-apps/plugin-fs', () => ({ readDir: vi.fn() }))
 
 describe('menuViews', () => {
   it('opens Preferences from both of its menu items', () => {

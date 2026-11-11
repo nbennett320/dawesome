@@ -44,36 +44,55 @@
   }
 }
 
-// split pane styles: a thin line, with a wider grab area either side that
-// shows sky blue on hover
-.Resizer {
+// the divider between split panes: a thin line in the middle of a wider
+// grab area (transparent borders either side) that tints on hover and while
+// dragged. this was two react-split-pane rule sets (here and in
+// views/styles.scss); these are the values the pair worked out to
+.pane-divider {
+  background: rgb(var(--c-shadow));
+  opacity: 0.2;
   z-index: 1;
   box-sizing: border-box;
   background-clip: padding-box;
   transition: background-color .15s ease, border-color .15s ease;
-}
 
-.Resizer.horizontal {
-  height: 11px;
-  margin: -5px 0;
-  cursor: row-resize;
-  width: 100%;
-}
+  &.vertical {
+    width: 11px;
+    margin: 0 -5px;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    cursor: col-resize;
+  }
 
-.Resizer.vertical {
-  width: 11px;
-  margin: 0 -5px;
-  cursor: col-resize;
-}
+  // stacked, react-split-pane's divider was shrunk down to its borders, so
+  // there was no line: only the grab area, which shades on hover
+  &.horizontal {
+    height: 10px;
+    margin: -5px 0;
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+    cursor: row-resize;
+    width: 100%;
+  }
 
-.Resizer:hover {
-  background-color: rgb(var(--c-accent-focus));
-}
+  &:hover,
+  &[data-separator='hover'],
+  &[data-separator='active'] {
+    background-color: rgb(var(--c-accent-focus));
+    transition: all 2s ease;
+  }
 
-.Resizer.disabled {
-  cursor: not-allowed;
-}
+  &.vertical:hover,
+  &.vertical[data-separator='hover'],
+  &.vertical[data-separator='active'] {
+    border-left-color: rgb(var(--c-shadow) / .5);
+    border-right-color: rgb(var(--c-shadow) / .5);
+  }
 
-.Resizer.disabled:hover {
-  background-color: rgb(var(--c-line));
+  &.horizontal:hover,
+  &.horizontal[data-separator='hover'],
+  &.horizontal[data-separator='active'] {
+    border-top-color: rgb(var(--c-shadow) / .5);
+    border-bottom-color: rgb(var(--c-shadow) / .5);
+  }
 }

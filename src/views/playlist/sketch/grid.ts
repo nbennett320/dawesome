@@ -54,6 +54,12 @@ export const visibleBeats = (
   return [Math.max(0, first), Math.min(totalBeats, last)]
 }
 
+// the pan that keeps the same beat at the left edge when the canvas goes
+// from `oldWidth` to `newWidth` wide. zoom is relative to the width, so a
+// pan left as it was would slide the timeline whenever a pane is resized
+export const panForWidth = (transformX: number, oldWidth: number, newWidth: number): number =>
+  (oldWidth > 0 && newWidth > 0 ? transformX * (newWidth / oldWidth) : transformX)
+
 // the zoom the playlist opens at: `BEATS_IN_VIEW` beats across its width.
 // (a zoom of 1 shows the whole playlist)
 export const openingScale = (totalBeats: number): number =>

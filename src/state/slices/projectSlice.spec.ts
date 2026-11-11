@@ -1,3 +1,4 @@
+import type { Mock } from 'vitest'
 import { configureStore } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api/core'
 import { ask, open, save } from '@tauri-apps/plugin-dialog'
@@ -9,19 +10,19 @@ import projectReducer, {
 } from './projectSlice'
 import { LoadedProject, SavedProject } from '../../types/project'
 
-jest.mock('@tauri-apps/api/core', () => ({ invoke: jest.fn() }))
-jest.mock('@tauri-apps/plugin-dialog', () => ({ ask: jest.fn(), open: jest.fn(), save: jest.fn() }))
-jest.mock('@tauri-apps/api/path', () => ({ dirname: jest.fn(), documentDir: jest.fn(), join: jest.fn() }))
-jest.mock('@tauri-apps/plugin-fs', () => ({ readDir: jest.fn() }))
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
+vi.mock('@tauri-apps/plugin-dialog', () => ({ ask: vi.fn(), open: vi.fn(), save: vi.fn() }))
+vi.mock('@tauri-apps/api/path', () => ({ dirname: vi.fn(), documentDir: vi.fn(), join: vi.fn() }))
+vi.mock('@tauri-apps/plugin-fs', () => ({ readDir: vi.fn() }))
 
-const mockInvoke = invoke as jest.Mock
-const mockAsk = ask as jest.Mock
-const mockOpen = open as jest.Mock
-const mockSave = save as jest.Mock
-const mockDocumentDir = documentDir as jest.Mock
-const mockJoin = join as jest.Mock
-const mockDirname = dirname as jest.Mock
-const mockReadDir = readDir as jest.Mock
+const mockInvoke = invoke as Mock
+const mockAsk = ask as Mock
+const mockOpen = open as Mock
+const mockSave = save as Mock
+const mockDocumentDir = documentDir as Mock
+const mockJoin = join as Mock
+const mockDirname = dirname as Mock
+const mockReadDir = readDir as Mock
 
 const emptyProject: LoadedProject = {
   tempo: 120,
@@ -77,7 +78,7 @@ const run = (store: ReturnType<typeof makeStore>, command: Parameters<typeof run
   runProjectCommand(command)(store.dispatch, store.getState as any)
 
 beforeEach(() => {
-  jest.resetAllMocks()
+  vi.resetAllMocks()
   engine()
   mockDocumentDir.mockResolvedValue('/Users/me/Documents/')
   mockJoin.mockImplementation(async (dir: string, file: string) => `${dir.replace(/\/$/, '')}/${file}`)

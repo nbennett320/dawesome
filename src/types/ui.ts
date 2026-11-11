@@ -28,7 +28,7 @@ export const viewLabels: Record<View, string> = {
   [View.Preferences]: 'Preferences',
 }
 
-// how a split pane lays out its children, named like react-split-pane:
+// how a split pane lays out its children:
 // 'vertical' is side by side (a vertical divider), 'horizontal' is stacked
 export type SplitDirection = 'vertical' | 'horizontal'
 

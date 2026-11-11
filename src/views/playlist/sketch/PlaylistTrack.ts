@@ -13,9 +13,7 @@ interface Props extends PlaylistComponentProps {
   playlistObjects: Array<PlaylistObject>
 }
 
-type State = ComponentState<{
-  
-}>
+type State = ComponentState<Record<string, never>>
 
 class PlaylistTrack extends PlaylistComponent<State> {
   trackNumber: number

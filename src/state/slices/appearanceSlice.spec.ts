@@ -1,3 +1,4 @@
+import type { Mock } from 'vitest'
 import { configureStore } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api/core'
 import reducer, {
@@ -7,8 +8,8 @@ import { setThemes } from '../../theme/registry'
 import { slateLightTheme } from '../../theme/fixture'
 import type { Preferences, ResolvedTheme } from '../../theme/keys'
 
-jest.mock('@tauri-apps/api/core', () => ({ invoke: jest.fn() }))
-const mockInvoke = invoke as jest.Mock
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
+const mockInvoke = invoke as Mock
 
 const theme = (id: string, appearance: 'light' | 'dark'): ResolvedTheme =>
   ({ ...slateLightTheme, id, name: id, appearance })
@@ -61,7 +62,7 @@ describe('hydrateAppearance', () => {
 describe('changePreferences', () => {
   beforeEach(() => {
     mockInvoke.mockReset()
-    window.matchMedia = jest.fn().mockReturnValue({ matches: true }) as never
+    window.matchMedia = vi.fn().mockReturnValue({ matches: true }) as never
   })
 
   it('stores what the engine sanitized and rereads the system appearance', async () => {
@@ -77,7 +78,7 @@ describe('changePreferences', () => {
   })
 
   it('keeps the change when the engine fails', async () => {
-    const error = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const store = make({ appearance: 'light' })
     mockInvoke.mockRejectedValue('no engine')
     await (store.dispatch as never as (t: unknown) => Promise<void>)(changePreferences({ lightTheme: 'slate-light' }))

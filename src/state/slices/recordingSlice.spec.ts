@@ -1,3 +1,4 @@
+import type { Mock } from 'vitest'
 import { configureStore } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api/core'
 import playlistReducer, { reduceLoadedProject } from './playlistSlice'
@@ -7,13 +8,13 @@ import recordingReducer, {
 } from './recordingSlice'
 import { LoadedClip, LoadedProject, Recorded } from '../../types/project'
 
-jest.mock('@tauri-apps/api/core', () => ({ invoke: jest.fn() }))
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 // the notices go through the project slice, which uses these
-jest.mock('@tauri-apps/plugin-dialog', () => ({ ask: jest.fn(), open: jest.fn(), save: jest.fn() }))
-jest.mock('@tauri-apps/api/path', () => ({ dirname: jest.fn(), documentDir: jest.fn(), join: jest.fn() }))
-jest.mock('@tauri-apps/plugin-fs', () => ({ readDir: jest.fn() }))
+vi.mock('@tauri-apps/plugin-dialog', () => ({ ask: vi.fn(), open: vi.fn(), save: vi.fn() }))
+vi.mock('@tauri-apps/api/path', () => ({ dirname: vi.fn(), documentDir: vi.fn(), join: vi.fn() }))
+vi.mock('@tauri-apps/plugin-fs', () => ({ readDir: vi.fn() }))
 
-const mockInvoke = invoke as jest.Mock
+const mockInvoke = invoke as Mock
 
 const makeStore = () => configureStore({
   reducer: { playlist: playlistReducer, project: projectReducer, recording: recordingReducer },
@@ -46,7 +47,7 @@ const engine = (answers: Record<string, unknown>) => {
   })
 }
 
-beforeEach(() => jest.resetAllMocks())
+beforeEach(() => vi.resetAllMocks())
 
 test('recording starts, then stops with its takes on their tracks', async () => {
   const store = makeStore()
