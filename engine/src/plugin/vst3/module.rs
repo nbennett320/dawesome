@@ -5,6 +5,14 @@
 // Linux, InitDll on Windows) and asks it for its factory, which is what makes
 // the plugin's objects. when the last Arc to a module goes, the factory is
 // released, the exit point is called, and the library is let go
+//
+// a plugin torn down while others from its module are still alive is
+// parked here, terminated but not released, until the module goes. some
+// plugins can't have one instance destroyed while another lives on:
+// DecentSampler, once it has loaded its sounds, crashes on the main run loop
+// a moment after (in a callback it queued itself), which a mixdown's copy or
+// a removed instrument would set off. released along with the module, with
+// no turn of the run loop in between, they're safe
 use ::vst3::ComPtr;
 use ::vst3::Steinberg::IPluginFactory;
 use std::path::{Path, PathBuf};
@@ -14,6 +22,8 @@ pub struct Module {
   path: PathBuf,
   // released before the module's exit point is called
   factory: Option<ComPtr<IPluginFactory>>,
+  // plugins' objects that have been torn down, released before the factory
+  parked: Mutex<Vec<Box<dyn std::any::Any>>>,
   library: platform::Library,
 }
 
@@ -47,13 +57,18 @@ impl Module {
       // the library's own drop calls its exit point
       return Err(format!("{} has no plugin factory", path.display()));
     };
-    let module = Arc::new(Module { path: key.clone(), factory: Some(factory), library });
+    let module = Arc::new(Module { path: key.clone(), factory: Some(factory), parked: Mutex::new(Vec::new()), library });
     open.push((key, Arc::downgrade(&module)));
     Ok(module)
   }
 
   pub fn path(&self) -> &Path {
     &self.path
+  }
+
+  // keep a torn-down plugin's objects until the module goes (see the top)
+  pub fn park(&self, objects: Box<dyn std::any::Any>) {
+    self.parked.lock().unwrap_or_else(|e| e.into_inner()).push(objects);
   }
 
   pub fn factory(&self) -> &ComPtr<IPluginFactory> {
@@ -65,6 +80,7 @@ impl Module {
 impl Drop for Module {
   fn drop(&mut self) {
     let _opening = OPENING.lock().unwrap_or_else(|e| e.into_inner());
+    self.parked.get_mut().unwrap_or_else(|e| e.into_inner()).clear();
     self.factory = None;
     self.library.exit();
   }

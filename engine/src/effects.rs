@@ -30,7 +30,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::daw::{self, Channel, Slot};
 use crate::main_thread::{self, DropOnMain};
@@ -45,6 +45,14 @@ const WAIT: Duration = Duration::from_millis(500);
 const IDLE_EVERY: Duration = Duration::from_millis(50);
 // the rate plugins are prepared for until an output is open
 const DEFAULT_RATE: u32 = 44_100;
+// how long a plugin is given to set itself up after it's loaded. plugins
+// often finish that on the main run loop a little later, and VST3 has no
+// way to say when they're done: DecentSampler loads its sounds about a
+// second in (its settings say it's empty until then), and Addictive Drums 2
+// only once it's been played a few blocks and the run loop has turned. a
+// mixdown takes a live plugin's settings only once it's been loaded this
+// long, and plays its copies for this long before rendering with them
+const SETTLE: Duration = Duration::from_secs(2);
 
 // the main-thread half of a plugin, as the racks use it. plugin::Plugin is
 // the real one; the tests use a fake
@@ -92,6 +100,11 @@ impl Hosted for plugin::Plugin {
 // how plugins are loaded (on the main thread)
 pub trait Loader: Send + Sync {
   fn load(&self, path: &Path, id: &str, rate: u32) -> Result<Box<dyn Hosted>, String>;
+
+  // a copy to render a mixdown with, which is told it's rendering offline
+  fn load_offline(&self, path: &Path, id: &str, rate: u32) -> Result<Box<dyn Hosted>, String> {
+    self.load(path, id, rate)
+  }
 }
 
 struct Vst3;
@@ -99,6 +112,10 @@ struct Vst3;
 impl Loader for Vst3 {
   fn load(&self, path: &Path, id: &str, rate: u32) -> Result<Box<dyn Hosted>, String> {
     plugin::Plugin::load(path, id, rate).map(|p| Box::new(p) as Box<dyn Hosted>)
+  }
+
+  fn load_offline(&self, path: &Path, id: &str, rate: u32) -> Result<Box<dyn Hosted>, String> {
+    plugin::Plugin::load_offline(path, id, rate).map(|p| Box::new(p) as Box<dyn Hosted>)
   }
 }
 
@@ -240,6 +257,8 @@ struct Loaded {
   has_editor: bool,
   // the rate the plugin is prepared for
   rate: u32,
+  // when it was loaded (see SETTLE)
+  since: Instant,
 }
 
 enum Instance {
@@ -330,6 +349,9 @@ pub struct MixdownEffects {
   pub chains: Vec<(Channel, Vec<Arc<Slot>>)>,
   // torn down on the main thread when the mixdown's done with them
   pub plugins: DropOnMain<Vec<Box<dyn Hosted>>>,
+  // how long they're played before the render, to set themselves up (see
+  // SETTLE). none without any
+  pub settle: Duration,
 }
 
 #[derive(Clone)]
@@ -337,6 +359,7 @@ struct Backend {
   loader: Arc<dyn Loader>,
   output: Arc<dyn Output>,
   wait: Duration,
+  settle: Duration,
 }
 
 struct Inner {
@@ -378,15 +401,22 @@ impl Effects {
       loaded: AtomicUsize::new(0),
       mixer,
       plugins: Arc::new(Plugins::default()),
-      backend: Mutex::new(Backend { loader: Arc::new(Vst3), output: Arc::new(LiveOutput), wait: WAIT }),
+      backend: Mutex::new(Backend { loader: Arc::new(Vst3), output: Arc::new(LiveOutput), wait: WAIT, settle: SETTLE }),
       on_unload: Mutex::new(None),
     }
   }
 
   // load plugins and play chains some other way (the tests)
   #[cfg(test)]
+  // (plugins are taken to be set up as soon as they're loaded, unless the
+  // test says otherwise with use_settle)
   pub fn use_backend(&self, loader: Arc<dyn Loader>, output: Arc<dyn Output>, wait: Duration) {
-    *self.backend.lock().unwrap() = Backend { loader, output, wait };
+    *self.backend.lock().unwrap() = Backend { loader, output, wait, settle: Duration::ZERO };
+  }
+
+  #[cfg(test)]
+  pub fn use_settle(&self, settle: Duration) {
+    self.backend.lock().unwrap().settle = settle;
   }
 
   fn backend(&self) -> Backend {
@@ -764,6 +794,24 @@ impl Effects {
   // `rate` with the live one's settings copied over, in chains for another
   // engine. the live effects aren't touched
   pub fn mixdown_chains(&self, rate: u32) -> Result<MixdownEffects, String> {
+    // a plugin loaded just now may not have set itself up yet, and its
+    // settings then may not be the ones it'll have (a sampler that hasn't
+    // loaded its sounds says it's empty, and a copy given that stays empty).
+    // so wait until each one is SETTLE old (a mixdown starts away from the
+    // main thread, which they need meanwhile)
+    let settle = self.backend().settle;
+    let youngest = {
+      let inner = self.inner.lock().unwrap();
+      inner.racks.values().flatten()
+        .filter(|e| !e.desc.bypassed)
+        .filter_map(|e| e.loaded().map(|l| l.since))
+        .max()
+    };
+    if let Some(since) = youngest {
+      let wait = settle.saturating_sub(since.elapsed());
+      if !wait.is_zero() { std::thread::sleep(wait); }
+    }
+
     main_thread::run(|| {
       let live: Vec<(Channel, Desc, Arc<Mutex<Box<dyn Hosted>>>)> = {
         let inner = self.inner.lock().unwrap();
@@ -780,7 +828,7 @@ impl Effects {
       for (channel, desc, hosted) in live {
         let failed = |e: String| format!("{} couldn't be loaded for the mixdown: {}", desc.name, e);
         let state = hosted.lock().unwrap().state().map_err(failed)?;
-        let mut copy = loader.load(Path::new(&desc.path), &desc.plugin_id, rate).map_err(failed)?;
+        let mut copy = loader.load_offline(Path::new(&desc.path), &desc.plugin_id, rate).map_err(failed)?;
         copy.set_state(&state).map_err(failed)?;
         let processor = copy.take_processor().ok_or_else(|| failed("it has no audio processor".into()))?;
         let slot = if desc.instrument() { Slot::new_instrument(desc.id, processor) } else { Slot::new(desc.id, processor) };
@@ -790,7 +838,8 @@ impl Effects {
         }
         plugins.push(copy);
       }
-      Ok(MixdownEffects { chains, plugins: DropOnMain::new(plugins) })
+      let settle = if plugins.is_empty() { Duration::ZERO } else { settle };
+      Ok(MixdownEffects { chains, plugins: DropOnMain::new(plugins), settle })
     })?
   }
 
@@ -871,7 +920,7 @@ impl Effects {
     let slot = if desc.instrument() { Slot::new_instrument(desc.id, processor) } else { Slot::new(desc.id, processor) };
     slot.set_bypassed(desc.bypassed);
     let has_editor = hosted.has_editor();
-    Ok(Instance::Loaded(Loaded { plugin: Arc::new(Mutex::new(hosted)), slot, has_editor, rate }))
+    Ok(Instance::Loaded(Loaded { plugin: Arc::new(Mutex::new(hosted)), slot, has_editor, rate, since: Instant::now() }))
   }
 
   // tear down effects that have left the racks, once the engine has let go
@@ -1027,7 +1076,7 @@ pub mod testing {
   use super::*;
   use crate::plugin::scan::Catalog;
   use crate::plugin::{Event, PluginInfo, Transport};
-  use std::sync::atomic::AtomicU32;
+  use std::sync::atomic::{AtomicBool, AtomicU32};
 
   pub const RATE: u32 = 48_000;
   // the gain a fake plugin starts with
@@ -1069,15 +1118,20 @@ pub mod testing {
   }
 
   // 0 until a note starts, then its level until every note has ended, each
-  // on the frame it's given (what comes in is ignored: the engine adds it)
+  // on the frame it's given (what comes in is ignored: the engine adds it).
+  // silent until its plugin has set itself up, and for good if it was given
+  // the settings of one that hadn't
   struct SynthProcessor {
     level: Arc<AtomicU32>,
     held: [bool; 128],
+    ready_at: Instant,
+    empty: Arc<AtomicBool>,
   }
 
   impl Processor for SynthProcessor {
     fn process(&mut self, _: [&[f32]; 2], output: [&mut [f32]; 2], events: &[Event], _: &Transport) {
-      let level = f32::from_bits(self.level.load(Ordering::Relaxed));
+      let ready = Instant::now() >= self.ready_at && !self.empty.load(Ordering::Relaxed);
+      let level = if ready { f32::from_bits(self.level.load(Ordering::Relaxed)) } else { 0. };
       let [left, right] = output;
       let mut next = events.iter().peekable();
       for i in 0..left.len() {
@@ -1098,6 +1152,10 @@ pub mod testing {
     gain: Arc<AtomicU32>,
     processor: Option<Box<dyn Processor>>,
     alive: Arc<AtomicUsize>,
+    // when it's set itself up (as a sampler loading its sounds): until then
+    // its settings are empty
+    ready_at: Instant,
+    empty: Arc<AtomicBool>,
   }
 
   impl Drop for FakeGain {
@@ -1112,10 +1170,13 @@ pub mod testing {
     }
 
     fn state(&self) -> Result<Vec<u8>, String> {
+      if Instant::now() < self.ready_at { return Ok(Vec::new()); }
       Ok(self.gain.load(Ordering::Relaxed).to_le_bytes().to_vec())
     }
 
     fn set_state(&mut self, blob: &[u8]) -> Result<(), String> {
+      self.empty.store(blob.is_empty(), Ordering::Relaxed);
+      if blob.is_empty() { return Ok(()); }
       let bytes: [u8; 4] = blob.try_into().map_err(|_| "not a gain".to_string())?;
       self.gain.store(u32::from_le_bytes(bytes), Ordering::Relaxed);
       Ok(())
@@ -1140,7 +1201,9 @@ pub mod testing {
   // `broken`), and counts them. Synth.vst3's plays a synth
   #[derive(Default)]
   pub struct FakeLoader {
-    pub broken: std::sync::atomic::AtomicBool,
+    pub broken: AtomicBool,
+    // how long each takes to set itself up once it's loaded
+    pub settles_in: Mutex<Duration>,
     pub loads: AtomicUsize,
     pub alive: Arc<AtomicUsize>,
     // the rates they were loaded at
@@ -1156,12 +1219,14 @@ pub mod testing {
       self.alive.fetch_add(1, Ordering::SeqCst);
       self.rates.lock().unwrap().push(rate);
       let gain = Arc::new(AtomicU32::new(START_GAIN.to_bits()));
+      let ready_at = Instant::now() + *self.settles_in.lock().unwrap();
+      let empty = Arc::new(AtomicBool::new(false));
       let processor: Box<dyn Processor> = if path.ends_with("Synth.vst3") {
-        Box::new(SynthProcessor { level: gain.clone(), held: [false; 128] })
+        Box::new(SynthProcessor { level: gain.clone(), held: [false; 128], ready_at, empty: empty.clone() })
       } else {
         Box::new(GainProcessor(gain.clone()))
       };
-      Ok(Box::new(FakeGain { processor: Some(processor), gain, alive: self.alive.clone() }))
+      Ok(Box::new(FakeGain { processor: Some(processor), gain, alive: self.alive.clone(), ready_at, empty }))
     }
   }
 

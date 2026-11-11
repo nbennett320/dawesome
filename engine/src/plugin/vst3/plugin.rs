@@ -18,7 +18,7 @@ use crate::plugin::{ParamInfo, PluginInfo, PluginKind, Processor, MAX_BLOCK};
 use ::vst3::Steinberg::Vst::BusDirections_::{kInput, kOutput};
 use ::vst3::Steinberg::Vst::MediaTypes_::{kAudio, kEvent};
 use ::vst3::Steinberg::Vst::ParameterInfo_::ParameterFlags_::{kCanAutomate, kIsBypass, kIsHidden, kIsReadOnly};
-use ::vst3::Steinberg::Vst::ProcessModes_::kRealtime;
+use ::vst3::Steinberg::Vst::ProcessModes_::{kOffline, kRealtime};
 use ::vst3::Steinberg::Vst::RestartFlags_::{kLatencyChanged, kReloadComponent};
 use ::vst3::Steinberg::Vst::SpeakerArr::kStereo;
 use ::vst3::Steinberg::Vst::SymbolicSampleSizes_::kSample32;
@@ -66,7 +66,8 @@ unsafe impl Send for Plugin {}
 
 // the plugin's objects, and how far they got. dropping it undoes what was
 // done, in the order the SDK asks: stop processing, deactivate, disconnect,
-// terminate, release. the module goes last
+// terminate, release (which may wait for the module: see module.rs). the
+// module goes last
 struct Com {
   controller: Option<ComPtr<IEditController>>,
   // the controller is its own object (and so was initialized by us)
@@ -76,6 +77,8 @@ struct Com {
   component: ComPtr<IComponent>,
   active: bool,
   processing: bool,
+  // realtime, or offline (a mixdown's copy)
+  mode: i32,
   module: Arc<Module>,
 }
 
@@ -88,7 +91,7 @@ impl Com {
   // set up for a sample rate, activate, and start processing
   fn start(&mut self, sample_rate: u32) -> Result<(), String> {
     let mut setup = ProcessSetup {
-      processMode: kRealtime as i32,
+      processMode: self.mode,
       symbolicSampleSize: kSample32 as i32,
       maxSamplesPerBlock: MAX_BLOCK as i32,
       sampleRate: sample_rate as f64,
@@ -136,7 +139,13 @@ impl Drop for Com {
       }
       self.component.terminate();
     }
-    // the fields drop in order: controller, audio, component, then module
+    // with other plugins from the module still alive, the objects are kept
+    // until it goes (see module.rs). otherwise the fields drop in order:
+    // controller, audio, component, then module
+    if Arc::strong_count(&self.module) > 1 {
+      let objects = (self.controller.take(), self.audio.take(), self.component.clone());
+      self.module.park(Box::new(objects));
+    }
   }
 }
 
@@ -232,6 +241,18 @@ impl Plugin {
   // process: stereo in and out (an instrument: notes in, stereo out), 32-bit
   // float, realtime, at most MAX_BLOCK frames a block
   pub fn load(path: &Path, id: &str, sample_rate: u32) -> Result<Plugin, String> {
+    Plugin::load_in(path, id, sample_rate, kRealtime as i32)
+  }
+
+  // the same, but the plugin is told it's rendering offline: faster than
+  // it's heard, with no hurry, so it needn't cut corners. (it doesn't make
+  // one that loads its sounds late have them any sooner: see SETTLE in
+  // effects.rs)
+  pub fn load_offline(path: &Path, id: &str, sample_rate: u32) -> Result<Plugin, String> {
+    Plugin::load_in(path, id, sample_rate, kOffline as i32)
+  }
+
+  fn load_in(path: &Path, id: &str, sample_rate: u32, mode: i32) -> Result<Plugin, String> {
     let cid = parse_plugin_id(id).ok_or_else(|| format!("{} isn't a VST3 plugin id", id))?;
     let module = Module::open(path)?;
     let info = classes(&module)
@@ -263,6 +284,7 @@ impl Plugin {
       component,
       active: false,
       processing: false,
+      mode,
       module,
     };
 
@@ -322,6 +344,7 @@ impl Plugin {
 
     let gate = Arc::new(Gate::new());
     let processor = VstProcessor::new(com.audio().as_ptr(), gate.clone(), from_main, to_main, &layout);
+    let processor = if mode == kOffline as i32 { processor.offline() } else { processor };
     Ok(Plugin {
       info,
       sample_rate,

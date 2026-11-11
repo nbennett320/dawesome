@@ -53,6 +53,7 @@ fn main() {
     ("every_effect_loads_and_processes", every_effect_loads_and_processes),
     ("nyasynth_plays_and_decays", nyasynth_plays_and_decays),
     ("every_instrument_loads_and_plays", every_instrument_loads_and_plays),
+    ("decent_sampler_copy_plays_once_settled", decent_sampler_copy_plays_once_settled),
     ("twenty_instances", twenty_instances),
     ("processor_dropped_before_plugin", processor_dropped_before_plugin),
     ("processor_dropped_after_plugin_on_another_thread", processor_dropped_after_plugin_on_another_thread),
@@ -457,6 +458,53 @@ fn every_instrument_loads_and_plays() -> Result<Outcome, String> {
     }
   }
   Ok(Outcome::Pass(lines.concat()))
+}
+
+// a second instance with the first one's settings, as a mixdown makes one:
+// silent at first (it loads its sounds on the main run loop a second or so
+// in), heard once it's been played silence while the run loop turns for
+// the mixdown's settling time, and safe to tear down while the first lives
+// on (DecentSampler used to crash a moment after: see module.rs)
+fn decent_sampler_copy_plays_once_settled() -> Result<Outcome, String> {
+  let Some((path, info)) = plugin_in("DecentSampler.vst3")? else { return not_installed("DecentSampler") };
+  let mut live = Plugin::load(&path, &info.id, RATE)?;
+  let mut live_processor = live.take_processor().ok_or("no processor")?;
+  let settle = |plugin: &mut Plugin, processor: &mut dyn plugin::Processor| {
+    let started = Instant::now();
+    while started.elapsed().as_secs_f64() < 2. {
+      run_blocks(processor, 1, RATE, true, &[]);
+      plugin.idle();
+      pump(0.01);
+    }
+  };
+  settle(&mut live, live_processor.as_mut());
+  let state = live.state()?;
+  let note = [Event::NoteOn { offset: 0, pitch: 60, velocity: 0.9 }];
+
+  let mut levels = vec![];
+  for settled in [false, true] {
+    let mut copy = Plugin::load_offline(&path, &info.id, RATE)?;
+    copy.set_state(&state)?;
+    let mut processor = copy.take_processor().ok_or("no processor")?;
+    if settled { settle(&mut copy, processor.as_mut()); }
+    levels.push(rms(&run_blocks(processor.as_mut(), 40, RATE, true, &note).0));
+    drop(processor);
+    drop(copy);
+    pump(2.);
+  }
+  ensure(levels[0] == 0., format!("the copy played before it had loaded its sounds ({})", levels[0]))?;
+  ensure(levels[1] > 1e-3, format!("the settled copy was silent ({})", levels[1]))?;
+  // (it doesn't crash every time)
+  for _ in 0..4 {
+    let mut copy = Plugin::load(&path, &info.id, RATE)?;
+    copy.set_state(&state)?;
+    pump(1.);
+    drop(copy);
+    pump(1.5);
+  }
+  let live_level = rms(&run_blocks(live_processor.as_mut(), 40, RATE, true, &note).0);
+  ensure(live_level > 1e-3, "the first instance went quiet")?;
+  Ok(Outcome::Pass(format!("rms {:.4} unsettled, {:.4} settled, {:.4} the first", levels[0], levels[1], live_level)))
 }
 
 fn twenty_instances() -> Result<Outcome, String> {

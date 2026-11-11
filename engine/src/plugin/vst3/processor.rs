@@ -21,7 +21,7 @@ use ::vst3::Steinberg::Vst::Event_::EventFlags_::kIsLive;
 use ::vst3::Steinberg::Vst::ProcessContext_::StatesAndFlags_::{
   kBarPositionValid, kContTimeValid, kPlaying, kProjectTimeMusicValid, kTempoValid, kTimeSigValid,
 };
-use ::vst3::Steinberg::Vst::ProcessModes_::kRealtime;
+use ::vst3::Steinberg::Vst::ProcessModes_::{kOffline, kRealtime};
 use ::vst3::Steinberg::Vst::SymbolicSampleSizes_::kSample32;
 use ::vst3::Steinberg::Vst::{
   AudioBusBuffers, AudioBusBuffers__type0, Event as VstEvent, IAudioProcessor, IAudioProcessorTrait,
@@ -113,6 +113,8 @@ pub struct VstProcessor {
   context: ProcessContext,
   // frames processed since the processor was made
   continuous: i64,
+  // realtime, or offline for a mixdown (see Plugin::load_offline)
+  mode: i32,
 }
 
 // safe: the raw pointers are to the processor's own buffers (which move with
@@ -175,7 +177,14 @@ impl VstProcessor {
       // safe: ProcessContext is plain data, and all zeros is a valid one
       context: unsafe { std::mem::zeroed() },
       continuous: 0,
+      mode: kRealtime as i32,
     }
+  }
+
+  // for a plugin that was set up to render offline
+  pub fn offline(mut self) -> VstProcessor {
+    self.mode = kOffline as i32;
+    self
   }
 
   // what a block sounds like without the plugin
@@ -232,7 +241,7 @@ impl Processor for VstProcessor {
     }
 
     let mut data = ProcessData {
-      processMode: kRealtime as i32,
+      processMode: self.mode,
       symbolicSampleSize: kSample32 as i32,
       numSamples: n as i32,
       numInputs: self.inputs.len() as i32,

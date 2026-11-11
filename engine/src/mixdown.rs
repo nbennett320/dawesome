@@ -16,7 +16,10 @@
 // the live ones. one that can't be loaded again fails the mixdown rather
 // than being left out. the second instances are torn down (on the main
 // thread) when the render's done. pattern clips' notes are sent to them a
-// beat at a time, as playback sends them
+// beat at a time, as playback sends them. a plugin loaded just now is given
+// time to set itself up before its settings are copied, and the copies are
+// given that time too, played silence, before the render starts (see SETTLE
+// in effects.rs)
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -33,6 +36,9 @@ const QUIET: f32 = 3.162_278e-5; // -90 dBFS
 const QUIET_FOR: Duration = Duration::from_millis(250);
 const TAIL_MAX: Duration = Duration::from_secs(10);
 const TAIL_FADE: Duration = Duration::from_millis(10);
+// the plugins' copies are played silence a step at a time, about as fast as
+// they're heard, while they set themselves up (see SETTLE in effects.rs)
+const SETTLE_STEP: Duration = Duration::from_millis(10);
 
 pub const NOTHING_TO_MIX: &str = "There's nothing in the playlist to mix down";
 pub const CANCELLED: &str = "Mixdown cancelled";
@@ -117,7 +123,7 @@ pub fn render(
 ) -> Result<u64, String> {
   // (declared first, so the plugins go after the engine that runs them)
   let Snapshot { mut graph, end, time_signature, effects } = snapshot;
-  let crate::effects::MixdownEffects { chains, plugins: _plugins } = effects;
+  let crate::effects::MixdownEffects { chains, plugins: _plugins, settle } = effects;
   let beat = graph.beat_interval();
   if beat.is_zero() { return Err("the tempo is zero".into()); }
 
@@ -131,6 +137,20 @@ pub fn render(
   let end_frame = engine.frames_in(end);
   progress.total.store(end_frame, Ordering::Relaxed);
   progress.done.store(0, Ordering::Relaxed);
+
+  // the copies have only just been loaded, and some can't play yet: they
+  // finish setting up on the main run loop, some only once they've been
+  // played. so they're played silence for a while first, before the run
+  // starts (its frames are counted from its start), and what they make of
+  // it is thrown away
+  let settling = std::time::Instant::now();
+  let mut silence = vec![0f32; engine.frames_in(SETTLE_STEP) as usize * 2];
+  while settling.elapsed() < settle {
+    if cancel.load(Ordering::Relaxed) { return Err(CANCELLED.into()); }
+    silence.fill(0.);
+    renderer.render(&mut silence, std::time::Instant::now(), Duration::ZERO);
+    std::thread::sleep(SETTLE_STEP);
+  }
 
   let mut out = vec![0f32; CHUNK * 2];
   let mut frame = 0u64;
@@ -568,6 +588,39 @@ mod tests {
     // and on another track, it isn't heard
     state.playlist.audiograph.lock().unwrap().pattern_nodes[0].track_number = 3;
     assert!(sounding(&mixdown(&state, 48_000)).is_empty());
+  }
+
+  #[test]
+  fn test_an_instrument_added_just_now_is_mixed_down_once_it_has_set_itself_up() {
+    use crate::effects::testing::*;
+    // synths that set themselves up a moment after they're loaded, as a
+    // sampler loads its sounds: until then they're silent and their settings
+    // say they're empty, and a copy given those stays empty
+    let rig = rig();
+    let settle = Duration::from_millis(150);
+    *rig.loader.settles_in.lock().unwrap() = settle;
+    let state = rig.state.clone();
+    let pattern = {
+      let mut sequencer = state.playlist.sequencer.lock().unwrap();
+      let pattern = sequencer.add_pattern(1, 4).unwrap();
+      let note = |pitch, start, length| daw::PatternNote { pitch, start, length, velocity: 1. };
+      sequencer.set_pattern_notes(pattern, vec![note(60, 3., 3.), note(62, 14., 4.)]).unwrap();
+      pattern
+    };
+    state.playlist.audiograph.lock().unwrap()
+      .add_pattern_node::<daw::timing::Note>(pattern, Duration::ZERO, 2, None).unwrap();
+
+    // mixed down as soon as it's added, without waiting for it: silent
+    rig.effects().add(daw::Channel::Track(2), &synth().id, None).unwrap();
+    assert!(sounding(&mixdown(&state, 48_000)).is_empty());
+
+    // with the wait, the same, straight after another is added (it replaces
+    // the first): the notes are there, from the song's start
+    rig.effects().use_settle(settle);
+    rig.effects().add(daw::Channel::Track(2), &synth().id, None).unwrap();
+    let mixed = mixdown(&state, 48_000);
+    assert_eq!(sounding(&mixed), vec![(18_000, 36_000), (84_000, 96_000)]);
+    assert_eq!(mixed[20_000 * 2], START_GAIN);
   }
 
   #[test]
