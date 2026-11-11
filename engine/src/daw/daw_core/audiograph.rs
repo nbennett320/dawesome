@@ -756,7 +756,7 @@ impl AudioGraph<'static> {
   }
 
   // the sounds of the next `dur` of a run of the graph, each with how far
-  // into the slice it starts. clips play through their track's strip, and
+  // into the slice it starts. clips play on their track's bus, and
   // the metronome (on the beat, when `metronome` is set) straight to the
   // output, so the mixer doesn't change it
   // - resume: the run's first slice, so clips that started before it and are
@@ -799,8 +799,8 @@ impl AudioGraph<'static> {
       node.start_offset < at && node.start_offset + node.duration() > at)
   }
 
-  // the clips that start in the next `dur`, each through its track's strip,
-  // mixed (the metronome isn't included, see run_sounds)
+  // the clips that start in the next `dur`, mixed without the track strips
+  // (those run in the engine; the metronome isn't included, see run_sounds)
   #[cfg(test)]
   pub fn buffer_slice(&self, dur: Duration) -> Option<(Arc<rodio::dynamic_mixer::DynamicMixerController<f32>>, rodio::dynamic_mixer::DynamicMixer<f32>)> {
     Some(self.slice_mix(dur, false))
@@ -816,15 +816,15 @@ impl AudioGraph<'static> {
     (controller, mixer)
   }
 
-  // the clips that start in the next `dur`, each through its track's strip,
+  // the clips that start in the next `dur`, each routed to its track's bus,
   // also playing the rest of every clip already sounding at the slice's
   // start when `resume` is set
   // - at: how far into the run the slice starts
   // - rate: the engine's rate
   fn slice_sounds(&self, at: Duration, rate: u32, dur: Duration, resume: bool) -> Vec<SliceSound> {
     let mut sounds: Vec<SliceSound> = Vec::new();
-    let mut add = |delay: Duration, source: daw::VoiceSource| {
-      sounds.push((delay, source, daw::Route::Master));
+    let mut add = |delay: Duration, source: daw::VoiceSource, track_number: u32| {
+      sounds.push((delay, source, daw::Route::Track(self.mixer.track_route(track_number))));
     };
 
     let window_start = self.current_offset.unwrap_or(Duration::ZERO);
@@ -837,7 +837,7 @@ impl AudioGraph<'static> {
         let played = window_start - node.start_offset;
         println!("resumed node: {} ({}ms in)", node.sample_path, played.as_millis());
         let voice = node.voice(rate, at.as_nanos() as i128, run_zero);
-        add(Duration::ZERO, Box::new(self.mixer.track_strip(node.track_number, voice)));
+        add(Duration::ZERO, Box::new(voice), node.track_number);
       }
     }
 
@@ -846,10 +846,10 @@ impl AudioGraph<'static> {
       let delay_offset = node.start_offset - window_start;
       println!("added node: {} (delay offset: {}ms)", node.sample_path, delay_offset.as_millis());
       let voice = node.voice(rate, (at + delay_offset).as_nanos() as i128, run_zero);
-      add(delay_offset, Box::new(self.mixer.track_strip(node.track_number, voice)));
+      add(delay_offset, Box::new(voice), node.track_number);
     }
 
-    // and every pattern clip's hits, through its track's strip
+    // and every pattern clip's hits, on their track's bus
     if !self.pattern_nodes.is_empty() {
       let sequencer = self.sequencer.lock().unwrap();
       let beat = self.beat_interval();
@@ -861,9 +861,9 @@ impl AudioGraph<'static> {
           let at = node.hit_at(step, beat);
           match schedule_in_window(at, row.duration(), window_start, dur, resume) {
             Some(Scheduled::Delay(d)) =>
-              add(d, Box::new(self.mixer.track_strip(node.track_number, row.source()))),
+              add(d, Box::new(row.source()), node.track_number),
             Some(Scheduled::Skip(d)) =>
-              add(Duration::ZERO, Box::new(self.mixer.track_strip(node.track_number, row.source().skip_duration(d)))),
+              add(Duration::ZERO, Box::new(row.source().skip_duration(d)), node.track_number),
             None => {}
           }
         }

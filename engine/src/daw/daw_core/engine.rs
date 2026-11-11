@@ -7,10 +7,27 @@
 // scheduler (see daw::run_playlist) sends each beat's voices a little before
 // the callback reaches them, tagged with the frame they start on
 //
-// the callback never takes a lock, touches the disk, or frees memory: voices
-// arrive and leave through lock-free queues, and finished ones are sent back
-// to be freed by whoever sends the next command
+// it renders a block at a time, through buses. each track's voices are summed
+// on the track's bus, which runs its chain of effects and then the track's
+// strip (fader, pan, mute, solo, meter). the tracks, and voices sent straight
+// to the master, are summed on the master bus, which runs its own chain, the
+// master strip and the limiter. voices routed direct (the metronome,
+// previews) skip all of that:
+//
+//   track voices ─→ track bus → chain → strip ─┐
+//   master voices ─────────────────────────────┴→ master bus → chain → strip → limiter ─┐
+//   direct voices ───────────────────────────────────────────────────────────────────────┴→ out
+//
+// effects come before the fader, so a muted track's effects still run. buses
+// last as long as the engine, and one with effects runs every block, playing
+// or not, so their tails ring on after a stop. one with no effects runs only
+// in the blocks its voices sound in
+//
+// the callback never takes a lock, touches the disk, or allocates or frees
+// memory: voices, buses and chains arrive through a lock-free queue, and what
+// it's done with is sent back to be freed by whoever sends the next command
 use crate::daw;
+use crate::plugin::{self, Processor, Transport};
 use super::audio_settings::{buffer_choices, AudioSettings};
 use rodio::cpal::{
   self,
@@ -21,7 +38,9 @@ use rodio::cpal::{
 use rodio::source::UniformSourceIterator;
 use rodio::Source;
 use rtrb::{Consumer, Producer, RingBuffer};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::cell::UnsafeCell;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -30,12 +49,88 @@ use std::time::{Duration, Instant};
 pub type VoiceSource = Box<dyn Source<Item = f32> + Send>;
 
 // where a voice is heard
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum Route {
-  // through the master strip and its limiter (clips and pattern hits)
+  // on its track's bus (the playlist's clips and pattern hits)
+  Track(daw::TrackRoute),
+  // straight on the master bus (a pattern played in the Sequencer tab)
   Master,
-  // straight to the output (the metronome and previews)
+  // straight to the output, after the limiter (the metronome and previews)
   Direct,
+}
+
+// a bus, as its chain is named
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Channel {
+  Track(u32),
+  Master,
+}
+
+// an effect in a chain: its processor, and whether it's bypassed (a bypassed
+// slot passes the signal through untouched)
+//
+// the processor is only ever touched by the audio thread of the engine whose
+// chain holds the slot, so it needs no lock. that holds as long as a slot is
+// in at most one engine's chain, once: then one thread runs it, one call at a
+// time. the last Arc of a slot is never dropped on the audio thread (a chain
+// that's replaced goes back through the garbage queue)
+pub struct Slot {
+  id: u64,
+  bypassed: AtomicBool,
+  processor: UnsafeCell<Box<dyn Processor>>,
+}
+
+// see above: only one thread ever reaches the processor
+unsafe impl Sync for Slot {}
+
+// (made by the mixer's effects, still to come)
+#[allow(dead_code)]
+impl Slot {
+  pub fn new(id: u64, processor: Box<dyn Processor>) -> Arc<Slot> {
+    Arc::new(Slot { id, bypassed: AtomicBool::new(false), processor: UnsafeCell::new(processor) })
+  }
+
+  pub fn id(&self) -> u64 {
+    self.id
+  }
+
+  pub fn bypassed(&self) -> bool {
+    self.bypassed.load(Ordering::Relaxed)
+  }
+
+  pub fn set_bypassed(&self, bypassed: bool) {
+    self.bypassed.store(bypassed, Ordering::Relaxed);
+  }
+
+  // only for the audio thread running the chain that holds the slot
+  #[allow(clippy::mut_from_ref)]
+  unsafe fn processor(&self) -> &mut dyn Processor {
+    &mut **self.processor.get()
+  }
+}
+
+// where a run is in the song, for the transport the processors see
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RunStart {
+  // beats a minute, and the time signature
+  pub tempo: f64,
+  pub beats_per_bar: u16,
+  pub beat_unit: u16,
+  // the song position of the run's frame 0, in frames (before the song's
+  // start, with a count-in)
+  pub origin: i64,
+}
+
+impl Default for RunStart {
+  fn default() -> Self {
+    let transport = Transport::default();
+    RunStart {
+      tempo: transport.tempo,
+      beats_per_bar: transport.beats_per_bar,
+      beat_unit: transport.beat_unit,
+      origin: 0,
+    }
+  }
 }
 
 pub struct Voice {
@@ -51,15 +146,104 @@ pub struct Voice {
   start: u64,
   // frames left in its fade out, once it's been stopped
   fade_left: Option<u32>,
+  // what it's summed on, once it's been placed
+  target: Target,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Target {
+  // a track's bus, by its place in the renderer's list
+  Bus(usize),
+  Master,
+  Direct,
+}
+
+// where voices are summed, then run through a chain and a strip. made off the
+// audio thread with everything it needs, so the callback never allocates
+struct Bus {
+  channel: Channel,
+  // two stereo pairs, MAX_BLOCK long. the voices are summed in the first,
+  // and the chain passes the signal from one to the other (a processor never
+  // reads and writes the same buffer)
+  buffers: [[Vec<f32>; 2]; 2],
+  strip: daw::Strip,
+  chain: Vec<Arc<Slot>>,
+  // what an instrument at the head of the chain plays this block, in order.
+  // always empty for now (instruments come later)
+  events: Vec<plugin::Event>,
+  // whether a voice was summed on it this block
+  sounding: bool,
+  // whether it ran last block (one that's been idle starts its strip afresh)
+  awake: bool,
+}
+
+impl Bus {
+  fn new(channel: Channel, strip: daw::Strip) -> Box<Bus> {
+    let pair = || [vec![0f32; plugin::MAX_BLOCK], vec![0f32; plugin::MAX_BLOCK]];
+    Box::new(Bus {
+      channel,
+      buffers: [pair(), pair()],
+      strip,
+      chain: Vec::new(),
+      events: Vec::new(),
+      sounding: false,
+      awake: false,
+    })
+  }
+
+  // silence the first `frames` of the mix
+  fn clear(&mut self, frames: usize) {
+    for side in self.buffers[0].iter_mut() {
+      side[..frames].fill(0.);
+    }
+  }
+
+  // run the chain on the first `frames` of the mix, then the strip. returns
+  // the pair the result ended up in
+  fn run(&mut self, frames: usize, transport: &Transport) -> usize {
+    let mut at = 0;
+    for slot in self.chain.iter() {
+      if slot.bypassed() { continue; }
+
+      let (first, second) = self.buffers.split_at_mut(1);
+      let (input, output) = if at == 0 { (&first[0], &mut second[0]) } else { (&second[0], &mut first[0]) };
+      let [in_l, in_r] = input;
+      let [out_l, out_r] = output;
+      // safe: this is the callback of the engine whose chain holds the slot
+      let processor = unsafe { slot.processor() };
+      processor.process(
+        [&in_l[..frames], &in_r[..frames]],
+        [&mut out_l[..frames], &mut out_r[..frames]],
+        &self.events,
+        transport,
+      );
+      at = 1 - at;
+    }
+
+    let [l, r] = &mut self.buffers[at];
+    self.strip.process(&mut l[..frames], &mut r[..frames]);
+    at
+  }
 }
 
 enum Command {
-  // start a run, stopping any other, with the master strip's controls and
-  // its first voices
-  Start { run: u64, master: Arc<daw::ChannelControls>, voices: Vec<Box<Voice>> },
+  // start a run, stopping any other, with the master strip's controls,
+  // where it is in the song, and its first voices
+  Start { run: u64, master: Arc<daw::ChannelControls>, start: RunStart, voices: Vec<Box<Voice>> },
   // stop a run (if it's the one playing), fading out what's sounding
   Stop { run: u64 },
   Play(Vec<Box<Voice>>),
+  // a track's bus, sent before the first of its voices
+  Bus(Box<Bus>),
+  // a longer list for the buses, which move into it (so adding a bus never
+  // allocates on the callback)
+  Buses(Vec<Box<Bus>>),
+  // a track's bus plays by other controls (the mixer was replaced)
+  Retarget(daw::TrackRoute),
+  // the master strip's controls
+  Master(Arc<daw::ChannelControls>),
+  // a bus's whole chain, replacing the one it has
+  Chain { channel: Channel, slots: Vec<Arc<Slot>> },
 }
 
 // what the callback is done with, sent back to be freed off the audio thread
@@ -68,6 +252,11 @@ enum Command {
 enum Garbage {
   Voice(Box<Voice>),
   Voices(Vec<Box<Voice>>),
+  Bus(Box<Bus>),
+  Buses(Vec<Box<Bus>>),
+  Route(daw::TrackRoute),
+  Controls(Arc<daw::ChannelControls>, Option<Arc<AtomicUsize>>),
+  Chain(Vec<Arc<Slot>>),
 }
 
 // how many voices can sound at once. more are dropped (and counted)
@@ -75,8 +264,12 @@ const MAX_VOICES: usize = 1024;
 const QUEUE_LEN: usize = 4096;
 // how long stopping takes to fade out, so it doesn't click
 const STOP_FADE: Duration = Duration::from_millis(10);
-// the most frames rendered in one go. longer buffers are rendered in parts
-const MAX_CHUNK: usize = 4096;
+// the most frames rendered in one go (a block). longer buffers are rendered
+// in parts
+const MAX_CHUNK: usize = plugin::MAX_BLOCK;
+// how many track buses there's room for at first (more are made room for as
+// they're needed)
+const BUS_ROOM: usize = 256;
 
 // what the callback reports, readable from any thread
 struct Shared {
@@ -98,6 +291,9 @@ struct Shared {
   // after they should have started
   dropped: AtomicU64,
   late: AtomicU64,
+  // chains sent to the callback, and chains it has put in place
+  chains_sent: AtomicU64,
+  chains_applied: AtomicU64,
 }
 
 // where a run started, in the engine's frames and in time
@@ -108,11 +304,21 @@ pub struct Anchor {
   pub heard: Instant,
 }
 
+// the track buses that have been sent to the callback
+struct Buses {
+  // by track number, with the controls each plays by
+  tracks: HashMap<u32, daw::TrackRoute>,
+  // how many the callback's list has room for
+  room: usize,
+}
+
 // the side of the engine everything but the callback uses
 pub struct Engine {
   commands: Mutex<Producer<Command>>,
   garbage: Mutex<Consumer<Garbage>>,
   shared: Arc<Shared>,
+  // locked before `commands`, never after
+  buses: Mutex<Buses>,
   sample_rate: u32,
   // the output device it plays through
   device_name: String,
@@ -134,12 +340,15 @@ impl Engine {
       anchor_heard_ns: AtomicU64::new(0),
       dropped: AtomicU64::new(0),
       late: AtomicU64::new(0),
+      chains_sent: AtomicU64::new(0),
+      chains_applied: AtomicU64::new(0),
     });
 
     let engine = Engine {
       commands: Mutex::new(commands_tx),
       garbage: Mutex::new(garbage_rx),
       shared: shared.clone(),
+      buses: Mutex::new(Buses { tracks: HashMap::new(), room: BUS_ROOM }),
       sample_rate,
       device_name: "no device".into(),
     };
@@ -185,7 +394,15 @@ impl Engine {
     self.boxed_voice(Box::new(source), run, at, route)
   }
 
+  // (a voice for a track makes sure the track's bus is there first: it's
+  // sent ahead of the voice)
   pub fn boxed_voice(&self, source: VoiceSource, run: Option<u64>, at: u64, route: Route) -> Box<Voice> {
+    if let Route::Track(track) = &route {
+      if let Err(e) = self.track_bus(track) {
+        println!("audio engine: track {} plays without its strip: {}", track.number, e);
+      }
+    }
+
     Box::new(Voice {
       run,
       at,
@@ -193,18 +410,55 @@ impl Engine {
       samples: UniformSourceIterator::new(source, 2, self.sample_rate),
       start: 0,
       fade_left: None,
+      target: Target::Master,
     })
   }
 
+  // send a track's bus to the callback the first time it's needed, or its
+  // new controls if the mixer has been replaced since
+  fn track_bus(&self, track: &daw::TrackRoute) -> Result<(), String> {
+    let mut buses = self.buses.lock().unwrap();
+    match buses.tracks.get(&track.number) {
+      Some(sent) if Arc::ptr_eq(&sent.controls, &track.controls)
+        && Arc::ptr_eq(&sent.solo_count, &track.solo_count) => return Ok(()),
+      Some(_) => self.send(Command::Retarget(track.clone()))?,
+      None => {
+        if buses.tracks.len() >= buses.room {
+          let room = buses.room * 2;
+          self.send(Command::Buses(Vec::with_capacity(room)))?;
+          buses.room = room;
+        }
+        let strip = daw::Strip::new(track.controls.clone(), Some(track.solo_count.clone()), self.sample_rate, true);
+        self.send(Command::Bus(Bus::new(Channel::Track(track.number), strip)))?;
+      }
+    }
+    buses.tracks.insert(track.number, track.clone());
+    Ok(())
+  }
+
   // start a run with its first voices, played through the master strip with
-  // these controls. any run that's playing stops
+  // these controls. any run that's playing stops. the processors are told
+  // it's at the song's start, at 120 bpm in 4/4 (the app's runs all use
+  // start_run_at; the tests use this)
+  #[allow(dead_code)]
   pub fn start_run(
     &self,
     run: u64,
     master: Arc<daw::ChannelControls>,
     voices: Vec<Box<Voice>>,
   ) -> Result<(), String> {
-    self.send(Command::Start { run, master, voices })
+    self.start_run_at(run, master, RunStart::default(), voices)
+  }
+
+  // the same, telling the processors where the run is in the song
+  pub fn start_run_at(
+    &self,
+    run: u64,
+    master: Arc<daw::ChannelControls>,
+    start: RunStart,
+    voices: Vec<Box<Voice>>,
+  ) -> Result<(), String> {
+    self.send(Command::Start { run, master, start, voices })
   }
 
   // stop a run, if it's the one playing
@@ -223,6 +477,54 @@ impl Engine {
     S: Source<Item = f32> + Send + 'static,
   {
     self.play(vec![self.voice(source, None, 0, Route::Direct)])
+  }
+
+  // the master strip's controls, before any run sets them (a run's start
+  // sets them too, and they stay after it ends)
+  #[allow(dead_code)]
+  pub fn set_master(&self, controls: Arc<daw::ChannelControls>) -> Result<(), String> {
+    self.send(Command::Master(controls))
+  }
+
+  // replace a track's chain of effects (making its bus if need be). the old
+  // slots come back to be dropped here; see wait_for_chains
+  #[allow(dead_code)]
+  pub fn set_track_chain(&self, route: &daw::TrackRoute, slots: Vec<Arc<Slot>>) -> Result<(), String> {
+    self.track_bus(route)?;
+    self.send_chain(Channel::Track(route.number), slots)
+  }
+
+  // replace the master's chain of effects
+  #[allow(dead_code)]
+  pub fn set_master_chain(&self, slots: Vec<Arc<Slot>>) -> Result<(), String> {
+    self.send_chain(Channel::Master, slots)
+  }
+
+  fn send_chain(&self, channel: Channel, slots: Vec<Arc<Slot>>) -> Result<(), String> {
+    self.collect_garbage();
+    let mut commands = self.commands.lock().unwrap();
+    commands
+      .push(Command::Chain { channel, slots })
+      .map_err(|_| "the audio engine is busy (its queue is full)".to_string())?;
+    self.shared.chains_sent.fetch_add(1, Ordering::AcqRel);
+    Ok(())
+  }
+
+  // wait until the callback has put in place every chain sent so far, so no
+  // slot taken out of one is still being run. returns whether it got there
+  // (with no output running it never does)
+  #[allow(dead_code)]
+  pub fn wait_for_chains(&self, timeout: Duration) -> bool {
+    let sent = self.shared.chains_sent.load(Ordering::Acquire);
+    let deadline = Instant::now() + timeout;
+    loop {
+      if self.shared.chains_applied.load(Ordering::Acquire) >= sent {
+        self.collect_garbage();
+        return true;
+      }
+      if Instant::now() >= deadline { return false; }
+      thread::sleep(Duration::from_millis(1));
+    }
   }
 
   fn send(&self, command: Command) -> Result<(), String> {
@@ -285,29 +587,12 @@ impl Engine {
   }
 }
 
-// the master bus, as a source the master strip can play: one frame of the
-// mix at a time, set by the renderer before it pulls the strip
-struct MasterMix {
-  frame: [f32; 2],
-  channel: usize,
-  sample_rate: u32,
-}
-
-impl Iterator for MasterMix {
-  type Item = f32;
-
-  fn next(&mut self) -> Option<f32> {
-    let sample = self.frame[self.channel];
-    self.channel = (self.channel + 1) % 2;
-    Some(sample)
-  }
-}
-
-impl Source for MasterMix {
-  fn current_frame_len(&self) -> Option<usize> { None }
-  fn channels(&self) -> u16 { 2 }
-  fn sample_rate(&self) -> u32 { self.sample_rate }
-  fn total_duration(&self) -> Option<Duration> { None }
+// the run playing
+struct Run {
+  id: u64,
+  // the engine's frame it started on
+  frame: u64,
+  start: RunStart,
 }
 
 // the callback's side of the engine
@@ -316,13 +601,18 @@ pub struct Renderer {
   garbage: Producer<Garbage>,
   shared: Arc<Shared>,
   voices: Vec<Box<Voice>>,
-  // the run playing, and the engine's frame it started on
-  run: Option<(u64, u64)>,
+  run: Option<Run>,
   // frames rendered
   frame: u64,
-  // the master strip, set by each run (the limiter comes after it)
-  master: Option<daw::ChannelStrip<MasterMix>>,
-  sample_rate: u32,
+  // every track's bus that's been used, in the order they came
+  buses: Vec<Box<Bus>>,
+  // the master bus. its strip's controls are set by each run (the limiter
+  // comes after it)
+  master: Box<Bus>,
+  // what's routed direct, this block
+  direct: [Vec<f32>; 2],
+  // what the processors are told
+  transport: Transport,
   fade_frames: u32,
 }
 
@@ -333,6 +623,8 @@ impl Renderer {
     garbage: Producer<Garbage>,
     shared: Arc<Shared>,
   ) -> Self {
+    // until a run sets its controls, the master passes the mix unchanged
+    let master = daw::Strip::new(Arc::new(daw::ChannelControls::default()), None, sample_rate, true);
     Renderer {
       commands,
       garbage,
@@ -340,8 +632,10 @@ impl Renderer {
       voices: Vec::with_capacity(MAX_VOICES),
       run: None,
       frame: 0,
-      master: None,
-      sample_rate,
+      buses: Vec::with_capacity(BUS_ROOM),
+      master: Bus::new(Channel::Master, master),
+      direct: [vec![0f32; MAX_CHUNK], vec![0f32; MAX_CHUNK]],
+      transport: Transport { sample_rate, ..Transport::default() },
       fade_frames: ((STOP_FADE.as_secs_f64() * sample_rate as f64) as u32).max(1),
     }
   }
@@ -362,46 +656,8 @@ impl Renderer {
       self.apply(command, now, latency);
     }
 
-    for frame in out.chunks_exact_mut(2) {
-      let mut master = [0f32; 2];
-      let mut direct = [0f32; 2];
-
-      for voice in self.voices.iter_mut() {
-        if voice.start > self.frame { continue; }
-
-        let (l, r) = match next_frame(&mut voice.samples) {
-          Some(lr) => lr,
-          None => {
-            // done: it's taken out after this buffer
-            voice.fade_left = Some(0);
-            continue;
-          }
-        };
-        let gain = match voice.fade_left {
-          Some(0) => continue,
-          Some(left) => {
-            voice.fade_left = Some(left - 1);
-            left as f32 / self.fade_frames as f32
-          }
-          None => 1.,
-        };
-
-        let bus = if voice.route == Route::Master { &mut master } else { &mut direct };
-        bus[0] += l * gain;
-        bus[1] += r * gain;
-      }
-
-      let [l, r] = match self.master.as_mut() {
-        Some(strip) => {
-          strip.inner_mut().frame = master;
-          [strip.next().unwrap_or(0.), strip.next().unwrap_or(0.)]
-        }
-        None => master,
-      };
-      frame[0] = daw::soft_limit(l) + direct[0];
-      frame[1] = daw::soft_limit(r) + direct[1];
-
-      self.frame += 1;
+    for block in out.chunks_mut(MAX_CHUNK * 2) {
+      self.render_block(block);
     }
 
     // take out finished voices, and those that have faded out
@@ -418,14 +674,124 @@ impl Renderer {
     self.shared.frames.store(self.frame, Ordering::Release);
   }
 
+  // one block, at most MAX_CHUNK frames
+  fn render_block(&mut self, out: &mut [f32]) {
+    let frames = out.len() / 2;
+    let end = self.frame + frames as u64;
+
+    // where the run is in the song at the block's start. stopped, it stays
+    // where the last run got to
+    if let Some(run) = &self.run {
+      self.transport.playing = true;
+      self.transport.position = run.start.origin + (self.frame - run.frame) as i64;
+    } else {
+      self.transport.playing = false;
+    }
+
+    for bus in self.buses.iter_mut() {
+      bus.sounding = false;
+    }
+    self.master.clear(frames);
+    for side in self.direct.iter_mut() {
+      side[..frames].fill(0.);
+    }
+
+    // each voice's frames in this block, summed on its bus from the frame it
+    // starts on
+    let fade_frames = self.fade_frames;
+    for voice in self.voices.iter_mut() {
+      if voice.start >= end || voice.fade_left == Some(0) { continue; }
+
+      // its first frame, so one that has just run out doesn't wake its bus
+      let mut first = next_frame(&mut voice.samples);
+      if first.is_none() {
+        // done: it's taken out after this buffer
+        voice.fade_left = Some(0);
+        continue;
+      }
+
+      let [left, right] = match voice.target {
+        Target::Bus(i) => {
+          let bus = &mut self.buses[i];
+          if !bus.sounding {
+            bus.clear(frames);
+            bus.sounding = true;
+          }
+          &mut bus.buffers[0]
+        }
+        Target::Master => &mut self.master.buffers[0],
+        Target::Direct => &mut self.direct,
+      };
+
+      let from = voice.start.saturating_sub(self.frame) as usize;
+      for i in from..frames {
+        let (l, r) = match first.take().or_else(|| next_frame(&mut voice.samples)) {
+          Some(lr) => lr,
+          None => {
+            voice.fade_left = Some(0);
+            break;
+          }
+        };
+        let gain = match voice.fade_left {
+          Some(0) => break,
+          Some(frames_left) => {
+            voice.fade_left = Some(frames_left - 1);
+            frames_left as f32 / fade_frames as f32
+          }
+          None => 1.,
+        };
+
+        left[i] += l * gain;
+        right[i] += r * gain;
+      }
+    }
+
+    // each track bus with something to run, onto the master bus
+    let transport = self.transport;
+    let [master_l, master_r] = &mut self.master.buffers[0];
+    for bus in self.buses.iter_mut() {
+      if !bus.sounding && bus.chain.is_empty() {
+        bus.awake = false;
+        continue;
+      }
+      if !bus.sounding { bus.clear(frames); }
+      if !bus.awake {
+        bus.strip.jump();
+        bus.awake = true;
+      }
+
+      let at = bus.run(frames, &transport);
+      let [l, r] = &bus.buffers[at];
+      for i in 0..frames {
+        master_l[i] += l[i];
+        master_r[i] += r[i];
+      }
+    }
+
+    let at = self.master.run(frames, &transport);
+    let [l, r] = &self.master.buffers[at];
+    let [direct_l, direct_r] = &self.direct;
+    for (i, frame) in out.chunks_exact_mut(2).enumerate() {
+      frame[0] = daw::soft_limit(l[i]) + direct_l[i];
+      frame[1] = daw::soft_limit(r[i]) + direct_r[i];
+    }
+
+    self.frame = end;
+  }
+
   fn apply(&mut self, command: Command, now: Instant, latency: Duration) {
     match command {
-      Command::Start { run, master, voices } => {
-        if let Some((playing, _)) = self.run { self.stop(playing); }
-        self.run = Some((run, self.frame));
+      Command::Start { run, master, start, voices } => {
+        if let Some(playing) = self.run.as_ref().map(|run| run.id) { self.stop(playing); }
+        self.run = Some(Run { id: run, frame: self.frame, start });
+        self.transport.tempo = start.tempo;
+        self.transport.beats_per_bar = start.beats_per_bar;
+        self.transport.beat_unit = start.beat_unit;
+        self.transport.position = start.origin;
 
-        let mix = MasterMix { frame: [0.; 2], channel: 0, sample_rate: self.sample_rate };
-        self.master = Some(daw::ChannelStrip::new(mix, master, None));
+        // each run starts its master strip at its volume, as a new strip would
+        self.set_master(master);
+        self.master.strip.jump();
 
         let since_epoch = |t: Instant| t.duration_since(self.shared.epoch).as_nanos() as u64;
         self.shared.anchor_frame.store(self.frame, Ordering::Relaxed);
@@ -436,14 +802,62 @@ impl Renderer {
       }
       Command::Stop { run } => self.stop(run),
       Command::Play(voices) => self.add(voices),
+      Command::Bus(bus) => {
+        // the engine makes room before sending more buses than fit
+        if self.buses.len() < self.buses.capacity() {
+          self.buses.push(bus);
+        } else {
+          self.throw_away(Garbage::Bus(bus));
+        }
+      }
+      Command::Buses(mut buses) => {
+        buses.extend(self.buses.drain(..));
+        let old = std::mem::replace(&mut self.buses, buses);
+        self.throw_away(Garbage::Buses(old));
+      }
+      Command::Retarget(track) => {
+        match self.buses.iter_mut().find(|bus| bus.channel == Channel::Track(track.number)) {
+          Some(bus) => {
+            let (controls, solo_count) = bus.strip.set_controls(track.controls, Some(track.solo_count));
+            self.throw_away(Garbage::Controls(controls, solo_count));
+          }
+          None => self.throw_away(Garbage::Route(track)),
+        }
+      }
+      Command::Master(controls) => self.set_master(controls),
+      Command::Chain { channel, slots } => {
+        let bus = match channel {
+          Channel::Master => Some(&mut self.master),
+          Channel::Track(_) => self.buses.iter_mut().find(|bus| bus.channel == channel),
+        };
+        let old = match bus {
+          Some(bus) => std::mem::replace(&mut bus.chain, slots),
+          None => slots,
+        };
+        self.throw_away(Garbage::Chain(old));
+        self.shared.chains_applied.fetch_add(1, Ordering::AcqRel);
+      }
+    }
+  }
+
+  fn set_master(&mut self, controls: Arc<daw::ChannelControls>) {
+    if Arc::ptr_eq(self.master.strip.controls(), &controls) {
+      self.throw_away(Garbage::Controls(controls, None));
+    } else {
+      let (old, _) = self.master.strip.set_controls(controls, None);
+      self.throw_away(Garbage::Controls(old, None));
     }
   }
 
   // stop a run if it's playing: what's sounding fades out, what hasn't
-  // started yet won't
+  // started yet won't. the transport stays where the run got to
   fn stop(&mut self, run: u64) {
-    match self.run {
-      Some((playing, _)) if playing == run => self.run = None,
+    match &self.run {
+      Some(playing) if playing.id == run => {
+        self.transport.position = playing.start.origin + (self.frame - playing.frame) as i64;
+        self.transport.playing = false;
+        self.run = None;
+      }
       _ => return,
     }
 
@@ -460,15 +874,25 @@ impl Renderer {
 
   fn add(&mut self, mut voices: Vec<Box<Voice>>) {
     for mut voice in voices.drain(..) {
-      voice.start = match (voice.run, self.run) {
+      voice.start = match (voice.run, &self.run) {
         // a preview starts now
         (None, _) => self.frame,
-        (Some(run), Some((playing, origin))) if run == playing => origin + voice.at,
+        (Some(run), Some(playing)) if run == playing.id => playing.frame + voice.at,
         // its run has stopped, or been replaced
         _ => {
           self.throw_away(Garbage::Voice(voice));
           continue;
         }
+      };
+
+      // the bus it's summed on (sent before it). without one (the engine
+      // couldn't send it) it's heard on the master, without its strip
+      voice.target = match &voice.route {
+        Route::Track(track) => self.buses.iter()
+          .position(|bus| bus.channel == Channel::Track(track.number))
+          .map_or(Target::Master, Target::Bus),
+        Route::Master => Target::Master,
+        Route::Direct => Target::Direct,
       };
 
       // it should have started already: play it from where it would be now
@@ -871,6 +1295,280 @@ mod tests {
     let out = render(&mut renderer, 10);
     let sounding = out.iter().filter(|&&s| s != 0.).count();
     assert!((4..=6).contains(&sounding), "{} frames sounded", sounding);
+  }
+
+  // render `frames` frames, returning (left, right)
+  fn render_stereo(renderer: &mut Renderer, frames: usize) -> Vec<(f32, f32)> {
+    let mut out = vec![0.; frames * 2];
+    renderer.render(&mut out, Instant::now(), Duration::ZERO);
+    out.chunks(2).map(|f| (f[0], f[1])).collect()
+  }
+
+  // `frames` frames of `level` on both sides
+  fn steady(frames: usize, level: f32) -> SamplesBuffer<f32> {
+    SamplesBuffer::new(2, RATE, vec![level; frames * 2])
+  }
+
+  fn close(a: f32, b: f32) -> bool {
+    (a - b).abs() < 1e-5
+  }
+
+  // multiplies by a gain
+  struct Gain(f32);
+
+  impl Processor for Gain {
+    fn process(&mut self, input: [&[f32]; 2], output: [&mut [f32]; 2], _: &[plugin::Event], _: &Transport) {
+      for (output, input) in output.into_iter().zip(input) {
+        for (o, i) in output.iter_mut().zip(input) { *o = i * self.0; }
+      }
+    }
+  }
+
+  // plays its input back `frames` frames later (and only that)
+  struct Delay {
+    line: [Vec<f32>; 2],
+    at: usize,
+  }
+
+  impl Delay {
+    fn new(frames: usize) -> Self {
+      Delay { line: [vec![0.; frames], vec![0.; frames]], at: 0 }
+    }
+  }
+
+  impl Processor for Delay {
+    fn process(&mut self, input: [&[f32]; 2], output: [&mut [f32]; 2], _: &[plugin::Event], _: &Transport) {
+      let len = self.line[0].len();
+      for (side, (output, input)) in output.into_iter().zip(input).enumerate() {
+        for (i, (o, s)) in output.iter_mut().zip(input).enumerate() {
+          let at = (self.at + i) % len;
+          *o = self.line[side][at];
+          self.line[side][at] = *s;
+        }
+      }
+      self.at = (self.at + input[0].len()) % len;
+    }
+  }
+
+  // passes the signal through, noting the transport and block length it was given
+  struct Watch(Arc<Mutex<Vec<(Transport, usize)>>>);
+
+  impl Processor for Watch {
+    fn process(&mut self, input: [&[f32]; 2], output: [&mut [f32]; 2], _: &[plugin::Event], transport: &Transport) {
+      self.0.lock().unwrap().push((*transport, input[0].len()));
+      for (output, input) in output.into_iter().zip(input) { output.copy_from_slice(input); }
+    }
+  }
+
+  fn track(engine: &Engine, mixer: &daw::Mixer, number: u32, source: SamplesBuffer<f32>, at: u64) -> Box<Voice> {
+    engine.voice(source, Some(1), at, Route::Track(mixer.track_route(number)))
+  }
+
+  #[test]
+  fn test_track_buses_mix_as_gain_per_voice() {
+    let mixer = daw::Mixer::default();
+    mixer.set_volume_db(0, -6.);
+    mixer.set_pan(0, -0.5);
+    mixer.set_volume_db(1, -12.);
+    mixer.set_pan(1, 0.75);
+
+    // a different shape on each side, so pan shows
+    let ramp = |frames: usize, level: f32| -> Vec<f32> {
+      (0..frames).flat_map(|i| {
+        let s = level * (i + 1) as f32 / frames as f32;
+        [s, -0.5 * s]
+      }).collect()
+    };
+    let voices = [(0, 0, ramp(40, 0.3)), (1, 10, ramp(50, 0.25)), (0, 30, ramp(20, 0.2))];
+
+    let (engine, mut renderer) = Engine::new(RATE);
+    engine.start_run(1, mixer.master(), voices.iter()
+      .map(|(number, at, samples)| track(&engine, &mixer, *number, SamplesBuffer::new(2, RATE, samples.clone()), *at))
+      .collect()).unwrap();
+    // in uneven buffers, so voices cross them
+    let mut out = render_stereo(&mut renderer, 37);
+    out.extend(render_stereo(&mut renderer, 63));
+
+    let mut expected = vec![(0f32, 0f32); 100];
+    for (number, at, samples) in &voices {
+      let controls = mixer.track(*number);
+      let volume = daw::db_to_gain(controls.volume_db());
+      let pan = controls.pan();
+      let gain = (volume * (1. - pan).min(1.), volume * (1. + pan).min(1.));
+      for (i, frame) in samples.chunks(2).enumerate() {
+        expected[*at as usize + i].0 += frame[0] * gain.0;
+        expected[*at as usize + i].1 += frame[1] * gain.1;
+      }
+    }
+    for (i, (got, want)) in out.iter().zip(&expected).enumerate() {
+      assert!(close(got.0, want.0) && close(got.1, want.1), "frame {}: {:?} != {:?}", i, got, want);
+    }
+  }
+
+  #[test]
+  fn test_a_track_chain_changes_only_its_track_and_the_master_chain_all_but_direct() {
+    let mixer = daw::Mixer::default();
+    let play = |engine: &Engine, renderer: &mut Renderer| -> Vec<f32> {
+      engine.start_run(1, mixer.master(), vec![
+        track(engine, &mixer, 0, steady(10, 0.2), 0),
+        track(engine, &mixer, 1, steady(10, 0.4), 20),
+        engine.voice(steady(10, 0.3), Some(1), 40, Route::Direct),
+      ]).unwrap();
+      let out = render(renderer, 60);
+      vec![out[5], out[25], out[45]]
+    };
+
+    let (engine, mut renderer) = Engine::new(RATE);
+    engine.set_track_chain(&mixer.track_route(0), vec![Slot::new(1, Box::new(Gain(0.5)))]).unwrap();
+    let out = play(&engine, &mut renderer);
+    assert!(close(out[0], 0.1) && close(out[1], 0.4) && close(out[2], 0.3), "{:?}", out);
+
+    let (engine, mut renderer) = Engine::new(RATE);
+    engine.set_master_chain(vec![Slot::new(1, Box::new(Gain(0.5)))]).unwrap();
+    let out = play(&engine, &mut renderer);
+    assert!(close(out[0], 0.1) && close(out[1], 0.2) && close(out[2], 0.3), "{:?}", out);
+  }
+
+  #[test]
+  fn test_an_effect_tail_rings_on_after_the_voices_end_and_after_a_stop() {
+    let mixer = daw::Mixer::default();
+    let (engine, mut renderer) = Engine::new(RATE);
+    engine.set_track_chain(&mixer.track_route(0), vec![Slot::new(1, Box::new(Delay::new(50)))]).unwrap();
+
+    // the voice is over by frame 5, its echo comes at 50
+    engine.start_run(1, mixer.master(), vec![track(&engine, &mixer, 0, steady(5, 0.5), 0)]).unwrap();
+    let out = render(&mut renderer, 20);
+    assert!(out.iter().all(|&s| s == 0.));
+    assert!(renderer.voices.is_empty());
+
+    engine.stop_run(1).unwrap();
+    let out = render(&mut renderer, 60);
+    assert_eq!(first_sound(&out), Some(50 - 20));
+    assert!(out[30..35].iter().all(|&s| close(s, 0.5)));
+    assert!(out[35..].iter().all(|&s| s == 0.));
+  }
+
+  #[test]
+  fn test_a_bypassed_slot_passes_the_signal_through() {
+    let mixer = daw::Mixer::default();
+    let (engine, mut renderer) = Engine::new(RATE);
+    let silence = Slot::new(7, Box::new(Gain(0.)));
+    silence.set_bypassed(true);
+    assert_eq!(silence.id(), 7);
+    engine.set_track_chain(&mixer.track_route(0), vec![silence.clone()]).unwrap();
+
+    engine.start_run(1, mixer.master(), vec![track(&engine, &mixer, 0, steady(100, 0.5), 0)]).unwrap();
+    let out = render(&mut renderer, 10);
+    assert!(out.iter().all(|&s| s == 0.5));
+
+    silence.set_bypassed(false);
+    let out = render(&mut renderer, 10);
+    assert!(out.iter().all(|&s| s == 0.));
+  }
+
+  #[test]
+  fn test_a_replaced_chain_comes_back_to_be_dropped() {
+    let mixer = daw::Mixer::default();
+    let (engine, mut renderer) = Engine::new(RATE);
+    let first = Slot::new(1, Box::new(Gain(1.)));
+    let master = Slot::new(2, Box::new(Gain(1.)));
+    engine.set_track_chain(&mixer.track_route(3), vec![first.clone()]).unwrap();
+    engine.set_master_chain(vec![master.clone()]).unwrap();
+    // nothing has rendered, so nothing has taken them
+    assert!(!engine.wait_for_chains(Duration::from_millis(5)));
+
+    render(&mut renderer, 8);
+    assert!(engine.wait_for_chains(Duration::from_secs(1)));
+    assert_eq!(Arc::strong_count(&first), 2);
+    assert_eq!(Arc::strong_count(&master), 2);
+
+    engine.set_track_chain(&mixer.track_route(3), vec![Slot::new(3, Box::new(Gain(1.)))]).unwrap();
+    engine.set_master_chain(vec![]).unwrap();
+    render(&mut renderer, 8);
+    assert!(engine.wait_for_chains(Duration::from_secs(1)));
+    assert_eq!(Arc::strong_count(&first), 1);
+    assert_eq!(Arc::strong_count(&master), 1);
+  }
+
+  #[test]
+  fn test_a_track_voice_lands_on_its_frame() {
+    let mixer = daw::Mixer::default();
+    let (engine, mut renderer) = Engine::new(RATE);
+    render(&mut renderer, 37);
+
+    engine.start_run(1, mixer.master(), vec![track(&engine, &mixer, 2, steady(3, 0.5), 10)]).unwrap();
+    // one past a whole block, in the same buffer
+    let late = MAX_CHUNK as u64 + 5;
+    engine.play(vec![track(&engine, &mixer, 2, steady(1, 0.5), late)]).unwrap();
+    let out = render(&mut renderer, MAX_CHUNK + 64);
+
+    assert_eq!(&out[8..14], &[0., 0., 0.5, 0.5, 0.5, 0.]);
+    assert_eq!(first_sound(&out[14..]).map(|i| i + 14), Some(late as usize));
+  }
+
+  #[test]
+  fn test_processors_see_the_transport() {
+    let mixer = daw::Mixer::default();
+    let (engine, mut renderer) = Engine::new(RATE);
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    engine.set_master_chain(vec![Slot::new(1, Box::new(Watch(seen.clone())))]).unwrap();
+    render(&mut renderer, 16);
+
+    let start = RunStart { tempo: 93.5, beats_per_bar: 3, beat_unit: 8, origin: 1_000 };
+    engine.start_run_at(1, mixer.master(), start, vec![]).unwrap();
+    render(&mut renderer, 64);
+    // longer than a block: two calls
+    render(&mut renderer, MAX_CHUNK + 10);
+    engine.stop_run(1).unwrap();
+    render(&mut renderer, 16);
+
+    let seen = seen.lock().unwrap();
+    let blocks: Vec<(bool, i64, usize)> = seen.iter().map(|(t, frames)| (t.playing, t.position, *frames)).collect();
+    assert_eq!(blocks, vec![
+      (false, 0, 16),
+      (true, 1_000, 64),
+      (true, 1_064, MAX_CHUNK),
+      (true, 1_064 + MAX_CHUNK as i64, 10),
+      // stopped where the run got to
+      (false, 1_074 + MAX_CHUNK as i64, 16),
+    ]);
+    let (t, _) = seen[1];
+    assert_eq!((t.tempo, t.beats_per_bar, t.beat_unit, t.sample_rate), (93.5, 3, 8, RATE));
+  }
+
+  #[test]
+  fn test_mute_solo_and_meters_work_per_track() {
+    let mixer = daw::Mixer::default();
+    let (engine, mut renderer) = Engine::new(RATE);
+    let play = |renderer: &mut Renderer| -> Vec<f32> {
+      // a moment of nothing first, so the buses start afresh, as new clips would
+      render(renderer, 1);
+      engine.start_run(1, mixer.master(), vec![
+        track(&engine, &mixer, 0, steady(100, 0.5), 0),
+        track(&engine, &mixer, 1, steady(100, 0.5), 100),
+        track(&engine, &mixer, 2, steady(100, 0.5), 200),
+      ]).unwrap();
+      let out = render(renderer, 300);
+      vec![out[50], out[150], out[250]]
+    };
+
+    mixer.set_volume_db(0, -6.);
+    mixer.set_mute(1, true);
+    let quieter = 0.5 * daw::db_to_gain(-6.);
+    let out = play(&mut renderer);
+    assert!(close(out[0], quieter) && out[1] == 0. && close(out[2], 0.5), "{:?}", out);
+    // each meter shows its bus, after the fader
+    let levels = mixer.take_levels();
+    assert_eq!(levels.tracks.iter().map(|&(n, _)| n).collect::<Vec<_>>(), vec![0, 1, 2]);
+    assert!(close(levels.tracks[0].1, quieter));
+    assert_eq!(levels.tracks[1].1, 0.);
+    assert!(close(levels.tracks[2].1, 0.5));
+    assert!(close(levels.master, 0.5));
+
+    mixer.set_mute(1, false);
+    mixer.set_solo(1, true);
+    let out = play(&mut renderer);
+    assert!(out[0] == 0. && close(out[1], 0.5) && out[2] == 0., "{:?}", out);
   }
 
   // plays through the real output: run with `cargo test -- --ignored`

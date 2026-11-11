@@ -34,6 +34,8 @@ pub struct Snapshot {
   graph: daw::AudioGraph<'static>,
   // where the last clip ends
   end: Duration,
+  // for the effects' transport
+  time_signature: daw::TimeSignature,
 }
 
 impl Snapshot {
@@ -45,6 +47,7 @@ impl Snapshot {
 // copy the song: its clips, patterns and mixer. the locks are held only
 // while copying (the graph's, then the sequencer's: always in that order)
 pub fn snapshot(state: &daw::InnerState) -> Result<Snapshot, String> {
+  let time_signature = *state.playlist.time_signature.lock().unwrap();
   let graph = {
     let live = state.playlist.audiograph.lock().unwrap();
     let mut graph = daw::AudioGraph::new(live.sample_rate(), live.tempo(), live.max_beats());
@@ -60,7 +63,7 @@ pub fn snapshot(state: &daw::InnerState) -> Result<Snapshot, String> {
 
   let end = graph.end();
   if end.is_zero() { return Err(NOTHING_TO_MIX.into()); }
-  Ok(Snapshot { graph, end })
+  Ok(Snapshot { graph, end, time_signature })
 }
 
 // how far a render has got, readable from another thread while it works
@@ -100,7 +103,7 @@ pub fn render(
   progress: &Progress,
   cancel: &AtomicBool,
 ) -> Result<u64, String> {
-  let Snapshot { mut graph, end } = snapshot;
+  let Snapshot { mut graph, end, time_signature } = snapshot;
   let beat = graph.beat_interval();
   if beat.is_zero() { return Err("the tempo is zero".into()); }
 
@@ -137,7 +140,14 @@ pub fn render(
       .map(|(delay, source, route)| engine.boxed_voice(source, Some(RUN), engine.frames_in(at + delay), route))
       .collect();
     if at.is_zero() {
-      engine.start_run(RUN, graph.mixer.master(), voices)?;
+      // the mix starts at the song's start
+      let start = daw::RunStart {
+        tempo: graph.tempo() as f64,
+        beats_per_bar: time_signature.numerator,
+        beat_unit: time_signature.denominator,
+        origin: 0,
+      };
+      engine.start_run_at(RUN, graph.mixer.master(), start, voices)?;
     } else {
       engine.play(voices)?;
     }

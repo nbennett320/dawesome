@@ -266,9 +266,19 @@ pub fn run_playlist(
     };
     first.extend(slice_voices(count_in, slice, lead.is_zero(), true));
 
+    // where the run is in the song, for the effects: its frame 0 is the
+    // playhead, less the count-in
+    let signature = *state.playlist.time_signature.lock().unwrap();
+    let run_start = daw_core::RunStart {
+      tempo: state.tempo() as f64,
+      beats_per_bar: signature.numerator,
+      beat_unit: signature.denominator,
+      origin: engine.frames_in(start) as i64 - engine.frames_in(count_in) as i64,
+    };
+
     // the run starts with its first slice, so nothing in it can arrive late
     let anchor = match engine
-      .start_run(run, state.playlist.mixer.master(), first)
+      .start_run_at(run, state.playlist.mixer.master(), run_start, first)
       .and_then(|_| engine.wait_for_anchor(run, Duration::from_secs(2)))
     {
       Ok(anchor) => anchor,
