@@ -170,7 +170,6 @@ use rodio::source::{Source};
 // }
 
 #[derive(Clone)]
-#[cfg(not(target_os = "linux"))]
 pub struct AudioNode {
   pub id: u64,
   pub start_offset: Duration,
@@ -300,8 +299,6 @@ fn decoded(sample_path: &str) -> Result<Decoded, String> {
   Ok(decoded)
 }
 
-// audio node implementation for Mac/Windows
-#[cfg(not(target_os = "linux"))]
 impl AudioNode {
   pub fn new(
     id: u64,
