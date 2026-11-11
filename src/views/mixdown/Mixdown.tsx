@@ -8,6 +8,7 @@ import {
   selectMixdown, setBits, setFileType, setKbps, setMixdownPlace, setWatching,
 } from '../../state/slices/mixdownSlice'
 import { AnalogButton } from '../../components/fourtrack'
+import { Bar, Choice, Field, Notice } from '../../components/common'
 
 // how a mixdown is going (see Status in engine/src/mixdown_commands.rs)
 type Status =
@@ -21,13 +22,6 @@ type Status =
 const POLL_MS = 100
 
 const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path
-
-const Field = ({ label, htmlFor, children }: { label: string, htmlFor: string, children: React.ReactNode }) => (
-  <div className='flex flex-col gap-1'>
-    <label htmlFor={htmlFor} className='ft-label'>{label}</label>
-    {children}
-  </div>
-)
 
 const Button = ({ children, ...props }: React.ComponentProps<typeof AnalogButton>) => (
   <AnalogButton variant='text' size='sm' {...props}>{children}</AnalogButton>
@@ -92,15 +86,14 @@ const Mixdown = () => {
       <div className='ft-panel h-full w-full overflow-y-auto p-4 text-sm select-none'>
         <div className='flex flex-col gap-3 max-w-xl'>
           <span className='ft-label'>Mixing down…</span>
-          <div
-            className='h-2 w-72 max-w-full rounded-sm bg-slate-200 overflow-hidden'
+          <Bar
+            value={percent / 100}
+            className='w-72 max-w-full'
             role='progressbar'
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={percent}
-          >
-            <div className='h-full bg-lime-500' style={{ width: `${percent}%` }} />
-          </div>
+          />
           <span className='ft-readout text-sm w-fit'>{percent}%</span>
           <div>
             <Button title='Stop, and keep nothing of it' onPress={() => { invoke('cancel_mixdown').catch(() => {}) }}>
@@ -120,9 +113,7 @@ const Mixdown = () => {
           <span className='ft-lcd text-xs w-fit'>{fileName(status.path)}</span>
           <span className='text-xs text-slate-500 break-all select-text'>{status.path}</span>
           {error && (
-            <div role='alert' className='rounded border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900'>
-              {error}
-            </div>
+            <Notice tone='led'>{error}</Notice>
           )}
           <div className='flex flex-row gap-2'>
             <Button onPress={() => { invoke('reveal_file', { path: status.path }).catch(e => setError(String(e))) }}>
@@ -156,9 +147,7 @@ const Mixdown = () => {
         }}
       >
         {(error || outcome) && (
-          <div role='alert' className='rounded border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900'>
-            {error ?? outcome}
-          </div>
+          <Notice tone='led'>{error ?? outcome}</Notice>
         )}
 
         <Field label='Name' htmlFor='mixdown-name'>
@@ -192,47 +181,35 @@ const Mixdown = () => {
 
         <div className='flex gap-4'>
           <div>
-            <Field label='File type' htmlFor='mixdown-type'>
-              <select
-                id='mixdown-type'
-                className='ft-readout text-sm py-1 text-left w-72 max-w-full'
-                value={mixdown.fileType}
-                disabled={disabled}
-                onChange={e => dispatch(setFileType(e.currentTarget.value as FileType))}
-              >
-                <option value='wav'>WAV</option>
-                <option value='mp3'>MP3</option>
-              </select>
-            </Field>
+            <Choice
+              id='mixdown-type'
+              label='File type'
+              value={mixdown.fileType}
+              options={[{ value: 'wav', label: 'WAV' }, { value: 'mp3', label: 'MP3' }]}
+              disabled={disabled}
+              onChange={type => dispatch(setFileType(type as FileType))}
+            />
           </div>
 
           <div>
             {mixdown.fileType === 'wav' ? (
-              <Field label='Bit depth' htmlFor='mixdown-bits'>
-                <select
-                  id='mixdown-bits'
-                  className='ft-readout text-sm py-1 text-left w-72 max-w-full'
-                  value={mixdown.bits}
-                  disabled={disabled}
-                  onChange={e => dispatch(setBits(e.currentTarget.value as Bits))}
-                >
-                  {(Object.keys(BITS_LABELS) as Bits[]).map(bits => (
-                    <option key={bits} value={bits}>{BITS_LABELS[bits]}</option>
-                  ))}
-                </select>
-              </Field>
+              <Choice
+                id='mixdown-bits'
+                label='Bit depth'
+                value={mixdown.bits}
+                options={(Object.keys(BITS_LABELS) as Bits[]).map(bits => ({ value: bits, label: BITS_LABELS[bits] }))}
+                disabled={disabled}
+                onChange={bits => dispatch(setBits(bits as Bits))}
+              />
             ) : (
-              <Field label='Bitrate' htmlFor='mixdown-kbps'>
-                <select
-                  id='mixdown-kbps'
-                  className='ft-readout text-sm py-1 text-left w-72 max-w-full'
-                  value={mixdown.kbps}
-                  disabled={disabled}
-                  onChange={e => dispatch(setKbps(Number(e.currentTarget.value) as Kbps))}
-                >
-                  {KBPS.map(kbps => <option key={kbps} value={kbps}>{kbps} kbps</option>)}
-                </select>
-              </Field>
+              <Choice
+                id='mixdown-kbps'
+                label='Bitrate'
+                value={String(mixdown.kbps)}
+                options={KBPS.map(kbps => ({ value: String(kbps), label: `${kbps} kbps` }))}
+                disabled={disabled}
+                onChange={kbps => dispatch(setKbps(Number(kbps) as Kbps))}
+              />
             )}
           </div>
         </div>

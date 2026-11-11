@@ -13,34 +13,7 @@ import {
   rateLabel,
 } from '../../types/audio'
 import { AnalogButton, ResetIcon } from '../../components/fourtrack'
-
-// a choice of devices (or the system's default), or buffer sizes
-const Choice = ({ label, value, options, disabled, onChange }: {
-  label: string
-  // '' for the default
-  value: string
-  options: Array<{ value: string, label: string }>
-  disabled: boolean
-  onChange: (value: string) => void
-}) => {
-  const id = `audio-${label.toLowerCase().replace(/\s+/g, '-')}`
-  return (
-    <div className='flex flex-col gap-1'>
-      <label htmlFor={id} className='ft-label'>{label}</label>
-      <select
-        id={id}
-        className='ft-readout text-sm py-1 text-left w-72 max-w-full'
-        value={value}
-        disabled={disabled}
-        onChange={e => onChange(e.currentTarget.value)}
-      >
-        {options.map(option => (
-          <option key={option.value} value={option.value}>{option.label}</option>
-        ))}
-      </select>
-    </div>
-  )
-}
+import { Bar, Choice, Field, Notice } from '../../components/common'
 
 // how often the input meter is read, and how fast it falls
 const METER_EVERY_MS = 50
@@ -83,12 +56,11 @@ const InputMeter = ({ onOpened, onError }: { onOpened: () => void, onError: (e: 
         // eslint-disable-next-line react/no-array-index-key
         <div key={i} className='flex flex-row items-center gap-2'>
           <span className='ft-label w-4 text-right'>{i + 1}</span>
-          <div className='h-2 flex-1 rounded-sm bg-slate-200 overflow-hidden'>
-            <div
-              className={`h-full ${level >= 1 ? 'bg-red-500' : 'bg-lime-500'}`}
-              style={{ width: `${meterPosition(level) * 100}%` }}
-            />
-          </div>
+          <Bar
+            value={meterPosition(level)}
+            tone={level >= 1 ? 'clip' : 'ok'}
+            className='flex-1'
+          />
         </div>
       ))}
     </div>
@@ -111,8 +83,7 @@ const OffsetField = ({ value, disabled, onChange }: {
 
   return (
     <div className='flex flex-col gap-1'>
-      <label htmlFor='audio-record-offset' className='flex flex-col gap-1'>
-        <span className='ft-label'>Recording offset (ms)</span>
+      <Field label='Recording offset (ms)' htmlFor='audio-record-offset'>
         <input
           id='audio-record-offset'
           type='text'
@@ -128,7 +99,7 @@ const OffsetField = ({ value, disabled, onChange }: {
             if(e.key === 'Escape') setDraft(null)
           }}
         />
-      </label>
+      </Field>
       <span className='text-xs text-slate-500 max-w-md'>
         If recordings land late, raise this by how much. Bluetooth headphones often need 150 to 250.
       </span>
@@ -193,13 +164,12 @@ const AudioSettings = () => {
     <div className='ft-panel h-full w-full overflow-y-auto p-4 text-sm select-none'>
       <div className='flex flex-col gap-4 max-w-xl'>
         {(error || status.notice) && (
-          <div role='alert' className='rounded border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900'>
-            {error ?? status.notice}
-          </div>
+          <Notice tone='led'>{error ?? status.notice}</Notice>
         )}
 
         <section className='flex flex-col gap-3'>
           <Choice
+            id='audio-output'
             label='Output'
             value={settings.outputDevice ?? ''}
             options={devices(status.outputs, settings.outputDevice)}
@@ -207,6 +177,7 @@ const AudioSettings = () => {
             onChange={name => apply({ outputDevice: name || null })}
           />
           <Choice
+            id='audio-buffer-size'
             label='Buffer size'
             value={settings.bufferFrames?.toString() ?? ''}
             options={[
@@ -229,6 +200,7 @@ const AudioSettings = () => {
 
         <section className='flex flex-col gap-3'>
           <Choice
+            id='audio-input'
             label='Input'
             value={settings.inputDevice ?? ''}
             options={devices(status.inputs, settings.inputDevice)}
