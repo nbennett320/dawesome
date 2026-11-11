@@ -1,9 +1,10 @@
 // color themes: the stock ones are embedded, and a theme file may give just
-// the required colors, with the rest derived from them
+// the required colors, with the rest taken from themes/base.json
 //
-// the format and every key are described in themes/README.md. the tables
-// below follow its order, and a test checks that they still match it
+// the format and every key are described in themes/README.md. base.json lists
+// every key and what it is when a theme leaves it out
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -88,172 +89,196 @@ impl Rgba {
   }
 }
 
-// how a key is worked out when the theme doesn't give it. a key name with
-// no dot is a core key; "fourtrack.ledRedOn" is a key of a section
-enum Derive {
+// a value: a color, a reference to another key, or a function of those
+#[derive(Debug, Clone, PartialEq)]
+enum Expr {
+  Color(Rgba),
+  Ref(String),
+  Mix(Box<Expr>, Box<Expr>, f64),
+  Alpha(Box<Expr>, f64),
   Required,
-  Ref(&'static str),
-  Mix(&'static str, &'static str, f64),
-  Alpha(&'static str, f64),
-  Literal(&'static str),
 }
 
-use Derive::*;
+// a tiny recursive-descent reader over the text of one value
+struct Reader {
+  chars: Vec<char>,
+  pos: usize,
+}
 
-type Table = &'static [(&'static str, Derive)];
+impl Reader {
+  fn skip_space(&mut self) {
+    while self.chars.get(self.pos).is_some_and(|c| c.is_whitespace()) {
+      self.pos += 1;
+    }
+  }
 
-// the tables, in README order. a key only uses keys above it, or in earlier
-// tables
-static COLORS: Table = &[
-  ("surface", Required),
-  ("panel", Required),
-  ("raised", Required),
-  ("sunken", Required),
-  ("line", Required),
-  ("lineStrong", Required),
-  ("inkStrong", Required),
-  ("ink", Required),
-  ("inkSoft", Required),
-  ("inkFaint", Required),
-  ("accent", Required),
-  ("accentSoft", Required),
-  ("accentTint", Required),
-  ("accentInk", Required),
-  ("led", Required),
-  ("ledTint", Required),
-  ("ledInk", Required),
-  ("danger", Required),
-  ("dangerTint", Required),
-  ("surfaceAlt", Mix("surface", "panel", 0.5)),
-  ("inkMid", Mix("ink", "inkSoft", 0.5)),
-  ("accentFocus", Mix("accent", "accentSoft", 0.5)),
-  ("accentStrong", Mix("accent", "accentInk", 0.5)),
-  ("accentTintStrong", Mix("accentTint", "accentSoft", 0.25)),
-  ("ledLine", Mix("led", "ledTint", 0.45)),
-  ("dangerBright", Ref("danger")),
-  ("dangerLine", Mix("dangerTint", "danger", 0.25)),
-  ("dangerInk", Mix("danger", "inkStrong", 0.6)),
-  ("ok", Literal("#84cc16")),
-  ("shadow", Literal("#000000")),
-];
+  // the next non-space character, if it's `want`, is consumed
+  fn eat(&mut self, want: char) -> bool {
+    self.skip_space();
+    let found = self.chars.get(self.pos) == Some(&want);
+    if found {
+      self.pos += 1;
+    }
+    found
+  }
 
-static PLAYLIST: Table = &[
-  ("background", Ref("surface")),
-  ("laneAlt", Ref("surfaceAlt")),
-  ("laneLine", Ref("line")),
-  ("beatLine", Ref("line")),
-  ("barLine", Ref("lineStrong")),
-  ("ruler", Ref("panel")),
-  ("rulerLine", Ref("lineStrong")),
-  ("rulerText", Ref("inkFaint")),
-  ("rulerBarText", Ref("inkMid")),
-  ("playhead", Ref("accent")),
-  ("playheadStopped", Ref("inkFaint")),
-  ("loopEnd", Ref("inkMid")),
-  ("clip", Ref("raised")),
-  ("clipBorder", Ref("lineStrong")),
-  ("clipLabel", Ref("panel")),
-  ("clipText", Ref("ink")),
-  ("clipWave", Ref("inkSoft")),
-  ("modified", Ref("led")),
-  ("patternClip", Ref("ledTint")),
-  ("patternLabel", Mix("ledTint", "led", 0.15)),
-  ("patternBorder", Mix("led", "ledLine", 0.5)),
-  ("patternHit", Mix("led", "ledInk", 0.25)),
-  ("patternBeat", Mix("ledLine", "ledTint", 0.4)),
-  ("selectedClip", Ref("accentTint")),
-  ("selectedLabel", Ref("accentTintStrong")),
-  ("selectedBorder", Ref("accent")),
-  ("lassoFill", Ref("accent")),
-  ("accent", Ref("accent")),
-  ("accentSoft", Ref("accentSoft")),
-  ("idle", Ref("inkFaint")),
-  ("scrollbar", Ref("inkSoft")),
-  ("debug", Literal("#ffbb99")),
-  ("debugText", Ref("inkStrong")),
-];
+  fn expect(&mut self, want: char) -> Result<(), String> {
+    if self.eat(want) { Ok(()) } else { Err(format!("expected {:?}", want)) }
+  }
 
-static WAVEFORM: Table = &[
-  ("background", Ref("surface")),
-  ("ruler", Ref("panel")),
-  ("rulerLine", Ref("lineStrong")),
-  ("grid", Ref("line")),
-  ("beat", Ref("inkFaint")),
-  ("centre", Ref("lineStrong")),
-  ("wave", Ref("accentStrong")),
-  ("dimmed", Ref("lineStrong")),
-  ("wash", Alpha("panel", 0.6)),
-  ("fill", Alpha("accent", 0.12)),
-  ("envelope", Ref("led")),
-  ("fade", Alpha("led", 0.07)),
-];
+  fn take_while(&mut self, keep: impl Fn(char) -> bool) -> String {
+    let start = self.pos;
+    while self.chars.get(self.pos).is_some_and(|c| keep(*c)) {
+      self.pos += 1;
+    }
+    self.chars[start..self.pos].iter().collect()
+  }
 
-static METER: Table = &[
-  ("low", Ref("ok")),
-  ("mid", Ref("led")),
-  ("high", Ref("dangerBright")),
-  ("hold", Ref("inkMid")),
-];
+  fn number(&mut self) -> Result<f64, String> {
+    self.skip_space();
+    let text = self.take_while(|c| c.is_ascii_digit() || "+-.eE".contains(c));
+    text.parse().map_err(|_| format!("{:?} is not a number", text))
+  }
 
-static FOURTRACK: Table = &[
-  ("ink", Ref("ink")),
-  ("inkSoft", Ref("inkSoft")),
-  ("inkFaint", Ref("inkFaint")),
-  ("accent", Ref("accent")),
-  ("focus", Ref("accentFocus")),
-  ("panel", Ref("panel")),
-  ("line", Ref("line")),
-  ("lineStrong", Ref("lineStrong")),
-  ("capTop", Ref("raised")),
-  ("capBottom", Mix("raised", "panel", 0.8)),
-  ("capDown", Mix("panel", "sunken", 0.2)),
-  ("display", Mix("panel", "sunken", 0.6)),
-  ("displayText", Ref("inkMid")),
-  ("slot", Mix("sunken", "lineStrong", 0.6)),
-  ("tray", Mix("panel", "sunken", 0.65)),
-  ("face", Ref("raised")),
-  ("knobTop", Ref("raised")),
-  ("knobBottom", Ref("panel")),
-  ("dialA", Ref("line")),
-  ("dialB", Ref("panel")),
-  ("meterGap", Alpha("surface", 0.7)),
-  ("danger", Ref("danger")),
-  ("record", Ref("dangerBright")),
-  ("ledRedOn", Ref("dangerBright")),
-  ("ledRedGlow", Alpha("fourtrack.ledRedOn", 0.45)),
-  ("ledRedOff", Mix("fourtrack.ledRedOn", "sunken", 0.85)),
-  ("ledAmberOn", Ref("led")),
-  ("ledAmberGlow", Alpha("fourtrack.ledAmberOn", 0.45)),
-  ("ledAmberOff", Mix("fourtrack.ledAmberOn", "sunken", 0.85)),
-  ("ledLimeOn", Ref("ok")),
-  ("ledLimeGlow", Alpha("fourtrack.ledLimeOn", 0.45)),
-  ("ledLimeOff", Mix("fourtrack.ledLimeOn", "sunken", 0.85)),
-  ("ledBlueOn", Ref("accent")),
-  ("ledBlueGlow", Alpha("fourtrack.ledBlueOn", 0.45)),
-  ("ledBlueOff", Mix("fourtrack.ledBlueOn", "sunken", 0.85)),
-  ("tape", Ref("inkFaint")),
-  ("label", Ref("surfaceAlt")),
-  ("stripe", Ref("accentSoft")),
-  ("hub", Ref("raised")),
-  ("tapeMarks", Alpha("surface", 0.55)),
-];
+  fn expr(&mut self) -> Result<Expr, String> {
+    self.skip_space();
+    if self.chars.get(self.pos) == Some(&'#') {
+      self.pos += 1;
+      let hex = self.take_while(|c| c.is_ascii_alphanumeric());
+      let text = format!("#{}", hex);
+      return Rgba::parse(&text).map(Expr::Color).ok_or(format!("{:?} is not a color", text));
+    }
 
-// the json name of each table, in resolving order. "colors" is the core
-static SECTIONS: &[(&str, Table)] = &[
-  ("colors", COLORS),
-  ("playlist", PLAYLIST),
-  ("waveform", WAVEFORM),
-  ("meter", METER),
-  ("fourtrack", FOURTRACK),
-];
+    let word = self.take_while(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.');
+    if word.is_empty() {
+      return Err("expected a color, a key or a function".to_string());
+    }
+    if !self.eat('(') {
+      return Ok(if word == "required" { Expr::Required } else { Expr::Ref(word) });
+    }
+
+    let expr = match word.as_str() {
+      "mix" => {
+        let a = self.expr()?;
+        self.expect(',')?;
+        let b = self.expr()?;
+        self.expect(',')?;
+        let t = self.number()?;
+        if !(0.0..=1.0).contains(&t) {
+          return Err(format!("mix weight {} is outside 0 to 1", t));
+        }
+        Expr::Mix(Box::new(a), Box::new(b), t)
+      }
+      "alpha" => {
+        let k = self.expr()?;
+        self.expect(',')?;
+        let a = self.number()?;
+        if !(0.0..=1.0).contains(&a) {
+          return Err(format!("alpha {} is outside 0 to 1", a));
+        }
+        Expr::Alpha(Box::new(k), a)
+      }
+      other => return Err(format!("unknown function {}", other)),
+    };
+    self.expect(')')?;
+    Ok(expr)
+  }
+}
+
+fn parse_expr(text: &str) -> Result<Expr, String> {
+  let mut reader = Reader { chars: text.chars().collect(), pos: 0 };
+  let expr = reader.expr()?;
+  reader.skip_space();
+  if reader.pos < reader.chars.len() {
+    return Err(format!("unexpected {:?}", reader.chars[reader.pos..].iter().collect::<String>()));
+  }
+  Ok(expr)
+}
+
+// base.json, read once: the sections in it, and each key's default
+struct Base {
+  // section name -> (key, expression)
+  sections: BTreeMap<String, Vec<(String, String)>>,
+  // the same by resolved name: "surface", "playlist.clip"
+  by_name: BTreeMap<String, String>,
+}
 
 // the name a key has in the resolved map
 fn full_key(section: &str, key: &str) -> String {
   if section == "colors" { key.to_string() } else { format!("{}.{}", section, key) }
 }
 
-fn color(text: &str, what: &str) -> Result<Rgba, String> {
-  Rgba::parse(text).ok_or_else(|| format!("{} is not a color: {:?}", what, text))
+fn base() -> &'static Base {
+  static BASE: OnceLock<Base> = OnceLock::new();
+  BASE.get_or_init(|| {
+    let root: Value = serde_json::from_str(include_str!("../themes/base.json")).expect("base.json is JSON");
+    let mut base = Base { sections: BTreeMap::new(), by_name: BTreeMap::new() };
+    for (section, keys) in root.as_object().expect("base.json is an object") {
+      let mut list = Vec::new();
+      for (key, text) in keys.as_object().expect("base sections are objects") {
+        let text = text.as_str().expect("base values are text").to_string();
+        base.by_name.insert(full_key(section, key), text.clone());
+        list.push((key.clone(), text));
+      }
+      base.sections.insert(section.clone(), list);
+    }
+    base
+  })
+}
+
+// works out keys on demand, remembering each
+struct Resolver<'a> {
+  // the theme's own values by resolved name
+  given: BTreeMap<String, String>,
+  done: BTreeMap<String, Rgba>,
+  // the keys being worked out now, to spot a loop
+  active: Vec<&'a str>,
+}
+
+impl<'a> Resolver<'a> {
+  fn resolve(&mut self, name: &'a str) -> Result<Rgba, String> {
+    if let Some(value) = self.done.get(name) {
+      return Ok(*value);
+    }
+    if let Some(at) = self.active.iter().position(|k| *k == name) {
+      let mut cycle = self.active[at..].to_vec();
+      cycle.push(name);
+      return Err(format!("{} is part of a loop: {}", name, cycle.join(" -> ")));
+    }
+
+    let own = self.given.get(name);
+    let text = match own {
+      Some(text) => text.as_str(),
+      None => base().by_name.get(name).ok_or(format!("{} is not a key", name))?.as_str(),
+    };
+    let expr = parse_expr(text).map_err(|e| format!("{}: {}", name, e))?;
+    if expr == Expr::Required && own.is_none() {
+      return Err(format!("missing required color {}", name));
+    }
+
+    self.active.push(name);
+    let value = self.eval(&expr, name);
+    self.active.pop();
+    let value = value?;
+    self.done.insert(name.to_string(), value);
+    Ok(value)
+  }
+
+  // `owner` is the key the expression belongs to, for the messages
+  fn eval(&mut self, expr: &Expr, owner: &str) -> Result<Rgba, String> {
+    match expr {
+      Expr::Color(c) => Ok(*c),
+      Expr::Ref(other) => {
+        let (other, _) = base().by_name.get_key_value(other.as_str()).ok_or_else(|| {
+          format!("{} refers to {}, which is not a key", owner, other)
+        })?;
+        self.resolve(other)
+      }
+      Expr::Mix(a, b, t) => Ok(Rgba::mix(self.eval(a, owner)?, self.eval(b, owner)?, *t)),
+      Expr::Alpha(k, a) => Ok(self.eval(k, owner)?.with_alpha(*a)),
+      Expr::Required => Err(format!("{}: required is only for base.json", owner)),
+    }
+  }
 }
 
 // read the sections that are objects, complaining about the ones that aren't
@@ -272,6 +297,7 @@ pub fn parse(id: &str, json: &str) -> Result<(ResolvedTheme, Vec<String>), Strin
   let root: Value = serde_json::from_str(json).map_err(|e| format!("not valid JSON: {}", e))?;
   let root = root.as_object().ok_or("a theme must be a JSON object")?;
   let mut warnings = Vec::new();
+  let base = base();
 
   let name = match root.get("name") {
     Some(Value::String(name)) => name.clone(),
@@ -284,44 +310,31 @@ pub fn parse(id: &str, json: &str) -> Result<(ResolvedTheme, Vec<String>), Strin
   };
 
   for field in root.keys() {
-    if field != "name" && field != "appearance" && !SECTIONS.iter().any(|(s, _)| s == field) {
+    if field != "name" && field != "appearance" && !base.sections.contains_key(field) {
       warnings.push(format!("unknown field {}", field));
     }
   }
 
-  let mut colors: BTreeMap<String, String> = BTreeMap::new();
-  let mut values: BTreeMap<String, Rgba> = BTreeMap::new();
-
-  for (section, table) in SECTIONS {
-    let given = section_object(root, section)?;
-
-    if let Some(given) = given {
-      for key in given.keys() {
-        if !table.iter().any(|(k, _)| k == key) {
-          warnings.push(format!("unknown key {}.{}", section, key));
-        }
-      }
-    }
-
-    for (key, derive) in table.iter() {
+  let mut given = BTreeMap::new();
+  for (section, keys) in &base.sections {
+    let Some(own) = section_object(root, section)? else { continue };
+    for (key, value) in own {
       let name = full_key(section, key);
-      let lookup = |k: &str| values[k];
-
-      let value = match given.and_then(|g| g.get(*key)) {
-        Some(Value::String(text)) => color(text, &name)?,
-        Some(other) => return Err(format!("{} is not a color: {}", name, other)),
-        None => match derive {
-          Required => return Err(format!("missing required color {}", name)),
-          Ref(k) => lookup(k),
-          Mix(a, b, t) => Rgba::mix(lookup(a), lookup(b), *t),
-          Alpha(k, a) => lookup(k).with_alpha(*a),
-          Literal(hex) => color(hex, &name)?,
-        },
+      if !keys.iter().any(|(k, _)| k == key) {
+        warnings.push(format!("unknown key {}", name));
+        continue;
+      }
+      match value {
+        Value::String(text) => given.insert(name, text.clone()),
+        other => return Err(format!("{} is not a color: {}", name, other)),
       };
-
-      colors.insert(name.clone(), value.to_hex());
-      values.insert(name, value);
     }
+  }
+
+  let mut resolver = Resolver { given, done: BTreeMap::new(), active: Vec::new() };
+  let mut colors = BTreeMap::new();
+  for name in base.by_name.keys() {
+    colors.insert(name.clone(), resolver.resolve(name)?.to_hex());
   }
 
   let theme = ResolvedTheme { id: id.to_string(), name, appearance, colors };
@@ -355,6 +368,7 @@ pub fn stock() -> Vec<ResolvedTheme> {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use std::collections::BTreeSet;
 
   const CORE_REQUIRED: &str = r##"{
     "name": "Mini", "appearance": "light",
@@ -371,6 +385,15 @@ mod tests {
     CORE_REQUIRED.replacen("\"colors\": {", &format!("\"colors\": {{ {}", colors_patch), 1)
   }
 
+  // the mini theme with one more key in a section
+  fn mini_set(section: &str, key: &str, value: &str) -> String {
+    if section == "colors" {
+      return mini_with(&format!("\"{}\": \"{}\",", key, value));
+    }
+    let extra = format!("}}, \"{}\": {{\"{}\": \"{}\"}}\n  }}", section, key, value);
+    CORE_REQUIRED.replacen("}\n  }", &extra, 1)
+  }
+
   fn stock_json(id: &str) -> &'static str {
     STOCK.iter().find(|(i, _)| *i == id).unwrap().1
   }
@@ -383,16 +406,14 @@ mod tests {
       ("charcoal", Appearance::Dark),
       ("slate-dark", Appearance::Dark),
     ];
-    let total: usize = SECTIONS.iter().map(|(_, t)| t.len()).sum();
+    assert_eq!(base().by_name.len(), 119);
     for (id, appearance) in expected {
       let (theme, warnings) = parse(id, stock_json(id)).unwrap();
       assert!(warnings.is_empty(), "{}: {:?}", id, warnings);
       assert_eq!(theme.appearance, appearance, "{}", id);
-      assert_eq!(theme.colors.len(), total, "{}", id);
-      for (section, table) in SECTIONS {
-        for (key, _) in table.iter() {
-          assert!(theme.colors.contains_key(&full_key(section, key)), "{} {}", id, key);
-        }
+      assert_eq!(theme.colors.len(), 119, "{}", id);
+      for name in base().by_name.keys() {
+        assert!(theme.colors.contains_key(name), "{} {}", id, name);
       }
     }
     let ids: Vec<String> = stock().into_iter().map(|t| t.id).collect();
@@ -400,23 +421,18 @@ mod tests {
   }
 
   #[test]
-  fn test_slate_light_sets_every_key() {
-    let json: Value = serde_json::from_str(stock_json("slate-light")).unwrap();
-    for (section, table) in SECTIONS {
-      let given = json[section].as_object().unwrap_or_else(|| panic!("{} missing", section));
-      for (key, _) in table.iter() {
-        assert!(given.contains_key(*key), "slate-light lacks {}.{}", section, key);
-      }
-      assert_eq!(given.len(), table.len(), "slate-light has extra keys in {}", section);
-    }
+  fn test_slate_light_matches_snapshot() {
+    let snapshot: BTreeMap<String, String> =
+      serde_json::from_str(include_str!("../themes/test/slate-light.resolved.json")).unwrap();
+    let (theme, _) = parse("slate-light", stock_json("slate-light")).unwrap();
+    assert_eq!(theme.colors, snapshot);
   }
 
   #[test]
-  fn test_required_only_theme_resolves_everything() {
+  fn test_base_resolves_with_only_required_keys() {
     let (theme, warnings) = parse("mini", CORE_REQUIRED).unwrap();
     assert!(warnings.is_empty());
-    let total: usize = SECTIONS.iter().map(|(_, t)| t.len()).sum();
-    assert_eq!(theme.colors.len(), total);
+    assert_eq!(theme.colors.len(), base().by_name.len());
     assert_eq!(theme.colors["raised"], "#ffffff");
     assert_eq!(theme.colors["ok"], "#84cc16");
     assert_eq!(theme.colors["shadow"], "#000000");
@@ -440,6 +456,60 @@ mod tests {
     // alpha is mixed too
     let clear = Rgba::parse("#ffffff00").unwrap();
     assert_eq!(Rgba::mix(clear, white, 0.5).a, 128);
+  }
+
+  #[test]
+  fn test_nested_expression() {
+    // alpha(accent, 0.5) is 0ea5e980, mixed halfway to black (alpha ff)
+    let json = mini_set("playlist", "clip", "mix(alpha(accent, 0.5), #000, 0.5)");
+    let (theme, _) = parse("x", &json).unwrap();
+    assert_eq!(theme.colors["playlist.clip"], "#075375c0");
+  }
+
+  #[test]
+  fn test_theme_value_can_be_an_expression() {
+    let json = mini_set("playlist", "clip", "mix(panel, raised, 0.5)");
+    let (theme, _) = parse("x", &json).unwrap();
+    // f0 and ff -> f8
+    assert_eq!(theme.colors["playlist.clip"], "#f8f8f8");
+    // a plain key reference, and a section key reference
+    let json = mini_set("meter", "low", "playlist.barLine");
+    assert_eq!(parse("x", &json).unwrap().0.colors["meter.low"], "#cccccc");
+  }
+
+  #[test]
+  fn test_whitespace_variants() {
+    let tight = parse("x", &mini_set("playlist", "clip", "mix(panel,raised,0.5)")).unwrap().0;
+    for spaced in ["  mix( panel , raised , 0.5 )  ", "mix (panel,raised,0.5)", "\tmix(\npanel, raised,\n0.5)"] {
+      let json = mini_set("playlist", "clip", &spaced.replace('\n', "\\n").replace('\t', "\\t"));
+      let theme = parse("x", &json).unwrap().0;
+      assert_eq!(theme.colors["playlist.clip"], tight.colors["playlist.clip"], "{:?}", spaced);
+    }
+  }
+
+  #[test]
+  fn test_malformed_expressions_name_the_key() {
+    for bad in ["mix(a,b)", "mix(panel, raised, x)", "alpha(accent, 2)", "alpha(accent, -0.1)", "mix(panel, raised, 1.5)", "foo(", "foo(a)",
+                "mix(panel, raised, 0.5", "panel raised", "", "#12", "mix(panel, raised, 0.5))", "required"] {
+      let err = parse("x", &mini_set("playlist", "clip", bad)).unwrap_err();
+      assert!(err.contains("playlist.clip"), "{:?}: {}", bad, err);
+    }
+  }
+
+  #[test]
+  fn test_unknown_reference_is_an_error() {
+    let err = parse("x", &mini_set("playlist", "clip", "nothere")).unwrap_err();
+    assert!(err.contains("playlist.clip") && err.contains("nothere"), "{}", err);
+    let err = parse("x", &mini_set("playlist", "clip", "mix(panel, other.thing, 0.5)")).unwrap_err();
+    assert!(err.contains("other.thing"), "{}", err);
+  }
+
+  #[test]
+  fn test_cycle_is_an_error() {
+    let json = mini_with("\"surface\": \"panel\", \"panel\": \"surface\",")
+      .replacen("\"surface\": \"#ffffff\", \"panel\": \"#f0f0f0\",", "", 1);
+    let err = parse("x", &json).unwrap_err();
+    assert!(err.contains("loop") && err.contains("surface") && err.contains("panel"), "{}", err);
   }
 
   #[test]
@@ -493,23 +563,28 @@ mod tests {
   }
 
   #[test]
-  fn test_tables_match_readme() {
+  fn test_readme_matches_base() {
     let readme = include_str!("../themes/README.md");
-    let mut found: Vec<(String, Vec<String>)> = Vec::new();
+    let mut in_core = false;
+    let mut in_sections = false;
+    let mut core = BTreeSet::new();
+    let mut sections = BTreeSet::new();
     for line in readme.lines() {
-      if let Some(rest) = line.strip_prefix("## `") {
-        found.push((rest.split('`').next().unwrap().to_string(), Vec::new()));
-      } else if let Some(rest) = line.strip_prefix("| `") {
-        let key = rest.split('`').next().unwrap().to_string();
-        found.last_mut().expect("a row before any heading").1.push(key);
+      if line.starts_with("## ") {
+        in_core = line.starts_with("## The core keys");
+        in_sections = line == "## Sections";
+      } else if in_core && line.starts_with("| `") {
+        core.insert(line[3..].split('`').next().unwrap().to_string());
+      } else if in_sections && line.starts_with("- **`") {
+        sections.insert(line[5..].split('`').next().unwrap().to_string());
       }
     }
-    assert_eq!(found.len(), SECTIONS.len());
-    for ((name, keys), (section, table)) in found.iter().zip(SECTIONS) {
-      let ours: Vec<&str> = table.iter().map(|(k, _)| *k).collect();
-      assert_eq!(name, section);
-      assert_eq!(keys.iter().map(|k| k.as_str()).collect::<Vec<_>>(), ours, "{}", section);
-    }
+    // colors is the core table, so it isn't listed under Sections
+    sections.insert("colors".to_string());
+
+    let ours: BTreeSet<String> = base().sections["colors"].iter().map(|(k, _)| k.clone()).collect();
+    assert_eq!(core, ours);
+    assert_eq!(sections, base().sections.keys().cloned().collect::<BTreeSet<_>>());
   }
 
   #[test]
