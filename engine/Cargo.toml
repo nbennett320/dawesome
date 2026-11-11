@@ -54,6 +54,21 @@ libloading = "0.7"
 pulse = { version = "2.26.*", package= "libpulse-binding" }
 psimple = { version="2.25.*", package="libpulse-simple-binding" }
 
+# a window to open plugin editors in, for tests/plugins.rs
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSGeometry"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+  "std", "NSApplication", "NSGraphics", "NSResponder", "NSView", "NSWindow",
+] }
+
+# checks against the plugins installed on this machine. its own main runs
+# them on the process's main thread, which plugins expect; they only run when
+# asked: cargo test --no-default-features --test plugins -- --ignored
+[[test]]
+name = "plugins"
+harness = false
+
 [features]
 # turned on by `tauri build`, which embeds ../dist. without it (`tauri dev`,
 # `cargo run`, `cargo test`) the app loads the dev server instead
