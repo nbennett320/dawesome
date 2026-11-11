@@ -23,6 +23,7 @@ mod mixdown;
 mod mixdown_file;
 mod mixdown_commands;
 mod bind_functions;
+mod plugin;
 
 use std::env;
 use std::sync::{Arc, Mutex};
