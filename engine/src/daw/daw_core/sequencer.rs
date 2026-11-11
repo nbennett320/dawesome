@@ -2,6 +2,11 @@
 // pattern, and each pattern lights some of each row's steps. steps are 16th
 // notes, and a pattern is a whole number of bars long
 //
+// a pattern also holds notes (pitch, start, length, velocity), timed in
+// steps that needn't be whole, for the instrument of whichever track plays
+// it (the Piano Roll edits them). they're kept in the order the frontend
+// sent them, which it tells them apart by
+//
 // a pattern plays on its own in the Sequencer tab (see daw::run_playlist),
 // and as pattern clips in the playlist (PatternNode in audiograph.rs), which
 // stay linked to it: editing a pattern changes every clip of it
@@ -58,6 +63,51 @@ pub struct Pattern {
   // the folder it's in, in the sidebar's pattern browser (none: the top)
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub folder: Option<u64>,
+  // its notes, in the order they were given (left out of projects, and of
+  // the frontend's copy, when there are none)
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub notes: Vec<PatternNote>,
+}
+
+// a note in a pattern, for an instrument. `start` and `length` are in steps
+// from the pattern's start
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PatternNote {
+  // a MIDI note number, 0 to 127 (60 is middle C)
+  pub pitch: u8,
+  pub start: f64,
+  pub length: f64,
+  // 0 to 1
+  pub velocity: f32,
+}
+
+// the shortest a note can be, in steps (long enough to be some frames at
+// any tempo and rate, so its end never lands on its start)
+pub const MIN_NOTE: f64 = 1. / 32.;
+// the most notes a pattern holds
+pub const MAX_NOTES: usize = 20_000;
+
+impl PatternNote {
+  // the note made to fit a pattern `length` steps long: inside it, at least
+  // MIN_NOTE long, a pitch MIDI has and a velocity from 0 to 1. None if it
+  // makes no sense at all (a number that isn't one)
+  pub fn tidy(self, length: u32) -> Option<PatternNote> {
+    if !self.start.is_finite() || !self.length.is_finite() || !self.velocity.is_finite() { return None; }
+    let length = length as f64;
+    let start = self.start.min(length - MIN_NOTE).max(0.);
+    let end = (start + self.length.max(MIN_NOTE)).min(length);
+    Some(PatternNote {
+      pitch: self.pitch.min(127),
+      start,
+      length: end - start,
+      velocity: self.velocity.clamp(0., 1.),
+    })
+  }
+
+  pub fn end(&self) -> f64 {
+    self.start + self.length
+  }
 }
 
 // a folder of patterns, in the sidebar's pattern browser. folders only sort
@@ -325,6 +375,7 @@ impl Sequencer {
       length: steps_in_bars(bars, beats_per_bar),
       steps: BTreeMap::new(),
       folder: None,
+      notes: Vec::new(),
     })?;
     Ok(id)
   }
@@ -357,14 +408,15 @@ impl Sequencer {
   }
 
   // a new pattern made from others (see join.rs): any number of steps
-  // long, with these steps lit, straight after the pattern `after` and in
-  // its folder. returns its id
+  // long, with these steps lit and these notes, straight after the pattern
+  // `after` and in its folder. returns its id
   pub fn add_pattern_after(
     &mut self,
     after: u64,
     name: String,
     length: u32,
     steps: BTreeMap<u64, BTreeSet<u32>>,
+    notes: Vec<PatternNote>,
   ) -> Result<u64, String> {
     let idx = self.patterns.iter().position(|p| p.id == after)
       .ok_or_else(|| format!("no pattern with id {}", after))?;
@@ -375,7 +427,8 @@ impl Sequencer {
     self.next_pattern_id += 1;
 
     let folder = self.patterns[idx].folder;
-    self.patterns.insert(idx + 1, Pattern { id, name: Some(name), length, steps, folder });
+    let notes = notes.into_iter().filter_map(|note| note.tidy(length)).take(MAX_NOTES).collect();
+    self.patterns.insert(idx + 1, Pattern { id, name: Some(name), length, steps, folder, notes });
     Ok(id)
   }
 
@@ -394,10 +447,29 @@ impl Sequencer {
   }
 
   // make a pattern `bars` long. steps past a shortened pattern's end are
-  // kept, so making it longer again brings them back
+  // kept, so making it longer again brings them back. notes aren't: those
+  // that start past the new end go, and those that cross it are cut there
   pub fn set_pattern_bars(&mut self, id: u64, bars: u32, beats_per_bar: u16) -> Result<(), String> {
     check_bars(bars)?;
-    self.pattern_mut(id)?.length = steps_in_bars(bars, beats_per_bar);
+    let pattern = self.pattern_mut(id)?;
+    pattern.length = steps_in_bars(bars, beats_per_bar);
+    let end = pattern.length as f64;
+    pattern.notes.retain(|note| note.start < end);
+    for note in pattern.notes.iter_mut() {
+      note.length = note.length.min(end - note.start);
+    }
+    Ok(())
+  }
+
+  // replace a pattern's notes, each made to fit it (see PatternNote::tidy),
+  // in the order given. one that makes no sense is left out
+  pub fn set_pattern_notes(&mut self, id: u64, notes: Vec<PatternNote>) -> Result<(), String> {
+    if notes.len() > MAX_NOTES {
+      return Err(format!("a pattern can hold at most {} notes", MAX_NOTES));
+    }
+    let pattern = self.pattern_mut(id)?;
+    let length = pattern.length;
+    pattern.notes = notes.into_iter().filter_map(|note| note.tidy(length)).collect();
     Ok(())
   }
 
@@ -467,6 +539,10 @@ impl Sequencer {
     let source = self.pattern(id).cloned()
       .ok_or_else(|| format!("no pattern with id {}", id))?;
     let label = source.name.clone().unwrap_or_else(|| (source.id + 1).to_string());
+    // its notes have no sample to go with: exploding would lose them
+    if !source.notes.is_empty() {
+      return Err(format!("pattern {} has notes, and only a pattern of drum steps alone can be exploded", label));
+    }
 
     let parts: Vec<(u64, String, BTreeSet<u32>)> = self.rows.iter()
       .filter_map(|row| {
@@ -503,6 +579,7 @@ impl Sequencer {
             steps: wanted,
             // next to the pattern it came from
             folder: source.folder,
+            notes: Vec::new(),
           });
           insert_at += 1;
           new_id
@@ -684,6 +761,11 @@ impl Sequencer {
       if pattern.folder.map_or(false, |id| self.folder(id).is_none()) {
         pattern.folder = None;
       }
+      let length = pattern.length;
+      pattern.notes = std::mem::take(&mut pattern.notes).into_iter()
+        .filter_map(|note| note.tidy(length))
+        .take(MAX_NOTES)
+        .collect();
       let id = pattern.id;
       if let Err(e) = self.insert_pattern(pattern) {
         println!("left out pattern {}: {}", id, e);
@@ -989,7 +1071,7 @@ mod tests {
   #[test]
   fn test_broken_folders_are_mended_on_load() {
     let folder = |id, parent| PatternFolder { id, name: format!("f{}", id), parent };
-    let pattern = Pattern { id: 0, name: None, length: 16, steps: BTreeMap::new(), folder: Some(42) };
+    let pattern = Pattern { id: 0, name: None, length: 16, steps: BTreeMap::new(), folder: Some(42), notes: Vec::new() };
     let saved = SavedSequencer {
       rows: vec![],
       patterns: vec![pattern],
@@ -1056,8 +1138,104 @@ mod tests {
     assert_eq!(seq.patterns().len(), 4);
   }
 
+  fn note(pitch: u8, start: f64, length: f64) -> PatternNote {
+    PatternNote { pitch, start, length, velocity: 0.8 }
+  }
+
+  #[test]
+  fn test_notes_are_tidied_and_kept_in_the_order_given() {
+    let (mut seq, _, _, pattern) = kit();
+    seq.set_pattern_notes(pattern, vec![
+      note(64, 4., 2.),
+      note(60, 0., 1.5),
+      // a pitch MIDI doesn't have, a start before the pattern's, a velocity too loud
+      PatternNote { pitch: 200, start: -3., length: 4., velocity: 1.5 },
+      // past the end: it's moved in, as short as a note can be
+      note(62, 40., 2.),
+      // across the end: cut there
+      note(65, 15., 4.),
+      // too short, and not long at all
+      note(67, 2., 0.001),
+      note(67, 3., -1.),
+      // not numbers: left out
+      note(68, f64::NAN, 1.),
+      note(69, 1., f64::INFINITY),
+      PatternNote { velocity: f32::NAN, ..note(70, 1., 1.) },
+    ]).unwrap();
+
+    let notes = &seq.pattern(pattern).unwrap().notes;
+    assert_eq!(notes, &vec![
+      note(64, 4., 2.),
+      note(60, 0., 1.5),
+      PatternNote { pitch: 127, start: 0., length: 4., velocity: 1. },
+      note(62, 16. - MIN_NOTE, MIN_NOTE),
+      note(65, 15., 1.),
+      note(67, 2., MIN_NOTE),
+      note(67, 3., MIN_NOTE),
+    ]);
+
+    assert!(seq.set_pattern_notes(99, vec![]).is_err());
+    let too_many = vec![note(60, 0., 1.); MAX_NOTES + 1];
+    assert!(seq.set_pattern_notes(pattern, too_many).unwrap_err().contains("at most"));
+    // a refused edit changes nothing
+    assert_eq!(seq.pattern(pattern).unwrap().notes.len(), 7);
+  }
+
+  #[test]
+  fn test_notes_are_copied_and_cut_with_their_pattern() {
+    let (mut seq, _, _, pattern) = kit();
+    seq.set_pattern_bars(pattern, 2, 4).unwrap();
+    seq.set_pattern_notes(pattern, vec![note(60, 20., 2.), note(61, 14., 4.), note(62, 0., 1.), note(63, 16., 1.)]).unwrap();
+
+    let copy = seq.duplicate_pattern(pattern).unwrap();
+    assert_eq!(seq.pattern(copy).unwrap().notes, seq.pattern(pattern).unwrap().notes);
+
+    // shortened: past the end gone, across it cut, the rest in their order
+    seq.set_pattern_bars(pattern, 1, 4).unwrap();
+    assert_eq!(seq.pattern(pattern).unwrap().notes, vec![note(61, 14., 2.), note(62, 0., 1.)]);
+    seq.set_pattern_bars(pattern, 2, 4).unwrap();
+    assert_eq!(seq.pattern(pattern).unwrap().notes.len(), 2);
+    // the copy kept all of its own
+    assert_eq!(seq.pattern(copy).unwrap().notes.len(), 4);
+  }
+
+  #[test]
+  fn test_notes_are_saved_and_restored() {
+    let (mut seq, _, _, pattern) = kit();
+    let notes = vec![note(72, 3.5, 0.25), note(48, 0., 8.)];
+    seq.set_pattern_notes(pattern, notes.clone()).unwrap();
+    let empty = seq.add_pattern(1, 4).unwrap();
+
+    let json = serde_json::to_value(seq.saved()).unwrap();
+    assert_eq!(json["patterns"][0]["notes"][0], serde_json::json!({ "pitch": 72, "start": 3.5, "length": 0.25, "velocity": 0.8f32 }));
+    // a pattern without notes is saved as before
+    assert!(json["patterns"][1].get("notes").is_none());
+
+    let mut loaded = Sequencer::default();
+    loaded.restore(serde_json::from_value(json).unwrap());
+    assert_eq!(loaded.pattern(pattern).unwrap().notes, notes);
+    assert!(loaded.pattern(empty).unwrap().notes.is_empty());
+
+    // and a project's notes are made to fit as they're read
+    let mut saved = seq.saved();
+    saved.patterns[0].notes.push(note(60, 30., 1.));
+    loaded.restore(saved);
+    assert_eq!(loaded.pattern(pattern).unwrap().notes[2], note(60, 16. - MIN_NOTE, MIN_NOTE));
+  }
+
+  #[test]
+  fn test_a_pattern_with_notes_isnt_exploded() {
+    let (mut seq, kick, _, pattern) = kit();
+    seq.set_step(pattern, kick, 0, true).unwrap();
+    seq.set_pattern_notes(pattern, vec![note(60, 0., 1.)]).unwrap();
+    let err = seq.split_pattern(pattern).unwrap_err();
+    assert!(err.contains("has notes"), "{}", err);
+    assert_eq!(seq.patterns().len(), 1);
+  }
+
   #[test]
   fn test_split_needs_steps() {
+
     let (mut seq, _, _, pattern) = kit();
     assert!(seq.split_pattern(pattern).is_err());
     assert!(seq.split_pattern(99).is_err());

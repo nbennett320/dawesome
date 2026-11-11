@@ -6,9 +6,9 @@
 // from the earliest start to the latest end, with silence in the gaps and
 // overlaps added together
 //
-// pattern clips make a new pattern holding their steps one after another,
-// and are replaced by one clip of it (or, for the halves of a cut clip, by
-// one clip of the pattern they were cut from)
+// pattern clips make a new pattern holding their steps and notes one after
+// another, and are replaced by one clip of it (or, for the halves of a cut
+// clip, by one clip of the pattern they were cut from)
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::time::Duration;
 use serde::Serialize;
@@ -238,6 +238,7 @@ fn join_patterns(state: &daw::InnerState, clips: Vec<daw::PatternNode>) -> Resul
     let mut sequencer = audiograph.sequencer.lock().unwrap();
     let beats_per_bar = state.playlist.time_signature.lock().unwrap().numerator;
     let mut steps: BTreeMap<u64, BTreeSet<u32>> = BTreeMap::new();
+    let mut notes = Vec::new();
     let mut names = Vec::new();
     // how many steps the clips span, from the first's start
     let mut span = 0f64;
@@ -257,13 +258,23 @@ fn join_patterns(state: &daw::InnerState, clips: Vec<daw::PatternNode>) -> Resul
           steps.entry(*row).or_default().insert(at + step - from_step);
         }
       }
+      // and its notes, as the clip plays them: those that start in it, cut
+      // at its end
+      for note in pattern.notes.iter().filter(|note| note.start >= from && note.start < to) {
+        notes.push(daw::PatternNote {
+          start: note.start - from + at as f64,
+          length: note.end().min(to) - note.start,
+          ..*note
+        });
+      }
       span = span.max(after + (to - from));
     }
 
     // as long as the clips' span, up to the next bar line
     let bar = daw::steps_in_bars(1, beats_per_bar);
     let length = ((span - 1e-6) / bar as f64).ceil().max(1.) as u32 * bar;
-    let made = sequencer.add_pattern_after(clips[0].pattern_id, joined_name(&names), length, steps)?;
+    let made = sequencer.add_pattern_after(clips[0].pattern_id, joined_name(&names), length, steps, notes)?;
+
     let state_after = sequencer.state();
     drop(sequencer);
 
@@ -640,7 +651,29 @@ mod tests {
   }
 
   #[test]
+  fn test_joined_pattern_clips_keep_the_notes_they_play() {
+    let state = Arc::new(daw::InnerState::default());
+    let (_, _, a, b) = two_patterns(&state);
+    let note = |pitch, start, length| daw::PatternNote { pitch, start, length, velocity: 0.5 };
+    {
+      let mut sequencer = state.playlist.sequencer.lock().unwrap();
+      sequencer.set_pattern_notes(a, vec![note(60, 2., 4.), note(61, 13., 3.)]).unwrap();
+      sequencer.set_pattern_notes(b, vec![note(62, 0.5, 1.)]).unwrap();
+    }
+    let first = pattern_clip(&state, a, 4.);
+    let second = pattern_clip(&state, b, 8.);
+    // the first plays up to step 14: its second note is cut there
+    state.playlist.audiograph.lock().unwrap().set_pattern_window(first, 0., Some(14.)).unwrap();
+
+    let joined = join(&state, &[first, second], Some(44_100)).unwrap();
+    let sequencer = joined.sequencer.expect("a new pattern");
+    let made = sequencer.patterns.iter().find(|p| p.id == joined.clips.pattern_clips[0].pattern_id).unwrap();
+    assert_eq!(made.notes, vec![note(60, 2., 4.), note(61, 13., 1.), note(62, 16.5, 1.)]);
+  }
+
+  #[test]
   fn test_the_halves_of_a_cut_pattern_clip_are_one_clip_of_its_pattern_again() {
+
     let state = Arc::new(daw::InnerState::default());
     let (_, _, a, _) = two_patterns(&state);
     let clip = pattern_clip(&state, a, 4.);
