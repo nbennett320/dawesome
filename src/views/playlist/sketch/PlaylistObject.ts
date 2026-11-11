@@ -9,6 +9,7 @@ import { paint, theme } from './theme'
 import type { SectionKey } from '../../../theme/keys'
 import { STEPS_PER_BEAT, clipNoteBars, kindOf, litRows, patternLabel } from '../../../types/sequencer'
 import { hiddenBeyond } from './edges'
+import { drawEdgeBar } from '../../../editing/look'
 
 interface Props extends PlaylistComponentProps {
   playlistItem: PlaylistItem
@@ -28,8 +29,6 @@ const MODIFIED_DOT_SPACE = 12
 // edge, and the narrowest clip that shows them, in screen pixels
 const TRIANGLE_SPACE = 8
 const TRIANGLES_FROM_WIDTH = 28
-// how wide the bar on an edge that's hovered or being dragged is
-const EDGE_BAR_WIDTH = 2
 
 class PlaylistObject extends PlaylistComponent<State> {
   playlistItem: PlaylistItem
@@ -259,14 +258,7 @@ class PlaylistObject extends PlaylistComponent<State> {
     // a bar on the edge the mouse can grab, or is dragging, to trim the clip
     const bar = (this.renderer as Renderer)?.edgeBarOn?.(this.playlistItem.id)
     if(bar) {
-      this.p.noStroke()
-      paint.fill(this.p, 'accent')
-      this.p.rect(
-        bar === 'left' ? left * scale : right * scale - EDGE_BAR_WIDTH,
-        cardTop,
-        EDGE_BAR_WIDTH,
-        cardHeight,
-      )
+      drawEdgeBar(this.p.drawingContext as CanvasRenderingContext2D, bar, left * scale, right * scale, cardTop, cardHeight)
     }
 
     if((this.renderer as Renderer)?.debugMode) {

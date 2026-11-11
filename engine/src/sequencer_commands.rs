@@ -402,6 +402,137 @@ fn explode_each(state: &daw::InnerState, ids: &[u64], touched: &mut Vec<u64>) ->
   Ok(Exploded { removed, clips, sequencer: sequencer_state(state), mixer })
 }
 
+// the clips a drag from `from` to `to` (either way round, already snapped)
+// paints, of a pattern `length` beats long, as (start, end) in beats: end to
+// end from where the drag starts, the last one cut short where it ends. a
+// press let go where it went down paints one whole clip, and an end piece
+// shorter than `min_length` is left off. the same rule as paintSpans in
+// src/editing/paint.ts, which draws them while the mouse is held
+pub(crate) fn paint_spans(from: f64, to: f64, length: f64, min_length: f64) -> Vec<(f64, f64)> {
+  if !(length > 0.) { return vec![]; }
+  let start = from.min(to).max(0.);
+  let end = from.max(to);
+  if end - start < min_length { return vec![(start, start + length)]; }
+
+  let mut spans = Vec::new();
+  let mut i = 0.;
+  while start + i * length < end {
+    let at = start + i * length;
+    let until = (at + length).min(end);
+    if until - at >= min_length { spans.push((at, until)); }
+    i += 1.;
+  }
+  spans
+}
+
+// how many bars a new pattern painted over a drag from `from` to `to` is:
+// enough to hold it, from 1 to `max_bars`. the same rule as paintBars in
+// src/editing/paint.ts
+pub(crate) fn paint_bars(from: f64, to: f64, beats_per_bar: f64, max_bars: u32) -> u32 {
+  if !(beats_per_bar > 0.) { return 1; }
+  let bars = (((to - from).abs() - 1e-9) / beats_per_bar).ceil();
+  bars.clamp(1., max_bars.max(1) as f64) as u32
+}
+
+// pattern clips painted with the Draw tool: the clips made, in order, the
+// pattern they play (made by the paint when none was given), the sequencer,
+// the mixer, and how many tracks the playlist has now (a paint below the last
+// track makes one)
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Painted {
+  clips: Vec<LoadedPatternClip>,
+  pattern_id: u64,
+  sequencer: daw::SequencerState,
+  mixer: daw::MixerSettings,
+  track_count: u32,
+}
+
+// paint clips of a pattern along a track with the Draw tool, from
+// `start_beat` to `end_beat` (snapped by the page, not here): clips of it end
+// to end, the last trimmed to stop at the end (see paint_spans). with no
+// pattern, a new empty note pattern long enough to hold the drag, and one
+// clip of it from start to end. one step to undo, the new pattern with it
+#[tauri::command]
+pub fn paint_pattern_clips(
+  state: daw::TState<'_>,
+  pattern_id: Option<u64>,
+  track_number: u32,
+  start_beat: f64,
+  end_beat: f64,
+) -> Result<Painted, String> {
+  paint(&state, pattern_id, track_number, start_beat, end_beat)
+}
+
+fn paint(
+  state: &daw::InnerState,
+  pattern_id: Option<u64>,
+  track_number: u32,
+  start_beat: f64,
+  end_beat: f64,
+) -> Result<Painted, String> {
+  if !start_beat.is_finite() || !end_beat.is_finite() {
+    return Err(format!("{} to {} isn't a stretch of the playlist", start_beat, end_beat));
+  }
+  // checked first, so a pattern that isn't there changes nothing
+  if let Some(id) = pattern_id {
+    if state.playlist.sequencer.lock().unwrap().pattern(id).is_none() {
+      return Err(format!("no pattern with id {}", id));
+    }
+  }
+  let beats_per_bar = beats_per_bar(state);
+
+  // one step to undo: the pattern, if one's made, and every clip
+  let before = history::picture(state, &[]);
+  let made = (|| -> Result<(u64, Vec<u64>), String> {
+    // the graph is locked before the sequencer, as everywhere. (it locks the
+    // sequencer itself to place a clip, so the sequencer's lock is let go
+    // before then)
+    let mut audiograph = state.playlist.audiograph.lock().unwrap();
+    let (pattern, steps) = {
+      let mut sequencer = state.playlist.sequencer.lock().unwrap();
+      let pattern = match pattern_id {
+        Some(id) => id,
+        None => {
+          let bars = paint_bars(start_beat, end_beat, beats_per_bar as f64, daw::NOTE_BARS_MAX);
+          sequencer.add_pattern(bars, beats_per_bar, daw::PatternKind::Note)?
+        }
+      };
+      let steps = sequencer.pattern(pattern).map(|p| p.length)
+        .ok_or_else(|| format!("no pattern with id {}", pattern))?;
+      (pattern, steps)
+    };
+
+    let per_beat = daw::STEPS_PER_BEAT as f64;
+    let length = steps as f64 / per_beat;
+    let interval = audiograph.beat_interval();
+    let mut clips = Vec::new();
+    for (at, until) in paint_spans(start_beat, end_beat, length, daw::MIN_PATTERN_CLIP / per_beat) {
+      let id = audiograph.add_pattern_node(pattern, interval.mul_f64(at), track_number, None::<daw::timing::Note>)?;
+      clips.push(id);
+      // (the last, cut short where the drag ends)
+      if until < at + length {
+        audiograph.set_pattern_window(id, 0., Some((until - at) * per_beat))?;
+      }
+    }
+    Ok((pattern, clips))
+  })();
+  let ids: Vec<u64> = made.as_ref().map(|(_, clips)| clips.clone()).unwrap_or_default();
+  history::record_between(state, None, before, history::picture(state, &ids));
+  let (pattern_id, ids) = made?;
+
+  let audiograph = state.playlist.audiograph.lock().unwrap();
+  let interval = audiograph.beat_interval();
+  let clips = ids.iter()
+    .filter_map(|&id| audiograph.get_pattern_node_by_id(id))
+    .map(|node| LoadedPatternClip::of(node, interval))
+    .collect();
+  let track_count = audiograph.track_count();
+  let mixer = state.playlist.mixer.settings(track_count);
+  drop(audiograph);
+  Ok(Painted { clips, pattern_id, sequencer: sequencer_state(state), mixer, track_count })
+}
+
 // (for other modules' tests)
 #[cfg(test)]
 pub(crate) fn add_pattern_clip_for_tests(state: &daw::InnerState, pattern_id: u64, track_number: u32, drop_beat: Option<f32>) -> u64 {
@@ -787,6 +918,132 @@ mod tests {
     let applied = history::redo(&state).unwrap().unwrap();
     assert_eq!(applied.clips, Some(made));
     assert_eq!(saved(&state), after);
+  }
+
+  // (the cases of src/editing/paint.spec.ts, for paintSpans and paintBars,
+  // which must agree)
+  #[test]
+  fn test_the_paint_layout() {
+    // end to end over the drag, the last cut short
+    assert_eq!(paint_spans(4., 12., 4., 0.25), vec![(4., 8.), (8., 12.)]);
+    assert_eq!(paint_spans(0., 10., 4., 0.25), vec![(0., 4.), (4., 8.), (8., 10.)]);
+    assert_eq!(paint_spans(2., 3., 4., 0.25), vec![(2., 3.)]);
+    // the same dragged backwards
+    assert_eq!(paint_spans(10., 0., 4., 0.25), paint_spans(0., 10., 4., 0.25));
+    // a click, or a drag shorter than a clip can be: one whole clip
+    assert_eq!(paint_spans(6., 6., 4., 0.25), vec![(6., 10.)]);
+    assert_eq!(paint_spans(6., 6.1, 4., 0.25), vec![(6., 10.)]);
+    // an end piece too short to be a clip is left off
+    assert_eq!(paint_spans(0., 8.1, 4., 0.25), vec![(0., 4.), (4., 8.)]);
+    // nothing before the playlist's start, and nothing of no length
+    assert_eq!(paint_spans(-2., 4., 4., 0.25), vec![(0., 4.)]);
+    assert!(paint_spans(0., 8., 0., 0.25).is_empty());
+
+    assert_eq!(paint_bars(0., 4., 4., 64), 1);
+    assert_eq!(paint_bars(0., 4.5, 4., 64), 2);
+    assert_eq!(paint_bars(8., 0., 4., 64), 2);
+    assert_eq!(paint_bars(0., 9., 3., 64), 3);
+    assert_eq!(paint_bars(3., 3., 4., 64), 1);
+    assert_eq!(paint_bars(0., 1_000., 4., 64), 64);
+  }
+
+  // the pattern clips on a track, as (start beat, window), in order
+  fn clips_on(state: &daw::InnerState, track: u32) -> Vec<(f32, Option<crate::event_dispatch::ClipWindow>)> {
+    let audiograph = state.playlist.audiograph.lock().unwrap();
+    let interval = audiograph.beat_interval();
+    let mut clips: Vec<_> = audiograph.pattern_nodes.iter()
+      .filter(|node| node.track_number == track)
+      .map(|node| LoadedPatternClip::of(node, interval))
+      .map(|clip| (clip.start_beat, clip.window))
+      .collect();
+    clips.sort_by(|a, b| a.0.total_cmp(&b.0));
+    clips
+  }
+
+  #[test]
+  fn test_painting_lays_clips_end_to_end() {
+    let (state, _, _, pattern, _, _) = drums();
+    let had = steps(&state);
+
+    // a one bar pattern (four beats), painted over ten
+    let painted = paint(&state, Some(pattern), 2, 4., 14.).unwrap();
+    assert_eq!(painted.pattern_id, pattern);
+    assert_eq!(painted.clips.len(), 3);
+    assert!(painted.clips.iter().all(|clip| clip.pattern_id == pattern && clip.track_number == 2));
+    let starts: Vec<f32> = painted.clips.iter().map(|clip| clip.start_beat).collect();
+    assert_eq!(starts, vec![4., 8., 12.]);
+    // the last is trimmed to the drag's end: two beats, eight steps
+    assert_eq!(painted.clips[0].window, None);
+    assert_eq!(painted.clips[1].window, None);
+    assert_eq!(painted.clips[2].window, Some(crate::event_dispatch::ClipWindow { start: 0., end: Some(8.) }));
+    assert_eq!(clips_on(&state, 2), painted.clips.iter().map(|c| (c.start_beat, c.window)).collect::<Vec<_>>());
+    // no new pattern, and one step
+    assert_eq!(painted.sequencer.patterns.len(), 1);
+    assert_eq!(steps(&state), had + 1);
+  }
+
+  #[test]
+  fn test_painting_with_no_pattern_makes_one() {
+    let (state, _, _, pattern, _, _) = drums();
+    let painted = paint(&state, None, 0, 2., 8.).unwrap();
+
+    // six beats needs two bars: a note pattern of them, played to the end of
+    // the drag
+    assert_ne!(painted.pattern_id, pattern);
+    let made = painted.sequencer.patterns.iter().find(|p| p.id == painted.pattern_id).unwrap();
+    assert_eq!(made.kind, daw::PatternKind::Note);
+    assert_eq!(made.length, 32);
+    assert_eq!(painted.clips.len(), 1);
+    assert_eq!(painted.clips[0].start_beat, 2.);
+    assert_eq!(painted.clips[0].window, Some(crate::event_dispatch::ClipWindow { start: 0., end: Some(24.) }));
+
+    // a click: a bar, and the clip is all of it
+    let clicked = paint(&state, None, 0, 20., 20.).unwrap();
+    let made = clicked.sequencer.patterns.iter().find(|p| p.id == clicked.pattern_id).unwrap();
+    assert_eq!(made.length, 16);
+    assert_eq!(clicked.clips[0].window, None);
+  }
+
+  #[test]
+  fn test_painting_below_the_last_track_makes_one() {
+    let (state, _, _, pattern, _, _) = drums();
+    let count = state.playlist.audiograph.lock().unwrap().track_count();
+    let painted = paint(&state, Some(pattern), count, 0., 4.).unwrap();
+    assert_eq!(painted.track_count, count + 1);
+    assert!(painted.mixer.tracks.iter().any(|t| t.track_number == count));
+  }
+
+  #[test]
+  fn test_a_paint_is_one_step() {
+    let (state, _, _, pattern, _, _) = drums();
+    for given in [Some(pattern), None] {
+      let before = saved(&state);
+      let had = steps(&state);
+
+      let painted = paint(&state, given, 3, 0., 10.).unwrap();
+      assert_eq!(steps(&state), had + 1);
+      let after = saved(&state);
+      assert_ne!(before, after);
+
+      // undone, every clip goes (and the pattern it made); redone, they're back
+      history::undo(&state).unwrap();
+      assert_eq!(saved(&state), before);
+      let applied = history::redo(&state).unwrap().unwrap();
+      let ids: Vec<u64> = painted.clips.iter().map(|clip| clip.id).collect();
+      assert_eq!(applied.clips, Some(ids));
+      assert_eq!(saved(&state), after);
+    }
+  }
+
+  #[test]
+  fn test_painting_an_unknown_pattern_changes_nothing() {
+    let (state, _, _, _, _, _) = drums();
+    let before = saved(&state);
+    let had = steps(&state);
+    assert!(paint(&state, Some(99), 0, 0., 8.).is_err());
+    assert!(paint(&state, None, 0, f64::NAN, 8.).is_err());
+    assert_eq!(saved(&state), before);
+    assert_eq!(steps(&state), had);
   }
 
   #[test]

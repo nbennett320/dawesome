@@ -1,7 +1,7 @@
 import {
-  groupLanding, keepExisting, lassoRect, lassoSelection, rectsTouch, toggleSelected, ShiftPress, clipAt, lassoFrom,
+  keepExisting, lassoRect, lassoSelection, rectsTouch, toggleSelected, ShiftPress, itemAt, lassoFrom,
   shiftClick, shiftRelease, startsLasso,
-} from './selection'
+} from './lasso'
 
 const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height })
 
@@ -73,36 +73,6 @@ describe('keepExisting', () => {
   })
 })
 
-describe('groupLanding', () => {
-  const placed = [
-    { id: 1, beat: 2, track: 0 },
-    { id: 2, beat: 2.25, track: 1 },
-    { id: 3, beat: 6, track: 1 },
-  ]
-
-  it('moves every clip by as much as the grabbed one', () => {
-    expect(groupLanding(placed, 2, 4.25, 2, 16, 4)).toEqual([
-      { id: 1, beat: 4, track: 1 },
-      { id: 2, beat: 4.25, track: 2 },
-      { id: 3, beat: 8, track: 2 },
-    ])
-  })
-
-  it('stops the group at the start and end of the playlist', () => {
-    expect(groupLanding(placed, 3, 3, 1, 16, 4).map(c => c.beat)).toEqual([0, 0.25, 4])
-    expect(groupLanding(placed, 1, 15, 0, 16, 4).map(c => c.beat)).toEqual([12, 12.25, 16])
-  })
-
-  it('stops the group at the first track and the new-track area', () => {
-    expect(groupLanding(placed, 2, 2.25, 0, 16, 4).map(c => c.track)).toEqual([0, 1, 1])
-    expect(groupLanding(placed, 1, 2, 9, 16, 4).map(c => c.track)).toEqual([3, 4, 4])
-  })
-
-  it('lands nothing without the grabbed clip', () => {
-    expect(groupLanding(placed, 9, 0, 0, 16, 4)).toEqual([])
-  })
-})
-
 describe('a shift press', () => {
   const clips = [
     { id: 1, box: { left: 380, top: 224, width: 100, height: 100 } },
@@ -111,8 +81,8 @@ describe('a shift press', () => {
   // the view is scrolled and zoomed, so where the press is on the canvas
   // (`screen`) isn't where it is in the playlist (`point`).
   // pressed in the middle of clip 1
-  const onClip: ShiftPress = { screen: { x: 50, y: 60 }, point: { x: 430, y: 260 }, clipId: 1 }
-  const onEmpty: ShiftPress = { screen: { x: 200, y: 60 }, point: { x: 580, y: 260 }, clipId: null }
+  const onClip: ShiftPress = { screen: { x: 50, y: 60 }, point: { x: 430, y: 260 }, itemId: 1 }
+  const onEmpty: ShiftPress = { screen: { x: 200, y: 60 }, point: { x: 580, y: 260 }, itemId: null }
   // the mouse `dx`, `dy` canvas pixels from where `press` went down (and,
   // zoomed in 2x, half as far in the playlist's x)
   const moved = (press: ShiftPress, dx: number, dy: number) => ({
@@ -122,11 +92,11 @@ describe('a shift press', () => {
 
   it('finds the clip under a point, the top one where clips overlap', () => {
     const over = [...clips, { id: 3, box: { left: 400, top: 224, width: 50, height: 100 } }]
-    expect(clipAt({ x: 430, y: 260 }, clips)).toBe(1)
-    expect(clipAt({ x: 430, y: 260 }, over)).toBe(3)
-    expect(clipAt({ x: 470, y: 260 }, over)).toBe(1)
-    expect(clipAt({ x: 580, y: 260 }, over)).toBeNull()
-    expect(clipAt({ x: 430, y: 200 }, over)).toBeNull()
+    expect(itemAt({ x: 430, y: 260 }, clips)).toBe(1)
+    expect(itemAt({ x: 430, y: 260 }, over)).toBe(3)
+    expect(itemAt({ x: 470, y: 260 }, over)).toBe(1)
+    expect(itemAt({ x: 580, y: 260 }, over)).toBeNull()
+    expect(itemAt({ x: 430, y: 200 }, over)).toBeNull()
   })
 
   it('is a click until the mouse has moved past the drag distance on the canvas', () => {

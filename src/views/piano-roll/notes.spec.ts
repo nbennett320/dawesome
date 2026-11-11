@@ -1,80 +1,218 @@
 import { Note, Pattern, clipNoteBars, stepsPerBar, synthNotes, withNotes } from '../../types/sequencer'
 import {
-  DEFAULT_LENGTH, NEW_VELOCITY, allIndices, centrePitch, clampNote, deleteNotes, drawnLength, fitSelection,
-  hitNote, isBlackKey, moveNotes, newNote, notesInBox, pitchName, resizeNotes, sameNotes, toggleSelected,
+  DEFAULT_LENGTH, NEW_VELOCITY, allIndices, centrePitch, clampNote, copyNotes, cutNotes, deleteNotes, drawnLength,
+  fitSelection, inSteps, isBlackKey, moveNotes, newNote, noteBoxes, noteCut, pasteNotes, pasteStep, pitchName,
+  pressKind, repeatNotes, rollSnapping, sameNotes, snapStep, snapStepDown, trimNotes,
 } from './notes'
-import { pitchAtY, rowTop, stepAtX, ROW_HEIGHT, STEP_WIDTH } from './draw'
+import {
+  DEFAULT_STEP_WIDTH, MAX_STEP_WIDTH, MIN_STEP_WIDTH, ROW_HEIGHT, pitchAtY, rowAtY, rowTop, stepAtX, zoomGrid,
+} from './draw'
 
 const note = (pitch: number, start: number, length = 1): Note => ({ pitch, start, length, velocity: 0.8 })
 
+const sixteenths = rollSnapping(true, 'SixteenthNote', false)
+const beats = rollSnapping(true, 'QuarterNote', false)
+const bypassed = rollSnapping(true, 'QuarterNote', true)
+const off = rollSnapping(false, 'QuarterNote', false)
+
+describe('snapping', () => {
+  it('has a line every snap length, in steps, and no playhead', () => {
+    expect(sixteenths).toEqual({ enabled: true, every: 1, playhead: null, bypass: false })
+    expect(beats.every).toBe(4)
+    expect(rollSnapping(true, 'WholeNote', false).every).toBe(16)
+  })
+
+  it('lands on the nearest line, or the line at or before for something new', () => {
+    expect(snapStep(5.6, beats)).toBe(4)
+    expect(snapStep(6.1, beats)).toBe(8)
+    expect(snapStepDown(7.9, beats)).toBe(4)
+  })
+
+  it('keeps to whole steps with snap off, or Option held', () => {
+    expect(inSteps(off).every).toBe(1)
+    expect(inSteps(bypassed).every).toBe(1)
+    expect(snapStep(5.6, off)).toBe(6)
+    expect(snapStep(5.6, bypassed)).toBe(6)
+    expect(snapStepDown(7.9, off)).toBe(7)
+    expect(snapStepDown(7.9, bypassed)).toBe(7)
+  })
+})
+
 describe('drawing a note', () => {
-  it('starts on the whole step pressed, at the last length, with velocity 0.8', () => {
-    expect(newNote(5.7, 60, DEFAULT_LENGTH, 16)).toEqual({ pitch: 60, start: 5, length: 4, velocity: NEW_VELOCITY })
+  it('starts on the snap line at or before the press, at the last length, with velocity 0.8', () => {
+    expect(newNote(5.7, 60, DEFAULT_LENGTH, 16, sixteenths))
+      .toEqual({ pitch: 60, start: 5, length: 4, velocity: NEW_VELOCITY })
     expect(DEFAULT_LENGTH).toBe(4)
+    expect(newNote(5.7, 60, 2, 16, beats).start).toBe(4)
+    expect(newNote(5.7, 60, 2, 16, bypassed).start).toBe(5)
   })
 
   it('is kept inside the pattern', () => {
     // drawn near the end, it's cut short where the pattern ends
-    expect(newNote(14.2, 60, 4, 16)).toMatchObject({ start: 14, length: 2 })
-    expect(newNote(15.2, 60, 4, 16)).toMatchObject({ start: 15, length: 1 })
-    expect(newNote(-2, 200, 4, 16)).toMatchObject({ start: 0, pitch: 127 })
+    expect(newNote(14.2, 60, 4, 16, sixteenths)).toMatchObject({ start: 14, length: 2 })
+    expect(newNote(15.2, 60, 4, 16, sixteenths)).toMatchObject({ start: 15, length: 1 })
+    expect(newNote(-2, 200, 4, 16, sixteenths)).toMatchObject({ start: 0, pitch: 127 })
     expect(clampNote(note(-5, 3, 40), 16)).toMatchObject({ pitch: 0, start: 0, length: 16 })
   })
 
-  it('takes the length dragged to: up to the step the mouse is in, at least one', () => {
-    expect(drawnLength(4, 4.2, 16)).toBe(1)
-    expect(drawnLength(4, 7.5, 16)).toBe(4)
-    expect(drawnLength(4, 2, 16)).toBe(1)
-    expect(drawnLength(4, 30, 16)).toBe(12)
+  it('takes the length dragged to: the nearest snap line, at least one snap length', () => {
+    expect(drawnLength(4, 6.6, 16, sixteenths)).toBe(3)
+    expect(drawnLength(4, 4.2, 16, sixteenths)).toBe(1)
+    expect(drawnLength(4, 2, 16, sixteenths)).toBe(1)
+    expect(drawnLength(4, 30, 16, sixteenths)).toBe(12)
+    expect(drawnLength(4, 9.5, 16, beats)).toBe(4)
+    expect(drawnLength(4, 5, 16, beats)).toBe(4)
+    expect(drawnLength(4, 6.4, 16, off)).toBe(2)
+    expect(drawnLength(12, 30, 16, beats)).toBe(4)
   })
 })
 
-describe('hitting a note', () => {
-  const notes = [note(60, 0, 4), note(60, 2, 4), note(62, 8, 1)]
-  const edge = 6 / STEP_WIDTH
-
-  it('finds the one on top (drawn last), by its body or its right edge', () => {
-    expect(hitNote(notes, 3, 60, edge)).toEqual({ index: 1, part: 'body' })
-    expect(hitNote(notes, 1, 60, edge)).toEqual({ index: 0, part: 'body' })
-    expect(hitNote(notes, 5.9, 60, edge)).toEqual({ index: 1, part: 'end' })
-    expect(hitNote(notes, 6, 60, edge)).toBeNull()
-    expect(hitNote(notes, 3, 61, edge)).toBeNull()
+describe('the mouse', () => {
+  it('gives each note a box in steps and rows, its index for its id', () => {
+    expect(noteBoxes([note(60, 2, 3), note(127, 0)])).toEqual([
+      { id: 0, box: { left: 2, top: 67, width: 3, height: 1 } },
+      { id: 1, box: { left: 0, top: 0, width: 1, height: 1 } },
+    ])
   })
 
-  it('leaves a short note a body to grab', () => {
-    expect(hitNote(notes, 8.5, 62, edge)).toEqual({ index: 2, part: 'body' })
-    expect(hitNote(notes, 8.9, 62, edge)).toEqual({ index: 2, part: 'end' })
+  it('knows what a press starts with each tool', () => {
+    const at = { shift: false, onNote: false, onEdge: false, inPattern: true }
+    // shift: a click or a box, whatever the tool and wherever
+    expect(pressKind({ ...at, tool: 'select', shift: true, onNote: true, onEdge: true })).toBe('shift')
+    expect(pressKind({ ...at, tool: 'cut', shift: true, onNote: true })).toBe('shift')
+    expect(pressKind({ ...at, tool: 'draw', shift: true })).toBe('shift')
+
+    expect(pressKind({ ...at, tool: 'select', onNote: true })).toBe('move')
+    expect(pressKind({ ...at, tool: 'select', onNote: true, onEdge: true })).toBe('edge')
+    expect(pressKind({ ...at, tool: 'select' })).toBe('empty')
+
+    // Draw on a note is as Select
+    expect(pressKind({ ...at, tool: 'draw', onNote: true })).toBe('move')
+    expect(pressKind({ ...at, tool: 'draw', onNote: true, onEdge: true })).toBe('edge')
+    expect(pressKind({ ...at, tool: 'draw' })).toBe('draw')
+    expect(pressKind({ ...at, tool: 'draw', inPattern: false })).toBe('empty')
+
+    // Cut leaves edges alone
+    expect(pressKind({ ...at, tool: 'cut', onNote: true, onEdge: true })).toBe('cut')
+    expect(pressKind({ ...at, tool: 'cut' })).toBe('empty')
   })
 })
 
 describe('moving notes', () => {
   const notes = [note(60, 2, 2), note(64, 6, 2), note(70, 0, 1)]
 
-  it('moves the chosen ones together by whole steps and semitones', () => {
-    expect(moveNotes(notes, [0, 1], 3, -2, 16)).toEqual([note(58, 5, 2), note(62, 9, 2), note(70, 0, 1)])
-    expect(moveNotes(notes, [0], 1.4, 0.4, 16)[0]).toEqual(note(60, 3, 2))
+  it('moves the chosen ones together by the grabbed one, to a step and a pitch', () => {
+    expect(moveNotes(notes, [0, 1], 0, 5, 58, 16)).toEqual([note(58, 5, 2), note(62, 9, 2), note(70, 0, 1)])
+    expect(moveNotes(notes, [0, 1], 1, 7, 64, 16)).toEqual([note(60, 3, 2), note(64, 7, 2), note(70, 0, 1)])
   })
 
   it('holds the move back at the pattern’s ends and the piano’s, keeping their shape', () => {
-    expect(moveNotes(notes, [0, 1], -10, 0, 16).slice(0, 2)).toEqual([note(60, 0, 2), note(64, 4, 2)])
-    expect(moveNotes(notes, [0, 1], 20, 0, 16).slice(0, 2)).toEqual([note(60, 10, 2), note(64, 14, 2)])
-    expect(moveNotes(notes, [0, 1], 0, 100, 16).slice(0, 2).map(n => n.pitch)).toEqual([123, 127])
-    expect(moveNotes(notes, [0, 1], 0, -100, 16).slice(0, 2).map(n => n.pitch)).toEqual([0, 4])
+    expect(moveNotes(notes, [0, 1], 0, -10, 60, 16).slice(0, 2)).toEqual([note(60, 0, 2), note(64, 4, 2)])
+    expect(moveNotes(notes, [0, 1], 0, 20, 60, 16).slice(0, 2)).toEqual([note(60, 10, 2), note(64, 14, 2)])
+    expect(moveNotes(notes, [0, 1], 0, 2, 160, 16).slice(0, 2).map(n => n.pitch)).toEqual([123, 127])
+    expect(moveNotes(notes, [0, 1], 0, 2, -40, 16).slice(0, 2).map(n => n.pitch)).toEqual([0, 4])
   })
 
   it('gives back the same list when nothing moves', () => {
-    expect(moveNotes(notes, [0], 0, 0, 16)).toBe(notes)
-    expect(moveNotes(notes, [], 3, 3, 16)).toBe(notes)
+    expect(moveNotes(notes, [0], 0, 2, 60, 16)).toBe(notes)
+    expect(moveNotes(notes, [], 0, 3, 63, 16)).toBe(notes)
   })
 })
 
-describe('resizing notes', () => {
-  const notes = [note(60, 2, 2), note(64, 12, 2)]
+describe('trimming notes', () => {
+  const notes = [note(60, 2, 2), note(64, 12, 2), note(67, 0, 1)]
 
-  it('changes each chosen note’s length, at least a step, inside the pattern', () => {
-    expect(resizeNotes(notes, [0, 1], 3, 16)).toEqual([note(60, 2, 5), note(64, 12, 4)])
-    expect(resizeNotes(notes, [0], -5, 16)[0]).toEqual(note(60, 2, 1))
-    expect(resizeNotes(notes, [1], 0.4, 16)).toBe(notes)
+  it('moves the right edge of each chosen note as far, each stopping at the pattern’s end', () => {
+    expect(trimNotes(notes, [0, 1], 0, 'right', 7, 16)).toEqual([note(60, 2, 5), note(64, 12, 4), note(67, 0, 1)])
+    // never shorter than a step
+    expect(trimNotes(notes, [0], 0, 'right', -3, 16)[0]).toEqual(note(60, 2, 1))
+  })
+
+  it('moves the left edge too, ends staying put', () => {
+    expect(trimNotes(notes, [0, 1], 0, 'left', 0, 16)).toEqual([note(60, 0, 4), note(64, 10, 4), note(67, 0, 1)])
+    expect(trimNotes(notes, [0, 1], 0, 'left', 5, 16).slice(0, 2)).toEqual([note(60, 3, 1), note(64, 13, 1)])
+    // the grabbed one is the one whose edge goes to the target
+    expect(trimNotes(notes, [0, 1], 1, 'left', 11, 16).slice(0, 2)).toEqual([note(60, 1, 3), note(64, 11, 3)])
+  })
+
+  it('lets a note that already runs past the pattern’s end keep its end', () => {
+    expect(trimNotes([note(60, 14, 4)], [0], 0, 'right', 17, 16)).toEqual([note(60, 14, 3)])
+  })
+
+  it('gives back the same list when nothing changes', () => {
+    expect(trimNotes(notes, [0], 0, 'right', 4, 16)).toBe(notes)
+  })
+})
+
+describe('cutting notes', () => {
+  const notes = [note(60, 0, 4), { ...note(64, 0, 4), velocity: 0.5 }, note(67, 8, 2)]
+
+  it('cuts the note clicked where the snap says, and the selection under the cut with it', () => {
+    expect(noteCut(notes, 0, new Set([0, 1]), 2.3, sixteenths)).toEqual({ ids: [0, 1], step: 2 })
+    // not selected: on its own
+    expect(noteCut(notes, 0, new Set([1]), 2.3, sixteenths)).toEqual({ ids: [0], step: 2 })
+    // a whole step with snap off
+    expect(noteCut(notes, 0, new Set(), 2.6, off)).toEqual({ ids: [0], step: 3 })
+  })
+
+  it('cuts nowhere that leaves a half shorter than a step', () => {
+    expect(noteCut(notes, 0, new Set(), 2.3, beats)).toBeNull()
+    expect(noteCut(notes, 0, new Set(), 0.2, sixteenths)).toBeNull()
+    expect(noteCut(notes, 7, new Set(), 2, sixteenths)).toBeNull()
+  })
+
+  it('makes each note two, the same pitch and velocity, the second halves after the rest', () => {
+    const cut = cutNotes(notes, [0, 1], 3)
+    expect(cut.notes).toEqual([
+      note(60, 0, 3), { ...note(64, 0, 3), velocity: 0.5 }, note(67, 8, 2),
+      note(60, 3, 1), { ...note(64, 3, 1), velocity: 0.5 },
+    ])
+    expect([...cut.halves]).toEqual([[0, 3], [1, 4]])
+    expect(cutNotes(notes, [2], 3).notes).toBe(notes)
+  })
+})
+
+describe('copying, pasting and repeating', () => {
+  const notes = [note(60, 4, 2), note(64, 6, 2), note(67, 12, 2)]
+
+  it('copies the selected notes in order', () => {
+    expect(copyNotes(notes, new Set([1, 0]))).toEqual([notes[0], notes[1]])
+    expect(copyNotes(notes, new Set([5]))).toEqual([])
+  })
+
+  it('pastes with the earliest at the step given, pitches kept, the copies after the notes', () => {
+    expect(pasteNotes(notes, [notes[0], notes[1]], 0, 16)).toEqual({
+      notes: [...notes, note(60, 0, 2), note(64, 2, 2)],
+      added: [3, 4],
+    })
+  })
+
+  it('leaves out a copy at or past the pattern’s end, and cuts short one crossing it', () => {
+    expect(pasteNotes(notes, [notes[0], notes[1]], 13, 16).notes.slice(3)).toEqual([note(60, 13, 2), note(64, 15, 1)])
+    expect(pasteNotes(notes, [notes[0], notes[1]], 15, 16)).toEqual({
+      notes: [...notes, note(60, 15, 1)],
+      added: [3],
+    })
+    expect(pasteNotes(notes, [notes[0]], 16, 16)).toEqual({ notes, added: [] })
+    expect(pasteNotes(notes, [], 0, 16)).toEqual({ notes, added: [] })
+  })
+
+  it('repeats the selection where it ends, so again lays them end to end', () => {
+    const once = repeatNotes(notes, new Set([0, 1]), 16)
+    expect(once).toEqual({ notes: [...notes, note(60, 8, 2), note(64, 10, 2)], added: [3, 4] })
+    expect(repeatNotes(once.notes, new Set(once.added), 16).notes.slice(5)).toEqual([note(60, 12, 2), note(64, 14, 2)])
+    // only what starts before the pattern's end
+    expect(repeatNotes(notes, new Set([0, 1, 2]), 16).notes.slice(3)).toEqual([note(60, 14, 2)])
+  })
+
+  it('pastes at the snap line at or before the mouse, or the first in view', () => {
+    expect(pasteStep(5.7, 0, sixteenths)).toBe(5)
+    expect(pasteStep(5.7, 0, beats)).toBe(4)
+    expect(pasteStep(-1, 0, beats)).toBe(0)
+    expect(pasteStep(null, 5.2, beats)).toBe(8)
+    expect(pasteStep(null, 5.2, sixteenths)).toBe(6)
+    expect(pasteStep(null, 8, beats)).toBe(8)
+    expect(pasteStep(null, 0, beats)).toBe(0)
   })
 })
 
@@ -83,28 +221,19 @@ describe('deleting and selecting', () => {
 
   it('deletes the chosen notes', () => {
     expect(deleteNotes(notes, [1, 3])).toEqual([notes[0], notes[2]])
-  })
-
-  it('shift-clicks in and out of the selection', () => {
-    expect(toggleSelected([2], 0)).toEqual([0, 2])
-    expect(toggleSelected([0, 2], 2)).toEqual([0])
-  })
-
-  it('selects what a rubber band touches, whichever way it was dragged', () => {
-    expect(notesInBox(notes, { step: 5, pitch: 60 }, { step: 3.5, pitch: 65 })).toEqual([0, 1])
-    expect(notesInBox(notes, { step: 9, pitch: 90 }, { step: 0.5, pitch: 63 })).toEqual([2, 3])
+    expect(deleteNotes(notes, new Set([0]))).toEqual(notes.slice(1))
   })
 
   it('selects all, and drops what’s no longer there', () => {
-    expect(allIndices(notes)).toEqual([0, 1, 2, 3])
-    const kept = [0, 1]
+    expect([...allIndices(notes)]).toEqual([0, 1, 2, 3])
+    const kept = new Set([0, 1])
     expect(fitSelection(kept, notes)).toBe(kept)
-    expect(fitSelection([0, 3, 5], notes.slice(0, 2))).toEqual([0])
+    expect([...fitSelection(new Set([0, 3, 5]), notes.slice(0, 2))]).toEqual([0])
   })
 
   it('tells lists of notes apart', () => {
     expect(sameNotes(notes, notes.map(n => ({ ...n })))).toBe(true)
-    expect(sameNotes(notes, moveNotes(notes, [0], 1, 0, 16))).toBe(false)
+    expect(sameNotes(notes, moveNotes(notes, [0], 0, 1, 60, 16))).toBe(false)
   })
 })
 
@@ -122,11 +251,28 @@ describe('the grid', () => {
     expect(centrePitch([note(40, 0), note(50, 0)])).toBe(45)
   })
 
-  it('turns pixels into steps and pitches, and back', () => {
+  it('turns pixels into steps, rows and pitches, and back, at any zoom', () => {
     expect(pitchAtY(rowTop(60))).toBe(60)
     expect(pitchAtY(rowTop(60) + ROW_HEIGHT - 1)).toBe(60)
     expect(pitchAtY(rowTop(127))).toBe(127)
-    expect(stepAtX(STEP_WIDTH * 2.5)).toBe(2.5)
+    expect(rowAtY(rowTop(60) + ROW_HEIGHT / 2)).toBe(67.5)
+    expect(stepAtX(DEFAULT_STEP_WIDTH * 2.5, DEFAULT_STEP_WIDTH)).toBe(2.5)
+    expect(stepAtX(100, 50)).toBe(2)
+  })
+
+  it('zooms along time about the mouse, from 6 to 96 pixels a step', () => {
+    expect(DEFAULT_STEP_WIDTH).toBe(24)
+    expect(zoomGrid(24, 0, 2, 0)).toEqual({ stepWidth: 48, scrollLeft: 0 })
+    // the step under the mouse (15) stays under it
+    const zoomed = zoomGrid(24, 240, 2, 120)
+    expect(zoomed).toEqual({ stepWidth: 48, scrollLeft: 600 })
+    expect((zoomed.scrollLeft + 120) / zoomed.stepWidth).toBe(15)
+    expect(zoomGrid(90, 0, 2, 0).stepWidth).toBe(MAX_STEP_WIDTH)
+    const out = zoomGrid(8, 100, 0.1, 50)
+    expect(out.stepWidth).toBe(MIN_STEP_WIDTH)
+    expect((out.scrollLeft + 50) / out.stepWidth).toBeCloseTo((100 + 50) / 8)
+    // never scrolled before the grid's start
+    expect(zoomGrid(24, 0, 0.5, 300).scrollLeft).toBe(0)
   })
 
   it('has a bar of 16 steps in 4/4 and 12 in 3/4, as the Sequencer does', () => {

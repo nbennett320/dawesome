@@ -23,13 +23,13 @@ pub const METRONOME_TICK_ACCENTED_PATH: &str = "assets/assets_66-hh-01-or-2.wav"
 
 lazy_static! {
   pub static ref METRONOME_TICK_SOURCE: SampleBuffer = {
-    SampleBuffer::load(METRONOME_TICK_PATH).unwrap()
+    SampleBuffer::from_bytes(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/assets_66-hh-01-or.wav")))
   };
 }
 
 lazy_static! {
   pub static ref METRONOME_TICK_ACCENTED_SOURCE: SampleBuffer = {
-    SampleBuffer::load(METRONOME_TICK_ACCENTED_PATH).unwrap()
+    SampleBuffer::from_bytes(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/assets_66-hh-01-or-2.wav")))
   };
 }
 

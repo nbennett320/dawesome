@@ -36,7 +36,7 @@ use rtrb::{Consumer, RingBuffer};
 use std::cell::Cell;
 use std::ffi::c_void;
 use std::path::Path;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 // how many parameter changes can wait between the halves
@@ -46,6 +46,9 @@ pub struct Plugin {
   info: PluginInfo,
   sample_rate: u32,
   latency: u32,
+  // how long it says it rings on after its input stops, in frames, which
+  // its processor reads on the audio thread (see Processor::tail_frames)
+  tail: Arc<AtomicU32>,
   // the open window's view
   editor: Option<ComPtr<IPlugView>>,
   has_editor: Cell<Option<bool>>,
@@ -341,14 +344,16 @@ impl Plugin {
     com.audio = Some(audio);
     com.start(sample_rate)?;
     let latency = unsafe { com.audio().getLatencySamples() };
+    let tail = Arc::new(AtomicU32::new(unsafe { com.audio().getTailSamples() }));
 
     let gate = Arc::new(Gate::new());
-    let processor = VstProcessor::new(com.audio().as_ptr(), gate.clone(), from_main, to_main, &layout);
+    let processor = VstProcessor::new(com.audio().as_ptr(), gate.clone(), from_main, to_main, &layout, tail.clone());
     let processor = if mode == kOffline as i32 { processor.offline() } else { processor };
     Ok(Plugin {
       info,
       sample_rate,
       latency,
+      tail,
       editor: None,
       has_editor: Cell::new(None),
       frame: ComWrapper::new(PlugFrame { resized: Mutex::new(None) }),
@@ -384,6 +389,7 @@ impl Plugin {
     self.com.start(sample_rate)?;
     self.sample_rate = sample_rate;
     self.latency = unsafe { self.com.audio().getLatencySamples() };
+    self.tail.store(unsafe { self.com.audio().getTailSamples() }, Ordering::Relaxed);
     self.gate.open();
     Ok(())
   }

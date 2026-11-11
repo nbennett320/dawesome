@@ -9,7 +9,7 @@ import {
   trackLabel,
 } from '../../types/mixer'
 import { LoadedProject } from '../../types/project'
-import { reduceLoadedProject, reduceProjectView } from './playlistSlice'
+import { reduceLoadedProject, reducePainted, reduceProjectView } from './playlistSlice'
 import { currentGesture } from '../gesture'
 
 // the Mixer tab's state. the engine owns the mixer and applies changes while
@@ -61,6 +61,8 @@ export const mixerSlice = createSlice({
       (action.payload.mixer ? fromSettings(action.payload.mixer) : state))
     // and an undo or redo may have changed it
     builder.addCase(reduceProjectView, (_, action) => fromSettings(action.payload.project.mixer))
+    // and a paint below the last track has made a track
+    builder.addCase(reducePainted, (_, action) => fromSettings(action.payload.mixer))
   },
 })
 

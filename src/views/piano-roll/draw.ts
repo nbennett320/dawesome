@@ -2,6 +2,10 @@
 // it and the keyboard down its left, each on a plain canvas. only what's in
 // view is drawn, and only when something changes, so a pattern with
 // hundreds of notes stays smooth. the colours come from the theme
+import { Edge } from '../../editing/edges'
+import { Rect } from '../../editing/lasso'
+import { drawCutLine, drawEdgeBar, drawLasso } from '../../editing/look'
+import { zoomAround } from '../../editing/view'
 import { painter } from '../../theme/canvas'
 import { currentTheme } from '../../theme/apply'
 import { STEPS_PER_BEAT, Note } from '../../types/sequencer'
@@ -10,31 +14,54 @@ import { HIGHEST_PITCH, PITCHES, isBlackKey, pitchName } from './notes'
 const colors = painter('colors')
 const lanes = painter('playlist')
 
-// how big a step and a semitone are on the grid, in CSS pixels
-export const STEP_WIDTH = 24
+// how wide a step is on the grid, in CSS pixels: to start with, and as far
+// as zooming goes either way. (the zoom isn't saved)
+export const DEFAULT_STEP_WIDTH = 24
+export const MIN_STEP_WIDTH = 6
+export const MAX_STEP_WIDTH = 96
+// how tall a semitone is
 export const ROW_HEIGHT = 14
 // the keyboard's width, and the ruler's height
 export const KEYS_WIDTH = 56
 export const RULER_HEIGHT = 20
-// how much of a note's right end resizes it rather than moving it
-export const EDGE_PX = 6
+// narrower steps than this have no line between them, only beats and bars
+const STEP_LINES_FROM = 8
 
 // the grid's whole size, of which a part is in view
 export const contentHeight = (): number => PITCHES * ROW_HEIGHT
-export const contentWidth = (length: number): number => Math.max(0, length) * STEP_WIDTH
+export const contentWidth = (length: number, stepWidth: number): number => Math.max(0, length) * stepWidth
 
 // a pitch's row, and the pitch at a height on the grid (both from the top
 // of the whole grid, not of what's in view)
 export const rowTop = (pitch: number): number => (HIGHEST_PITCH - pitch) * ROW_HEIGHT
 export const pitchAtY = (y: number): number => HIGHEST_PITCH - Math.floor(y / ROW_HEIGHT)
-export const stepAtX = (x: number): number => x / STEP_WIDTH
+export const stepAtX = (x: number, stepWidth: number): number => x / stepWidth
+// a height on the grid in rows, from the highest pitch's (the grid's own
+// coordinates, which a selection box is in)
+export const rowAtY = (y: number): number => y / ROW_HEIGHT
 
-// the part of the grid in view: its size, and how far it's scrolled
+// zoom along time by `factor`, keeping the step at `aroundX` (pixels from
+// the grid's left edge in view) where it is. the step width stays between
+// MIN_STEP_WIDTH and MAX_STEP_WIDTH; the scroll is where the grid's start
+// is scrolled to after, which the scroller may yet hold back at either end
+export const zoomGrid = (
+  stepWidth: number,
+  scrollLeft: number,
+  factor: number,
+  aroundX: number,
+): { stepWidth: number, scrollLeft: number } => {
+  const zoom = zoomAround({ scale: stepWidth, pan: -scrollLeft }, factor, aroundX, MIN_STEP_WIDTH, MAX_STEP_WIDTH)
+  return { stepWidth: zoom.scale, scrollLeft: Math.max(0, -zoom.pan) }
+}
+
+// the part of the grid in view: its size, how far it's scrolled, and how
+// wide a step is
 export interface Viewport {
   width: number
   height: number
   scrollX: number
   scrollY: number
+  stepWidth: number
 }
 
 // draw at the screen's pixel density, so lines stay sharp. returns the
@@ -58,7 +85,7 @@ export const fitCanvas = (
 }
 
 // the pitches with a row in view, highest first
-const pitchesInView = ({ height, scrollY }: Viewport): [number, number] => [
+const pitchesInView = ({ height, scrollY }: Pick<Viewport, 'height' | 'scrollY'>): [number, number] => [
   Math.max(0, HIGHEST_PITCH - Math.floor((scrollY + height) / ROW_HEIGHT)),
   Math.min(HIGHEST_PITCH, HIGHEST_PITCH - Math.floor(scrollY / ROW_HEIGHT)),
 ]
@@ -83,15 +110,21 @@ export interface GridScene {
   notes: Note[]
   // other synths' notes in the pattern, drawn faintly behind
   ghosts: Note[]
-  selected: Set<number>
-  // a rubber band being dragged, from corner to corner on the grid
-  box: { x0: number, y0: number, x1: number, y1: number } | null
+  selected: ReadonlySet<number>
+  // a selection box being dragged, in the grid's own coordinates (steps
+  // across, rows down)
+  lasso: Rect | null
+  // where a click with the Cut tool would cut, and the notes it would
+  cut: { ids: ReadonlyArray<number>, step: number } | null
+  // an edge with a bar on it: of the note a press would trim, or of those
+  // being trimmed
+  edgeBar: { ids: ReadonlyArray<number>, edge: Edge } | null
 }
 
 export const drawGrid = (ctx: CanvasRenderingContext2D, view: Viewport, scene: GridScene) => {
-  const { width, height, scrollX, scrollY } = view
-  const { length, stepsPerBar, notes, ghosts, selected, box } = scene
-  const right = Math.min(width, contentWidth(length) - scrollX)
+  const { width, height, scrollX, scrollY, stepWidth } = view
+  const { length, stepsPerBar, notes, ghosts, selected, lasso, cut, edgeBar } = scene
+  const right = Math.min(width, contentWidth(length, stepWidth) - scrollX)
 
   ctx.clearRect(0, 0, width, height)
   // past the pattern's end
@@ -117,19 +150,20 @@ export const drawGrid = (ctx: CanvasRenderingContext2D, view: Viewport, scene: G
   ctx.stroke()
 
   // a column per step, beats and bars stronger
-  const first = Math.max(0, Math.floor(scrollX / STEP_WIDTH))
-  const last = Math.min(length, Math.ceil((scrollX + width) / STEP_WIDTH))
+  const first = Math.max(0, Math.floor(scrollX / stepWidth))
+  const last = Math.min(length, Math.ceil((scrollX + width) / stepWidth))
   const columns = (strokeStyle: string, keep: (step: number) => boolean) => {
     ctx.beginPath()
     ctx.strokeStyle = strokeStyle
     for(let step = first; step <= last; step++) {
-      if(keep(step)) vline(ctx, step * STEP_WIDTH - scrollX, 0, height)
+      if(keep(step)) vline(ctx, step * stepWidth - scrollX, 0, height)
     }
     ctx.stroke()
   }
   const bar = (step: number) => step % stepsPerBar === 0
   const beat = (step: number) => step % STEPS_PER_BEAT === 0
-  columns(lanes.css('laneLine', 0.6), step => !beat(step) && !bar(step))
+  // (zoomed far out, lines a step apart would smear together)
+  if(stepWidth >= STEP_LINES_FROM) columns(lanes.css('laneLine', 0.6), step => !beat(step) && !bar(step))
   columns(lanes.css('beatLine'), step => beat(step) && !bar(step))
 
   ctx.beginPath()
@@ -142,15 +176,14 @@ export const drawGrid = (ctx: CanvasRenderingContext2D, view: Viewport, scene: G
 
   // the notes, the selected ones in the accent colour, over the other
   // synths' faintly
-  const left = scrollX - STEP_WIDTH
-  const leftStep = left / STEP_WIDTH
-  const rightStep = (scrollX + width) / STEP_WIDTH
+  const leftStep = scrollX / stepWidth - 1
+  const rightStep = (scrollX + width) / stepWidth
   const inView = (note: Note) => note.pitch >= low && note.pitch <= high
     && note.start + note.length >= leftStep && note.start <= rightStep
   const place = (note: Note) => ({
-    x: note.start * STEP_WIDTH - scrollX,
+    x: note.start * stepWidth - scrollX,
     y: rowTop(note.pitch) - scrollY,
-    w: Math.max(3, note.length * STEP_WIDTH - 1),
+    w: Math.max(3, note.length * stepWidth - 1),
   })
 
   ctx.fillStyle = lanes.css('patternHit', 0.25)
@@ -171,22 +204,42 @@ export const drawGrid = (ctx: CanvasRenderingContext2D, view: Viewport, scene: G
     ctx.strokeRect(x + 1, y + 1.5, w - 1, ROW_HEIGHT - 3)
   })
 
-  if(box) {
-    const x = Math.min(box.x0, box.x1) - scrollX
-    const y = Math.min(box.y0, box.y1) - scrollY
-    const w = Math.abs(box.x1 - box.x0)
-    const h = Math.abs(box.y1 - box.y0)
-    ctx.fillStyle = lanes.css('lassoFill', 0.12)
-    ctx.fillRect(x, y, w, h)
-    ctx.strokeStyle = lanes.css('lassoFill')
-    ctx.strokeRect(Math.round(x) + 0.5, Math.round(y) + 0.5, Math.round(w), Math.round(h))
+  // the bar on an edge a press would grab, or that's being dragged
+  if(edgeBar) {
+    edgeBar.ids.forEach(i => {
+      const note = notes[i]
+      if(!note || !inView(note)) return
+      const { x, y, w } = place(note)
+      drawEdgeBar(ctx, edgeBar.edge, x + 0.5, x + 0.5 + w, y + 1, ROW_HEIGHT - 2)
+    })
+  }
+
+  // where a click with the Cut tool would cut
+  if(cut) {
+    const x = Math.round(cut.step * stepWidth - scrollX) + 0.5
+    cut.ids.forEach(i => {
+      const note = notes[i]
+      if(!note || !inView(note)) return
+      const y = rowTop(note.pitch) - scrollY
+      drawCutLine(ctx, x, y - 2, y + ROW_HEIGHT + 2)
+    })
+  }
+
+  if(lasso) {
+    drawLasso(
+      ctx,
+      Math.round(lasso.left * stepWidth - scrollX) + 0.5,
+      Math.round(lasso.top * ROW_HEIGHT - scrollY) + 0.5,
+      Math.round(lasso.width * stepWidth),
+      Math.round(lasso.height * ROW_HEIGHT),
+    )
   }
 }
 
 // the time ruler: a number at each bar, a tick at each beat
 export const drawRuler = (
   ctx: CanvasRenderingContext2D,
-  { width, scrollX }: Pick<Viewport, 'width' | 'scrollX'>,
+  { width, scrollX, stepWidth }: Pick<Viewport, 'width' | 'scrollX' | 'stepWidth'>,
   length: number,
   stepsPerBar: number,
 ) => {
@@ -199,10 +252,10 @@ export const drawRuler = (
   ctx.beginPath()
   ctx.strokeStyle = lanes.css('rulerLine')
   hline(ctx, height - 1, 0, width)
-  const first = Math.max(0, Math.floor(scrollX / STEP_WIDTH / STEPS_PER_BEAT) * STEPS_PER_BEAT)
-  for(let step = first; step <= length && step * STEP_WIDTH - scrollX <= width; step += STEPS_PER_BEAT) {
+  const first = Math.max(0, Math.floor(scrollX / stepWidth / STEPS_PER_BEAT) * STEPS_PER_BEAT)
+  for(let step = first; step <= length && step * stepWidth - scrollX <= width; step += STEPS_PER_BEAT) {
     const bar = step % stepsPerBar === 0
-    vline(ctx, step * STEP_WIDTH - scrollX, bar ? 2 : height - 6, height)
+    vline(ctx, step * stepWidth - scrollX, bar ? 2 : height - 6, height)
   }
   ctx.stroke()
 
@@ -210,7 +263,7 @@ export const drawRuler = (
   ctx.textBaseline = 'middle'
   ctx.fillStyle = lanes.css('rulerBarText')
   for(let step = Math.floor(first / stepsPerBar) * stepsPerBar; step < length; step += stepsPerBar) {
-    const x = step * STEP_WIDTH - scrollX
+    const x = step * stepWidth - scrollX
     if(x > width) break
     if(x >= -40) ctx.fillText(String(step / stepsPerBar + 1), x + 4, height / 2)
   }
@@ -227,7 +280,7 @@ export const drawKeys = (
   const width = KEYS_WIDTH
   // black keys dark against white ones in either appearance
   const dark = currentTheme()?.appearance === 'dark'
-  const [low, high] = pitchesInView({ ...view, width, scrollX: 0 })
+  const [low, high] = pitchesInView(view)
 
   ctx.clearRect(0, 0, width, height)
   ctx.fillStyle = colors.css('raised')

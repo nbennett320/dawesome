@@ -12,7 +12,13 @@ import {
   setPianoRollSynth,
   togglePattern,
 } from '../../state/slices/sequencerSlice'
+import {
+  selectPianoRollSnapEnabled, selectPianoRollSnapNote, selectPianoRollTool,
+  setPianoRollSnapNote, setPianoRollTool, togglePianoRollSnap,
+} from '../../state/slices/pianoRollSlice'
 import { openTab } from '../../state/slices/windowSlice'
+import { TOOLS } from '../../editing/tools'
+import ToolTray from '../../components/editing/ToolTray'
 import { Note, Pattern, Synth, patternHint, patternLabel, stepsPerBar } from '../../types/sequencer'
 import { View } from '../../types/ui'
 import { AnalogButton, Led, PlayIcon, StopIcon } from '../../components/fourtrack'
@@ -46,8 +52,32 @@ const Picker = ({ label, title, value, onChange, children }: {
   </div>
 )
 
+// the mouse tools (Select, Draw, Cut) and snap, as the playlist has them
+const PianoRollTray = () => {
+  const dispatch = useAppDispatch()
+  const tool = useAppSelector(selectPianoRollTool)
+  const snapEnabled = useAppSelector(selectPianoRollSnapEnabled)
+  const snapNote = useAppSelector(selectPianoRollSnapNote)
+
+  return (
+    <ToolTray
+      view={View.PianoRoll}
+      tools={TOOLS}
+      tool={tool}
+      onTool={next => dispatch(setPianoRollTool(next))}
+      snap={{
+        enabled: snapEnabled,
+        note: snapNote,
+        onToggle: () => { dispatch(togglePianoRollSnap()) },
+        onNote: note => { dispatch(setPianoRollSnapNote(note)) },
+        label: 'Piano Roll snap amount',
+      }}
+    />
+  )
+}
+
 // the strip along the top: which note pattern and which synth's notes,
-// play and stop, and how long it is
+// play and stop, how long it is, and the mouse tools
 const Toolbar = ({ pattern, synth, beatsPerBar }: { pattern: Pattern, synth: Synth | null, beatsPerBar: number }) => {
   const dispatch = useAppDispatch()
   const patterns = useAppSelector(selectPatternsOf('note'))
@@ -96,6 +126,10 @@ const Toolbar = ({ pattern, synth, beatsPerBar }: { pattern: Pattern, synth: Syn
       <div className='flex flex-col gap-1'>
         <span className='ft-label'>Length</span>
         <span className='text-xs text-ink-mid h-7 leading-7 tabular-nums'>{patternHint(pattern, beatsPerBar, 0)}</span>
+      </div>
+
+      <div className='ml-auto'>
+        <PianoRollTray />
       </div>
     </div>
   )

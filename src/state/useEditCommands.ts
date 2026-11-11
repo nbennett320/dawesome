@@ -5,7 +5,7 @@ import { isTextTarget } from '../util/keys'
 import { editShortcut, editShortcutHandler } from '../util/shortcuts'
 import { travel } from './history'
 import { runClipCommandFromMenu } from './clipCommands'
-import { runNoteSelectAllFromMenu } from './noteCommands'
+import { runNoteCommandFromMenu } from './noteCommands'
 
 // the Edit menu and its shortcuts, wherever in the window the keyboard is.
 // a shortcut reaches here from the menu, from the key press itself, or both
@@ -26,7 +26,11 @@ export const useEditCommands = () => {
           else dispatch(travel(command, 'menu'))
           break
         case 'repeat':
-          if(!typing) runClipCommandFromMenu('repeat')
+          // whichever of the Playlist and the Piano Roll is focused
+          if(!typing) {
+            runClipCommandFromMenu('repeat')
+            runNoteCommandFromMenu('repeat')
+          }
           break
         case 'join':
           if(!typing) runClipCommandFromMenu('join')
@@ -36,7 +40,7 @@ export const useEditCommands = () => {
           else {
             // whichever of the Playlist and the Piano Roll is focused
             runClipCommandFromMenu('select-all')
-            runNoteSelectAllFromMenu()
+            runNoteCommandFromMenu('select-all')
           }
           break
         default:
@@ -44,7 +48,8 @@ export const useEditCommands = () => {
     }
 
     // from the key: a text field keeps it (see editShortcutHandler). the
-    // other commands are the Playlist's own (see PlaylistCanvas), but ⌘R is
+    // other commands are the Playlist's and the Piano Roll's own (see
+    // PlaylistCanvas and NoteGrid), but ⌘R is
     // kept from reloading the window here, whichever view has the keyboard
     const handle = editShortcutHandler(command => {
       if(command === 'undo' || command === 'redo') dispatch(travel(command, 'key'))

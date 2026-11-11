@@ -1,7 +1,7 @@
 {
   "productName": "Dawesome",
   "mainBinaryName": "Dawesome",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "io.github.nbennett320.dawesome",
   "build": {
     "frontendDist": "../dist",

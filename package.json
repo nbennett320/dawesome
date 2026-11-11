@@ -1,6 +1,6 @@
 {
   "name": "@dawsome/ui",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "packageManager": "pnpm@8.15.4",
   "engines": {
@@ -18,7 +18,8 @@
     "debug": "cd engine && cargo run -- --debug",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "format": "prettier -w src/"
+    "format": "prettier -w src/",
+    "version:bump": "./scripts/bump-version.sh"
   },
   "dependencies": {
     "@reduxjs/toolkit": "^2.14.0",

@@ -1,11 +1,11 @@
-import { CutClip, canCut, cutPoint, cutTargets } from './cut'
-import { MIN_CLIP_SECONDS, Snapping } from './edges'
+import { CutItem, canCut, cutPoint, cutTargets } from './cut'
+import { Snapping } from './snap'
 
-// 10ms at 120bpm, in beats
-const least = MIN_CLIP_SECONDS / 0.5
+// the shortest a sample clip can be (10ms) at 120bpm, in beats
+const least = 0.01 / 0.5
 // a clip from beat 2 to beat 6
-const clip: CutClip = { id: 1, startBeat: 2, endBeat: 6, minBeats: least }
-const free: Snapping = { enabled: false, beats: 1, playheadBeat: null, bypass: false }
+const clip: CutItem = { id: 1, start: 2, end: 6, minLength: least }
+const free: Snapping = { enabled: false, every: 1, playhead: null, bypass: false }
 const beats: Snapping = { ...free, enabled: true }
 
 describe('cutPoint', () => {
@@ -17,15 +17,15 @@ describe('cutPoint', () => {
     expect(cutPoint(clip, 3.37, beats)).toBe(3)
     expect(cutPoint(clip, 3.6, beats)).toBe(4)
     expect(cutPoint(clip, 3.37, { ...beats, bypass: true })).toBe(3.37)
-    expect(cutPoint(clip, 3.37, { ...beats, beats: 0.25 })).toBe(3.25)
+    expect(cutPoint(clip, 3.37, { ...beats, every: 0.25 })).toBe(3.25)
   })
 
   it('is the playhead when the mouse is nearer to it than to the grid, and it is not moving', () => {
-    const stopped = { ...beats, playheadBeat: 3.3 }
+    const stopped = { ...beats, playhead: 3.3 }
     expect(cutPoint(clip, 3.35, stopped)).toBe(3.3)
     expect(cutPoint(clip, 3.9, stopped)).toBe(4)
     // playing, the playhead is nowhere to snap to
-    expect(cutPoint(clip, 3.35, { ...stopped, playheadBeat: null })).toBe(3)
+    expect(cutPoint(clip, 3.35, { ...stopped, playhead: null })).toBe(3)
   })
 
   it('is nowhere within 10ms of either edge, so no cut is made and no line shown', () => {
@@ -43,19 +43,19 @@ describe('cutPoint', () => {
     // the mouse is just inside the clip, the nearest line is its own edge
     expect(cutPoint(clip, 2.2, beats)).toBeNull()
     // or a line before it: a clip that starts between lines
-    const between = { ...clip, startBeat: 2.4 }
+    const between = { ...clip, start: 2.4 }
     expect(cutPoint(between, 2.45, beats)).toBeNull()
     expect(cutPoint(between, 2.6, beats)).toBe(3)
     // a pattern clip can't be cut within a step of its edges
-    const pattern: CutClip = { id: 2, startBeat: 8, endBeat: 12, minBeats: 0.25 }
+    const pattern: CutItem = { id: 2, start: 8, end: 12, minLength: 0.25 }
     expect(cutPoint(pattern, 8.2, free)).toBeNull()
     expect(cutPoint(pattern, 8.25, free)).toBe(8.25)
   })
 })
 
 describe('cutTargets', () => {
-  const other: CutClip = { id: 2, startBeat: 3, endBeat: 9, minBeats: least }
-  const elsewhere: CutClip = { id: 3, startBeat: 20, endBeat: 24, minBeats: least }
+  const other: CutItem = { id: 2, start: 3, end: 9, minLength: least }
+  const elsewhere: CutItem = { id: 3, start: 20, end: 24, minLength: least }
   const all = [clip, other, elsewhere]
 
   it('is the clip under the mouse, whether or not it is selected', () => {

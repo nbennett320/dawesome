@@ -962,18 +962,25 @@ impl Effects {
   }
 
   // give every loaded plugin time on the main thread (it passes its own
-  // parameter changes on, and restarts if it asked to)
+  // parameter changes on, and restarts if it asked to), and tell the engine
+  // which have their interface showing
   pub fn idle(&self) {
     let _ = main_thread::run(|| {
-      let plugins: Vec<Arc<Mutex<Box<dyn Hosted>>>> = {
+      let plugins: Vec<(Arc<Mutex<Box<dyn Hosted>>>, Arc<Slot>)> = {
         let inner = self.inner.lock().unwrap();
-        all_loaded(&inner).map(|l| l.plugin.clone()).collect()
+        all_loaded(&inner).map(|l| (l.plugin.clone(), l.slot.clone())).collect()
       };
-      for plugin in plugins {
-        // (one busy elsewhere on this thread, its window say, waits for
-        // the next round)
-        if let Ok(mut plugin) = plugin.try_lock() {
-          plugin.idle();
+      for (plugin, slot) in plugins {
+        match plugin.try_lock() {
+          Ok(mut plugin) => {
+            plugin.idle();
+            // a plugin whose interface is showing keeps its channel
+            // running through silence (see Slot::set_showing)
+            slot.set_showing(plugin.editor_open());
+          }
+          // (one busy elsewhere on this thread, its window say, waits for
+          // the next round, and counts as showing)
+          Err(_) => slot.set_showing(true),
         }
       }
     });
@@ -1596,6 +1603,34 @@ mod tests {
   }
 
   #[test]
+  fn test_the_engine_is_told_which_plugins_have_their_interface_showing() {
+    let rig = rig();
+    let id = rig.effects().add(Channel::Track(0), &gain().id, None).unwrap();
+    let slot = rig.effects().inner.lock().unwrap().racks[&Channel::Track(0)][0].loaded().unwrap().slot.clone();
+    assert_eq!(slot.id(), id);
+
+    rig.effects().idle();
+    assert!(!slot.showing());
+    // (a channel doesn't rest while one of its plugins' interfaces is up)
+    rig.loader.editors_open.store(true, Ordering::SeqCst);
+    rig.effects().idle();
+    assert!(slot.showing());
+    rig.loader.editors_open.store(false, Ordering::SeqCst);
+    rig.effects().idle();
+    assert!(!slot.showing());
+
+    // one that's busy on the main thread (its window being opened, say)
+    // counts as showing until the next round
+    let hosted = rig.effects().hosted(id).unwrap();
+    let busy = hosted.lock().unwrap();
+    rig.effects().idle();
+    assert!(slot.showing());
+    drop(busy);
+    rig.effects().idle();
+    assert!(!slot.showing());
+  }
+
+  #[test]
   fn test_order_within_a_chain() {
     let mut rig = rig();
     let a = rig.effects().add(Channel::Track(0), &gain().id, None).unwrap();
@@ -1819,6 +1854,88 @@ mod tests {
   }
 
   // a real plugin through the racks: CHOW Tape Model on a track, heard,
+
+  // a real reverb on a track: its tail rings out after the sound stops,
+  // then its channel rests, and sound wakes it. (it needs the plugin
+  // installed, and takes about fifteen seconds)
+  //   cargo test --no-default-features a_real_reverb -- --ignored
+  #[test]
+  #[ignore]
+  fn test_a_real_reverb_rings_out_then_its_channel_rests() {
+    let bundle = Path::new("/Library/Audio/Plug-Ins/VST3/Acon Digital/VerberateBasic2.vst3");
+    if !bundle.exists() {
+      println!("Verberate Basic 2 isn't installed");
+      return;
+    }
+    let mut info = plugin::vst3::scan_bundle(bundle).unwrap().remove(0);
+    info.path = bundle.to_string_lossy().into_owned();
+
+    let mut rig = rig();
+    rig.effects().use_backend(Arc::new(Vst3), Arc::new(Fixed(rig.engine.clone())), WAIT);
+    rig.effects().plugins.set(plugin::scan::Catalog { plugins: vec![info.clone()], ..Default::default() });
+    // the renderer runs on a thread of its own, about as fast as an
+    // output's would, noting each block's loudest sample
+    let mut renderer = std::mem::replace(&mut rig.renderer, daw::Engine::new(RATE).1);
+    let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let peaks: Arc<Mutex<Vec<f32>>> = Arc::default();
+    const BLOCK: usize = 480;
+    let render = {
+      let (running, peaks) = (running.clone(), peaks.clone());
+      std::thread::spawn(move || {
+        let mut block = vec![0f32; BLOCK * 2];
+        while running.load(Ordering::SeqCst) {
+          block.fill(0.);
+          renderer.render(&mut block, std::time::Instant::now(), Duration::ZERO);
+          peaks.lock().unwrap().push(block.iter().fold(0f32, |peak, s| peak.max(s.abs())));
+          std::thread::sleep(Duration::from_millis(10));
+        }
+      })
+    };
+    let blocks = |seconds: f32| (seconds * RATE as f32 / BLOCK as f32) as usize;
+    // a tenth of a second of a sine on track 0
+    let burst = |rig: &Rig, run: u64| {
+      use rodio::buffer::SamplesBuffer;
+      let sine: Vec<f32> = (0..RATE as usize / 10).flat_map(|i| {
+        let s = 0.3 * (i as f32 * 440. * std::f32::consts::TAU / RATE as f32).sin();
+        [s, s]
+      }).collect();
+      let voice = rig.engine.voice(SamplesBuffer::new(2, RATE, sine), Some(run), 0, daw::Route::Track(rig.state.playlist.mixer.track_route(0)));
+      rig.engine.start_run(run, rig.state.playlist.mixer.master(), vec![voice]).unwrap();
+    };
+
+    rig.effects().add(Channel::Track(0), &info.id, None).unwrap();
+    rig.effects().idle();
+    burst(&rig, 1);
+
+    // the tail is still there well after the burst is over
+    std::thread::sleep(Duration::from_millis(600));
+    let heard = peaks.lock().unwrap().clone();
+    let late = &heard[heard.len().saturating_sub(blocks(0.2))..];
+    assert!(late.iter().any(|&peak| peak > 1e-4), "no tail: {:?}", late);
+    assert_eq!(rig.engine.resting_chains(), 0);
+
+    // and once it has died away, and two seconds more, the channel rests
+    let started = std::time::Instant::now();
+    while rig.engine.resting_chains() == 0 && started.elapsed() < Duration::from_secs(30) {
+      std::thread::sleep(Duration::from_millis(100));
+    }
+    let rang = started.elapsed().as_secs_f32() + 0.6;
+    assert_eq!(rig.engine.resting_chains(), 1, "still running after {} s", rang);
+    println!("Verberate's channel rested {:.1} s after the burst", rang);
+    assert!(rang > 2., "rested before the tail could have rung out ({} s)", rang);
+
+    // sound wakes it, reverb and all
+    peaks.lock().unwrap().clear();
+    burst(&rig, 2);
+    std::thread::sleep(Duration::from_millis(600));
+    assert_eq!(rig.engine.resting_chains(), 0);
+    let heard = peaks.lock().unwrap().clone();
+    let late = &heard[heard.len().saturating_sub(blocks(0.2))..];
+    assert!(late.iter().any(|&peak| peak > 1e-4), "no tail after waking: {:?}", late);
+
+    running.store(false, Ordering::SeqCst);
+    render.join().unwrap();
+  }
 
   // bypassed, moved to the master and given a second instance for a
   // mixdown. (on the test harness's thread, not the main one, which is

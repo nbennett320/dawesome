@@ -2,12 +2,12 @@ import type { Mock } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import { configureStore } from '@reduxjs/toolkit'
 import reducer, {
-  addSynth, addSynthOnTrack, changeTempo, selectFoldersOf, selectPatternsOf, sequencerSlice, selectPattern,
+  addSynth, addSynthOnTrack, changeTempo, selectFoldersOf, selectLastSelectedPattern, selectPatternsOf, sequencerSlice, selectPattern,
   setPatternStep, setPianoRollSynth, setSequencer, setSequencerRowMuted, setSequencerRowVolume, setSynthVolume,
   showPattern,
 } from './sequencerSlice'
 import { beginGesture, resetGestures } from '../gesture'
-import playlistReducer, { reduceLoadedProject, setPlaying } from './playlistSlice'
+import playlistReducer, { paintPatternClips, reduceLoadedProject, reducePainted, setPlaying } from './playlistSlice'
 import projectReducer from './projectSlice'
 import windowReducer, { selectFocusedView } from './windowSlice'
 import mixerReducer from './mixerSlice'
@@ -16,6 +16,7 @@ import envReducer from './envSlice'
 import recordingReducer from './recordingSlice'
 import mixdownReducer from './mixdownSlice'
 import appearanceReducer from './appearanceSlice'
+import pianoRollReducer from './pianoRollSlice'
 import { LoadedProject, ProjectView } from '../../types/project'
 import { SequencerState, Synth } from '../../types/sequencer'
 import { View } from '../../types/ui'
@@ -95,6 +96,51 @@ describe('sequencerSlice', () => {
     expect(state.selected).toEqual({ drum: 4, note: 2 })
     state = reducer(state, setSequencer(sequencer))
     expect(state.selected).toEqual({ drum: 4, note: null })
+  })
+
+  it('remembers the pattern last selected, of either kind', () => {
+    let state = reducer(init(), setSequencer(both))
+    // a pattern selected for the project being opened isn't one picked
+    expect(state.lastSelected).toBeNull()
+
+    state = reducer(state, selectPattern(6))
+    expect(state.lastSelected).toBe(6)
+    state = reducer(state, selectPattern(4))
+    expect(state.lastSelected).toBe(4)
+    expect(selectLastSelectedPattern({ sequencer: state } as unknown as Parameters<typeof selectLastSelectedPattern>[0])).toBe(4)
+    // (one that isn't there isn't)
+    state = reducer(state, selectPattern(99))
+    expect(state.lastSelected).toBe(4)
+
+    // kept while it's there
+    state = reducer(state, setSequencer({ ...both, rows: [] }))
+    expect(state.lastSelected).toBe(4)
+    // gone with it, and not replaced: the other kind's selection stays its own
+    state = reducer(state, setSequencer({ ...both, patterns: both.patterns.filter(p => p.id !== 4) }))
+    expect(state.lastSelected).toBeNull()
+    expect(state.selected).toEqual({ drum: 0, note: 6 })
+  })
+
+  it('forgets the pattern last selected when a project is opened', () => {
+    let state = reducer(reducer(init(), setSequencer(both)), selectPattern(2))
+    state = reducer(state, reduceLoadedProject({ sequencer: both, patternClips: [] } as unknown as LoadedProject))
+    expect(state.lastSelected).toBeNull()
+  })
+
+  it('selects the pattern clips were painted with', () => {
+    let state = reducer(init(), setSequencer(both))
+    // a new note pattern the paint made
+    const painted = {
+      clips: [{ id: 40, patternId: 8, trackNumber: 1, startBeat: 0, window: null }],
+      patternId: 8,
+      sequencer: { ...both, patterns: [...both.patterns, { id: 8, name: null, kind: 'note' as const, length: 32, steps: {}, notes: {} }] },
+      mixer: { tracks: [], master: { volumeDb: 0, pan: 0, mute: false, solo: false } },
+      trackCount: 4,
+    }
+    state = reducer(state, reducePainted(painted))
+    expect(state.patterns).toHaveLength(5)
+    expect(state.selected).toEqual({ drum: 0, note: 8 })
+    expect(state.lastSelected).toBe(8)
   })
 
   it('keeps the synth the Piano Roll edits while it’s there, or the first', () => {
@@ -253,6 +299,7 @@ describe('synths', () => {
       recording: recordingReducer,
       mixdown: mixdownReducer,
       appearance: appearanceReducer,
+      pianoRoll: pianoRollReducer,
     },
   })
 
@@ -291,6 +338,49 @@ describe('synths', () => {
     const drag = beginGesture()
     await setSynthVolume(10, 0.5)(vi.fn())
     expect(mockInvoke).toHaveBeenCalledWith('set_synth_volume', { synthId: 10, volume: 0.5, gesture: drag })
+  })
+
+  it('paints clips into the playlist, the sequencer and the mixer', async () => {
+    const mixer = {
+      tracks: [{ trackNumber: 4, volumeDb: -3, pan: 0, mute: false, solo: false }],
+      master: { volumeDb: 0, pan: 0, mute: false, solo: false },
+    }
+    mockInvoke.mockImplementation(async (command: string) => {
+      if(command !== 'paint_pattern_clips') return undefined
+      return {
+        clips: [
+          { id: 40, patternId: 6, trackNumber: 4, startBeat: 2, window: null },
+          { id: 41, patternId: 6, trackNumber: 4, startBeat: 6, window: { start: 0, end: 8 } },
+        ],
+        patternId: 6,
+        sequencer: both,
+        mixer,
+        trackCount: 5,
+      }
+    })
+    const store = makeStore()
+
+    const painted = await store.dispatch(paintPatternClips(6, 4, 2, 8))
+    expect(painted?.clips).toHaveLength(2)
+    expect(mockInvoke).toHaveBeenCalledWith(
+      'paint_pattern_clips', { patternId: 6, trackNumber: 4, startBeat: 2, endBeat: 8 })
+    const state = store.getState()
+    expect(state.playlist.playlistItems.map(i => [i.id, i.patternId, i.trackNumber, i.startBeat])).toEqual([
+      [40, 6, 4, 2], [41, 6, 4, 6],
+    ])
+    expect(state.playlist.clipWindows).toEqual({ 41: { start: 0, end: 8 } })
+    expect(state.playlist.ui.trackCount).toBe(5)
+    expect(state.sequencer.selected.note).toBe(6)
+    expect(state.sequencer.lastSelected).toBe(6)
+    expect(state.mixer.tracks[4]).toMatchObject({ volumeDb: -3 })
+  })
+
+  it('paints nothing when the engine refuses', async () => {
+    mockInvoke.mockRejectedValue('no pattern with id 99')
+    const store = makeStore()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(await store.dispatch(paintPatternClips(99, 0, 0, 4))).toBeNull()
+    expect(store.getState().playlist.playlistItems).toEqual([])
   })
 
   it('starts a synth on a track at the playhead, and opens the Piano Roll on its pattern', async () => {

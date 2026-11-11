@@ -11,6 +11,7 @@ import {
   joinClips,
   moveNodeInPlaylist,
   moveNodesInPlaylist,
+  paintPatternClips,
   pasteClips,
   removeManyFromPlaylist,
   repeatClips,
@@ -40,7 +41,7 @@ import { editShortcutHandler } from '../../util/shortcuts'
 import {
   ClipCommand, ClipSource, clipCommand, sameCommand, setClipCommandRunner,
 } from '../../state/clipCommands'
-import { explodePatternClips, showPattern } from '../../state/slices/sequencerSlice'
+import { explodePatternClips, selectLastSelectedPattern, showPattern } from '../../state/slices/sequencerSlice'
 import ClipMenu, { ClipMenuItem } from './ClipMenu'
 
 const playlistRenderer = new Renderer()
@@ -282,6 +283,8 @@ const PlaylistCanvas = () => {
       playlistRenderer.setTool(playlist.tool)
       // pattern clips draw their pattern as it's edited
       playlistRenderer.setSequencer(store.getState().sequencer)
+      // and the Draw tool paints the pattern last selected in a sequencer
+      playlistRenderer.setPaintPattern(selectLastSelectedPattern(store.getState()))
     }
 
     apply()
@@ -522,6 +525,13 @@ const PlaylistCanvas = () => {
     [dispatch],
   )
 
+  // clips were painted with the Draw tool: one command, one step to undo
+  const handlePaint = React.useCallback(
+    (patternId: number | null, trackNumber: number, startBeat: number, endBeat: number) =>
+      dispatch(paintPatternClips(patternId, trackNumber, startBeat, endBeat)),
+    [dispatch],
+  )
+
   return (
     <div 
       ref={ref}
@@ -557,6 +567,7 @@ const PlaylistCanvas = () => {
           onClipsTrim={handleClipsTrim}
           onClipsStretch={handleClipsStretch}
           onClipsCut={handleClipsCut}
+          onPaint={handlePaint}
         />
       </div>}
       <ClipMenuHost opener={openMenu} />

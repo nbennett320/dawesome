@@ -82,6 +82,23 @@ pub trait Processor: Send {
     events: &[Event],
     transport: &Transport,
   );
+
+  // how long it can go on sounding after its input stops, in frames, as far
+  // as it says: none for one that never stops. a chain isn't rested (see
+  // Bus::rests in engine.rs) until it's been silent for this long as well
+  //
+  // called on the audio thread, like process
+  fn tail_frames(&self) -> Option<u64> {
+    Some(0)
+  }
+
+  // whether something's waiting that only a block can hand it (a parameter
+  // turned on the main thread): a chain that's resting runs again for it
+  //
+  // called on the audio thread, like process
+  fn has_pending(&self) -> bool {
+    false
+  }
 }
 
 // what kind of plugin a class is
