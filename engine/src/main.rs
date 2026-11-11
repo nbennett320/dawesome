@@ -234,6 +234,7 @@ fn init_tauri() {
       t_toggle_pattern,
       add_pattern_clip,
       explode_pattern_clips,
+      paint_pattern_clips,
       set_clip_windows,
       split_clips,
       stretch_clips,
