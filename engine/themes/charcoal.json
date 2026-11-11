@@ -22,5 +22,8 @@
     "danger": "#f87171",
     "dangerTint": "#2a1215",
     "shadow": "#000000"
+  },
+  "playlist": {
+    "beatLine": "mix(line, surface, 0.5)"
   }
 }

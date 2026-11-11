@@ -22,7 +22,6 @@ const Preferences = () => {
     <div className='ft-panel h-full w-full overflow-y-auto p-4 text-sm select-none'>
       <div className='flex flex-col gap-4 max-w-xl'>
         <section className='flex flex-col gap-3'>
-          <span className='ft-label'>Appearance</span>
           <Choice
             id='preferences-appearance'
             label='Appearance'

@@ -21,6 +21,25 @@
     "ledInk": "#78350f",
     "danger": "#dc2626",
     "dangerTint": "#fef2f2",
-    "shadow": "#18181b"
+    "shadow": "#18181b",
+    "accentFocus": "#38bdf8",
+    "accentStrong": "#0284c7",
+    "accentTintStrong": "#e0f2fe",
+    "ledLine": "#fcd34d",
+    "dangerBright": "#ef4444",
+    "dangerLine": "#fecaca",
+    "dangerInk": "#7f1d1d"
+  },
+  "playlist": {
+    "patternLabel": "#fef3c7",
+    "patternBorder": "#fbbf24",
+    "patternHit": "#d97706",
+    "patternBeat": "#fde68a"
+  },
+  "fourtrack": {
+    "ledRedOff": "mix(fourtrack.ledRedOn, sunken, 0.85)",
+    "ledAmberOff": "mix(fourtrack.ledAmberOn, sunken, 0.85)",
+    "ledLimeOff": "mix(fourtrack.ledLimeOn, sunken, 0.85)",
+    "ledBlueOff": "mix(fourtrack.ledBlueOn, sunken, 0.85)"
   }
 }
