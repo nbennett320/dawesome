@@ -4,8 +4,9 @@
 // a time, and nothing else touches it. the rest (its parameters, its saved
 // state, its window) stays with whoever loaded it
 //
-// vst3 is the VST3 host (a plugin's module, its two halves, its window), and
-// scan finds the plugins installed on this machine
+// vst3 is the VST3 host (a plugin's module, its two halves, its window),
+// scan finds the plugins installed on this machine, and window puts a
+// plugin's editor on screen (a floating window, or docked over the page)
 
 // (a plugin keeps some of the host's objects only to keep them alive)
 #![allow(dead_code)]
@@ -14,6 +15,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod scan;
 pub mod vst3;
+pub mod window;
 
 #[allow(unused_imports)]
 pub use self::vst3::Plugin;

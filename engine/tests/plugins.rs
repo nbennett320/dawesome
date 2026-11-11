@@ -57,6 +57,8 @@ fn main() {
     ("processor_dropped_before_plugin", processor_dropped_before_plugin),
     ("processor_dropped_after_plugin_on_another_thread", processor_dropped_after_plugin_on_another_thread),
     ("editor_opens_in_a_window", editor_opens_in_a_window),
+    ("editors_float_in_their_own_windows", editors_float_in_their_own_windows),
+    ("pancake_docks_over_the_page", pancake_docks_over_the_page),
   ];
 
   let mut failed = 0;
@@ -568,5 +570,337 @@ fn editor_opens_in_a_window() -> Result<Outcome, String> {
 
 #[cfg(not(target_os = "macos"))]
 fn editor_opens_in_a_window() -> Result<Outcome, String> {
+  Ok(Outcome::Skip("only checked on macOS".into()))
+}
+
+// windows on screen for plugin::window's checks. set PLUGIN_SHOTS to a
+// folder to get a screenshot of each stage (from the screen if the terminal
+// may record it, otherwise drawn by the window's views)
+#[cfg(target_os = "macos")]
+mod screen {
+  use objc2::rc::Retained;
+  use objc2::{MainThreadMarker, MainThreadOnly};
+  use objc2_app_kit::{
+    NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSBitmapImageFileType, NSEventMask, NSView, NSWindow,
+    NSWindowStyleMask,
+  };
+  use objc2_foundation::{NSDate, NSDefaultRunLoopMode, NSDictionary, NSPoint, NSRect, NSSize, NSString};
+  use std::ffi::c_void;
+
+  // the app, in front: floating plugin windows hide while it isn't
+  pub fn app(mtm: MainThreadMarker) -> Retained<NSApplication> {
+    let app = NSApplication::sharedApplication(mtm);
+    app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+    static LAUNCHED: std::sync::Once = std::sync::Once::new();
+    LAUNCHED.call_once(|| app.finishLaunching());
+    #[allow(deprecated)]
+    app.activateIgnoringOtherApps(true);
+    app
+  }
+
+  // handle the app's events (and let it draw) for a while
+  pub fn run(app: &NSApplication, seconds: f64) {
+    let until = std::time::Instant::now() + std::time::Duration::from_secs_f64(seconds);
+    while std::time::Instant::now() < until {
+      let soon = NSDate::dateWithTimeIntervalSinceNow(0.01);
+      // safe: reading an AppKit constant
+      let mode = unsafe { NSDefaultRunLoopMode };
+      while let Some(event) = app.nextEventMatchingMask_untilDate_inMode_dequeue(NSEventMask::Any, Some(&soon), mode, true) {
+        app.sendEvent(&event);
+      }
+    }
+  }
+
+  // a window like the app's, at the top left of the screen
+  pub fn host_window(mtm: MainThreadMarker, title: &str, width: f64, height: f64) -> Retained<NSWindow> {
+    let rect = NSRect::new(NSPoint::new(60., 200.), NSSize::new(width, height));
+    let style = NSWindowStyleMask::Titled | NSWindowStyleMask::Resizable;
+    // safe: made on the main thread, and not released when closed (the
+    // caller holds it)
+    let window = unsafe {
+      let window =
+        NSWindow::initWithContentRect_styleMask_backing_defer(NSWindow::alloc(mtm), rect, style, NSBackingStoreType::Buffered, false);
+      window.setReleasedWhenClosed(false);
+      window
+    };
+    window.setTitle(&NSString::from_str(title));
+    window.makeKeyAndOrderFront(None);
+    window
+  }
+
+  pub fn ptr<T>(object: &T) -> *mut c_void {
+    object as *const T as *mut c_void
+  }
+
+  // safe to call with what EditorWindow::ns_window gives while it's open
+  pub fn window_at(ptr: *mut c_void) -> &'static NSWindow {
+    // safe: see above
+    unsafe { &*(ptr as *const NSWindow) }
+  }
+
+  pub fn content_size(window: &NSWindow) -> (u32, u32) {
+    let size = window.contentRectForFrameRect(window.frame()).size;
+    (size.width.round() as u32, size.height.round() as u32)
+  }
+
+  pub fn frame_of(view: &NSView) -> (f64, f64, f64, f64) {
+    let f = view.frame();
+    (f.origin.x, f.origin.y, f.size.width, f.size.height)
+  }
+
+  // a screenshot of a window, if PLUGIN_SHOTS names a folder: where it went
+  pub fn shot(window: &NSWindow, name: &str) -> String {
+    let Ok(folder) = std::env::var("PLUGIN_SHOTS") else { return String::new() };
+    let file = std::path::Path::new(&folder).join(format!("{}.png", name));
+    let id = format!("-l{}", window.windowNumber());
+    let captured = std::process::Command::new("screencapture")
+      .args(["-x", "-o", &id])
+      .arg(&file)
+      .stderr(std::process::Stdio::null())
+      .status()
+      .map_or(false, |s| s.success() && file.exists());
+    if captured {
+      return format!(" [{}]", file.display());
+    }
+    // the window's views drawn into an image: the title bar and all (from
+    // the content view's superview, which is safe to read: it's live)
+    let drawn = window.contentView().and_then(|c| unsafe { c.superview() }).and_then(|frame| {
+      let bitmap = frame.bitmapImageRepForCachingDisplayInRect(frame.bounds())?;
+      frame.cacheDisplayInRect_toBitmapImageRep(frame.bounds(), &bitmap);
+      // safe: an empty dictionary is a valid set of properties
+      let png = unsafe { bitmap.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new()) }?;
+      png.writeToFile_atomically(&NSString::from_str(&file.to_string_lossy()), true).then_some(())
+    });
+    match drawn {
+      Some(()) => format!(" [drawn: {}]", file.display()),
+      None => format!(" [no screenshot of {}]", name),
+    }
+  }
+}
+
+// CHOW and PanCake 2 in floating windows at once: sized to their editors,
+// resized by the user (CHOW), kept on screen, closed by their close buttons
+// and by the app
+#[cfg(target_os = "macos")]
+fn editors_float_in_their_own_windows() -> Result<Outcome, String> {
+  use objc2::{msg_send, MainThreadMarker};
+  use objc2_foundation::NSSize;
+  use plugin::window;
+  use screen::{content_size, ptr, run, shot, window_at};
+  use std::cell::{Cell, RefCell};
+  use std::rc::Rc;
+
+  let Some(mtm) = MainThreadMarker::new() else { return Ok(Outcome::Skip("needs the main thread".into())) };
+  let Some(chow) = load("CHOWTapeModel.vst3", RATE)? else { return not_installed("CHOW Tape Model") };
+  let Some(pancake) = load("PanCake 2.vst3", RATE)? else { return not_installed("PanCake 2") };
+  let app = screen::app(mtm);
+  let host = screen::host_window(mtm, "dawesome (host)", 900., 700.);
+  let chow = Rc::new(RefCell::new(chow));
+  let pancake = Rc::new(RefCell::new(pancake));
+  // how the app reaches a plugin from its window
+  let reach = |plugin: &Rc<RefCell<Plugin>>| -> window::WithPlugin {
+    let plugin = plugin.clone();
+    Box::new(move |f| {
+      if let Ok(mut p) = plugin.try_borrow_mut() {
+        f(&mut p)
+      }
+    })
+  };
+  let mut lines = vec![];
+
+  let chow_closed = Rc::new(Cell::new(false));
+  let seen = chow_closed.clone();
+  let chow_window = window::open_window(
+    &mut chow.borrow_mut(),
+    "CHOW Tape Model",
+    ptr(&*host),
+    None,
+    reach(&chow),
+    Box::new(move || seen.set(true)),
+  )?;
+  run(&app, 1.5);
+  let panel = window_at(chow_window.ns_window());
+  let size = chow.borrow().editor_size().ok_or("CHOW's editor isn't open")?;
+  ensure(panel.isVisible(), "CHOW's window isn't visible")?;
+  ensure(content_size(panel) == size, format!("CHOW's window is {:?}, its editor {:?}", content_size(panel), size))?;
+  ensure(!host.isKeyWindow() || !panel.isKeyWindow(), "both windows are key")?;
+  let host_frame = host.frame();
+  let (x, y) = chow_window.position();
+  let centre = (x + panel.frame().size.width / 2., y - panel.frame().size.height / 2.);
+  let host_centre = (host_frame.origin.x + host_frame.size.width / 2., host_frame.origin.y + host_frame.size.height / 2.);
+  ensure(
+    (centre.0 - host_centre.0).abs() < 2. && (centre.1 - host_centre.1).abs() < 2.,
+    format!("CHOW's window isn't centred over the host: {:?} vs {:?}", centre, host_centre),
+  )?;
+  lines.push(format!("\n          CHOW opened at {:?}, top-left {:?}{}", size, (x, y), shot(panel, "1-chow-window")));
+
+  // the user drags its corner: the delegate is asked, as AppKit asks it
+  let resizable = chow.borrow().editor_can_resize();
+  let delegate = panel.delegate().ok_or("CHOW's window has no delegate")?;
+  let wanted = panel.frameRectForContentRect(objc2_foundation::NSRect::new(
+    objc2_foundation::NSPoint::ZERO,
+    NSSize::new(size.0 as f64 + 137., size.1 as f64 + 61.),
+  ));
+  // safe: the delegate's windowWillResize:toSize:, with its signature
+  let snapped: NSSize = unsafe { msg_send![&*delegate, windowWillResize: panel, toSize: wanted.size] };
+  let mut frame = panel.frame();
+  frame.size = snapped;
+  panel.setFrame_display(frame, true);
+  run(&app, 1.);
+  let resized = chow.borrow().editor_size().ok_or("CHOW's editor closed")?;
+  ensure(content_size(panel) == resized, format!("CHOW's window is {:?}, its editor {:?}", content_size(panel), resized))?;
+  ensure(!resizable || resized != size, "CHOW is resizable but didn't take a new size")?;
+  let content = panel.contentView().ok_or("CHOW's window has no content view")?;
+  let editor_view = content.subviews().firstObject().ok_or("CHOW's view is gone")?;
+  let filled = (0., 0., resized.0 as f64, resized.1 as f64);
+  ensure(
+    screen::frame_of(&editor_view) == filled,
+    format!("CHOW's view is at {:?}, not {:?}", screen::frame_of(&editor_view), filled),
+  )?;
+  lines.push(format!(
+    "\n          CHOW resizable {}, asked {:?}, took {:?}{}",
+    resizable,
+    (size.0 + 137, size.1 + 61),
+    resized,
+    shot(panel, "2-chow-resized")
+  ));
+
+  // a second window, asked to open far off screen
+  let pancake_window =
+    window::open_window(&mut pancake.borrow_mut(), "PanCake 2", ptr(&*host), Some((-9000., 9000.)), reach(&pancake), Box::new(|| {}))?;
+  run(&app, 1.5);
+  let pancake_panel = window_at(pancake_window.ns_window());
+  let pancake_size = pancake.borrow().editor_size().ok_or("PanCake's editor isn't open")?;
+  ensure(pancake_panel.isVisible() && panel.isVisible(), "both windows aren't visible")?;
+  ensure(content_size(pancake_panel) == pancake_size, format!("PanCake's window is {:?}", content_size(pancake_panel)))?;
+  let screen = pancake_panel.screen().ok_or("PanCake's window isn't on a screen")?.visibleFrame();
+  let (px, py) = pancake_window.position();
+  ensure(
+    px >= screen.origin.x && py <= screen.origin.y + screen.size.height + 0.5,
+    format!("PanCake's window was left at {:?}, off {:?}", (px, py), screen),
+  )?;
+  pancake_window.focus();
+  chow_window.focus();
+  run(&app, 0.5);
+  lines.push(format!(
+    "\n          PanCake opened at {:?}, moved on screen to {:?}{}{}",
+    pancake_size,
+    (px, py),
+    shot(pancake_panel, "3-pancake-window"),
+    shot(panel, "3-chow-beside-pancake")
+  ));
+
+  // CHOW's close button: its editor is closed and the caller told
+  panel.performClose(None);
+  run(&app, 0.3);
+  ensure(chow_closed.get(), "on_close didn't run")?;
+  ensure(chow.borrow().editor_size().is_none(), "CHOW's editor is still open")?;
+  ensure(!panel.isVisible(), "CHOW's window is still visible")?;
+  let remembered = chow_window.position();
+  chow_window.close(&mut chow.borrow_mut());
+  // and it opens again where it was
+  let again = window::open_window(&mut chow.borrow_mut(), "CHOW Tape Model", ptr(&*host), Some(remembered), reach(&chow), Box::new(|| {}))?;
+  run(&app, 0.5);
+  let back = again.position();
+  ensure(
+    (back.0 - remembered.0).abs() < 1. && (back.1 - remembered.1).abs() < 1.,
+    format!("CHOW reopened at {:?}, not {:?}", back, remembered),
+  )?;
+  again.close(&mut chow.borrow_mut());
+
+  // PanCake closed by the app
+  pancake_window.close(&mut pancake.borrow_mut());
+  run(&app, 0.3);
+  ensure(pancake.borrow().editor_size().is_none(), "PanCake's editor is still open")?;
+  host.close();
+  lines.push("\n          closed by its button (on_close ran), reopened where it was, and closed by the app".into());
+  Ok(Outcome::Pass(lines.concat()))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn editors_float_in_their_own_windows() -> Result<Outcome, String> {
+  Ok(Outcome::Skip("only checked on macOS".into()))
+}
+
+// PanCake 2 docked over a stand-in for the webview, clipped to a pane
+// smaller than it
+#[cfg(target_os = "macos")]
+fn pancake_docks_over_the_page() -> Result<Outcome, String> {
+  use objc2::rc::Retained;
+  use objc2::{MainThreadMarker, MainThreadOnly};
+  use objc2_app_kit::NSView;
+  use objc2_foundation::{NSPoint, NSRect, NSSize};
+  use plugin::window::{self, Rect};
+  use screen::{frame_of, ptr, run, shot};
+  use std::ffi::c_void;
+
+  let Some(mtm) = MainThreadMarker::new() else { return Ok(Outcome::Skip("needs the main thread".into())) };
+  let Some(mut pancake) = load("PanCake 2.vst3", RATE)? else { return not_installed("PanCake 2") };
+  let app = screen::app(mtm);
+  let host = screen::host_window(mtm, "dawesome (docked)", 900., 700.);
+  let content = host.contentView().ok_or("no content view")?;
+  // the webview: a view inset in the content view, as wry's may be
+  let page = NSView::initWithFrame(NSView::alloc(mtm), NSRect::new(NSPoint::new(20., 10.), NSSize::new(860., 650.)));
+  content.addSubview(&page);
+  let mut lines = vec![];
+
+  // the pane is 300x400 at (100, 50) on the page, and the plugin is scrolled
+  // 20 up and 20 left inside it
+  let clip = Rect { x: 100., y: 50., width: 300., height: 400. };
+  let dock = window::dock(&mut pancake, ptr(&*page), clip, 80., 30.)?;
+  run(&app, 1.5);
+  let size = pancake.editor_size().ok_or("PanCake's editor isn't open")?;
+  ensure(dock.size() == size, format!("the dock says {:?}, the editor {:?}", dock.size(), size))?;
+  let subviews = content.subviews();
+  ensure(subviews.len() == 2, format!("the content view has {} subviews", subviews.len()))?;
+  let clip_view: Retained<NSView> = subviews.objectAtIndex(1);
+  // the page's (100, 50) from its top is (120, 10 + 650 - 50 - 400) up from
+  // the content view's bottom
+  ensure(frame_of(&clip_view) == (120., 210., 300., 400.), format!("the clip view is at {:?}", frame_of(&clip_view)))?;
+  let holder = clip_view.subviews().objectAtIndex(0);
+  let expected = (-20., -20., size.0 as f64, size.1 as f64);
+  ensure(frame_of(&holder) == expected, format!("the plugin's view is at {:?}, not {:?}", frame_of(&holder), expected))?;
+  ensure(holder.subviews().len() > 0, "the plugin added no view")?;
+  // clicks: inside the pane to the plugin, outside it to the page
+  let inside = content.hitTest(NSPoint::new(200., 300.)).ok_or("nothing under the pane")?;
+  ensure(inside.isDescendantOf(&holder) && *inside != *holder, "a click in the pane doesn't reach the plugin")?;
+  let outside = content.hitTest(NSPoint::new(600., 300.)).ok_or("nothing beside the pane")?;
+  ensure(*outside == *page, "a click beside the pane doesn't reach the page")?;
+  lines.push(format!("\n          docked at {:?}, clipped to {:?}{}", size, clip, shot(&host, "4-pancake-docked")));
+
+  // the page scrolls and the pane grows
+  let clip = Rect { x: 40., y: 20., width: 600., height: 640. };
+  dock.place(clip, 40., 20.);
+  run(&app, 1.);
+  ensure(frame_of(&clip_view) == (60., 0., 600., 640.), format!("the clip view moved to {:?}", frame_of(&clip_view)))?;
+  ensure(frame_of(&holder).0 == 0. && frame_of(&holder).1 == 0., format!("the plugin's view moved to {:?}", frame_of(&holder)))?;
+  lines.push(format!("\n          placed again at {:?}{}", clip, shot(&host, "5-pancake-placed")));
+
+  // the plugin has the keyboard when it's undocked: the page gets it back
+  let plugin_view = holder.subviews().objectAtIndex(0);
+  let focused = host.makeFirstResponder(Some(&plugin_view));
+  dock.undock(&mut pancake);
+  run(&app, 0.3);
+  ensure(pancake.editor_size().is_none(), "PanCake's editor is still open")?;
+  ensure(content.subviews().len() == 1, "the clip view is still there")?;
+  // safe: reading a live view's superview
+  ensure(unsafe { clip_view.superview() }.is_none(), "the clip view is still in a window")?;
+  let responder = host.firstResponder().map(|r| Retained::as_ptr(&r) as *const c_void);
+  ensure(!focused || responder == Some(Retained::as_ptr(&page) as *const c_void), "the page didn't get the keyboard back")?;
+
+  // the content view itself, as Tauri's ns_view() may give it
+  let dock = window::dock(&mut pancake, ptr(&*content), Rect { x: 0., y: 0., width: 200., height: 200. }, 0., 0.)?;
+  run(&app, 0.5);
+  let clip_view: Retained<NSView> = content.subviews().objectAtIndex(1);
+  ensure(frame_of(&clip_view) == (0., 500., 200., 200.), format!("in the content view it's at {:?}", frame_of(&clip_view)))?;
+  lines.push(format!("\n          docked in the content view at the top left{}", shot(&host, "6-pancake-in-content")));
+  dock.undock(&mut pancake);
+  host.close();
+  lines.push(format!("\n          undocked (it had the keyboard: {})", focused));
+  Ok(Outcome::Pass(lines.concat()))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn pancake_docks_over_the_page() -> Result<Outcome, String> {
   Ok(Outcome::Skip("only checked on macOS".into()))
 }
