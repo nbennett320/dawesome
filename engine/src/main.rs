@@ -79,7 +79,7 @@ fn init_tauri() {
   use bounce::*;
   use join::*;
   use mixdown_commands::*;
-  use appearance_commands::{themes, preferences, set_preferences};
+  use appearance_commands::{themes, preferences, set_preferences, set_window_background};
   use history_commands::{undo, redo};
 
   // read before the menu is built, which lists them
@@ -135,6 +135,7 @@ fn init_tauri() {
       themes,
       preferences,
       set_preferences,
+      set_window_background,
       undo,
       redo,
       get_node_data,

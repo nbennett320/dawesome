@@ -44,9 +44,11 @@
     }
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "Dawesome",
         "width": 1200,
         "height": 600,
