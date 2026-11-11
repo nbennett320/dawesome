@@ -213,6 +213,8 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     &item("view-mixer", "Mixer", Some("CmdOrCtrl+Shift+M"))?,
     &item("view-transport", "Transport", None)?,
     &item("view-sequencer", "Sequencer", Some("CmdOrCtrl+Shift+E"))?,
+    &item("view-piano-roll", "Piano Roll", None)?,
+    &item("view-effects-rack", "Effects Rack", None)?,
   ])?;
 
   // define preference menu: opens tabs, like the Window menu

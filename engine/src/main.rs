@@ -28,6 +28,7 @@ mod plugin_catalog;
 mod main_thread;
 mod effects;
 mod effect_commands;
+mod effect_windows;
 
 use std::env;
 use std::sync::{Arc, Mutex};
@@ -87,6 +88,7 @@ fn init_tauri() {
   use appearance_commands::{themes, preferences, set_preferences, set_window_background};
   use history_commands::{undo, redo};
   use effect_commands::*;
+  use effect_windows::*;
 
   // read before the menu is built, which lists them
   let recent_projects = recent::RecentProjects::load();
@@ -117,6 +119,7 @@ fn init_tauri() {
       // (setup runs on the main thread, which plugins are called on)
       main_thread::init(app.handle().clone());
       effects::keep_idling(racks.clone());
+      effect_windows::init(&racks);
       app::window::setup(app)
     })
     .manage(state)
@@ -241,6 +244,11 @@ fn init_tauri() {
       mixdown_status,
       cancel_mixdown,
       reveal_file,
+      open_effect_window,
+      close_effect_window,
+      dock_effect,
+      move_docked_effect,
+      undock_effect,
       get_plugins,
       scan_plugins,
       get_effects,
