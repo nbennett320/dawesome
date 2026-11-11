@@ -228,9 +228,16 @@ fn init_tauri() {
 /**
  * args: 
  *   -d | --debug => debug mode
+ *   --scan-plugin <path> => scan one plugin bundle and print what's in it
  */
 fn main() {
   let args: Vec<String> = env::args().skip(1).collect();
+
+  // `--scan-plugin <path>`: this is a child process scanning one plugin
+  // bundle (see plugin::scan), so nothing else starts
+  if let Some(code) = plugin::scan::scanner_main(&args) {
+    std::process::exit(code)
+  }
 
   if args.is_empty() {
     init_tauri();

@@ -87,11 +87,13 @@ version = "0.1.0"
 dependencies = [
  "base64 0.13.0",
  "chrono",
+ "core-foundation",
  "dirs",
  "futures",
  "futures-test",
  "hound",
  "lazy_static",
+ "libloading",
  "libpulse-binding",
  "libpulse-simple-binding",
  "mlua",
@@ -108,6 +110,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-fs",
  "trash",
+ "vst3",
 ]
 
 [[package]]
@@ -451,6 +454,12 @@ name = "claxon"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4bfbf56724aa9eca8afa4fcfadeb479e722935bb2a0900c2d37e0cc477af0688"
+
+[[package]]
+name = "com-scrape-types"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ce183b975b8fc736a20919c4002717255fbd867df575c792aeefa9a56a73ad0"
 
 [[package]]
 name = "combine"
@@ -4908,6 +4917,15 @@ name = "version_check"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
+
+[[package]]
+name = "vst3"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e31e3fe7a6f028ded8c5a9984cf283319e6dc63572c9b71da1d4ee9d71d3b6bf"
+dependencies = [
+ "com-scrape-types",
+]
 
 [[package]]
 name = "vswhom"

@@ -40,6 +40,15 @@ rtrb = "0.3"
 trash = "~5.2.3"  # 5.3 needs rustc 1.87
 # MP3s for mixdowns (builds its own LAME, which is LGPL)
 mp3lame-encoder = "0.3.0"
+# VST3 plugins: bindings generated from the SDK's headers (we write the host)
+vst3 = "0.3"
+
+# opening a plugin's bundle (macOS) or library (Linux, Windows)
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+libloading = "0.7"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 pulse = { version = "2.26.*", package= "libpulse-binding" }
