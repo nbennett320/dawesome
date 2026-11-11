@@ -16,6 +16,7 @@ import envReducer from './envSlice'
 import recordingReducer from './recordingSlice'
 import mixdownReducer from './mixdownSlice'
 import appearanceReducer from './appearanceSlice'
+import pianoRollReducer from './pianoRollSlice'
 import { LoadedProject, ProjectView } from '../../types/project'
 import { SequencerState, Synth } from '../../types/sequencer'
 import { View } from '../../types/ui'
@@ -298,6 +299,7 @@ describe('synths', () => {
       recording: recordingReducer,
       mixdown: mixdownReducer,
       appearance: appearanceReducer,
+      pianoRoll: pianoRollReducer,
     },
   })
 
