@@ -16,6 +16,7 @@ const DynamicPane = ({ node }: Props) => {
   }
 
   return (
+    // @ts-expect-error react-split-pane's types predate react 18's children typing
     <SplitPane
       split={node.direction ?? 'vertical'}
       defaultSize='50%'
