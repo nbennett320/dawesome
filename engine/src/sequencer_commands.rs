@@ -276,24 +276,46 @@ fn set_step(
   edit_in(state, gesture, |seq| seq.set_step(pattern_id, row_id, step, on))
 }
 
-// loop a pattern on its own, from its start, stopping whatever was playing
+// replace a pattern's notes (the Piano Roll), kept in the order given. one
+// drag of the mouse (the same gesture) is one step to undo
 #[tauri::command]
-pub fn t_play_pattern(state: daw::TState<'_>, pattern_id: u64) -> Result<(), String> {
-  daw::start_pattern(state.inner(), pattern_id)
+pub fn set_pattern_notes(
+  state: daw::TState<'_>,
+  pattern_id: u64,
+  notes: Vec<daw::PatternNote>,
+  gesture: Option<u64>,
+) -> Result<daw::SequencerState, String> {
+  set_notes(&state, pattern_id, notes, gesture)
+}
+
+fn set_notes(
+  state: &daw::InnerState,
+  pattern_id: u64,
+  notes: Vec<daw::PatternNote>,
+  gesture: Option<u64>,
+) -> Result<daw::SequencerState, String> {
+  edit_in(state, gesture, |seq| seq.set_pattern_notes(pattern_id, notes))
+}
+
+// loop a pattern on its own, from its start, stopping whatever was playing.
+// its notes are played by `track`'s instrument (none: they aren't heard)
+#[tauri::command]
+pub fn t_play_pattern(state: daw::TState<'_>, pattern_id: u64, track: Option<u32>) -> Result<(), String> {
+  daw::start_pattern(state.inner(), pattern_id, track)
 }
 
 // pause whatever is playing, or loop the pattern if nothing is
 #[tauri::command]
-pub fn t_toggle_pattern(state: daw::TState<'_>, pattern_id: u64) -> Result<(), String> {
-  toggle_pattern(state.inner(), pattern_id)
+pub fn t_toggle_pattern(state: daw::TState<'_>, pattern_id: u64, track: Option<u32>) -> Result<(), String> {
+  toggle_pattern(state.inner(), pattern_id, track)
 }
 
-fn toggle_pattern(state: &Arc<daw::InnerState>, pattern_id: u64) -> Result<(), String> {
+fn toggle_pattern(state: &Arc<daw::InnerState>, pattern_id: u64, track: Option<u32>) -> Result<(), String> {
   if state.playlist.playing() {
     daw::pause_playlist(state);
     Ok(())
   } else {
-    daw::start_pattern(state, pattern_id)
+    daw::start_pattern(state, pattern_id, track)
   }
 }
 
@@ -475,7 +497,7 @@ mod tests {
   #[test]
   fn test_a_pattern_needs_steps_to_play() {
     let state = Arc::new(daw::InnerState::default());
-    assert!(daw::start_pattern(&state, 7).is_err());
+    assert!(daw::start_pattern(&state, 7, None).is_err());
     assert!(!state.playlist.playing());
   }
 
@@ -526,6 +548,7 @@ mod tests {
       ("light a step", Box::new(|| set_step(s, pattern, kick, 8, true, None).map(|_| ()))),
       ("clear a step", Box::new(|| set_step(s, pattern, kick, 0, false, None).map(|_| ()))),
       ("rename a pattern", Box::new(|| edit(s, |seq| seq.rename_pattern(pattern, "verse")).map(|_| ()))),
+      ("set the notes", Box::new(|| set_notes(s, pattern, vec![note(60, 1.), note(64, 2.)], None).map(|_| ()))),
       ("pattern length", Box::new(|| edit(s, |seq| seq.set_pattern_bars(pattern, 2, 4)).map(|_| ()))),
       ("add a pattern", Box::new(|| add_pattern_of(s, 4).map(|_| ()))),
       ("duplicate a pattern", Box::new(|| duplicate_pattern_of(s, pattern).map(|_| ()))),
@@ -563,8 +586,41 @@ mod tests {
     assert_eq!(saved(&state), start);
   }
 
+  fn note(pitch: u8, start: f64) -> daw::PatternNote {
+    daw::PatternNote { pitch, start, length: 1., velocity: 0.7 }
+  }
+
+  #[test]
+  fn test_a_drag_of_notes_is_one_step() {
+    let (state, _, _, pattern, _, _) = drums();
+    let before = saved(&state);
+    let had = steps(&state);
+
+    // a note drawn, then dragged along, without letting go of the mouse
+    for n in 0..10 {
+      let seq = set_notes(&state, pattern, vec![note(60, 0.), note(62, n as f64 * 0.5)], Some(31)).unwrap();
+      assert_eq!(seq.patterns.iter().find(|p| p.id == pattern).unwrap().notes[1].start, n as f64 * 0.5);
+    }
+    assert_eq!(steps(&state), had + 1);
+    let after = saved(&state);
+
+    history::undo(&state).unwrap();
+    assert_eq!(saved(&state), before);
+    assert!(state.playlist.sequencer.lock().unwrap().pattern(pattern).unwrap().notes.is_empty());
+    history::redo(&state).unwrap();
+    assert_eq!(saved(&state), after);
+
+    // the next drag is a step of its own; one that changes nothing isn't one
+    set_notes(&state, pattern, vec![note(60, 0.)], Some(32)).unwrap();
+    set_notes(&state, pattern, vec![note(60, 0.)], Some(33)).unwrap();
+    assert_eq!(steps(&state), had + 2);
+    assert!(set_notes(&state, 99, vec![], None).is_err());
+    assert_eq!(steps(&state), had + 2);
+  }
+
   #[test]
   fn test_placing_a_pattern_is_one_step() {
+
     let (state, _, _, pattern, _, _) = drums();
     let before = saved(&state);
     let had = steps(&state);

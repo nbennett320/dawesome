@@ -570,7 +570,8 @@ impl Track {
 
 // a pattern placed in the playlist. it stays linked to its pattern, so it
 // plays whatever the pattern holds now, and is as long as the pattern is
-// (or as the part of it that it plays)
+// (or as the part of it that it plays). its hits go to its track's bus, and
+// its notes to its track's instrument (see run_notes)
 #[derive(Clone, Debug, PartialEq)]
 pub struct PatternNode {
   pub id: u64,
@@ -702,7 +703,44 @@ pub fn schedule_in_window(
 // and where it's heard
 pub type SliceSound = (Duration, daw::VoiceSource, daw::Route);
 
+// a note in a slice of a run, for a track's instrument: how far into the
+// slice it starts, and ends (which can be in a later slice: the note-off is
+// sent with the note-on, so an edit made while it sounds can't leave it
+// hanging)
+#[derive(Clone, Debug)]
+pub struct SliceNote {
+  pub on: Duration,
+  pub off: Duration,
+  pub route: daw::TrackRoute,
+  pub pitch: u8,
+  pub velocity: f32,
+}
+
+impl SliceNote {
+  // - on, off: nanoseconds into the slice
+  fn new(on: i128, off: i128, route: daw::TrackRoute, note: &daw::PatternNote) -> SliceNote {
+    let at = |ns: i128| Duration::from_nanos(ns.max(0) as u64);
+    SliceNote { on: at(on), off: at(off), route, pitch: note.pitch, velocity: note.velocity }
+  }
+}
+
+// send a slice's notes to the engine, as part of run `run`, the slice
+// starting `at` into the run
+pub fn play_slice_notes(engine: &daw::Engine, run: u64, at: Duration, notes: Vec<SliceNote>) -> Result<(), String> {
+  let mut by_track: std::collections::BTreeMap<u32, (daw::TrackRoute, Vec<daw::TimedNote>)> = Default::default();
+  for note in notes {
+    let (_, timed) = by_track.entry(note.route.number).or_insert_with(|| (note.route.clone(), Vec::new()));
+    timed.push(daw::TimedNote::on(engine.frames_in(at + note.on), note.pitch, note.velocity));
+    timed.push(daw::TimedNote::off(engine.frames_in(at + note.off), note.pitch));
+  }
+  for (_, (route, timed)) in by_track {
+    engine.play_notes(&route, Some(run), timed)?;
+  }
+  Ok(())
+}
+
 // the metronome's tick, at the start of a slice
+
 fn metronome_tick() -> SliceSound {
   (Duration::ZERO, Box::new(daw::METRONOME_TICK_SOURCE.convert_samples()), daw::Route::Direct)
 }
@@ -899,6 +937,65 @@ impl AudioGraph<'static> {
     }
 
     sounds
+  }
+
+  // the notes that start in the next `dur` of a run of the graph, for the
+  // instruments of the pattern clips' tracks: each pattern clip's notes that
+  // start in the part of its pattern it plays, each ending where it ends or
+  // at the clip's end, whichever comes first. a note that started before the
+  // slice isn't played (an instrument can't start partway through a note),
+  // so a run from the middle of one leaves it out
+  pub fn run_notes(&self, dur: Duration) -> Vec<SliceNote> {
+    if !self.running || self.pattern_nodes.is_empty() { return Vec::new(); }
+
+    let window_start = self.current_offset.unwrap_or(Duration::ZERO).as_nanos() as i128;
+    let window_end = window_start + dur.as_nanos() as i128;
+    let beat = self.beat_interval();
+    let sequencer = self.sequencer.lock().unwrap();
+    let mut notes = Vec::new();
+    for node in &self.pattern_nodes {
+      let pattern = match sequencer.pattern(node.pattern_id) {
+        Some(pattern) if !pattern.notes.is_empty() => pattern,
+        _ => continue,
+      };
+      let (from, to) = node.span(pattern.length);
+      let route = self.mixer.track_route(node.track_number);
+      for note in pattern.notes.iter().filter(|note| note.start >= from && note.start < to) {
+        let on = node.heard_at(note.start, beat);
+        if on < window_start || on >= window_end { continue; }
+        let off = node.heard_at(note.end().min(to), beat);
+        notes.push(SliceNote::new(on - window_start, off - window_start, route.clone(), note));
+      }
+    }
+    notes
+  }
+
+  // the notes of the next `dur` of a pattern played on its own (see
+  // pattern_sounds), for `track`'s instrument. none without a track
+  pub fn pattern_notes(&self, pattern_id: u64, track: Option<u32>, dur: Duration) -> Vec<SliceNote> {
+    let track = match track {
+      Some(track) => track,
+      None => return Vec::new(),
+    };
+    let window_start = self.current_offset.unwrap_or(Duration::ZERO).as_nanos() as i128;
+    let window_end = window_start + dur.as_nanos() as i128;
+    let beat = self.beat_interval();
+    let sequencer = self.sequencer.lock().unwrap();
+    let pattern = match sequencer.pattern(pattern_id) {
+      Some(pattern) => pattern,
+      None => return Vec::new(),
+    };
+    let route = self.mixer.track_route(track);
+    let end = pattern.length as f64;
+    pattern.notes.iter()
+      .filter(|note| note.start < end)
+      .filter_map(|note| {
+        let on = steps_time(note.start, beat).as_nanos() as i128;
+        if on < window_start || on >= window_end { return None; }
+        let off = steps_time(note.end().min(end), beat).as_nanos() as i128;
+        Some(SliceNote::new(on - window_start, off - window_start, route.clone(), note))
+      })
+      .collect()
   }
 
   // change the tempo. clips keep their beat: one on beat 9 is still on beat

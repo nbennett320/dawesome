@@ -255,7 +255,10 @@ fn init_tauri() {
       add_effect,
       remove_effect,
       move_effect,
-      set_effect_bypassed
+      set_effect_bypassed,
+      set_pattern_notes,
+      play_note,
+      stop_note
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
