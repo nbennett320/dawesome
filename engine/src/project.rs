@@ -1,5 +1,9 @@
 // saving and loading projects: the playlist's clips, their settings, the
-// playlist's settings, and the mixer, in a JSON file (.dawesome)
+// playlist's settings, the mixer and its effects, in a JSON file (.dawesome)
+//
+// an effect is saved with its plugin's id, bundle and settings (base64). one
+// whose plugin can't be loaded comes back missing, keeping its settings, and
+// is saved again just as it was read
 //
 // sample paths inside the project's folder are saved relative to it, so a
 // project folder can be moved or shared. other samples are saved as
@@ -102,6 +106,9 @@ pub struct Project {
   // the tracks armed to record, and the input channels each records
   #[serde(skip_serializing_if = "Vec::is_empty")]
   pub armed: Vec<crate::recording::ArmedTrack>,
+  // each channel's effects, in order, left out when there are none
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub effects: Vec<crate::effects::SavedRack>,
 }
 
 impl Default for Project {
@@ -114,6 +121,7 @@ impl Default for Project {
       sequencer: daw::SavedSequencer::default(),
       pattern_clips: Vec::new(),
       armed: Vec::new(),
+      effects: Vec::new(),
     }
   }
 }
@@ -228,6 +236,11 @@ pub struct LoadedProject {
   pub sequencer: daw::SequencerState,
   pub pattern_clips: Vec<LoadedPatternClip>,
   pub armed: Vec<crate::recording::ArmedTrack>,
+  // each channel's effects
+  pub effects: crate::effects::Racks,
+  // effects whose plugins couldn't be loaded (they're in their racks,
+  // marked missing)
+  pub missing_effects: Vec<crate::effects::MissingEffect>,
 }
 
 // the folder a project file is in, which its relative sample paths start from
@@ -318,6 +331,8 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
   };
 
   let ui = *state.playlist.ui.lock().unwrap();
+  // (with no lock held: the plugins give their settings on the main thread)
+  let effects = state.playlist.effects.saved();
 
   let mut mixer = state.playlist.mixer.settings(0);
   mixer.tracks.retain(|track| track.settings != daw::ChannelSettings::default() || track.name.is_some());
@@ -347,6 +362,7 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
     sequencer,
     pattern_clips,
     armed: state.recorder.lock().unwrap().armed(),
+    effects,
   }
 }
 
@@ -393,6 +409,8 @@ pub fn apply(
     row.path = resolved_path(&row.path, project_dir).to_string_lossy().into_owned();
   }
   let row_samples = daw::RowSample::load_rows(&saved);
+  // the effects, with no lock held: their plugins load on the main thread
+  let missing_effects = state.playlist.effects.load_saved(&project.effects);
   // the UI isn't frozen while that loads: anything played meanwhile stops
   // before the playlist changes under it
   daw::stop_playlist(state);
@@ -494,7 +512,17 @@ pub fn apply(
   // and anything copied meanwhile was the old project's
   state.clipboard.lock().unwrap().clear();
 
-  LoadedProject { settings, clips, missing, mixer, sequencer, pattern_clips, armed: project.armed.clone() }
+  LoadedProject {
+    settings,
+    clips,
+    missing,
+    mixer,
+    sequencer,
+    pattern_clips,
+    armed: project.armed.clone(),
+    effects: state.playlist.effects.racks(),
+    missing_effects,
+  }
 }
 
 // write the current playlist to a project file. the file is written next to
@@ -1389,5 +1417,141 @@ mod tests {
     let fresh = apply(&state, &Project::default(), None);
     assert!(fresh.sequencer.patterns.is_empty());
     assert!(fresh.pattern_clips.is_empty());
+  }
+
+  // each channel's effects, without their ids: (track, [(name, bypassed, missing)])
+  use crate::effects::SavedEffect;
+
+  fn rack_shape(racks: &crate::effects::Racks) -> Vec<(Option<u32>, Vec<(String, bool, bool)>)> {
+    racks.iter()
+      .map(|r| (r.track, r.slots.iter().map(|s| (s.name.clone(), s.bypassed, s.missing)).collect()))
+      .collect()
+  }
+
+  #[test]
+  fn test_effects_saved_and_loaded() {
+    use crate::daw::Channel;
+    use crate::effects::testing::*;
+    let dir = test_dir("effects");
+    let file = dir.join("fx.dawesome");
+
+    let mut rig = rig();
+    let state = rig.state.clone();
+    let effects = &state.playlist.effects;
+    let a = effects.add(Channel::Track(1), &gain().id, None).unwrap();
+    let b = effects.add(Channel::Track(1), &gain().id, None).unwrap();
+    let m = effects.add(Channel::Master, &gain().id, None).unwrap();
+    // the second ahead of the first, so order shows
+    effects.move_to(b, Channel::Track(1), 0).unwrap();
+    rig.turn(a, 0.25);
+    rig.turn(m, 0.75);
+    effects.set_bypassed(b, true).unwrap();
+    let heard = rig.level(Some(1));
+    save_to(&state, &file).unwrap();
+
+    let saved = saved_json(file.to_str().unwrap());
+    assert_eq!(saved.effects.len(), 2);
+    assert_eq!(saved.effects[0].track, Some(1));
+    assert_eq!(saved.effects[1].track, None);
+    let first = &saved.effects[0].slots[1];
+    assert_eq!((first.plugin_id.as_str(), first.path.as_str(), first.bypassed), (gain().id.as_str(), "/fake/Gain.vst3", false));
+    assert_eq!(base64::decode(&first.state).unwrap(), 0.25f32.to_le_bytes());
+    assert!(saved.effects[0].slots[0].bypassed);
+
+    let mut other = rig_with_an_effect();
+    let loaded = load_from(&other.state, &file).unwrap();
+    assert!(loaded.missing_effects.is_empty());
+    assert_eq!(rack_shape(&loaded.effects), vec![
+      (Some(1), vec![("Gain".into(), true, false), ("Gain".into(), false, false)]),
+      (None, vec![("Gain".into(), false, false)]),
+    ]);
+    assert_eq!(loaded.effects, other.state.playlist.effects.racks());
+    assert!((other.level(Some(1)) - heard).abs() < 1e-6);
+    assert!((heard - 0.2 * 0.25 * 0.75).abs() < 1e-6);
+    // the old project's effects went
+    assert_eq!(other.loader.alive.load(std::sync::atomic::Ordering::SeqCst), 3);
+    assert_eq!(capture(&other.state, Some(&dir)).effects, capture(&state, Some(&dir)).effects);
+
+    fs::remove_dir_all(dir).unwrap();
+  }
+
+  // a rig that already has an effect, which loading a project replaces
+  fn rig_with_an_effect() -> crate::effects::testing::Rig {
+    let rig = crate::effects::testing::rig();
+    rig.effects().add(crate::daw::Channel::Track(7), &crate::effects::testing::gain().id, None).unwrap();
+    rig
+  }
+
+  #[test]
+  fn test_missing_effects_are_kept_and_saved_as_they_were() {
+    use crate::effects::testing::*;
+    let dir = test_dir("missing-effects");
+    let file = dir.join("old.dawesome");
+    let absent = absent();
+    // an effect that isn't installed, one found by its saved path though
+    // the catalog doesn't know it, and one with damaged settings
+    let json = serde_json::json!({
+      "effects": [
+        { "track": 0, "slots": [
+          { "pluginId": absent.id, "name": "Absent", "vendor": "Fake Audio", "path": "/gone/Absent.vst3",
+            "bypassed": true, "state": base64::encode([1u8, 2, 3]) },
+          { "pluginId": "vst3:00000000000000000000000000000099", "name": "Elsewhere", "vendor": "Them",
+            "path": "/fake/Elsewhere.vst3", "state": base64::encode(0.5f32.to_le_bytes()) },
+        ] },
+        { "track": null, "slots": [
+          { "pluginId": gain().id, "name": "Gain", "vendor": "Fake Audio", "path": "/fake/Gain.vst3", "state": "!!" },
+        ] },
+      ],
+    });
+    fs::write(&file, json.to_string()).unwrap();
+
+    let mut rig = rig();
+    let loaded = load_from(&rig.state, &file).unwrap();
+    assert_eq!(rack_shape(&loaded.effects), vec![
+      (Some(0), vec![("Absent".into(), true, true), ("Elsewhere".into(), false, false)]),
+      (None, vec![("Gain".into(), false, true)]),
+    ]);
+    let names: Vec<(Option<u32>, String)> = loaded.missing_effects.iter().map(|m| (m.track, m.name.clone())).collect();
+    assert_eq!(names, vec![(Some(0), "Absent".to_string()), (None, "Gain".to_string())]);
+    assert_eq!(loaded.missing_effects[0].reason, "not installed");
+    assert_eq!(loaded.missing_effects[0].path, "/gone/Absent.vst3");
+    // only the one that loaded is heard
+    assert!((rig.level(Some(0)) - 0.1).abs() < 1e-6);
+    let wire = serde_json::to_value(&loaded).unwrap();
+    assert_eq!(wire["missingEffects"][0]["name"], "Absent");
+    assert_eq!(wire["effects"][0]["slots"][0]["missing"], true);
+
+    let again = dir.join("again.dawesome");
+    save_to(&rig.state, &again).unwrap();
+    let before = saved_json(file.to_str().unwrap()).effects;
+    let after = saved_json(again.to_str().unwrap()).effects;
+    assert_eq!(after[0].slots[0], before[0].slots[0]);
+    // (settings that can't be read at all aren't kept)
+    assert_eq!(after[1].slots[0], SavedEffect { state: String::new(), ..before[1].slots[0].clone() });
+    assert_eq!(loaded.missing_effects[1].reason, "its saved settings are damaged");
+    assert_eq!(after[0].slots[1].state, before[0].slots[1].state);
+
+    fs::remove_dir_all(dir).unwrap();
+  }
+
+  #[test]
+  fn test_projects_without_effects_load_with_none() {
+    let rig = rig_with_an_effect();
+    assert!(Project::from_json("{}").unwrap().effects.is_empty());
+    let loaded = apply(&rig.state, &Project::from_json(r#"{"tempo": 100}"#).unwrap(), None);
+    assert!(loaded.effects.is_empty());
+    assert!(rig.effects().racks().is_empty());
+    assert_eq!(rig.loader.alive.load(std::sync::atomic::Ordering::SeqCst), 0);
+    // and a project without effects is saved without them
+    let json = serde_json::to_value(capture(&rig.state, None)).unwrap();
+    assert!(json.get("effects").is_none());
+  }
+
+  #[test]
+  fn test_new_project_clears_the_effects() {
+    let rig = rig_with_an_effect();
+    let loaded = apply(&rig.state, &Project::default(), None);
+    assert!(loaded.effects.is_empty());
+    assert!(rig.effects().racks().is_empty());
   }
 }

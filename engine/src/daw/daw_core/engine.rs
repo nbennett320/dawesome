@@ -83,8 +83,6 @@ pub struct Slot {
 // see above: only one thread ever reaches the processor
 unsafe impl Sync for Slot {}
 
-// (made by the mixer's effects, still to come)
-#[allow(dead_code)]
 impl Slot {
   pub fn new(id: u64, processor: Box<dyn Processor>) -> Arc<Slot> {
     Arc::new(Slot { id, bypassed: AtomicBool::new(false), processor: UnsafeCell::new(processor) })
@@ -488,14 +486,12 @@ impl Engine {
 
   // replace a track's chain of effects (making its bus if need be). the old
   // slots come back to be dropped here; see wait_for_chains
-  #[allow(dead_code)]
   pub fn set_track_chain(&self, route: &daw::TrackRoute, slots: Vec<Arc<Slot>>) -> Result<(), String> {
     self.track_bus(route)?;
     self.send_chain(Channel::Track(route.number), slots)
   }
 
   // replace the master's chain of effects
-  #[allow(dead_code)]
   pub fn set_master_chain(&self, slots: Vec<Arc<Slot>>) -> Result<(), String> {
     self.send_chain(Channel::Master, slots)
   }
@@ -513,7 +509,6 @@ impl Engine {
   // wait until the callback has put in place every chain sent so far, so no
   // slot taken out of one is still being run. returns whether it got there
   // (with no output running it never does)
-  #[allow(dead_code)]
   pub fn wait_for_chains(&self, timeout: Duration) -> bool {
     let sent = self.shared.chains_sent.load(Ordering::Acquire);
     let deadline = Instant::now() + timeout;

@@ -80,6 +80,8 @@ pub struct Playlist {
   // the same sequencer the audio graph plays pattern clips from. lock it
   // after the graph, never before
   pub sequencer: Arc<Mutex<daw::Sequencer>>,
+  // each mixer channel's effects (see effects.rs)
+  pub effects: Arc<crate::effects::Effects>,
   // what the current (or last) run plays. set before each run starts
   pub mode: Mutex<PlayMode>,
   pub ui: Arc<Mutex<PlaylistUI>>,
@@ -98,6 +100,7 @@ impl Playlist {
     );
     let mixer = audiograph.mixer.clone();
     let sequencer = audiograph.sequencer.clone();
+    let effects = Arc::new(crate::effects::Effects::new(mixer.clone()));
 
     Playlist {
       playing: AtomicBool::from(false),
@@ -118,6 +121,7 @@ impl Playlist {
       audiograph: Arc::new(Mutex::new(audiograph)),
       mixer,
       sequencer,
+      effects,
       mode: Mutex::new(PlayMode::Playlist),
       ui: Arc::new(Mutex::from(PlaylistUI::new())),
     }

@@ -1,7 +1,7 @@
 // undo and redo
 //
-// every change to the project (clips, the mixer, the sequencer, the tempo)
-// is kept as a step: what it changed, as it was before and as it was after.
+// every change to the project (clips, the mixer, the sequencer, the tempo,
+// the effects racks) is kept as a step: what it changed, as it was before and as it was after.
 // undoing a step puts back the "before", redoing it the "after". steps hold
 // whole snapshots of what they touched, rather than how to reverse each
 // command, so a step can't drift from what it describes
@@ -9,6 +9,12 @@
 // one gesture is one step: a fader dragged from one place to another sends
 // many changes, each tagged with the gesture's id, and they're folded into
 // the same step (its first "before", its last "after")
+//
+// an effects step keeps snapshots of the racks, not of the plugins' settings
+// (knob turns in a plugin aren't undoable): effects that are there before and
+// after keep their live settings, and one that undo or redo takes away has
+// its settings kept in the snapshot being left, so it comes back with them
+// (see effects.rs)
 //
 // the history isn't saved, and starts again with each project. files on disk
 // are never touched by it: undoing a recording, or a bounced clip, leaves
@@ -99,6 +105,7 @@ pub struct Step {
   mixer: Option<(daw::MixerSettings, daw::MixerSettings)>,
   sequencer: Option<(daw::Sequencer, daw::Sequencer)>,
   tempo: Option<(f32, f32)>,
+  effects: Option<(crate::effects::RackSnap, crate::effects::RackSnap)>,
 }
 
 impl Step {
@@ -141,6 +148,11 @@ impl Step {
     self
   }
 
+  pub fn with_effects(mut self, before: crate::effects::RackSnap, after: crate::effects::RackSnap) -> Self {
+    self.effects = Some((before, after));
+    self
+  }
+
   // drop the parts that didn't change anything
   fn tidy(&mut self) {
     self.clips.retain(|_, (before, after)| match (before, after) {
@@ -151,10 +163,12 @@ impl Step {
     if matches!(&self.mixer, Some((before, after)) if before == after) { self.mixer = None; }
     if matches!(&self.sequencer, Some((before, after)) if before.same_as(after)) { self.sequencer = None; }
     if matches!(self.tempo, Some((before, after)) if before == after) { self.tempo = None; }
+    if matches!(&self.effects, Some((before, after)) if before.same(after)) { self.effects = None; }
   }
 
   fn is_empty(&self) -> bool {
     self.clips.is_empty() && self.mixer.is_none() && self.sequencer.is_none() && self.tempo.is_none()
+      && self.effects.is_none()
   }
 
   // fold a later change of the same gesture into this step: what was before
@@ -174,6 +188,9 @@ impl Step {
     }
     if let Some((before, after)) = later.tempo {
       self.tempo = Some((self.tempo.take().map_or(before, |mine| mine.0), after));
+    }
+    if let Some((before, after)) = later.effects {
+      self.effects = Some((self.effects.take().map_or(before, |mine| mine.0), after));
     }
   }
 
@@ -322,12 +339,12 @@ fn travel(state: &Arc<daw::InnerState>, way: Way) -> Result<Option<Applied>, Str
     };
     (step, history.changes)
   };
-  let step = match step {
+  let mut step = match step {
     Some(step) => step,
     None => return Ok(None),
   };
 
-  let applied = apply(state, &step, way);
+  let applied = apply(state, &mut step, way);
 
   let mut history = state.history.lock().unwrap();
   // a change recorded meanwhile (a sample that was still loading when it
@@ -344,8 +361,9 @@ fn travel(state: &Arc<daw::InnerState>, way: Way) -> Result<Option<Applied>, Str
 
 // put the project as a step says it was before it (undo) or after it (redo).
 // the tempo goes first, as clips are placed by their beats; then the
-// sequencer, whose patterns the pattern clips play
-fn apply(state: &Arc<daw::InnerState>, step: &Step, way: Way) -> Applied {
+// sequencer, whose patterns the pattern clips play. the effects go last, with
+// no other lock held (their plugins are loaded on the main thread)
+fn apply(state: &Arc<daw::InnerState>, step: &mut Step, way: Way) -> Applied {
   let pick = |before: bool| (way == Way::Undo) == before;
 
   if let Some((before, after)) = step.tempo {
@@ -382,6 +400,12 @@ fn apply(state: &Arc<daw::InnerState>, step: &Step, way: Way) -> Applied {
 
   if let Some((before, after)) = &step.mixer {
     state.playlist.mixer.apply(if pick(true) { before } else { after });
+  }
+
+  if let Some((before, after)) = &mut step.effects {
+    // the snapshot being left keeps the settings of effects that go
+    let (target, left) = if pick(true) { (&*before, after) } else { (&*after, before) };
+    state.playlist.effects.restore(target, left);
   }
 
   Applied { clips: if step.clips.is_empty() { None } else { Some(clips) } }
@@ -690,11 +714,11 @@ mod tests {
     move_clip(&state, id, 0, Some(3.)).unwrap();
 
     // as travel does, with a change recorded while the step is being applied
-    let (step, changes) = {
+    let (mut step, changes) = {
       let mut history = state.history.lock().unwrap();
       (history.undo.pop().unwrap(), history.changes)
     };
-    apply(&state, &step, Way::Undo);
+    apply(&state, &mut step, Way::Undo);
     clip(&state, 1, 8.);
     assert_ne!(state.history.lock().unwrap().changes, changes);
 

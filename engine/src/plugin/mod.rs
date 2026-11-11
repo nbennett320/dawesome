@@ -7,7 +7,7 @@
 // vst3 is the VST3 host (a plugin's module, its two halves, its window), and
 // scan finds the plugins installed on this machine
 
-// the mixer doesn't use plugins yet, so much of this is unused for now
+// (a plugin keeps some of the host's objects only to keep them alive)
 #![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
@@ -84,6 +84,7 @@ pub trait Processor: Send {
 
 // what kind of plugin a class is
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
 pub enum PluginKind {
   Effect,
   Instrument,

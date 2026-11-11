@@ -111,7 +111,16 @@ pub fn set_audio_settings(state: daw::TState<'_>, settings: daw::AudioSettings) 
   }
 
   let before = daw::audio_settings();
-  daw::apply_audio_settings(settings.clone())?;
+  // the effects come off the output before it's replaced, and go onto
+  // whichever one is open after (the old one, if the new settings failed),
+  // with their plugins prepared for its rate
+  let reopens = daw::engine_if_open().is_some()
+    && (before.output_device != settings.output_device || before.buffer_frames != settings.buffer_frames);
+  let effects = &state.playlist.effects;
+  if reopens { effects.detach(); }
+  let applied = daw::apply_audio_settings(settings.clone());
+  effects.attach();
+  applied?;
 
   // the input records at the output's rate, from the chosen device
   if before.input_device != settings.input_device

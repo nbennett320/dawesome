@@ -9,6 +9,13 @@
 // it renders a copy of the song, taken when it starts, with a mixer of its
 // own: the song can be played and changed meanwhile, and the faders moved,
 // without any of it reaching the render, or the render reaching the meters
+//
+// the effects too: every effect that's switched on gets a second instance
+// of its plugin for the mixdown, loaded at the mixdown's rate with the live
+// one's settings copied over, so playback carries on with the live ones. an
+// effect that can't be loaded again fails the mixdown rather than being
+// left out. the second instances are torn down (on the main thread) when
+// the render's done
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -36,6 +43,8 @@ pub struct Snapshot {
   end: Duration,
   // for the effects' transport
   time_signature: daw::TimeSignature,
+  // second instances of the effects, for the render's own engine
+  effects: crate::effects::MixdownEffects,
 }
 
 impl Snapshot {
@@ -44,9 +53,10 @@ impl Snapshot {
   }
 }
 
-// copy the song: its clips, patterns and mixer. the locks are held only
-// while copying (the graph's, then the sequencer's: always in that order)
-pub fn snapshot(state: &daw::InnerState) -> Result<Snapshot, String> {
+// copy the song: its clips, patterns, mixer and effects, for a render at
+// `rate`. the locks are held only while copying (the graph's, then the
+// sequencer's: always in that order), and not while the effects are loaded
+pub fn snapshot(state: &daw::InnerState, rate: u32) -> Result<Snapshot, String> {
   let time_signature = *state.playlist.time_signature.lock().unwrap();
   let graph = {
     let live = state.playlist.audiograph.lock().unwrap();
@@ -63,7 +73,8 @@ pub fn snapshot(state: &daw::InnerState) -> Result<Snapshot, String> {
 
   let end = graph.end();
   if end.is_zero() { return Err(NOTHING_TO_MIX.into()); }
-  Ok(Snapshot { graph, end, time_signature })
+  let effects = state.playlist.effects.mixdown_chains(rate)?;
+  Ok(Snapshot { graph, end, time_signature, effects })
 }
 
 // how far a render has got, readable from another thread while it works
@@ -89,7 +100,7 @@ impl Progress {
   }
 }
 
-// render the song at `rate`, handing the mix to `sink` a chunk at a time,
+// render the song at `rate` (the one it was snapshot for), handing the mix to `sink` a chunk at a time,
 // stereo and interleaved. from the playlist's start to the last clip's end,
 // and the tail after it. stops with CANCELLED when `cancel` is set, or with
 // the sink's error. returns how many frames it rendered
@@ -103,11 +114,19 @@ pub fn render(
   progress: &Progress,
   cancel: &AtomicBool,
 ) -> Result<u64, String> {
-  let Snapshot { mut graph, end, time_signature } = snapshot;
+  // (declared first, so the plugins go after the engine that runs them)
+  let Snapshot { mut graph, end, time_signature, effects } = snapshot;
+  let crate::effects::MixdownEffects { chains, plugins: _plugins } = effects;
   let beat = graph.beat_interval();
   if beat.is_zero() { return Err("the tempo is zero".into()); }
 
   let (engine, mut renderer) = daw::Engine::new(rate);
+  for (channel, slots) in chains {
+    match channel {
+      daw::Channel::Track(n) => engine.set_track_chain(&graph.mixer.track_route(n), slots)?,
+      daw::Channel::Master => engine.set_master_chain(slots)?,
+    }
+  }
   let end_frame = engine.frames_in(end);
   progress.total.store(end_frame, Ordering::Relaxed);
   progress.done.store(0, Ordering::Relaxed);
@@ -202,7 +221,7 @@ mod tests {
 
   fn mixdown(state: &daw::InnerState, rate: u32) -> Vec<f32> {
     let mut samples = Vec::new();
-    render(snapshot(state).unwrap(), rate, &mut |chunk| { samples.extend_from_slice(chunk); Ok(()) },
+    render(snapshot(state, rate).unwrap(), rate, &mut |chunk| { samples.extend_from_slice(chunk); Ok(()) },
       &Progress::default(), &AtomicBool::new(false)).unwrap();
     samples
   }
@@ -330,7 +349,7 @@ mod tests {
     let state = daw::InnerState::default();
     // a pattern whose last hit, the long sample, rings well past its end
     pattern_clip(&state, 0, Duration::ZERO);
-    let snap = snapshot(&state).unwrap();
+    let snap = snapshot(&state, 48_000).unwrap();
     let end = daw::run_frame(snap.end().as_nanos() as i128, 48_000) as usize;
     let mixed = mixdown(&state, 48_000);
     let frames = mixed.len() / 2;
@@ -341,14 +360,14 @@ mod tests {
     // a clip that ends in silence ends at its end
     let state = daw::InnerState::default();
     add_clip(&state, KICK.into(), 0, Some(0.)).unwrap();
-    let end = daw::run_frame(snapshot(&state).unwrap().end().as_nanos() as i128, 48_000) as usize;
+    let end = daw::run_frame(snapshot(&state, 48_000).unwrap().end().as_nanos() as i128, 48_000) as usize;
     assert!(mixdown(&state, 48_000).len() / 2 <= end + 1);
   }
 
   #[test]
   fn test_an_empty_playlist_is_refused() {
     let state = daw::InnerState::default();
-    assert_eq!(snapshot(&state).err().unwrap(), NOTHING_TO_MIX);
+    assert_eq!(snapshot(&state, 48_000).err().unwrap(), NOTHING_TO_MIX);
   }
 
   #[test]
@@ -358,7 +377,7 @@ mod tests {
     let before = mixdown(&state, 48_000);
     state.playlist.mixer.take_levels();
 
-    let snap = snapshot(&state).unwrap();
+    let snap = snapshot(&state, 48_000).unwrap();
     state.playlist.mixer.set_mute(0, true);
     state.playlist.audiograph.lock().unwrap().set_tempo(60.);
     let mut samples = Vec::new();
@@ -380,7 +399,7 @@ mod tests {
     let progress = Progress::default();
     let cancel = AtomicBool::new(false);
     let mut chunks = 0;
-    let result = render(snapshot(&state).unwrap(), 48_000, &mut |_| {
+    let result = render(snapshot(&state, 48_000).unwrap(), 48_000, &mut |_| {
       chunks += 1;
       if chunks == 3 { cancel.store(true, Ordering::Relaxed); }
       Ok(())
@@ -389,7 +408,7 @@ mod tests {
     assert!(progress.fraction() > 0. && progress.fraction() < 1.);
 
     let progress = Progress::default();
-    render(snapshot(&state).unwrap(), 48_000, &mut |_| Ok(()), &progress, &AtomicBool::new(false)).unwrap();
+    render(snapshot(&state, 48_000).unwrap(), 48_000, &mut |_| Ok(()), &progress, &AtomicBool::new(false)).unwrap();
     assert_eq!(progress.fraction(), 1.);
   }
 
@@ -412,5 +431,64 @@ mod tests {
     // each kick is heard where it starts: the mix jumps there
     let silent = starts.iter().filter(|&&at| peak(&mixed[at * 2..(at + 100) * 2]) < 0.01).count();
     assert_eq!(silent, 0);
+  }
+
+  #[test]
+  fn test_effects_are_mixed_down_through_second_instances() {
+    use crate::daw::Channel;
+    use crate::effects::testing::*;
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let rig = rig();
+    let state = &rig.state;
+    add_clip(state, KICK.into(), 0, Some(0.)).unwrap();
+    add_clip(state, LONG.into(), 1, Some(0.5)).unwrap();
+    // under the limiter's knee, so the gains multiply exactly
+    state.playlist.mixer.set_master_volume_db(-12.);
+    let dry = mixdown(state, 48_000);
+
+    let effects = &state.playlist.effects;
+    let a = effects.add(Channel::Track(0), &gain().id, None).unwrap();
+    let m = effects.add(Channel::Master, &gain().id, None).unwrap();
+    let off = effects.add(Channel::Track(1), &gain().id, None).unwrap();
+    rig.turn(a, 0.25);
+    effects.set_bypassed(off, true).unwrap();
+    let loads = rig.loader.loads.load(SeqCst);
+    let wet = mixdown(state, 48_000);
+
+    // the bypassed one isn't loaded again; the others are, and are gone after
+    assert_eq!(rig.loader.loads.load(SeqCst), loads + 2);
+    assert_eq!(rig.loader.alive.load(SeqCst), 3);
+    assert_eq!(rig.loader.rates.lock().unwrap()[loads..], [48_000, 48_000]);
+    // the live ones are as they were
+    assert!((rig.gain_of(a) - 0.25).abs() < 1e-9 && (rig.gain_of(m) - START_GAIN).abs() < 1e-9);
+
+    // the kick through both, the long sample through the master's only
+    let kick_only = {
+      let state = daw::InnerState::default();
+      add_clip(&state, KICK.into(), 0, Some(0.)).unwrap();
+      state.playlist.mixer.set_master_volume_db(-12.);
+      mixdown(&state, 48_000)
+    };
+    let n = dry.len().min(wet.len()).min(kick_only.len());
+    let expected: Vec<f32> = (0..n).map(|i| {
+      let long = dry[i] - kick_only[i];
+      (kick_only[i] * 0.25 + long) * START_GAIN
+    }).collect();
+    assert!(peak(&wet[..n]) > 0.01);
+    let off_by = worst(&wet[..n], &expected);
+    assert!(off_by < 1e-5, "off by {}", off_by);
+  }
+
+  #[test]
+  fn test_a_mixdown_fails_if_an_effect_cant_be_loaded_again() {
+    use crate::daw::Channel;
+    use crate::effects::testing::*;
+    let rig = rig();
+    add_clip(&rig.state, KICK.into(), 0, Some(0.)).unwrap();
+    rig.state.playlist.effects.add(Channel::Track(0), &gain().id, None).unwrap();
+    rig.loader.broken.store(true, std::sync::atomic::Ordering::SeqCst);
+    let err = snapshot(&rig.state, 48_000).err().unwrap();
+    assert!(err.starts_with("Gain couldn't be loaded for the mixdown"), "{}", err);
   }
 }

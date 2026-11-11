@@ -24,6 +24,10 @@ mod mixdown_file;
 mod mixdown_commands;
 mod bind_functions;
 mod plugin;
+mod plugin_catalog;
+mod main_thread;
+mod effects;
+mod effect_commands;
 
 use std::env;
 use std::sync::{Arc, Mutex};
@@ -82,6 +86,7 @@ fn init_tauri() {
   use mixdown_commands::*;
   use appearance_commands::{themes, preferences, set_preferences, set_window_background};
   use history_commands::{undo, redo};
+  use effect_commands::*;
 
   // read before the menu is built, which lists them
   let recent_projects = recent::RecentProjects::load();
@@ -94,11 +99,27 @@ fn init_tauri() {
     }
   });
 
+  let state = Arc::new(daw::InnerState::default());
+
+  // the plugins found last time, then a look for new or changed ones in the
+  // background
+  let plugins = state.playlist.effects.plugins.clone();
+  if let Some(file) = plugin_catalog::default_file() {
+    plugins.open(&file);
+  }
+  plugins.scan(false);
+
+  let racks = state.playlist.effects.clone();
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
-    .setup(app::window::setup)
-    .manage(Arc::new(daw::InnerState::default()))
+    .setup(move |app| {
+      // (setup runs on the main thread, which plugins are called on)
+      main_thread::init(app.handle().clone());
+      effects::keep_idling(racks.clone());
+      app::window::setup(app)
+    })
+    .manage(state)
     .manage(recent_projects)
     .manage(preferences::AppPreferences::load())
     .manage(Arc::new(mixdown_commands::Mixdowns::default()))
@@ -219,7 +240,14 @@ fn init_tauri() {
       start_mixdown,
       mixdown_status,
       cancel_mixdown,
-      reveal_file
+      reveal_file,
+      get_plugins,
+      scan_plugins,
+      get_effects,
+      add_effect,
+      remove_effect,
+      move_effect,
+      set_effect_bypassed
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
