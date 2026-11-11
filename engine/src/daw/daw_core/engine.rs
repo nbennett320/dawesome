@@ -23,6 +23,19 @@
 // or not, so their tails ring on after a stop. one with no effects runs only
 // in the blocks its voices sound in
 //
+// a track's chain can start with an instrument, which plays the notes sent
+// to its bus (see play_notes). each note is timed to a frame of a run, as a
+// voice is, and is handed to the chain in the block it falls in, with its
+// offset in the block. what the instrument plays is added to the track's
+// voices, and both go through the effects after it:
+//
+//   track voices ────────────┐
+//   notes → instrument ──────┴→ (+) → effects → strip ─→ master bus
+//
+// a run that stops (or is replaced) ends the notes it was holding, so none
+// hangs. notes played without a run (a key auditioned) are ended only by
+// their own note-off
+//
 // the callback never takes a lock, touches the disk, or allocates or frees
 // memory: voices, buses and chains arrive through a lock-free queue, and what
 // it's done with is sent back to be freed by whoever sends the next command
@@ -66,8 +79,9 @@ pub enum Channel {
   Master,
 }
 
-// an effect in a chain: its processor, and whether it's bypassed (a bypassed
-// slot passes the signal through untouched)
+// an effect or instrument in a chain: its processor, and whether it's
+// bypassed (a bypassed slot passes the signal through untouched). an
+// instrument's output is added to what comes into it, rather than replacing it
 //
 // the processor is only ever touched by the audio thread of the engine whose
 // chain holds the slot, so it needs no lock. that holds as long as a slot is
@@ -76,6 +90,7 @@ pub enum Channel {
 // that's replaced goes back through the garbage queue)
 pub struct Slot {
   id: u64,
+  instrument: bool,
   bypassed: AtomicBool,
   processor: UnsafeCell<Box<dyn Processor>>,
 }
@@ -85,11 +100,20 @@ unsafe impl Sync for Slot {}
 
 impl Slot {
   pub fn new(id: u64, processor: Box<dyn Processor>) -> Arc<Slot> {
-    Arc::new(Slot { id, bypassed: AtomicBool::new(false), processor: UnsafeCell::new(processor) })
+    Arc::new(Slot { id, instrument: false, bypassed: AtomicBool::new(false), processor: UnsafeCell::new(processor) })
+  }
+
+  // an instrument, for the head of a track's chain
+  pub fn new_instrument(id: u64, processor: Box<dyn Processor>) -> Arc<Slot> {
+    Arc::new(Slot { id, instrument: true, bypassed: AtomicBool::new(false), processor: UnsafeCell::new(processor) })
   }
 
   pub fn id(&self) -> u64 {
     self.id
+  }
+
+  pub fn instrument(&self) -> bool {
+    self.instrument
   }
 
   pub fn bypassed(&self) -> bool {
@@ -148,6 +172,52 @@ pub struct Voice {
   target: Target,
 }
 
+// a note for a track's instrument, `at` frames into a run (or, without a
+// run, as soon as the engine gets it)
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TimedNote {
+  pub at: u64,
+  pub pitch: u8,
+  pub kind: NoteKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum NoteKind {
+  // velocity from 0 to 1
+  On { velocity: f32 },
+  Off,
+}
+
+impl TimedNote {
+  pub fn on(at: u64, pitch: u8, velocity: f32) -> TimedNote {
+    TimedNote { at, pitch, kind: NoteKind::On { velocity } }
+  }
+
+  pub fn off(at: u64, pitch: u8) -> TimedNote {
+    TimedNote { at, pitch, kind: NoteKind::Off }
+  }
+}
+
+// who a note on a bus belongs to
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Owner {
+  Run(u64),
+  // played without a run
+  Audition,
+  // the note-off ending a held note of a run that stopped (it isn't counted)
+  Release,
+}
+
+// a note waiting on a bus for its block
+#[derive(Clone, Copy, Debug)]
+struct PendingNote {
+  owner: Owner,
+  // the engine's frame it falls on
+  frame: u64,
+  pitch: u8,
+  kind: NoteKind,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Target {
   // a track's bus, by its place in the renderer's list
@@ -166,9 +236,16 @@ struct Bus {
   buffers: [[Vec<f32>; 2]; 2],
   strip: daw::Strip,
   chain: Vec<Arc<Slot>>,
-  // what an instrument at the head of the chain plays this block, in order.
-  // always empty for now (instruments come later)
+  // notes still to come, in no order. room for MAX_NOTES of them is made up
+  // front (and a pitch's worth more, for ending held notes at a stop)
+  notes: Vec<PendingNote>,
+  // what an instrument at the head of the chain plays this block, in order
+  // of their offsets
   events: Vec<plugin::Event>,
+  // how many notes of each pitch are held, by the run playing and by
+  // auditions
+  held_by_run: [u16; 128],
+  held_by_audition: [u16; 128],
   // whether a voice was summed on it this block
   sounding: bool,
   // whether it ran last block (one that's been idle starts its strip afresh)
@@ -183,7 +260,10 @@ impl Bus {
       buffers: [pair(), pair()],
       strip,
       chain: Vec::new(),
-      events: Vec::new(),
+      notes: Vec::with_capacity(NOTE_ROOM),
+      events: Vec::with_capacity(NOTE_ROOM),
+      held_by_run: [0; 128],
+      held_by_audition: [0; 128],
       sounding: false,
       awake: false,
     })
@@ -193,6 +273,65 @@ impl Bus {
   fn clear(&mut self, frames: usize) {
     for side in self.buffers[0].iter_mut() {
       side[..frames].fill(0.);
+    }
+  }
+
+  // the notes that fall in the block from `from` to `end` (frames), moved to
+  // `events` in order: by offset, and at the same offset note-offs first, so
+  // a note ending where the same pitch starts again is heard starting again
+  fn take_notes(&mut self, from: u64, end: u64) {
+    self.events.clear();
+    if self.notes.is_empty() { return; }
+
+    // note-ons first, then note-offs, so a held count never goes below what's
+    // held (the order the instrument hears them in is set below)
+    for ons in [true, false] {
+      let mut i = 0;
+      while i < self.notes.len() {
+        let note = self.notes[i];
+        if note.frame >= end || matches!(note.kind, NoteKind::On { .. }) != ons {
+          i += 1;
+          continue;
+        }
+        self.notes.swap_remove(i);
+
+        let held = match note.owner {
+          Owner::Run(_) => Some(&mut self.held_by_run[note.pitch as usize]),
+          Owner::Audition => Some(&mut self.held_by_audition[note.pitch as usize]),
+          Owner::Release => None,
+        };
+        let offset = note.frame.saturating_sub(from) as u32;
+        let event = match note.kind {
+          NoteKind::On { velocity } => {
+            if let Some(held) = held { *held = held.saturating_add(1); }
+            plugin::Event::NoteOn { offset, pitch: note.pitch, velocity }
+          }
+          NoteKind::Off => {
+            if let Some(held) = held { *held = held.saturating_sub(1); }
+            plugin::Event::NoteOff { offset, pitch: note.pitch }
+          }
+        };
+        // (there's always room: events has as much as notes)
+        if self.events.len() < self.events.capacity() { self.events.push(event); }
+      }
+    }
+    // (sort_unstable never allocates)
+    self.events.sort_unstable_by_key(|event| (event.offset(), matches!(event, plugin::Event::NoteOn { .. })));
+  }
+
+  // a run stopped: its notes still to come are dropped, and every pitch it
+  // holds is ended at `frame`, unless an audition holds it too (whose own
+  // note-off ends it)
+  fn end_run_notes(&mut self, frame: u64) {
+    self.notes.retain(|note| !matches!(note.owner, Owner::Run(_)));
+    for pitch in 0..128 {
+      if self.held_by_run[pitch] == 0 { continue; }
+      self.held_by_run[pitch] = 0;
+      if self.held_by_audition[pitch] > 0 { continue; }
+      // (room is kept for these)
+      if self.notes.len() < self.notes.capacity() {
+        self.notes.push(PendingNote { owner: Owner::Release, frame, pitch: pitch as u8, kind: NoteKind::Off });
+      }
     }
   }
 
@@ -215,6 +354,12 @@ impl Bus {
         &self.events,
         transport,
       );
+      // an instrument plays over the track's voices
+      if slot.instrument() {
+        for (out, input) in [(out_l, in_l), (out_r, in_r)] {
+          for (o, i) in out[..frames].iter_mut().zip(&input[..frames]) { *o += i; }
+        }
+      }
       at = 1 - at;
     }
 
@@ -231,6 +376,8 @@ enum Command {
   // stop a run (if it's the one playing), fading out what's sounding
   Stop { run: u64 },
   Play(Vec<Box<Voice>>),
+  // notes for a track's instrument (its bus is sent before them)
+  Notes { track: u32, run: Option<u64>, notes: Vec<TimedNote> },
   // a track's bus, sent before the first of its voices
   Bus(Box<Bus>),
   // a longer list for the buses, which move into it (so adding a bus never
@@ -250,6 +397,7 @@ enum Command {
 enum Garbage {
   Voice(Box<Voice>),
   Voices(Vec<Box<Voice>>),
+  Notes(Vec<TimedNote>),
   Bus(Box<Bus>),
   Buses(Vec<Box<Bus>>),
   Route(daw::TrackRoute),
@@ -268,6 +416,11 @@ const MAX_CHUNK: usize = plugin::MAX_BLOCK;
 // how many track buses there's room for at first (more are made room for as
 // they're needed)
 const BUS_ROOM: usize = 256;
+// how many notes a bus holds waiting for their block. more are dropped (and
+// counted). a run sends a beat's worth at a time, so this is a lot of notes
+const MAX_NOTES: usize = 4096;
+// and room for the note-offs a stop sends, one per pitch
+const NOTE_ROOM: usize = MAX_NOTES + 128;
 
 // what the callback reports, readable from any thread
 struct Shared {
@@ -289,6 +442,8 @@ struct Shared {
   // after they should have started
   dropped: AtomicU64,
   late: AtomicU64,
+  // notes dropped because a bus had too many waiting
+  dropped_notes: AtomicU64,
   // chains sent to the callback, and chains it has put in place
   chains_sent: AtomicU64,
   chains_applied: AtomicU64,
@@ -338,6 +493,7 @@ impl Engine {
       anchor_heard_ns: AtomicU64::new(0),
       dropped: AtomicU64::new(0),
       late: AtomicU64::new(0),
+      dropped_notes: AtomicU64::new(0),
       chains_sent: AtomicU64::new(0),
       chains_applied: AtomicU64::new(0),
     });
@@ -469,6 +625,15 @@ impl Engine {
     self.send(Command::Play(voices))
   }
 
+  // notes for a track's instrument, each `at` frames into a run, or, without
+  // one, straight away (a key auditioned: see the top of the file). the
+  // track's bus is sent first if it hasn't been
+  pub fn play_notes(&self, route: &daw::TrackRoute, run: Option<u64>, notes: Vec<TimedNote>) -> Result<(), String> {
+    if notes.is_empty() { return Ok(()); }
+    self.track_bus(route)?;
+    self.send(Command::Notes { track: route.number, run, notes })
+  }
+
   // play a sound once, straight to the output
   pub fn preview<S>(&self, source: S) -> Result<(), String>
   where
@@ -540,6 +705,8 @@ impl Engine {
     if dropped > 0 { println!("audio engine: dropped {} voices (too many at once)", dropped); }
     let late = self.shared.late.swap(0, Ordering::Relaxed);
     if late > 0 { println!("audio engine: {} voices arrived late", late); }
+    let dropped = self.shared.dropped_notes.swap(0, Ordering::Relaxed);
+    if dropped > 0 { println!("audio engine: dropped {} notes (too many waiting at once)", dropped); }
   }
 
   // where a run started, once the callback has started it
@@ -683,8 +850,10 @@ impl Renderer {
       self.transport.playing = false;
     }
 
+    // and each bus's notes in this block
     for bus in self.buses.iter_mut() {
       bus.sounding = false;
+      bus.take_notes(self.frame, end);
     }
     self.master.clear(frames);
     for side in self.direct.iter_mut() {
@@ -745,7 +914,7 @@ impl Renderer {
     let transport = self.transport;
     let [master_l, master_r] = &mut self.master.buffers[0];
     for bus in self.buses.iter_mut() {
-      if !bus.sounding && bus.chain.is_empty() {
+      if !bus.sounding && bus.chain.is_empty() && bus.events.is_empty() {
         bus.awake = false;
         continue;
       }
@@ -797,6 +966,7 @@ impl Renderer {
       }
       Command::Stop { run } => self.stop(run),
       Command::Play(voices) => self.add(voices),
+      Command::Notes { track, run, notes } => self.add_notes(track, run, notes),
       Command::Bus(bus) => {
         // the engine makes room before sending more buses than fit
         if self.buses.len() < self.buses.capacity() {
@@ -856,6 +1026,12 @@ impl Renderer {
       _ => return,
     }
 
+    // and the notes it holds end now
+    let frame = self.frame;
+    for bus in self.buses.iter_mut() {
+      bus.end_run_notes(frame);
+    }
+
     for voice in self.voices.iter_mut() {
       if voice.run != Some(run) { continue; }
 
@@ -911,7 +1087,40 @@ impl Renderer {
     self.throw_away(Garbage::Voices(voices));
   }
 
+  fn add_notes(&mut self, track: u32, run: Option<u64>, notes: Vec<TimedNote>) {
+    // where they're counted from: the run's first frame, or now. a run that's
+    // stopped or been replaced has nothing to play them in
+    let (owner, zero) = match (run, &self.run) {
+      (None, _) => (Owner::Audition, self.frame),
+      (Some(run), Some(playing)) if run == playing.id => (Owner::Run(run), playing.frame),
+      _ => {
+        self.throw_away(Garbage::Notes(notes));
+        return;
+      }
+    };
+
+    let frame = self.frame;
+    match self.buses.iter_mut().find(|bus| bus.channel == Channel::Track(track)) {
+      Some(bus) => {
+        for note in &notes {
+          if bus.notes.len() >= MAX_NOTES {
+            self.shared.dropped_notes.fetch_add(1, Ordering::Relaxed);
+            continue;
+          }
+          // one that should have happened already happens now
+          let at = zero + note.at;
+          if at < frame { self.shared.late.fetch_add(1, Ordering::Relaxed); }
+          bus.notes.push(PendingNote { owner, frame: at.max(frame), pitch: note.pitch.min(127), kind: note.kind });
+        }
+      }
+      // (the engine couldn't send its bus)
+      None => { self.shared.dropped_notes.fetch_add(notes.len() as u64, Ordering::Relaxed); }
+    }
+    self.throw_away(Garbage::Notes(notes));
+  }
+
   fn throw_away(&mut self, garbage: Garbage) {
+
     // with the queue full there's no choice but to free it here
     let _ = self.garbage.push(garbage);
   }
@@ -1566,10 +1775,195 @@ mod tests {
     assert!(out[0] == 0. && close(out[1], 0.5) && out[2] == 0., "{:?}", out);
   }
 
+  // an instrument: 0.25 while any pitch is held (each event at its offset),
+  // ignoring what comes in
+  struct Tone {
+    held: [bool; 128],
+  }
+
+  impl Tone {
+    fn slot(id: u64) -> Arc<Slot> {
+      Slot::new_instrument(id, Box::new(Tone { held: [false; 128] }))
+    }
+  }
+
+  impl Processor for Tone {
+    fn process(&mut self, _: [&[f32]; 2], output: [&mut [f32]; 2], events: &[plugin::Event], _: &Transport) {
+      let [left, right] = output;
+      let mut next = events.iter().peekable();
+      for i in 0..left.len() {
+        while let Some(event) = next.next_if(|e| e.offset() as usize <= i) {
+          match *event {
+            plugin::Event::NoteOn { pitch, .. } => self.held[pitch as usize] = true,
+            plugin::Event::NoteOff { pitch, .. } => self.held[pitch as usize] = false,
+          }
+        }
+        let level = if self.held.iter().any(|&h| h) { 0.25 } else { 0. };
+        left[i] = level;
+        right[i] = level;
+      }
+    }
+  }
+
+  // an engine with a Tone at the head of track 0's chain, and the mixer
+  fn with_tone() -> (Engine, Renderer, daw::Mixer) {
+    let mixer = daw::Mixer::default();
+    let (engine, renderer) = Engine::new(RATE);
+    engine.set_track_chain(&mixer.track_route(0), vec![Tone::slot(1)]).unwrap();
+    (engine, renderer, mixer)
+  }
+
+  // the frames that sound, as runs of (from, to)
+  fn sounding(samples: &[f32]) -> Vec<(usize, usize)> {
+    let mut runs: Vec<(usize, usize)> = Vec::new();
+    for (i, &s) in samples.iter().enumerate() {
+      if s == 0. { continue; }
+      match runs.last_mut() {
+        Some(run) if run.1 == i => run.1 = i + 1,
+        _ => runs.push((i, i + 1)),
+      }
+    }
+    runs
+  }
+
+  #[test]
+  fn test_notes_start_and_end_on_their_frames() {
+    let (engine, mut renderer, mixer) = with_tone();
+    render(&mut renderer, 37);
+
+    let route = mixer.track_route(0);
+    engine.start_run(1, mixer.master(), vec![]).unwrap();
+    // mid-block, and one past a whole block, in the same buffer
+    let late = MAX_CHUNK as u64 + 5;
+    engine.play_notes(&route, Some(1), vec![
+      TimedNote::on(10, 60, 0.8),
+      TimedNote::off(15, 60),
+      TimedNote::on(late, 64, 0.8),
+      TimedNote::off(late + 3, 64),
+    ]).unwrap();
+    let out = render(&mut renderer, MAX_CHUNK + 64);
+
+    assert_eq!(sounding(&out), vec![(10, 15), (late as usize, late as usize + 3)]);
+    // nothing held is left
+    assert!(renderer.buses[0].held_by_run.iter().all(|&n| n == 0));
+  }
+
+  #[test]
+  fn test_a_note_can_end_where_the_same_pitch_starts_again() {
+    let (engine, mut renderer, mixer) = with_tone();
+    engine.start_run(1, mixer.master(), vec![]).unwrap();
+    // sent in the order a run sends them: the second note before the first ends
+    engine.play_notes(&mixer.track_route(0), Some(1), vec![
+      TimedNote::on(5, 60, 1.),
+      TimedNote::on(10, 60, 1.),
+      TimedNote::off(10, 60),
+      TimedNote::off(20, 60),
+    ]).unwrap();
+    let out = render(&mut renderer, 30);
+
+    assert_eq!(sounding(&out), vec![(5, 20)]);
+  }
+
+  #[test]
+  fn test_a_stop_ends_the_notes_a_run_holds() {
+    let (engine, mut renderer, mixer) = with_tone();
+    let route = mixer.track_route(0);
+    engine.start_run(1, mixer.master(), vec![]).unwrap();
+    // one held past the stop, one that hasn't started by then
+    engine.play_notes(&route, Some(1), vec![
+      TimedNote::on(2, 60, 1.),
+      TimedNote::off(500, 60),
+      TimedNote::on(100, 62, 1.),
+    ]).unwrap();
+    let out = render(&mut renderer, 20);
+    assert_eq!(sounding(&out), vec![(2, 20)]);
+
+    engine.stop_run(1).unwrap();
+    let out = render(&mut renderer, 200);
+    assert!(out.iter().all(|&s| s == 0.));
+    assert!(renderer.buses[0].notes.is_empty());
+  }
+
+  #[test]
+  fn test_a_new_run_ends_the_old_ones_notes_and_drops_its_late_ones() {
+    let (engine, mut renderer, mixer) = with_tone();
+    let route = mixer.track_route(0);
+    engine.start_run(1, mixer.master(), vec![]).unwrap();
+    engine.play_notes(&route, Some(1), vec![TimedNote::on(0, 60, 1.)]).unwrap();
+    render(&mut renderer, 10);
+
+    engine.start_run(2, mixer.master(), vec![]).unwrap();
+    // the old run's scheduler hasn't noticed yet
+    engine.play_notes(&route, Some(1), vec![TimedNote::on(12, 61, 1.), TimedNote::off(14, 61)]).unwrap();
+    engine.play_notes(&route, Some(2), vec![TimedNote::on(30, 62, 1.), TimedNote::off(35, 62)]).unwrap();
+    let out = render(&mut renderer, 50);
+
+    assert_eq!(sounding(&out), vec![(30, 35)]);
+  }
+
+  #[test]
+  fn test_an_audition_plays_now_and_outlives_a_stop() {
+    let (engine, mut renderer, mixer) = with_tone();
+    let route = mixer.track_route(0);
+    render(&mut renderer, 10);
+    engine.start_run(1, mixer.master(), vec![]).unwrap();
+    engine.play_notes(&route, None, vec![TimedNote::on(0, 60, 1.)]).unwrap();
+    // the run holds the same pitch, and another
+    engine.play_notes(&route, Some(1), vec![TimedNote::on(0, 60, 1.), TimedNote::on(0, 70, 1.)]).unwrap();
+    let out = render(&mut renderer, 10);
+    assert_eq!(sounding(&out), vec![(0, 10)]);
+
+    // the run's notes end, but not the audition's
+    engine.stop_run(1).unwrap();
+    let out = render(&mut renderer, 10);
+    assert_eq!(sounding(&out), vec![(0, 10)]);
+    assert_eq!(renderer.buses[0].held_by_audition[60], 1);
+
+    engine.play_notes(&route, None, vec![TimedNote::off(0, 60)]).unwrap();
+    let out = render(&mut renderer, 10);
+    assert!(out.iter().all(|&s| s == 0.));
+  }
+
+  #[test]
+  fn test_an_instrument_is_added_to_the_clips_and_both_go_through_the_effects() {
+    let (engine, mut renderer, mixer) = with_tone();
+    let route = mixer.track_route(0);
+    let instrument = Tone::slot(1);
+    engine.set_track_chain(&route, vec![instrument.clone(), Slot::new(2, Box::new(Gain(0.5)))]).unwrap();
+    mixer.set_volume_db(0, -6.);
+    let fader = daw::db_to_gain(-6.);
+
+    engine.start_run(1, mixer.master(), vec![track(&engine, &mixer, 0, steady(100, 0.2), 0)]).unwrap();
+    engine.play_notes(&route, Some(1), vec![TimedNote::on(20, 60, 1.), TimedNote::off(40, 60)]).unwrap();
+    let out = render(&mut renderer, 60);
+    assert!(close(out[10], 0.2 * 0.5 * fader), "{}", out[10]);
+    assert!(close(out[30], 0.45 * 0.5 * fader), "{}", out[30]);
+    assert!(close(out[50], 0.2 * 0.5 * fader), "{}", out[50]);
+
+    // bypassed, the clip passes through, and the notes aren't heard
+    instrument.set_bypassed(true);
+    engine.play_notes(&route, Some(1), vec![TimedNote::on(65, 60, 1.)]).unwrap();
+    let out = render(&mut renderer, 20);
+    assert!(out.iter().all(|&s| close(s, 0.2 * 0.5 * fader)));
+  }
+
+  #[test]
+  fn test_too_many_notes_waiting_are_dropped_not_made_room_for() {
+    let (engine, mut renderer, mixer) = with_tone();
+    engine.start_run(1, mixer.master(), vec![]).unwrap();
+    let notes: Vec<TimedNote> = (0..MAX_NOTES as u64 + 10).map(|n| TimedNote::on(1_000 + n, 60, 1.)).collect();
+    engine.play_notes(&mixer.track_route(0), Some(1), notes).unwrap();
+    render(&mut renderer, 1);
+    let bus = &renderer.buses[0];
+    assert_eq!(bus.notes.len(), MAX_NOTES);
+    assert_eq!(bus.notes.capacity(), NOTE_ROOM);
+  }
+
   // plays through the real output: run with `cargo test -- --ignored`
   #[test]
   #[ignore = "needs an audio output device"]
   fn test_the_device_output_runs() {
+
     let engine = engine().expect("could not open the output");
     let start = engine.frames();
     engine.start_run(99, master(), vec![
