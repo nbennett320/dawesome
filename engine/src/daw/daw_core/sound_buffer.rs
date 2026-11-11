@@ -26,6 +26,10 @@ impl SampleBuffer {
     Ok(SampleBuffer(Arc::new(buf)))
   }
 
+  pub fn from_bytes(bytes: &[u8]) -> SampleBuffer {
+    SampleBuffer(Arc::new(bytes.to_vec()))
+  }
+
   pub fn cursor(&self) -> io::Cursor<SampleBuffer> {
     io::Cursor::new(SampleBuffer(self.0.clone()))
   }
