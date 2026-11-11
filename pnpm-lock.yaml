@@ -41,9 +41,9 @@ dependencies:
   react-redux:
     specifier: ^9.3.1
     version: 9.3.1(@types/react@18.3.31)(react@18.3.1)(redux@5.0.1)
-  react-split-pane:
-    specifier: ^0.1.92
-    version: 0.1.92(react-dom@18.3.1)(react@18.3.1)
+  react-resizable-panels:
+    specifier: ^4.21.0
+    version: 4.21.0(@types/react@18.3.31)(react-dom@18.3.1)(react@18.3.1)
   react-tabs:
     specifier: ^6.0.0
     version: 6.0.0(react@18.3.1)
@@ -4766,10 +4766,6 @@ packages:
     resolution: {integrity: sha512-w2GsyukL62IJnlaff/nRegPQR94C/XXamvMWmSHRJ4y7Ts/4ocGRmTHvOs8PSE6pB3dWOrD/nueuU5sduBsQ4w==}
     dev: true
 
-  /react-lifecycles-compat@3.0.4:
-    resolution: {integrity: sha512-fBASbA6LnOU9dOU2eW7aQ8xmYBSXUIWr+UmF9b1efZBazGNO+rcXT/icdKnYm2pTwcRylVUYwW7H1PHfLekVzA==}
-    dev: false
-
   /react-p5-wrapper@3.4.0(react-dom@18.3.1)(react@18.3.1):
     resolution: {integrity: sha512-YkcdS6T5zLLEiuC/U+0MCI5EMHfTWVwbcf+7ZeV1AOpQ+Eab9VlxIXZ9oltvwc86++FZmX3tiJR1YHakYt0sfQ==}
     peerDependencies:
@@ -4801,23 +4797,19 @@ packages:
       use-sync-external-store: 1.7.0(react@18.3.1)
     dev: false
 
-  /react-split-pane@0.1.92(react-dom@18.3.1)(react@18.3.1):
-    resolution: {integrity: sha512-GfXP1xSzLMcLJI5BM36Vh7GgZBpy+U/X0no+VM3fxayv+p1Jly5HpMofZJraeaMl73b3hvlr+N9zJKvLB/uz9w==}
+  /react-resizable-panels@4.21.0(@types/react@18.3.31)(react-dom@18.3.1)(react@18.3.1):
+    resolution: {integrity: sha512-SzNEQNH/xIn3aKKLSdv48h0eu1gF1bkvozIVStow2hRmh/d9jkyoZR7dF8GUx39Wc2TAJTmfSUr4y/wwtvMoRQ==}
     peerDependencies:
-      react: ^16.0.0-0
-      react-dom: ^16.0.0-0
+      '@types/react': ^18.2.6 || ^19.0.0
+      react: ^18.0.0 || ^19.0.0
+      react-dom: ^18.0.0 || ^19.0.0
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
     dependencies:
-      prop-types: 15.8.1
+      '@types/react': 18.3.31
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
-      react-lifecycles-compat: 3.0.4
-      react-style-proptype: 3.2.2
-    dev: false
-
-  /react-style-proptype@3.2.2:
-    resolution: {integrity: sha512-ywYLSjNkxKHiZOqNlso9PZByNEY+FTyh3C+7uuziK0xFXu9xzdyfHwg4S9iyiRRoPCR4k2LqaBBsWVmSBwCWYQ==}
-    dependencies:
-      prop-types: 15.8.1
     dev: false
 
   /react-tabs@6.0.0(react@18.3.1):
