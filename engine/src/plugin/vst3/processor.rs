@@ -30,7 +30,7 @@ use ::vst3::Steinberg::Vst::{
 use ::vst3::Steinberg::kResultOk;
 use ::vst3::{ComRef, ComWrapper};
 use rtrb::{Consumer, Producer};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
 // whether the processor may call the plugin. see the top of the file
@@ -115,7 +115,14 @@ pub struct VstProcessor {
   continuous: i64,
   // realtime, or offline for a mixdown (see Plugin::load_offline)
   mode: i32,
+  // how long the plugin says it rings on, in frames (IAudioProcessor's
+  // getTailSamples), kept up to date by the main half
+  tail: Arc<AtomicU32>,
 }
+
+// what getTailSamples answers for a plugin that never stops sounding
+// (kInfiniteTail)
+pub const INFINITE_TAIL: u32 = u32::MAX;
 
 // safe: the raw pointers are to the processor's own buffers (which move with
 // it) and to the plugin's processor, which is only used while the gate is
@@ -129,6 +136,7 @@ impl VstProcessor {
     from_main: Consumer<ParamChange>,
     to_main: Producer<ParamChange>,
     layout: &Layout,
+    tail: Arc<AtomicU32>,
   ) -> VstProcessor {
     let mut scratch = Vec::new();
     let mut tables = |buses: &[usize]| -> Vec<Vec<*mut f32>> {
@@ -178,6 +186,7 @@ impl VstProcessor {
       context: unsafe { std::mem::zeroed() },
       continuous: 0,
       mode: kRealtime as i32,
+      tail,
     }
   }
 
@@ -272,6 +281,19 @@ impl Processor for VstProcessor {
       // a full queue drops the change: the main half is behind
       let _ = to_main.push((id, value));
     });
+  }
+
+  fn tail_frames(&self) -> Option<u64> {
+    match self.tail.load(Ordering::Relaxed) {
+      INFINITE_TAIL => None,
+      frames => Some(frames as u64),
+    }
+  }
+
+  // a parameter the main half changed, which the plugin's processor only
+  // hears of with a block
+  fn has_pending(&self) -> bool {
+    !self.from_main.is_empty()
   }
 }
 
@@ -382,7 +404,38 @@ mod tests {
     let (_to, from_main) = RingBuffer::new(4);
     let (to_main, _from) = RingBuffer::new(4);
     let layout = Layout { inputs: vec![2, 1], outputs: vec![2], main_input };
-    VstProcessor::new(std::ptr::null_mut(), Arc::new(Gate::new()), from_main, to_main, &layout)
+    VstProcessor::new(std::ptr::null_mut(), Arc::new(Gate::new()), from_main, to_main, &layout, Arc::new(AtomicU32::new(0)))
+  }
+
+  #[test]
+  fn test_the_tail_is_what_the_main_half_last_read() {
+    let mut p = processor(true);
+    assert_eq!(p.tail_frames(), Some(0));
+    p.tail.store(4_800, Ordering::Relaxed);
+    assert_eq!(p.tail_frames(), Some(4_800));
+    // a plugin that never stops
+    p.tail.store(INFINITE_TAIL, Ordering::Relaxed);
+    assert_eq!(p.tail_frames(), None);
+    let _ = &mut p;
+  }
+
+  #[test]
+  fn test_a_parameter_change_from_the_main_half_is_pending_until_a_block() {
+    let (mut to, from_main) = RingBuffer::new(4);
+    let (to_main, _from) = RingBuffer::new(4);
+    let layout = Layout { inputs: vec![2], outputs: vec![2], main_input: true };
+    let gate = Arc::new(Gate::new());
+    let mut p = VstProcessor::new(std::ptr::null_mut(), gate.clone(), from_main, to_main, &layout, Arc::new(AtomicU32::new(0)));
+    assert!(!p.has_pending());
+    to.push((7, 0.5)).unwrap();
+    assert!(p.has_pending());
+
+    // a block takes it (there's no plugin to call here, so the block itself
+    // fails after that and passes the sound through)
+    let (l, r) = ([0f32; 8], [0f32; 8]);
+    let (mut ol, mut or) = ([0f32; 8], [0f32; 8]);
+    p.process([&l, &r], [&mut ol, &mut or], &[], &Transport::default());
+    assert!(!p.has_pending());
   }
 
   #[test]

@@ -95,6 +95,10 @@ pub enum Channel {
 pub struct Slot {
   id: u64,
   bypassed: AtomicBool,
+  // its interface is on screen: its bus doesn't rest (see Bus::rests)
+  showing: AtomicBool,
+  // something about it changed that its bus should run again for
+  nudged: AtomicBool,
   // an instrument's gain, as an f32's bits
   gain: AtomicU32,
   processor: UnsafeCell<Box<dyn Processor>>,
@@ -123,6 +127,14 @@ struct Playing {
   gain: Option<f32>,
 }
 
+impl Playing {
+  // whether it has anything to play this block, or a note held down
+  fn busy(&self) -> bool {
+    !self.events.is_empty()
+      || self.held_by_run.iter().chain(&self.held_by_audition).any(|&held| held > 0)
+  }
+}
+
 impl Slot {
   pub fn new(id: u64, processor: Box<dyn Processor>) -> Arc<Slot> {
     Slot::make(id, processor, None)
@@ -144,6 +156,8 @@ impl Slot {
     Arc::new(Slot {
       id,
       bypassed: AtomicBool::new(false),
+      showing: AtomicBool::new(false),
+      nudged: AtomicBool::new(false),
       gain: AtomicU32::new(1f32.to_bits()),
       processor: UnsafeCell::new(processor),
       playing,
@@ -164,6 +178,19 @@ impl Slot {
 
   pub fn set_bypassed(&self, bypassed: bool) {
     self.bypassed.store(bypassed, Ordering::Relaxed);
+    // (switched back on, it may have something to say with no input)
+    self.nudged.store(true, Ordering::Relaxed);
+  }
+
+  // whether its interface is on screen. while it is, its bus keeps running
+  // however quiet it is: the plugin may play from its own keyboard, or show
+  // meters
+  pub fn showing(&self) -> bool {
+    self.showing.load(Ordering::Relaxed)
+  }
+
+  pub fn set_showing(&self, showing: bool) {
+    self.showing.store(showing, Ordering::Relaxed);
   }
 
   // an instrument's gain (1 to start with), which its output is multiplied
@@ -303,6 +330,22 @@ struct Bus {
   sounding: bool,
   // whether it ran last block (one that's been idle starts its strip afresh)
   awake: bool,
+  // how many frames in a row nothing has gone into its chain and nothing
+  // has come out (see rests)
+  quiet: u64,
+  // whether its chain has been left out of a block since it last ran
+  rested: bool,
+}
+
+// a chain rests once nothing has gone in or come out of it for this long
+// (and for as long again as its plugins say they ring on)
+const REST_AFTER: Duration = Duration::from_secs(2);
+// quieter than this is silence: -100 dB
+const SILENCE: f32 = 1e-5;
+
+// whether a block of stereo has anything in it
+fn sounds(pair: &[Vec<f32>; 2], frames: usize) -> bool {
+  pair.iter().any(|side| side[..frames].iter().any(|s| s.abs() > SILENCE))
 }
 
 impl Bus {
@@ -316,7 +359,47 @@ impl Bus {
       notes: Vec::with_capacity(MAX_NOTES),
       sounding: false,
       awake: false,
+      quiet: 0,
+      rested: false,
     })
+  }
+
+  // whether the chain is left out of this block: nothing has gone into it
+  // and nothing has come out of it for `rest_frames` (and its plugins'
+  // tails), so running it would only make more silence. it runs again from
+  // the block in which there's
+  // - sound to go through it (`fed`),
+  // - a note for one of its instruments, or one held,
+  // - a parameter turned on one of its plugins, or one switched back on,
+  // and it never rests while one of its plugins' interfaces is on screen,
+  // or one says it never stops sounding. bypassed slots don't count
+  //
+  // call once a block, after take_notes and before run
+  fn rests(&mut self, fed: bool, rest_frames: u64) -> bool {
+    if self.chain.is_empty() { return false; }
+
+    let mut wake = fed;
+    let mut tail = Some(0u64);
+    for slot in self.chain.iter() {
+      if slot.nudged.swap(false, Ordering::Relaxed) { wake = true; }
+      if slot.bypassed() { continue; }
+      if slot.showing() { wake = true; }
+      // safe: this is the callback of the engine whose chain holds the slot
+      let processor = unsafe { slot.processor() };
+      if processor.has_pending() { wake = true; }
+      if unsafe { slot.playing() }.map_or(false, |playing| playing.busy()) { wake = true; }
+      tail = match (tail, processor.tail_frames()) {
+        (Some(longest), Some(frames)) => Some(longest.max(frames)),
+        _ => None,
+      };
+    }
+    if wake { self.quiet = 0; }
+    let rests = match tail {
+      Some(tail) => self.quiet >= rest_frames.saturating_add(tail),
+      None => false,
+    };
+    if rests { self.rested = true; }
+    rests
   }
 
   // silence the first `frames` of the mix
@@ -450,6 +533,13 @@ impl Bus {
       at = 1 - at;
     }
 
+    // (before the strip: a muted track's reverb is still sounding)
+    if sounds(&self.buffers[at], frames) {
+      self.quiet = 0;
+    } else {
+      self.quiet = self.quiet.saturating_add(frames as u64);
+    }
+
     let [l, r] = &mut self.buffers[at];
     self.strip.process(&mut l[..frames], &mut r[..frames]);
     at
@@ -536,6 +626,8 @@ struct Shared {
   // chains sent to the callback, and chains it has put in place
   chains_sent: AtomicU64,
   chains_applied: AtomicU64,
+  // how many chains were left out of the last block, resting
+  resting: AtomicU64,
 }
 
 // where a run started, in the engine's frames and in time
@@ -585,6 +677,7 @@ impl Engine {
       dropped_notes: AtomicU64::new(0),
       chains_sent: AtomicU64::new(0),
       chains_applied: AtomicU64::new(0),
+      resting: AtomicU64::new(0),
     });
 
     let engine = Engine {
@@ -767,6 +860,12 @@ impl Engine {
     Ok(())
   }
 
+  // how many buses' chains were resting in the last block rendered: silent
+  // for long enough that their plugins aren't being run (see Bus::rests)
+  pub fn resting_chains(&self) -> u64 {
+    self.shared.resting.load(Ordering::Relaxed)
+  }
+
   // wait until the callback has put in place every chain sent so far, so no
   // slot taken out of one is still being run. returns whether it got there
   // (with no output running it never does), or the renderer is gone (its
@@ -879,6 +978,8 @@ pub struct Renderer {
   // what the processors are told
   transport: Transport,
   fade_frames: u32,
+  // how long a chain is silent for before it rests (see Bus::rests)
+  rest_frames: u64,
 }
 
 impl Renderer {
@@ -902,6 +1003,7 @@ impl Renderer {
       direct: [vec![0f32; MAX_CHUNK], vec![0f32; MAX_CHUNK]],
       transport: Transport { sample_rate, ..Transport::default() },
       fade_frames: ((STOP_FADE.as_secs_f64() * sample_rate as f64) as u32).max(1),
+      rest_frames: (REST_AFTER.as_secs_f64() * sample_rate as f64) as u64,
     }
   }
 
@@ -1016,6 +1118,8 @@ impl Renderer {
 
     // each track bus with something to run, onto the master bus
     let transport = self.transport;
+    let rest_frames = self.rest_frames;
+    let mut resting = 0;
     let [master_l, master_r] = &mut self.master.buffers[0];
     for bus in self.buses.iter_mut() {
       if !bus.sounding && bus.chain.is_empty() {
@@ -1023,6 +1127,13 @@ impl Renderer {
         continue;
       }
       if !bus.sounding { bus.clear(frames); }
+      // a chain that's been silent, with silence going in, is left out
+      let fed = bus.sounding && sounds(&bus.buffers[0], frames);
+      if bus.rests(fed, rest_frames) {
+        bus.awake = false;
+        resting += 1;
+        continue;
+      }
       if !bus.awake {
         bus.strip.jump();
         bus.awake = true;
@@ -1036,9 +1147,31 @@ impl Renderer {
       }
     }
 
+    // the master's chain rests the same way, when nothing reaches it
+    let [direct_l, direct_r] = &self.direct;
+    let fed = sounds(&self.master.buffers[0], frames);
+    if self.master.rests(fed, rest_frames) {
+      // (`awake` is only for a bus that has rested: the master's strip
+      // otherwise smooths on from block to block, as it always has)
+      self.master.awake = false;
+      for (i, frame) in out.chunks_exact_mut(2).enumerate() {
+        frame[0] = direct_l[i];
+        frame[1] = direct_r[i];
+      }
+      self.shared.resting.store(resting + 1, Ordering::Relaxed);
+      self.frame = end;
+      return;
+    }
+    self.shared.resting.store(resting, Ordering::Relaxed);
+    // back from a rest, its strip starts where its fader is now
+    if !self.master.awake && self.master.rested {
+      self.master.strip.jump();
+      self.master.rested = false;
+    }
+    self.master.awake = true;
+
     let at = self.master.run(frames, &transport);
     let [l, r] = &self.master.buffers[at];
-    let [direct_l, direct_r] = &self.direct;
     for (i, frame) in out.chunks_exact_mut(2).enumerate() {
       frame[0] = daw::soft_limit(l[i]) + direct_l[i];
       frame[1] = daw::soft_limit(r[i]) + direct_r[i];
@@ -1100,7 +1233,12 @@ impl Renderer {
           Channel::Track(_) => self.buses.iter_mut().find(|bus| bus.channel == channel),
         };
         let old = match bus {
-          Some(bus) => std::mem::replace(&mut bus.chain, slots),
+          Some(bus) => {
+            // a chain that's changed is run again: what's new in it may
+            // have something to say
+            bus.quiet = 0;
+            std::mem::replace(&mut bus.chain, slots)
+          }
           None => slots,
         };
         self.throw_away(Garbage::Chain(old));
@@ -1885,7 +2023,11 @@ mod tests {
     let mixer = daw::Mixer::default();
     let (engine, mut renderer) = Engine::new(RATE);
     let seen = Arc::new(Mutex::new(Vec::new()));
-    engine.set_master_chain(vec![Slot::new(1, Box::new(Watch(seen.clone())))]).unwrap();
+    let watch = Slot::new(1, Box::new(Watch(seen.clone())));
+    // (kept running through the silence: at this rate one block is longer
+    // than the two seconds a silent chain rests after)
+    watch.set_showing(true);
+    engine.set_master_chain(vec![watch]).unwrap();
     render(&mut renderer, 16);
 
     let start = RunStart { tempo: 93.5, beats_per_bar: 3, beat_unit: 8, origin: 1_000 };
@@ -2318,6 +2460,231 @@ mod tests {
     engine.set_track_chain(&route, vec![Tone::slot(1), Tone::slot(3)]).unwrap();
     out.extend(render(&mut renderer, 30));
     assert_eq!(sounding(&out), vec![(30, 40)]);
+  }
+
+  // ---- resting: a chain that's silent, in and out, is left out
+
+  // an effect that passes its input through and counts the frames it's
+  // run for. it can say how long it rings on, and that a parameter is
+  // waiting (which a block takes)
+  struct Counted {
+    frames: Arc<AtomicUsize>,
+    tail: Option<u64>,
+    pending: Arc<AtomicBool>,
+  }
+
+  impl Counted {
+    fn new(tail: Option<u64>) -> (Counted, Arc<AtomicUsize>, Arc<AtomicBool>) {
+      let frames = Arc::new(AtomicUsize::new(0));
+      let pending = Arc::new(AtomicBool::new(false));
+      (Counted { frames: frames.clone(), tail, pending: pending.clone() }, frames, pending)
+    }
+  }
+
+  impl Processor for Counted {
+    fn process(&mut self, input: [&[f32]; 2], output: [&mut [f32]; 2], _: &[plugin::Event], _: &Transport) {
+      self.frames.fetch_add(input[0].len(), Ordering::Relaxed);
+      self.pending.store(false, Ordering::Relaxed);
+      for (output, input) in output.into_iter().zip(input) { output.copy_from_slice(input); }
+    }
+
+    fn tail_frames(&self) -> Option<u64> { self.tail }
+
+    fn has_pending(&self) -> bool { self.pending.load(Ordering::Relaxed) }
+  }
+
+  // an effect that hums whatever comes in (a tape machine's hiss), counting
+  // its frames
+  struct Hum(Arc<AtomicUsize>);
+
+  impl Processor for Hum {
+    fn process(&mut self, input: [&[f32]; 2], output: [&mut [f32]; 2], _: &[plugin::Event], _: &Transport) {
+      self.0.fetch_add(input[0].len(), Ordering::Relaxed);
+      for output in output { output.fill(0.01); }
+    }
+  }
+
+  // render `frames`, a hundred at a time (a rest is counted in blocks)
+  fn render_blocks(renderer: &mut Renderer, frames: usize) -> Vec<f32> {
+    (0..frames / 100).flat_map(|_| render(renderer, 100)).collect()
+  }
+
+  // two seconds, at the tests' rate
+  const REST: usize = 2 * RATE as usize;
+
+  #[test]
+  fn test_a_silent_chain_rests_after_two_seconds_and_sound_wakes_it_at_once() {
+    let mixer = daw::Mixer::default();
+    let (engine, mut renderer) = Engine::new(RATE);
+    let (counted, frames, _) = Counted::new(Some(0));
+    engine.set_track_chain(&mixer.track_route(0), vec![Slot::new(1, Box::new(counted))]).unwrap();
+
+    // a voice five frames long: the chain runs for its block, and for two
+    // seconds of silence after it
+    engine.start_run(1, mixer.master(), vec![track(&engine, &mixer, 0, steady(5, 0.5), 0)]).unwrap();
+    let out = render_blocks(&mut renderer, 5_000);
+    assert_eq!(sounding(&out), vec![(0, 5)]);
+    assert_eq!(frames.load(Ordering::Relaxed), 100 + REST);
+
+    // and not again, however long the silence
+    assert_eq!(engine.resting_chains(), 1);
+    render_blocks(&mut renderer, 3_000);
+    assert_eq!(frames.load(Ordering::Relaxed), 100 + REST);
+
+    // a voice in the middle of a block wakes it for that block, and is
+    // heard from its own frame
+    engine.play(vec![track(&engine, &mixer, 0, steady(5, 0.5), 8_000 + 37)]).unwrap();
+    let out = render_blocks(&mut renderer, 300);
+    assert_eq!(engine.resting_chains(), 0);
+    assert_eq!(sounding(&out), vec![(37, 42)]);
+    assert!(out[37..42].iter().all(|&s| close(s, 0.5)));
+    assert_eq!(frames.load(Ordering::Relaxed), 100 + REST + 300);
+  }
+
+  #[test]
+  fn test_an_echo_within_two_seconds_is_heard_and_a_longer_one_needs_its_tail_said() {
+    for (delay, tail, heard) in [(1_500, Some(0), true), (2_500, Some(0), false), (2_500, Some(2_500), true), (2_500, None, true)] {
+      let mixer = daw::Mixer::default();
+      let (engine, mut renderer) = Engine::new(RATE);
+      let (counted, _, _) = Counted::new(tail);
+      engine.set_track_chain(&mixer.track_route(0), vec![
+        Slot::new(1, Box::new(Delay::new(delay))),
+        // (says how long the chain rings on)
+        Slot::new(2, Box::new(counted)),
+      ]).unwrap();
+      engine.start_run(1, mixer.master(), vec![track(&engine, &mixer, 0, steady(5, 0.5), 0)]).unwrap();
+      let out = render_blocks(&mut renderer, 6_000);
+      let echo = if heard { vec![(delay, delay + 5)] } else { vec![] };
+      assert_eq!(sounding(&out), echo, "a delay of {} with a tail of {:?}", delay, tail);
+    }
+  }
+
+  #[test]
+  fn test_a_plugin_that_never_stops_or_that_sounds_by_itself_never_rests() {
+    let mixer = daw::Mixer::default();
+    let (engine, mut renderer) = Engine::new(RATE);
+    let (endless, endless_frames, _) = Counted::new(None);
+    let hum_frames = Arc::new(AtomicUsize::new(0));
+    engine.set_track_chain(&mixer.track_route(0), vec![Slot::new(1, Box::new(endless))]).unwrap();
+    engine.set_track_chain(&mixer.track_route(1), vec![Slot::new(2, Box::new(Hum(hum_frames.clone())))]).unwrap();
+    // (the hum's track is muted: its chain is still sounding, before the
+    // fader, so it's still run)
+    mixer.set_mute(1, true);
+
+    let out = render_blocks(&mut renderer, 6_000);
+    assert!(out.iter().all(|&s| s == 0.));
+    assert_eq!(endless_frames.load(Ordering::Relaxed), 6_000);
+    assert_eq!(hum_frames.load(Ordering::Relaxed), 6_000);
+
+    // unmuted, it's there at once
+    mixer.set_mute(1, false);
+    let out = render_blocks(&mut renderer, 1_000);
+    assert!(close(*out.last().unwrap(), 0.01), "{:?}", out.last());
+  }
+
+  #[test]
+  fn test_a_note_wakes_a_resting_instrument_on_its_frame_and_a_held_one_keeps_it_awake() {
+    let mixer = daw::Mixer::default();
+    let (engine, mut renderer) = Engine::new(RATE);
+    // (an instrument that's silent even while it holds a note: a pad with
+    // a slow attack)
+    let (counted, frames, _) = Counted::new(Some(0));
+    engine.set_track_chain(&mixer.track_route(0), vec![
+      Slot::new_instrument(1, Box::new(counted)),
+      Tone::slot(2),
+    ]).unwrap();
+    let route = mixer.track_route(0);
+    render_blocks(&mut renderer, 5_000);
+    assert_eq!(frames.load(Ordering::Relaxed), REST);
+
+    // a note for the tone, 37 frames into a run: heard from that frame
+    engine.start_run(1, mixer.master(), vec![]).unwrap();
+    engine.play_notes(&route, 2, Some(1), vec![TimedNote::on(37, 60, 1.), TimedNote::off(60, 60)]).unwrap();
+    let out = render_blocks(&mut renderer, 100);
+    assert_eq!(sounding(&out), vec![(37, 60)]);
+
+    // a note held on the silent one keeps the chain running for as long as
+    // it's held, then for two seconds from the block that ends it
+    engine.play_notes(&route, 1, None, vec![TimedNote::on(0, 64, 1.)]).unwrap();
+    let before = frames.load(Ordering::Relaxed);
+    render_blocks(&mut renderer, 6_000);
+    assert_eq!(frames.load(Ordering::Relaxed), before + 6_000);
+    engine.play_notes(&route, 1, None, vec![TimedNote::off(0, 64)]).unwrap();
+    render_blocks(&mut renderer, 6_000);
+    assert_eq!(frames.load(Ordering::Relaxed), before + 6_000 + REST);
+  }
+
+  #[test]
+  fn test_a_showing_interface_a_turned_knob_a_switch_and_a_new_chain_run_a_resting_chain() {
+    let mixer = daw::Mixer::default();
+    let (engine, mut renderer) = Engine::new(RATE);
+    let (counted, frames, pending) = Counted::new(Some(0));
+    let slot = Slot::new(1, Box::new(counted));
+    engine.set_track_chain(&mixer.track_route(0), vec![slot.clone()]).unwrap();
+    let ran = |renderer: &mut Renderer, frames_in: usize| {
+      let before = frames.load(Ordering::Relaxed);
+      render_blocks(renderer, frames_in);
+      frames.load(Ordering::Relaxed) - before
+    };
+    assert_eq!(ran(&mut renderer, 5_000), REST);
+
+    // its interface on screen: it runs for as long as it's there, and for
+    // two seconds from the last block it was
+    slot.set_showing(true);
+    assert_eq!(ran(&mut renderer, 5_000), 5_000);
+    slot.set_showing(false);
+    assert_eq!(ran(&mut renderer, 5_000), REST - 100);
+
+    // a knob turned: two seconds from the block that takes it
+    pending.store(true, Ordering::Relaxed);
+    assert_eq!(ran(&mut renderer, 5_000), REST);
+    assert!(!pending.load(Ordering::Relaxed));
+
+    // switched off, it isn't run at all; switched back on, it is again
+    slot.set_bypassed(true);
+    assert_eq!(ran(&mut renderer, 5_000), 0);
+    slot.set_bypassed(false);
+    assert_eq!(ran(&mut renderer, 5_000), REST);
+
+    // and a chain that's changed
+    let (other, other_frames, _) = Counted::new(Some(0));
+    engine.set_track_chain(&mixer.track_route(0), vec![slot.clone(), Slot::new(2, Box::new(other))]).unwrap();
+    assert_eq!(ran(&mut renderer, 5_000), REST);
+    assert_eq!(other_frames.load(Ordering::Relaxed), REST);
+  }
+
+  #[test]
+  fn test_the_master_chain_rests_too_and_what_goes_round_it_is_still_heard() {
+    let mixer = daw::Mixer::default();
+    let (engine, mut renderer) = Engine::new(RATE);
+    let (counted, frames, _) = Counted::new(Some(0));
+    engine.set_master_chain(vec![Slot::new(1, Box::new(counted))]).unwrap();
+    let out = render_blocks(&mut renderer, 5_000);
+    assert!(out.iter().all(|&s| s == 0.));
+    assert_eq!(frames.load(Ordering::Relaxed), REST);
+
+    // a preview goes straight to the output, and doesn't wake it
+    engine.preview(click(3)).unwrap();
+    let out = render_blocks(&mut renderer, 100);
+    assert_eq!(&out[..4], &[1., 1., 1., 0.]);
+    assert_eq!(frames.load(Ordering::Relaxed), REST);
+
+    // a track's voice does, and comes out at its level from its frame
+    engine.start_run(1, mixer.master(), vec![track(&engine, &mixer, 0, steady(5, 0.5), 20)]).unwrap();
+    let out = render_blocks(&mut renderer, 100);
+    assert_eq!(sounding(&out), vec![(20, 25)]);
+    assert!(out[20..25].iter().all(|&s| close(s, daw::soft_limit(0.5))), "{:?}", &out[20..25]);
+    assert_eq!(frames.load(Ordering::Relaxed), REST + 100);
+  }
+
+  #[test]
+  fn test_a_bus_with_no_chain_is_as_it_was() {
+    // nothing to rest: a voice two seconds into silence plays as ever
+    let mixer = daw::Mixer::default();
+    let (engine, mut renderer) = Engine::new(RATE);
+    engine.start_run(1, mixer.master(), vec![track(&engine, &mixer, 0, steady(5, 0.5), 4_010)]).unwrap();
+    let out = render_blocks(&mut renderer, 5_000);
+    assert_eq!(sounding(&out), vec![(4_010, 4_015)]);
   }
 
   // plays through the real output: run with `cargo test -- --ignored`

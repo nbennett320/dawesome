@@ -397,8 +397,13 @@ fn every_effect_loads_and_processes() -> Result<Outcome, String> {
           let mut processor = plugin.take_processor().unwrap();
           let out = run_blocks(processor.as_mut(), 32, RATE, false, &[]);
           plugin.idle();
+          // how long it says it rings on, which a resting channel waits out
+          let tail = match processor.tail_frames() {
+            Some(frames) => format!("tail {} frames", frames),
+            None => "never stops".to_string(),
+          };
           match check_effect_output(&info.name, &out, RATE) {
-            Ok(detail) => format!("ok: {}", detail),
+            Ok(detail) => format!("ok: {} ({})", detail, tail),
             Err(e) => format!("PROBLEM: {}", e),
           }
         }
