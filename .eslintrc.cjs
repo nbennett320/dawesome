@@ -9,8 +9,7 @@ module.exports = {
     sourceType: 'module',
   },
   ignorePatterns: [
-    'jest.config.ts',
-    'jest.setup.ts',
+    'vitest.setup.ts',
     '.eslintrc.cjs',
     'vite.config.mts',
     'postcss.config.js',

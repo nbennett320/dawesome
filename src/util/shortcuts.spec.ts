@@ -59,11 +59,11 @@ describe('edit shortcuts', () => {
 
 describe('editShortcutHandler', () => {
   const press = (over: object = {}) => ({
-    key: 'z', ...cmd, target: document.body as EventTarget | null, preventDefault: jest.fn(), ...over,
+    key: 'z', ...cmd, target: document.body as EventTarget | null, preventDefault: vi.fn(), ...over,
   })
 
   it('runs the command, and keeps the key from the window', () => {
-    const run = jest.fn()
+    const run = vi.fn()
     const ev = press()
     editShortcutHandler(run, true)(ev)
 
@@ -73,7 +73,7 @@ describe('editShortcutHandler', () => {
 
   it('still runs with a drop-down or a button holding the keyboard', () => {
     // a drop-down keeps the keyboard after a pick, and has no text to undo
-    const run = jest.fn()
+    const run = vi.fn()
     ;['select', 'button', 'canvas'].forEach(tag => {
       const ev = press({ target: document.createElement(tag) })
       editShortcutHandler(run, true)(ev)
@@ -83,7 +83,7 @@ describe('editShortcutHandler', () => {
   })
 
   it('leaves the key to a text field, where it undoes typing', () => {
-    const run = jest.fn()
+    const run = vi.fn()
     const field = document.createElement('input')
     const ev = press({ target: field })
     editShortcutHandler(run, true)(ev)
@@ -93,7 +93,7 @@ describe('editShortcutHandler', () => {
   })
 
   it('ignores other keys', () => {
-    const run = jest.fn()
+    const run = vi.fn()
     const ev = press({ key: 'q' })
     editShortcutHandler(run, true)(ev)
 
@@ -102,7 +102,7 @@ describe('editShortcutHandler', () => {
   })
 
   it('leaves copy, cut, paste, select all and undo to a text field', () => {
-    const run = jest.fn()
+    const run = vi.fn()
     const field = document.createElement('textarea')
     ;['c', 'x', 'v', 'a', 'z'].forEach(key => {
       const ev = press({ key, target: field })
@@ -113,7 +113,7 @@ describe('editShortcutHandler', () => {
   })
 
   it('keeps ⌘R from reloading, even in a text field, where it does nothing else', () => {
-    const run = jest.fn()
+    const run = vi.fn()
     const ev = press({ key: 'r', target: document.createElement('input') })
     editShortcutHandler(run, true)(ev)
 
@@ -122,7 +122,7 @@ describe('editShortcutHandler', () => {
   })
 
   it('runs every command outside a text field', () => {
-    const run = jest.fn()
+    const run = vi.fn()
     ;['c', 'x', 'v', 'r', 'a'].forEach(key => {
       const ev = press({ key })
       editShortcutHandler(run, true)(ev)

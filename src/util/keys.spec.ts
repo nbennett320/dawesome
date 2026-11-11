@@ -100,8 +100,8 @@ describe('the transport key', () => {
     ...none,
     repeat: false,
     target: document.body as EventTarget | null,
-    preventDefault: jest.fn(),
-    stopPropagation: jest.fn(),
+    preventDefault: vi.fn(),
+    stopPropagation: vi.fn(),
     ...over,
   })
 
@@ -116,7 +116,7 @@ describe('the transport key', () => {
   })
 
   it('plays or pauses, and keeps the key from what has the keyboard', () => {
-    const toggle = jest.fn()
+    const toggle = vi.fn()
     // a focused button would otherwise be clicked by it
     const ev = press({ target: el('<button></button>') })
     transportKeyHandler(toggle)(ev)
@@ -127,7 +127,7 @@ describe('the transport key', () => {
   })
 
   it('toggles once while held, and not again when let go', () => {
-    const toggle = jest.fn()
+    const toggle = vi.fn()
     const handle = transportKeyHandler(toggle)
     handle(press())
     const held = press({ repeat: true })
@@ -143,7 +143,7 @@ describe('the transport key', () => {
   })
 
   it('types a space wherever typing goes', () => {
-    const toggle = jest.fn()
+    const toggle = vi.fn()
     const handle = transportKeyHandler(toggle)
     const fields = [
       '<input type="text">', '<input type="number">', '<input type="search">', '<input>',
@@ -166,7 +166,7 @@ describe('the transport key', () => {
   })
 
   it('leaves other keys alone', () => {
-    const toggle = jest.fn()
+    const toggle = vi.fn()
     const ev = press({ key: 'Enter' })
     transportKeyHandler(toggle)(ev)
     const cmd = press({ metaKey: true })
@@ -178,7 +178,7 @@ describe('the transport key', () => {
   })
 
   it('keeps Shift+Space and Option+Space from buttons and scrolling, without playing', () => {
-    const toggle = jest.fn()
+    const toggle = vi.fn()
     const handle = transportKeyHandler(toggle)
     const shifted = press({ shiftKey: true, target: el('<button></button>') })
     const opted = press({ altKey: true })
@@ -195,7 +195,7 @@ describe('the transport key', () => {
   })
 
   it('plays from a slider, a checkbox, and with nothing focused', () => {
-    const toggle = jest.fn()
+    const toggle = vi.fn()
     const handle = transportKeyHandler(toggle)
     handle(press({ target: el('<input type="range">') }))
     handle(press({ target: el('<input type="checkbox">') }))

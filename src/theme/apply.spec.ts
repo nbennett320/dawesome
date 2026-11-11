@@ -18,7 +18,7 @@ describe('applyTheme', () => {
   })
 
   it('notifies listeners until unsubscribed', () => {
-    const l = jest.fn()
+    const l = vi.fn()
     const off = onThemeChange(l)
     applyTheme(slateLightTheme)
     expect(l).toHaveBeenCalledTimes(1)

@@ -1,12 +1,13 @@
+import type { Mock } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import { clipCommand, ClipTarget, sameCommand } from './clipCommands'
 
-jest.mock('@tauri-apps/api/core', () => ({ invoke: jest.fn() }))
-jest.mock('@tauri-apps/plugin-dialog', () => ({ ask: jest.fn(), open: jest.fn(), save: jest.fn() }))
-jest.mock('@tauri-apps/plugin-fs', () => ({ readDir: jest.fn() }))
-jest.mock('@tauri-apps/api/path', () => ({ dirname: jest.fn(), documentDir: jest.fn(), join: jest.fn() }))
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
+vi.mock('@tauri-apps/plugin-dialog', () => ({ ask: vi.fn(), open: vi.fn(), save: vi.fn() }))
+vi.mock('@tauri-apps/plugin-fs', () => ({ readDir: vi.fn() }))
+vi.mock('@tauri-apps/api/path', () => ({ dirname: vi.fn(), documentDir: vi.fn(), join: vi.fn() }))
 
-const mockInvoke = invoke as jest.Mock
+const mockInvoke = invoke as Mock
 const target = (over: Partial<ClipTarget> = {}): ClipTarget => ({
   selected: [3, 4], all: [3, 4, 5], pasteBeat: 8, focused: true, ...over,
 })
@@ -23,8 +24,8 @@ describe('clipCommand', () => {
     mockInvoke.mockImplementation(async (command: string) => answers[command] ?? 2)
   })
 
-  const run = (command: Parameters<typeof clipCommand>[0], t: ClipTarget, select = jest.fn()) =>
-    clipCommand(command, t, select)(jest.fn(), jest.fn()).then(() => select)
+  const run = (command: Parameters<typeof clipCommand>[0], t: ClipTarget, select = vi.fn()) =>
+    clipCommand(command, t, select)(vi.fn(), vi.fn()).then(() => select)
 
   it('copies the selection', async () => {
     await run('copy', target())
@@ -65,10 +66,10 @@ describe('clipCommand', () => {
   })
 
   it('deep copies the selection, and passes on the wait cursor', async () => {
-    const setBusy = jest.fn()
+    const setBusy = vi.fn()
     mockInvoke.mockImplementation(async (command: string) =>
       (command === 'deep_copy_clips' ? { clips: [], patternClips: [] } : [16, 256, 240, 4]))
-    await clipCommand('deep-copy', target(), jest.fn(), setBusy)(jest.fn(), jest.fn())
+    await clipCommand('deep-copy', target(), vi.fn(), setBusy)(vi.fn(), vi.fn())
     expect(mockInvoke).toHaveBeenCalledWith('deep_copy_clips', { ids: [3, 4] })
     // (quick, so the cursor never showed)
     expect(setBusy).not.toHaveBeenCalled()
@@ -98,7 +99,7 @@ describe('clipCommand', () => {
   })
 
   it('does nothing unless the Playlist is focused', async () => {
-    const select = jest.fn()
+    const select = vi.fn()
     await Promise.all((['copy', 'cut', 'paste', 'repeat', 'select-all', 'join', 'deep-copy'] as const)
       .map(command => run(command, target({ focused: false }), select)))
     expect(mockInvoke).not.toHaveBeenCalled()

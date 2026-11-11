@@ -1,5 +1,5 @@
 // (rendering it isn't tested: with esModuleInterop off, React's default
-// import is undefined under jest)
+// import was undefined under jest)
 import { wheelMove } from './RollingCounter'
 
 describe('wheelMove', () => {

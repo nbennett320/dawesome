@@ -1,3 +1,4 @@
+import type { Mock } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import reducer, {
   addToPlaylist, copyClips, cutClips, deepCopyClips, joinClips, NEEDS_SAVING, pasteClips, repeatClips, reduceLoadedProject, playlistSlice, removeManyFromPlaylist, selectClipOverrides, selectClipWindow, setClipWindows,
@@ -9,14 +10,14 @@ import { runProjectCommand, setProjectNotice } from './projectSlice'
 import { ChangedClips, LoadedProject, Placed, ProjectView } from '../../types/project'
 import { defaultClipSettings } from '../../types/clip'
 
-jest.mock('@tauri-apps/api/core', () => ({ invoke: jest.fn() }))
-jest.mock('@tauri-apps/plugin-dialog', () => ({ ask: jest.fn(), open: jest.fn(), save: jest.fn() }))
-jest.mock('@tauri-apps/plugin-fs', () => ({ readDir: jest.fn() }))
-jest.mock('./projectSlice', () => {
-  const actual = jest.requireActual('./projectSlice')
-  return { ...actual, runProjectCommand: jest.fn() }
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
+vi.mock('@tauri-apps/plugin-dialog', () => ({ ask: vi.fn(), open: vi.fn(), save: vi.fn() }))
+vi.mock('@tauri-apps/plugin-fs', () => ({ readDir: vi.fn() }))
+vi.mock('./projectSlice', async () => {
+  const actual = await vi.importActual('./projectSlice')
+  return { ...actual, runProjectCommand: vi.fn() }
 })
-jest.mock('@tauri-apps/api/path', () => ({ dirname: jest.fn(), documentDir: jest.fn(), join: jest.fn() }))
+vi.mock('@tauri-apps/api/path', () => ({ dirname: vi.fn(), documentDir: vi.fn(), join: vi.fn() }))
 
 const loaded: LoadedProject = {
   tempo: 90,
@@ -55,7 +56,7 @@ describe('movePlaylistItem', () => {
 })
 
 describe('addToPlaylist', () => {
-  const mockInvoke = invoke as jest.Mock
+  const mockInvoke = invoke as Mock
 
   it('asks for a dropped clip\'s length, which trimming it needs', async () => {
     mockInvoke.mockReset()
@@ -67,7 +68,7 @@ describe('addToPlaylist', () => {
       if(command === 'get_playlist_data') return [16, 256, 240, 4]
       return undefined
     })
-    const dispatch = jest.fn()
+    const dispatch = vi.fn()
     const box = { x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0 }
     await addToPlaylist('/samples/kick.wav', 1, 2.2, box)(dispatch)
 
@@ -124,7 +125,7 @@ describe('reduceExploded', () => {
 })
 
 describe('setPlaylistTempo', () => {
-  const mockInvoke = invoke as jest.Mock
+  const mockInvoke = invoke as Mock
 
   it('takes the tempos the engine does', () => {
     expect([120, 1, 1000].every(validTempo)).toBe(true)
@@ -137,7 +138,7 @@ describe('setPlaylistTempo', () => {
       if(command === 'get_playlist_playing') return true
       return undefined
     })
-    const dispatch = jest.fn()
+    const dispatch = vi.fn()
 
     expect(await setPlaylistTempo(90)(dispatch)).toBe(true)
 
@@ -153,7 +154,7 @@ describe('setPlaylistTempo', () => {
   })
 
   it('does not send half a number', async () => {
-    const dispatch = jest.fn()
+    const dispatch = vi.fn()
     expect(await setPlaylistTempo(NaN)(dispatch)).toBe(false)
     expect(await setPlaylistTempo(0)(dispatch)).toBe(false)
 
@@ -163,8 +164,8 @@ describe('setPlaylistTempo', () => {
 
   it('keeps the tempo when the engine refuses (while recording)', async () => {
     mockInvoke.mockRejectedValue('the tempo can\'t be changed while recording')
-    const error = jest.spyOn(console, 'error').mockImplementation(() => {})
-    const dispatch = jest.fn()
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const dispatch = vi.fn()
 
     expect(await setPlaylistTempo(90)(dispatch)).toBe(false)
 
@@ -175,12 +176,12 @@ describe('setPlaylistTempo', () => {
 })
 
 describe('removeManyFromPlaylist', () => {
-  const mockInvoke = invoke as jest.Mock
+  const mockInvoke = invoke as Mock
 
   it('removes a selection with one command, so it is undone as one step', async () => {
     mockInvoke.mockImplementation(async (command: string) =>
       (command === 'get_playlist_data' ? [16, 256, 8, 4] : undefined))
-    const dispatch = jest.fn()
+    const dispatch = vi.fn()
 
     await removeManyFromPlaylist([3, 4, 5])(dispatch)
 
@@ -195,7 +196,7 @@ describe('removeManyFromPlaylist', () => {
 
   it('removes none of them when the engine refuses', async () => {
     mockInvoke.mockRejectedValue('no node with id 4')
-    const dispatch = jest.fn()
+    const dispatch = vi.fn()
 
     await expect(removeManyFromPlaylist([3, 4])(dispatch)).rejects.toBe('no node with id 4')
     expect(dispatch).not.toHaveBeenCalled()
@@ -203,7 +204,7 @@ describe('removeManyFromPlaylist', () => {
 })
 
 describe('updateClipSettings', () => {
-  const mockInvoke = invoke as jest.Mock
+  const mockInvoke = invoke as Mock
 
   it('sends the gesture a setting was changed in', async () => {
     mockInvoke.mockResolvedValue(undefined)
@@ -410,13 +411,13 @@ describe('trimmed and cut clips', () => {
   })
 
   describe('the commands', () => {
-    const mockInvoke = invoke as jest.Mock
+    const mockInvoke = invoke as Mock
     const changed: ChangedClips = {
       clips: [clip({ id: 7, window: { start: 0.5, end: null } })],
       patternClips: [],
     }
-    const run = async (thunk: (dispatch: jest.Mock) => Promise<ChangedClips | null>) => {
-      const dispatch = jest.fn()
+    const run = async (thunk: (dispatch: Mock) => Promise<ChangedClips | null>) => {
+      const dispatch = vi.fn()
       const result = await thunk(dispatch)
       const state = dispatch.mock.calls.reduce(
         (s, [action]) => typeof action === 'function' ? s : reducer(s, action),
@@ -458,11 +459,11 @@ describe('trimmed and cut clips', () => {
       expect(mockInvoke).toHaveBeenCalledWith('stretch_clips', { edits })
       expect(result?.clips[0].settings.pitch).toBe(-12)
       expect(state.clipSettings[7].pitch).toBe(-12)
-      expect(state.playlistItems.find((item: { id: number }) => item.id === 7).startBeat).toBe(3)
+      expect(state.playlistItems.find((item: { id: number }) => item.id === 7)?.startBeat).toBe(3)
     })
 
     it('gives null when the engine refuses', async () => {
-      const error = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+      const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
       mockInvoke.mockRejectedValue('no node with id 7')
 
       const { result, state } = await run(dispatch => splitClips([7], 5)(dispatch))
@@ -504,7 +505,7 @@ describe('the playlist tool', () => {
 })
 
 describe('the clip clipboard', () => {
-  const mockInvoke = invoke as jest.Mock
+  const mockInvoke = invoke as Mock
   const clip = (overrides = {}) => ({
     ...loaded.clips[0], id: 20, startBeat: 12, window: null, ...overrides,
   })
@@ -515,8 +516,8 @@ describe('the clip clipboard', () => {
     leftOut: 0,
     ...overrides,
   })
-  const run = async <T,>(thunk: (dispatch: jest.Mock) => Promise<T>) => {
-    const dispatch = jest.fn()
+  const run = async <T,>(thunk: (dispatch: Mock) => Promise<T>) => {
+    const dispatch = vi.fn()
     const result = await thunk(dispatch)
     const state = dispatch.mock.calls.reduce(
       (s, [action]) => typeof action === 'function' ? s : reducer(s, action),
@@ -524,7 +525,7 @@ describe('the clip clipboard', () => {
     )
     return { result, state, dispatch }
   }
-  const noticeFrom = (dispatch: jest.Mock) =>
+  const noticeFrom = (dispatch: Mock) =>
     dispatch.mock.calls.map(([a]) => a).filter(a => a.type === setProjectNotice.type)
 
   beforeEach(() => {
@@ -552,7 +553,7 @@ describe('the clip clipboard', () => {
   })
 
   it('changes nothing when a cut is refused', async () => {
-    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     mockInvoke.mockRejectedValue('no node with id 7')
     const { state } = await run(dispatch => cutClips([7])(dispatch))
 
@@ -651,23 +652,23 @@ describe('the clip clipboard', () => {
 })
 
 describe('withWaitCursor', () => {
-  // this jest has no async timer advance: let the promises settle after each
+  // (written for jest, which had no async timer advance): let the promises settle after each
   const advance = async (ms: number) => {
-    jest.advanceTimersByTime(ms)
+    vi.advanceTimersByTime(ms)
     await Array.from({ length: 10 }).reduce<Promise<unknown>>(p => p.then(() => undefined), Promise.resolve())
   }
-  beforeEach(() => jest.useFakeTimers())
-  afterEach(() => jest.useRealTimers())
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
 
   it('shows nothing for quick work', async () => {
-    const setBusy = jest.fn()
+    const setBusy = vi.fn()
     expect(await withWaitCursor(Promise.resolve(5), setBusy)).toBe(5)
     await advance(600)
     expect(setBusy).not.toHaveBeenCalled()
   })
 
   it('shows the wait once, and clears it, for slow work', async () => {
-    const setBusy = jest.fn()
+    const setBusy = vi.fn()
     const work = new Promise<number>(resolve => { setTimeout(() => resolve(7), 2000) })
     const result = withWaitCursor(work, setBusy)
     await advance(499)
@@ -680,7 +681,7 @@ describe('withWaitCursor', () => {
   })
 
   it('clears the wait when slow work fails, and still rejects', async () => {
-    const setBusy = jest.fn()
+    const setBusy = vi.fn()
     const work = new Promise<number>((_, reject) => { setTimeout(() => reject(new Error('no')), 1000) })
     const result = withWaitCursor(work, setBusy)
     const caught = expect(result).rejects.toThrow('no')
@@ -690,7 +691,7 @@ describe('withWaitCursor', () => {
   })
 
   it('never shows the wait for quick work that fails', async () => {
-    const setBusy = jest.fn()
+    const setBusy = vi.fn()
     await expect(withWaitCursor(Promise.reject(new Error('no')), setBusy)).rejects.toThrow('no')
     await advance(600)
     expect(setBusy).not.toHaveBeenCalled()
@@ -722,16 +723,16 @@ describe('reduceChangedClips with a deep copy', () => {
 })
 
 describe('deep copy and join', () => {
-  const mockInvoke = invoke as jest.Mock
-  const mockSave = runProjectCommand as unknown as jest.Mock
+  const mockInvoke = invoke as Mock
+  const mockSave = runProjectCommand as unknown as Mock
   const clip = (overrides = {}) => ({
     ...loaded.clips[0], id: 7, path: '/project/7.wav', window: null, ...overrides,
   })
   const start = () => reducer(undefined, reduceLoadedProject(loaded))
   const path = (value: string | null) => ({ project: { path: value } })
   // runs a thunk against a state whose project is (or isn't) saved
-  const run = async <T,>(thunk: (dispatch: jest.Mock, getState: () => unknown) => Promise<T>, saved = true) => {
-    const dispatch = jest.fn()
+  const run = async <T,>(thunk: (dispatch: Mock, getState: () => unknown) => Promise<T>, saved = true) => {
+    const dispatch = vi.fn()
     const result = await thunk(dispatch, () => path(saved ? '/p.dawesome' : null))
     const state = dispatch.mock.calls.reduce(
       (s, [action]) => typeof action === 'function' ? s : reducer(s, action),
@@ -739,10 +740,10 @@ describe('deep copy and join', () => {
     )
     return { result, state, dispatch }
   }
-  const actions = (dispatch: jest.Mock) => dispatch.mock.calls.map(([a]) => a).filter(a => typeof a !== 'function')
-  const noticeFrom = (dispatch: jest.Mock) => actions(dispatch).filter(a => a.type === setProjectNotice.type)
+  const actions = (dispatch: Mock) => dispatch.mock.calls.map(([a]) => a).filter(a => typeof a !== 'function')
+  const noticeFrom = (dispatch: Mock) => actions(dispatch).filter(a => a.type === setProjectNotice.type)
   // the engine's refusals are plain sentences, not Errors
-  const refuse = (message: string) => jest.fn().mockRejectedValue(message)()
+  const refuse = (message: string) => vi.fn().mockRejectedValue(message)()
   const answers = (over: Record<string, unknown>) => async (command: string) =>
     command in over ? over[command] : [16, 256, 240, 4]
   const joined = (over = {}) => ({
@@ -800,7 +801,7 @@ describe('deep copy and join', () => {
       if(++calls === 1) return refuse(NEEDS_SAVING)
       return changed
     })
-    const dispatch = jest.fn()
+    const dispatch = vi.fn()
     let saved = false
     mockSave.mockReturnValue(async () => { saved = true })
     const result = await deepCopyClips([7])(dispatch, () => path(saved ? '/p.dawesome' : null) as never)

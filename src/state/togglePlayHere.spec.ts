@@ -1,3 +1,4 @@
+import type { Mock } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import { store } from './store'
 import { selectPattern, setSequencer, togglePlayHere } from './slices/sequencerSlice'
@@ -5,12 +6,12 @@ import { openTab } from './slices/windowSlice'
 import { listenForTransportKey } from '../util/keys'
 import { View } from '../types/ui'
 
-jest.mock('@tauri-apps/api/core', () => ({ invoke: jest.fn() }))
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 // the store's project slice opens dialogs and lists folders
-jest.mock('@tauri-apps/plugin-dialog', () => ({ ask: jest.fn(), open: jest.fn(), save: jest.fn() }))
-jest.mock('@tauri-apps/plugin-fs', () => ({ readDir: jest.fn() }))
-jest.mock('@tauri-apps/api/path', () => ({ dirname: jest.fn(), documentDir: jest.fn(), join: jest.fn() }))
-const mockInvoke = invoke as jest.Mock
+vi.mock('@tauri-apps/plugin-dialog', () => ({ ask: vi.fn(), open: vi.fn(), save: vi.fn() }))
+vi.mock('@tauri-apps/plugin-fs', () => ({ readDir: vi.fn() }))
+vi.mock('@tauri-apps/api/path', () => ({ dirname: vi.fn(), documentDir: vi.fn(), join: vi.fn() }))
+const mockInvoke = invoke as Mock
 
 const stopped = {
   playing: false, patternId: null, startTimeMs: null, beatIntervalMs: 500, startBeat: 0, loopBeats: 16,
@@ -70,13 +71,13 @@ describe('Space, listened for on the window', () => {
     new KeyboardEvent(type, { key: ' ', bubbles: true, cancelable: true, ...init })
 
   let stop: () => void
-  let toggle: jest.Mock
-  let reached: jest.Mock
+  let toggle: Mock
+  let reached: Mock
   let button: HTMLButtonElement
 
   beforeEach(() => {
-    toggle = jest.fn()
-    reached = jest.fn()
+    toggle = vi.fn()
+    reached = vi.fn()
     stop = listenForTransportKey(window, toggle)
     button = document.createElement('button')
     document.body.appendChild(button)

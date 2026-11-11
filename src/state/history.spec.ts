@@ -1,3 +1,4 @@
+import type { Mock } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import { store } from './store'
 import { resetTravel, samePress, travel } from './history'
@@ -6,12 +7,12 @@ import { setTrackVolume } from './slices/mixerSlice'
 import { Travelled } from '../types/project'
 import { defaultClipSettings } from '../types/clip'
 
-jest.mock('@tauri-apps/api/core', () => ({ invoke: jest.fn() }))
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 // the store's project slice opens dialogs and lists folders
-jest.mock('@tauri-apps/plugin-dialog', () => ({ ask: jest.fn(), open: jest.fn(), save: jest.fn() }))
-jest.mock('@tauri-apps/plugin-fs', () => ({ readDir: jest.fn() }))
-jest.mock('@tauri-apps/api/path', () => ({ dirname: jest.fn(), documentDir: jest.fn(), join: jest.fn() }))
-const mockInvoke = invoke as jest.Mock
+vi.mock('@tauri-apps/plugin-dialog', () => ({ ask: vi.fn(), open: vi.fn(), save: vi.fn() }))
+vi.mock('@tauri-apps/plugin-fs', () => ({ readDir: vi.fn() }))
+vi.mock('@tauri-apps/api/path', () => ({ dirname: vi.fn(), documentDir: vi.fn(), join: vi.fn() }))
+const mockInvoke = invoke as Mock
 
 // the project after undoing a clip's deletion: the clip is back
 const travelled: Travelled = {
@@ -100,7 +101,7 @@ describe('undo and redo', () => {
   })
 
   it('sends a fader value still waiting before undoing, and none after', async () => {
-    jest.useFakeTimers()
+    vi.useFakeTimers()
     engine(travelled)
     store.dispatch(setTrackVolume(0, -3))
     store.dispatch(setTrackVolume(0, -9))
@@ -114,10 +115,10 @@ describe('undo and redo', () => {
     // the fader shows what the engine went back to
     expect(store.getState().mixer.tracks[0].volumeDb).toBe(-6)
 
-    jest.runOnlyPendingTimers()
-    jest.runOnlyPendingTimers()
+    vi.runOnlyPendingTimers()
+    vi.runOnlyPendingTimers()
     expect(calls('set_track_volume')).toBe(2)
-    jest.useRealTimers()
+    vi.useRealTimers()
   })
 
   it('changes nothing when there is nothing to undo', async () => {
@@ -174,7 +175,7 @@ describe('undo and redo', () => {
 
   it('carries on after the engine fails', async () => {
     mockInvoke.mockRejectedValue('no engine')
-    const error = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     expect(await store.dispatch(travel('undo'))).toBe(false)
     error.mockRestore()
 

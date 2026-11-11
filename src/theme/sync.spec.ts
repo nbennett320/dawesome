@@ -1,3 +1,4 @@
+import type { Mock } from 'vitest'
 import { configureStore } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api/core'
 import appearanceReducer, { defaultPreferences, hydrateAppearance, setPreferences } from '../state/slices/appearanceSlice'
@@ -7,8 +8,8 @@ import { setThemes } from './registry'
 import { slateLightTheme } from './fixture'
 import type { ResolvedTheme } from './keys'
 
-jest.mock('@tauri-apps/api/core', () => ({ invoke: jest.fn() }))
-const mockInvoke = invoke as jest.Mock
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
+const mockInvoke = invoke as Mock
 
 const dark: ResolvedTheme = {
   ...slateLightTheme, id: 'charcoal', name: 'Charcoal', appearance: 'dark',
@@ -18,7 +19,7 @@ const all = [slateLightTheme, dark]
 
 describe('startThemeSync', () => {
   let changeMedia: (matches: boolean) => void
-  const removeListener = jest.fn()
+  const removeListener = vi.fn()
 
   const setup = () => {
     setThemes(all)
@@ -34,7 +35,7 @@ describe('startThemeSync', () => {
   beforeEach(() => {
     mockInvoke.mockReset().mockResolvedValue(undefined)
     removeListener.mockReset()
-    window.matchMedia = jest.fn().mockReturnValue({
+    window.matchMedia = vi.fn().mockReturnValue({
       matches: false,
       addEventListener: (_: string, l: (ev: { matches: boolean }) => void) => { changeMedia = matches => l({ matches }) },
       removeEventListener: removeListener,
@@ -72,7 +73,7 @@ describe('startThemeSync', () => {
   })
 
   it('logs a failed background', async () => {
-    const error = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     mockInvoke.mockRejectedValue('no')
     const stop = startThemeSync(setup() as never)
     await new Promise<void>(r => { setTimeout(r, 0) })
