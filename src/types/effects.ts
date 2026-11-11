@@ -1,6 +1,7 @@
 // effect plugins (VST3): what the engine found, and each channel's chain of
 // them. mirrors engine/src/effect_commands.rs (see
 // context/vst-project/04-api.md, the contract both sides keep to)
+import { trackLabel } from './mixer'
 
 // one plugin the scan found (engine/src/plugin/mod.rs PluginInfo)
 export interface PluginInfo {
@@ -72,7 +73,7 @@ export interface Rect {
   height: number
 }
 
-// a plugin's own interface, as docked in the rack tab
+// a plugin's own interface, as docked in its tab: the size it ended up
 export interface EditorInfo {
   width: number
   height: number
@@ -103,6 +104,11 @@ export const parseChannelKey = (key: string | null | undefined): ChannelId | nul
   if(!key || !/^\d+$/.test(key)) return null
   return Number(key)
 }
+
+// a channel's name, as the mixer shows it: the track's name (the mixer's
+// `names`), "Track n" without one, or "Master"
+export const channelLabel = (names: Record<number, string>, channel: ChannelId): string =>
+  (channel === 'master' ? 'Master' : names[channel] ?? trackLabel(channel))
 
 const NO_SLOTS: EffectSlot[] = []
 
@@ -140,15 +146,35 @@ export const instrumentTracks = (racks: Racks): number[] =>
 // whether an effect is doing anything: switched on, and loaded
 export const isActive = (slot: EffectSlot): boolean => !slot.bypassed && !slot.missing
 
-// the mixer's FX button: "FX", or "FX 3" with three effects
-export const fxLabel = (count: number): string => (count > 0 ? `FX ${count}` : 'FX')
-
-// its light: lit when at least one effect is on
+// the mixer's FX jack's light: lit when at least one effect is on
 export const fxLit = (slots: EffectSlot[]): boolean => slots.some(isActive)
 
-// the effects whose own interface can be docked in the rack tab
-export const dockable = (slots: EffectSlot[]): EffectSlot[] =>
-  slots.filter(slot => slot.hasEditor && !slot.missing)
+// whether an effect has an interface to show in a tab (or a window)
+export const hasTab = (slot: EffectSlot): boolean => slot.hasEditor && !slot.missing
+
+// every slot that can have a tab, in the project
+export const tabSlotIds = (racks: Racks): number[] =>
+  racks.flatMap(rack => rack.slots).filter(hasTab).map(slot => slot.id)
+
+// a plugin's tab's name: "Name" when it's the project's only one of that
+// plugin, "Name - Channel" when there are more but one to a channel, and
+// "Name - Channel (n)" when its channel has more than one, n being its place
+// in the chain (from 1). null when the slot's gone
+export const pluginTabLabel = (
+  racks: Racks,
+  names: Record<number, string>,
+  slotId: number,
+): string | null => {
+  const found = findSlot(racks, slotId)
+  if(!found) return null
+
+  const { channel, index, slot } = found
+  const same = (other: EffectSlot) => other.pluginId === slot.pluginId
+  if(racks.flatMap(rack => rack.slots).filter(same).length === 1) return slot.name
+
+  const label = `${slot.name} - ${channelLabel(names, channel)}`
+  return slotsOf(racks, channel).filter(same).length > 1 ? `${label} (${index + 1})` : label
+}
 
 // the gaps an effect can be dropped in: never above a track's instrument,
 // which stays first. an instrument only ever goes first (gap 0)

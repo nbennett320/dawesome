@@ -6,7 +6,7 @@ import {
 } from '../../types/audio'
 import Fader, { THUMB_HEIGHT } from './Fader'
 import Meter from './Meter'
-import FxButton from './FxButton'
+import FxJack from './FxJack'
 import { DROP_CHANNEL } from './useChannelDrop'
 import { RegisterMeter } from './useMixerMeters'
 
@@ -191,8 +191,8 @@ interface Props {
   wide?: boolean
 }
 
-// one column of the mixer: name, effects, pan, fader and meter, volume, mute
-// and solo
+// one column of the mixer: name, pan, fader and meter, volume, mute and
+// solo, and the effects' jack at the foot
 const ChannelStrip = ({
   label,
   volumeDb,
@@ -222,8 +222,6 @@ const ChannelStrip = ({
     <div className='h-5'>
       <NameLabel label={label} silenced={silenced} onRename={onRename} />
     </div>
-
-    {fx && <FxButton channel={label} count={fx.count} lit={fx.lit} instrument={fx.instrument} onOpen={fx.onOpen} />}
 
     <div className='flex flex-col items-center h-16'>
       {pan && (
@@ -278,6 +276,8 @@ const ChannelStrip = ({
       )}
       {!(mute && solo) && footer}
     </div>
+
+    {fx && <FxJack channel={label} count={fx.count} lit={fx.lit} instrument={fx.instrument} onOpen={fx.onOpen} />}
   </div>
 )
 

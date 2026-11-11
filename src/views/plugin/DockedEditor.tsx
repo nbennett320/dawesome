@@ -1,14 +1,14 @@
 import React from 'react'
 import { useAppDispatch } from '../../hooks/redux'
 import {
-  dockEffect, expandSlot, moveDockedEffect, openEffectWindow, undockEffect,
+  dockEffect, moveDockedEffect, openEffectWindow, resizeDockedEffect, Size, undockEffect,
 } from '../../state/slices/effectsSlice'
-import { ChannelId, dockable, EditorInfo, EffectSlot, Rect } from '../../types/effects'
+import { EditorInfo, EffectSlot, Rect } from '../../types/effects'
 import { Notice } from '../../components/common'
 import { AnalogButton } from '../../components/fourtrack'
-import ChannelSelect from './ChannelSelect'
-import { CollapseIcon, PopOutIcon, StepIcon } from './icons'
-import { OnKey, RackStrip, SlotName, SmallKey } from './RackStack'
+
+// the space kept around the interface (p-2)
+const PAD = 8
 
 // where the docked interface goes: the part of the page it may cover (the
 // scroll area, without its scrollbars) and its top-left corner (the
@@ -35,28 +35,39 @@ export const measurePlacement = (area: HTMLElement, box: HTMLElement): Placement
   }
 }
 
+// the room a resizable interface may fill: the area less its padding. its
+// whole size, scrollbars or not, so scrollbars coming and going don't
+// resize it
+export const measureFill = (area: HTMLElement): Size => ({
+  width: Math.max(0, Math.round(area.offsetWidth - 2 * PAD)),
+  height: Math.max(0, Math.round(area.offsetHeight - 2 * PAD)),
+})
+
 const samePlacement = (a: Placement | null, b: Placement) =>
   !!a && a.x === b.x && a.y === b.y && a.clip.x === b.clip.x && a.clip.y === b.clip.y
   && a.clip.width === b.clip.width && a.clip.height === b.clip.height
 
+const sameSize = (a: Size | null, b: Size) => !!a && a.width === b.width && a.height === b.height
+
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
-// the plugin's own interface, docked: the engine lays its native view over
-// the placeholder here, which is the interface's size and centred when
-// there's room. the native view sits above the page, so nothing of the
-// page may go over the placeholder: every control stays in the strip above
+// a plugin's own interface, docked: the engine lays its native view over
+// the placeholder here, which takes the size the engine says it is, centred
+// on the panel. the native view sits above the page, so nothing of the page
+// may go over the placeholder
 //
-// it's docked while `active` (the tab is showing), and undocked when that
-// stops, the slot changes, or this goes away (collapsed, removed, another
-// channel)
+// it's docked while `active` (its tab is showing, and no tab is being
+// dragged), and undocked when that stops or this goes away
 const DockedEditor = ({ slot, active }: { slot: EffectSlot, active: boolean }) => {
   const dispatch = useAppDispatch()
   const areaRef = React.useRef<HTMLDivElement>(null)
   const boxRef = React.useRef<HTMLDivElement>(null)
   const [info, setInfo] = React.useState<EditorInfo | null>(null)
   const [error, setError] = React.useState<string | null>(null)
-  // where it was last put, so the engine is only told when that changes
+  // where it was last put, and the room it was last given, so the engine is
+  // only told when they change
   const placed = React.useRef<Placement | null>(null)
+  const filled = React.useRef<Size | null>(null)
 
   React.useEffect(() => {
     const area = areaRef.current
@@ -67,35 +78,51 @@ const DockedEditor = ({ slot, active }: { slot: EffectSlot, active: boolean }) =
     setInfo(null)
     setError(null)
     const placement = measurePlacement(area, box)
+    const fill = measureFill(area)
     placed.current = placement
+    filled.current = fill
 
-    dispatch(dockEffect(slot.id, placement.clip, placement.x, placement.y))
+    dispatch(dockEffect(slot.id, placement.clip, placement.x, placement.y, fill))
       .then(editor => { if(live) setInfo(editor) })
       .catch(e => { if(live) setError(message(e)) })
 
     return () => {
       live = false
       placed.current = null
-      dispatch(undockEffect()).catch(() => {})
+      filled.current = null
+      dispatch(undockEffect(slot.id)).catch(() => {})
     }
   }, [dispatch, active, slot.id])
 
+  const docked = info !== null
+  const resizable = !!info?.resizable
+
   // follow the page: the pane resized or moved, the area scrolled, the
-  // window resized, or the placeholder took the interface's size. at most
-  // once a frame
+  // window resized, or the placeholder took the interface's size. a
+  // resizable interface is given the new room. at most once a frame
   React.useEffect(() => {
     const area = areaRef.current
-    if(!active || !info || !area) return undefined
+    if(!active || !docked || !area) return undefined
 
+    let live = true
     let frame = 0
     const send = () => {
       frame = 0
       const box = boxRef.current
       if(!box) return
+
+      const fill = measureFill(area)
+      if(resizable && !sameSize(filled.current, fill)) {
+        filled.current = fill
+        dispatch(resizeDockedEffect(slot.id, fill))
+          .then(editor => { if(live) setInfo(editor) })
+          .catch(() => {})
+      }
+
       const placement = measurePlacement(area, box)
       if(samePlacement(placed.current, placement)) return
       placed.current = placement
-      dispatch(moveDockedEffect(placement.clip, placement.x, placement.y)).catch(() => {})
+      dispatch(moveDockedEffect(slot.id, placement.clip, placement.x, placement.y)).catch(() => {})
     }
     const schedule = () => { if(!frame) frame = requestAnimationFrame(send) }
 
@@ -111,12 +138,13 @@ const DockedEditor = ({ slot, active }: { slot: EffectSlot, active: boolean }) =
     window.addEventListener('resize', schedule)
 
     return () => {
+      live = false
       if(frame) cancelAnimationFrame(frame)
       observer?.disconnect()
       area.removeEventListener('scroll', schedule)
       window.removeEventListener('resize', schedule)
     }
-  }, [dispatch, active, info])
+  }, [dispatch, active, docked, resizable, slot.id])
 
   return (
     <div ref={areaRef} className='flex-1 min-h-0 overflow-auto' data-docked-effect={slot.id}>
@@ -136,9 +164,10 @@ const DockedEditor = ({ slot, active }: { slot: EffectSlot, active: boolean }) =
             </AnalogButton>
           </div>
         ) : (
+          // no fill of its own: the panel shows until the native view's there
           <div
             ref={boxRef}
-            className='m-auto flex-none rounded-sm bg-sunken'
+            className='m-auto flex-none'
             style={{ width: info?.width ?? 0, height: info?.height ?? 0 }}
             data-testid='docked-placeholder'
           />
@@ -148,78 +177,4 @@ const DockedEditor = ({ slot, active }: { slot: EffectSlot, active: boolean }) =
   )
 }
 
-interface Props {
-  channel: ChannelId
-  // the channel's chain
-  slots: EffectSlot[]
-  // the one expanded
-  slot: EffectSlot
-  // the tab is showing
-  active: boolean
-}
-
-// one effect, its own interface docked in the tab, under a strip with the
-// channel, its On key, stepping through the channel's other effects,
-// collapsing back to the stack, and popping it out into a window
-const RackExpanded = ({ channel, slots, slot, active }: Props) => {
-  const dispatch = useAppDispatch()
-  const steps = dockable(slots)
-  const at = steps.findIndex(s => s.id === slot.id)
-  const prev = steps[at - 1]
-  const next = steps[at + 1]
-
-  return (
-    <div className='ft-panel h-full w-full flex flex-col text-sm select-none'>
-      <RackStrip>
-        <ChannelSelect channel={channel} />
-        <OnKey slot={slot} />
-        <div className='flex-1 min-w-0 flex flex-row items-center gap-2'>
-          <SlotName slot={slot} />
-        </div>
-
-        <div className='flex flex-row items-center gap-1 shrink-0'>
-          <SmallKey
-            aria-label='Previous effect'
-            title={prev ? `Show ${prev.name}` : undefined}
-            disabled={!prev}
-            onPress={() => { if(prev) dispatch(expandSlot(prev.id)) }}
-          >
-            <StepIcon direction='prev' />
-          </SmallKey>
-          <span className='ft-label tabular-nums tracking-normal' aria-label='Effect shown'>
-            {at + 1} / {steps.length}
-          </span>
-          <SmallKey
-            aria-label='Next effect'
-            title={next ? `Show ${next.name}` : undefined}
-            disabled={!next}
-            onPress={() => { if(next) dispatch(expandSlot(next.id)) }}
-          >
-            <StepIcon direction='next' />
-          </SmallKey>
-        </div>
-
-        <SmallKey
-          aria-label='Back to the list'
-          title='Back to every effect on the channel'
-          onPress={() => dispatch(expandSlot(null))}
-        >
-          <CollapseIcon />
-        </SmallKey>
-        <div className='w-2 shrink-0' />
-        <SmallKey
-          aria-label={`Open ${slot.name} in a window`}
-          title='Open its interface in a window'
-          onPress={() => { dispatch(openEffectWindow(slot.id)).catch(() => {}) }}
-        >
-          <PopOutIcon />
-        </SmallKey>
-      </RackStrip>
-
-      {/* afresh for each effect, and each time the tab is shown */}
-      <DockedEditor key={`${slot.id}:${active}`} slot={slot} active={active} />
-    </div>
-  )
-}
-
-export default RackExpanded
+export default DockedEditor

@@ -1,6 +1,6 @@
 import {
-  appendIndex, channelKey, dockable, EffectSlot, findSlot, fxLabel, fxLit, groupPlugins, matchesSearch,
-  parseChannelKey, PluginInfo, Racks, reorderIndex, slotsOf, toChannel, toTrack,
+  appendIndex, channelKey, channelLabel, EffectSlot, findSlot, fxLit, groupPlugins, hasTab, matchesSearch,
+  parseChannelKey, PluginInfo, pluginTabLabel, Racks, reorderIndex, slotsOf, tabSlotIds, toChannel, toTrack,
 } from './effects'
 import { dragItemKey, isEffectItem, isPlaceable } from '../state/sampleDrag'
 
@@ -55,12 +55,7 @@ describe('channels', () => {
   })
 })
 
-describe('the FX button', () => {
-  it('shows how many effects there are', () => {
-    expect(fxLabel(0)).toBe('FX')
-    expect(fxLabel(3)).toBe('FX 3')
-  })
-
+describe('the FX jack', () => {
   it('is lit while any effect is on and loaded', () => {
     expect(fxLit([])).toBe(false)
     expect(fxLit([slot(1, { bypassed: true }), slot(2, { missing: true })])).toBe(false)
@@ -109,10 +104,47 @@ describe('appendIndex', () => {
   })
 })
 
-describe('dockable', () => {
-  it('leaves out effects without an interface, and missing ones', () => {
+describe('a plugin’s tab', () => {
+  it('is only had by effects with an interface that loaded', () => {
     const chain = [slot(1), slot(2, { hasEditor: false }), slot(3, { missing: true }), slot(4, { bypassed: true })]
-    expect(dockable(chain).map(s => s.id)).toEqual([1, 4])
+    expect(chain.filter(hasTab).map(s => s.id)).toEqual([1, 4])
+    expect(tabSlotIds([{ track: 0, slots: chain }, { track: null, slots: [slot(9)] }])).toEqual([1, 4, 9])
+  })
+
+  it('names channels as the mixer does', () => {
+    expect(channelLabel({}, 0)).toBe('Track 1')
+    expect(channelLabel({ 2: 'Bass' }, 2)).toBe('Bass')
+    expect(channelLabel({ 2: 'Bass' }, 'master')).toBe('Master')
+  })
+
+  describe('is named', () => {
+    const verb = (id: number) => slot(id, { pluginId: 'vst3:verb', name: 'Verb' })
+    const names = { 1: 'Vox' }
+
+    it('after the plugin, when it’s the project’s only one', () => {
+      const racks: Racks = [{ track: 0, slots: [slot(1), verb(2)] }, { track: 1, slots: [slot(3)] }]
+      expect(pluginTabLabel(racks, names, 2)).toBe('Verb')
+      expect(pluginTabLabel(racks, names, 3)).toBe('Effect 3')
+    })
+
+    it('with its channel, when there are more but one to a channel', () => {
+      const racks: Racks = [{ track: 0, slots: [slot(1), verb(2)] }, { track: 1, slots: [verb(3)] }, { track: null, slots: [verb(4)] }]
+      expect(pluginTabLabel(racks, names, 2)).toBe('Verb - Track 1')
+      expect(pluginTabLabel(racks, names, 3)).toBe('Verb - Vox')
+      expect(pluginTabLabel(racks, names, 4)).toBe('Verb - Master')
+    })
+
+    it('with its place in the chain, when its channel has more than one', () => {
+      const racks: Racks = [{ track: 1, slots: [verb(2), slot(5), verb(3)] }, { track: 0, slots: [verb(4)] }]
+      expect(pluginTabLabel(racks, names, 2)).toBe('Verb - Vox (1)')
+      expect(pluginTabLabel(racks, names, 3)).toBe('Verb - Vox (3)')
+      // only its own channel counts
+      expect(pluginTabLabel(racks, names, 4)).toBe('Verb - Track 1')
+    })
+
+    it('with nothing, once the slot’s gone', () => {
+      expect(pluginTabLabel([], names, 2)).toBeNull()
+    })
   })
 })
 

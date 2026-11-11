@@ -280,6 +280,60 @@ $led-colors: 'red', 'amber', 'lime', 'blue';
   50% { opacity: .2; }
 }
 
+// ---------- Jack ----------
+
+// a quarter-inch socket (Jack.tsx), and the plug in it
+.ft-jack {
+  display: block;
+  flex: none;
+  overflow: visible;
+
+  &__nut {
+    fill: var(--ft-cap-top);
+    stroke: var(--ft-line-strong);
+    stroke-width: 1;
+    stroke-linejoin: round;
+  }
+
+  &__washer {
+    fill: var(--ft-cap-bottom);
+    stroke: var(--ft-line-strong);
+    stroke-width: 1;
+  }
+
+  &__hole {
+    fill: rgb(var(--c-shadow) / .55);
+    stroke: var(--ft-line-strong);
+    stroke-width: 1;
+  }
+
+  &__cable {
+    fill: none;
+    stroke: var(--ft-ink-soft);
+    stroke-width: 3.5;
+    stroke-linecap: round;
+  }
+
+  &__relief {
+    stroke: var(--ft-ink-soft);
+    stroke-width: 6;
+    stroke-linecap: round;
+  }
+
+  &__body {
+    stroke: var(--ft-ink-soft);
+    stroke-width: 10;
+    stroke-linecap: round;
+  }
+
+  // the metal ring where the plug goes in
+  &__collar {
+    fill: var(--ft-knob-top);
+    stroke: var(--ft-line-strong);
+    stroke-width: 1.5;
+  }
+}
+
 // ---------- Knob ----------
 
 .ft-knob {

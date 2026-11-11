@@ -2,18 +2,18 @@ import React from 'react'
 import { useAppDispatch, useAppSelector } from '../../hooks/redux'
 import { beginSampleDrag, onSampleDrag } from '../../state/sampleDrag'
 import {
-  expandSlot,
   highlightSlot,
   openEffectWindow,
   removeEffect,
   selectHighlightSlotId,
   setEffectBypassed,
+  showPluginTab,
 } from '../../state/slices/effectsSlice'
-import { ChannelId, EffectSlot, isInstrument } from '../../types/effects'
+import { ChannelId, EffectSlot, hasTab, isInstrument } from '../../types/effects'
 import { KeysIcon } from '../../components/toolbars/browser/icons'
 import { AnalogButton, Led } from '../../components/fourtrack'
 import ChannelSelect from './ChannelSelect'
-import { ExpandIcon, GripIcon, PopOutIcon, RemoveIcon } from './icons'
+import { GripIcon, PopOutIcon, RemoveIcon, TabIcon } from './icons'
 import { RACK_ROW, useRackDrop } from './useRackDrop'
 
 // how long a slot just dropped in stays pointed out
@@ -48,7 +48,7 @@ export const OnKey = ({ slot }: { slot: EffectSlot }) => {
 }
 
 // an effect's name, with its maker dimmed (or that it's not installed)
-export const SlotName = ({ slot }: { slot: EffectSlot }) => (
+const SlotName = ({ slot }: { slot: EffectSlot }) => (
   <div className='flex-1 min-w-0 flex flex-row items-baseline gap-1.5' title={`${slot.name} by ${slot.vendor}`}>
     <span className={`truncate text-xs font-medium ${slot.missing ? 'text-ink-faint italic' : 'text-ink-strong'}`}>
       {slot.name}
@@ -111,14 +111,14 @@ const RackRow = ({ slot, highlighted, dragging }: RowProps) => {
       <SlotName slot={slot} />
       {instrument && <span className='ft-label shrink-0'>Instrument</span>}
 
-      {slot.hasEditor && !slot.missing && (
+      {hasTab(slot) && (
         <>
           <SmallKey
-            aria-label={`Show ${slot.name} here`}
-            title='Show its interface here'
-            onPress={() => dispatch(expandSlot(slot.id))}
+            aria-label={`Open ${slot.name} in a tab`}
+            title='Open its interface in a tab of its own'
+            onPress={() => dispatch(showPluginTab(slot.id))}
           >
-            <ExpandIcon />
+            <TabIcon />
           </SmallKey>
           <SmallKey
             aria-label={`Open ${slot.name} in a window`}
@@ -148,7 +148,7 @@ const DropLine = () => (
 )
 
 // the strip along the top of the tab
-export const RackStrip = ({ children }: { children: React.ReactNode }) => (
+const RackStrip = ({ children }: { children: React.ReactNode }) => (
   <div className='shrink-0 px-2 py-1'>
     <div className='ft-tray rounded-md flex flex-row items-center gap-2 px-2 py-1.5 min-h-[34px]'>
       {children}

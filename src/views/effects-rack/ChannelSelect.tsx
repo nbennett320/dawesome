@@ -2,8 +2,7 @@ import React from 'react'
 import { useAppDispatch, useAppSelector } from '../../hooks/redux'
 import { selectRacks, showRackChannel } from '../../state/slices/effectsSlice'
 import { selectPlaylistUI } from '../../state/slices/playlistSlice'
-import { ChannelId, channelKey, parseChannelKey, Racks } from '../../types/effects'
-import { trackLabel } from '../../types/mixer'
+import { ChannelId, channelKey, channelLabel, parseChannelKey, Racks } from '../../types/effects'
 
 // the tracks to choose from: the Mixer's (one per playlist track), plus any
 // further one that has effects, or is being shown
@@ -22,14 +21,13 @@ export const channelChoices = (
   return [
     ...Array.from({ length: highest + 1 }, (_, track) => ({
       value: channelKey(track),
-      label: names[track] ?? trackLabel(track),
+      label: channelLabel(names, track),
     })),
-    { value: channelKey('master'), label: 'Master' },
+    { value: channelKey('master'), label: channelLabel(names, 'master') },
   ]
 }
 
-// which channel the rack shows. a native drop-down: its menu is the only
-// kind that can open over a plugin's interface docked below it
+// which channel the rack shows
 const ChannelSelect = ({ channel }: { channel: ChannelId }) => {
   const dispatch = useAppDispatch()
   const { trackCount } = useAppSelector(selectPlaylistUI)

@@ -7,10 +7,11 @@ import { invoke } from '@tauri-apps/api/core'
 import playlistReducer from '../../state/slices/playlistSlice'
 import projectReducer from '../../state/slices/projectSlice'
 import mixerReducer, { setName } from '../../state/slices/mixerSlice'
-import windowReducer, { openTab } from '../../state/slices/windowSlice'
-import effectsReducer, { expandSlot, setRacks, showRack } from '../../state/slices/effectsSlice'
+import windowReducer from '../../state/slices/windowSlice'
+import effectsReducer, { setRacks, showRack } from '../../state/slices/effectsSlice'
+import { paneWithTab } from '../../state/paneTree'
 import { EffectSlot, Racks } from '../../types/effects'
-import { View } from '../../types/ui'
+import { tabKey, View } from '../../types/ui'
 import EffectsRack from './EffectsRack'
 import { gapAt, rackDrop, rackGap } from './useRackDrop'
 import { channelDrop } from '../mixer/useChannelDrop'
@@ -32,7 +33,6 @@ const slot = (id: number, change: Partial<EffectSlot> = {}): EffectSlot => ({
 })
 
 let racks: Racks
-let dockFails: string | null
 
 const makeStore = () => configureStore({
   reducer: {
@@ -54,17 +54,6 @@ const setup = () => {
 
 const calls = (command: string) => mockInvoke.mock.calls.filter(([name]) => name === command)
 
-// the placeholder sits further left once it has the interface's size (it's
-// centred), so the engine has to be told it moved
-const rects = () => {
-  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function rect(this: HTMLElement) {
-    const placeholder = this.dataset.testid === 'docked-placeholder'
-    const left = placeholder ? (this.style.width === '0px' ? 400 : 250) : 100
-    const top = placeholder ? 200 : 60
-    return { left, top, x: left, y: top, width: 0, height: 0, right: left, bottom: top, toJSON: () => ({}) } as DOMRect
-  })
-}
-
 beforeEach(() => {
   vi.resetAllMocks()
   vi.restoreAllMocks()
@@ -72,13 +61,8 @@ beforeEach(() => {
     { track: 0, slots: [slot(1), slot(2, { hasEditor: false }), slot(3, { missing: true }), slot(4, { name: 'Verb' })] },
     { track: null, slots: [slot(9, { name: 'Limiter' })] },
   ]
-  dockFails = null
   mockInvoke.mockImplementation(async (command: string) => {
     if(command === 'get_effects') return racks
-    if(command === 'dock_effect') {
-      if(dockFails) throw dockFails
-      return { width: 300, height: 200, resizable: false }
-    }
     if(command === 'set_effect_bypassed') return racks
     return undefined
   })
@@ -92,10 +76,10 @@ describe('the Effects Rack’s stack', () => {
     expect(rows.map(row => row.getAttribute('aria-label'))).toEqual(['Effect 1', 'Effect 2', 'Effect 3', 'Verb'])
     expect(screen.getByText('Not installed')).toBeTruthy()
     expect((screen.getByRole('button', { name: 'Effect 3 on' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.queryByRole('button', { name: 'Show Effect 3 here' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Open Effect 3 in a tab' })).toBeNull()
     expect((screen.getByRole('button', { name: 'Remove Effect 3' }) as HTMLButtonElement).disabled).toBe(false)
-    // without an interface of its own: no expand or pop out
-    expect(screen.queryByRole('button', { name: 'Show Effect 2 here' })).toBeNull()
+    // without an interface of its own: no tab or pop out
+    expect(screen.queryByRole('button', { name: 'Open Effect 2 in a tab' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Open Effect 2 in a window' })).toBeNull()
   })
 
@@ -124,101 +108,19 @@ describe('the Effects Rack’s stack', () => {
   })
 })
 
-describe('an expanded effect', () => {
-  it('docks its interface where the placeholder is, and follows it', async () => {
-    rects()
-    setup()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Show Effect 1 here' }))
-
-    expect(calls('dock_effect')).toEqual([[
-      'dock_effect',
-      { slotId: 1, clip: { x: 100, y: 60, width: 0, height: 0 }, x: 400, y: 200 },
-    ]])
-    // the placeholder takes the interface's size
-    const placeholder = await screen.findByTestId('docked-placeholder')
-    await waitFor(() => expect(placeholder.style.width).toBe('300px'))
-    expect(placeholder.style.height).toBe('200px')
-    // and the engine is told where it went
-    await waitFor(() => expect(calls('move_docked_effect')).toEqual([[
-      'move_docked_effect',
-      { clip: { x: 100, y: 60, width: 0, height: 0 }, x: 250, y: 200 },
-    ]]))
-
-    // stepping only counts effects with an interface to show
-    expect(screen.getByLabelText('Effect shown').textContent).toContain('1 / 2')
-  })
-
-  it('steps to the next effect, undocking the last', async () => {
-    setup()
-    fireEvent.click(screen.getByRole('button', { name: 'Show Effect 1 here' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Next effect' }))
-
-    expect(screen.getByLabelText('Effect shown').textContent).toContain('2 / 2')
-    expect((screen.getByRole('button', { name: 'Next effect' }) as HTMLButtonElement).disabled).toBe(true)
-    const sent = mockInvoke.mock.calls.map(([name, args]) => (name === 'dock_effect' ? `dock ${args.slotId}` : name))
-      .filter(name => name !== 'get_effects')
-    expect(sent).toEqual(['dock 1', 'undock_effect', 'dock 4'])
-  })
-
-  it('collapses back to the stack, undocking', () => {
-    setup()
-    fireEvent.click(screen.getByRole('button', { name: 'Show Effect 1 here' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Back to the list' }))
-
-    expect(calls('undock_effect')).toHaveLength(1)
-    expect(screen.getAllByRole('listitem')).toHaveLength(4)
-  })
-
-  it('pops out into a window, and the tab goes back to the stack', async () => {
-    setup()
-    fireEvent.click(screen.getByRole('button', { name: 'Show Effect 1 here' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Open Effect 1 in a window' }))
-
-    await waitFor(() => expect(calls('open_effect_window')).toEqual([['open_effect_window', { slotId: 1 }]]))
-    expect(calls('undock_effect')).toHaveLength(1)
-    expect(screen.getAllByRole('listitem')).toHaveLength(4)
-  })
-
-  it('another channel picked: undocked, and that channel’s stack', () => {
-    setup()
-    fireEvent.click(screen.getByRole('button', { name: 'Show Effect 1 here' }))
-    fireEvent.change(screen.getByRole('combobox', { name: 'Channel' }), { target: { value: 'master' } })
-
-    expect(calls('undock_effect')).toHaveLength(1)
-    expect(screen.getAllByRole('listitem').map(row => row.getAttribute('aria-label'))).toEqual(['Limiter'])
-  })
-
-  it('removed (or undone away): undocked, back to the stack', () => {
+describe('an effect’s own interface', () => {
+  it('opens in a tab of its own, in the rack’s pane, and pops out into a window', async () => {
     const store = setup()
-    fireEvent.click(screen.getByRole('button', { name: 'Show Effect 1 here' }))
-    act(() => { store.dispatch(setRacks([{ track: 0, slots: [slot(4)] }])) })
+    fireEvent.click(screen.getByRole('button', { name: 'Open Verb in a tab' }))
 
-    expect(calls('undock_effect')).toHaveLength(1)
-    expect(screen.getAllByRole('listitem')).toHaveLength(1)
-  })
+    const root = store.getState().window.windowPane.root
+    expect(paneWithTab(root, tabKey(View.Plugin, 4))?.id).toBe(paneWithTab(root, tabKey(View.EffectsRack))?.id)
+    // the stack stays as it is
+    expect(screen.getAllByRole('listitem')).toHaveLength(4)
 
-  it('only docked while the tab is showing', () => {
-    const store = setup()
-    act(() => { store.dispatch(expandSlot(1)) })
-    expect(calls('dock_effect')).toHaveLength(1)
-
-    // another tab selected in the pane
-    act(() => { store.dispatch(openTab(View.Mixer)) })
-    expect(calls('undock_effect')).toHaveLength(1)
-
-    act(() => { store.dispatch(openTab(View.EffectsRack)) })
-    expect(calls('dock_effect')).toHaveLength(2)
-  })
-
-  it('shows why it couldn’t be docked, and offers a window', async () => {
-    dockFails = 'not supported on this system'
-    setup()
-    fireEvent.click(screen.getByRole('button', { name: 'Show Effect 1 here' }))
-
-    expect(await screen.findByText(/not supported on this system/)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Open in a window' }))
-    await waitFor(() => expect(calls('open_effect_window')).toEqual([['open_effect_window', { slotId: 1 }]]))
+    fireEvent.click(screen.getByRole('button', { name: 'Open Verb in a window' }))
+    await waitFor(() => expect(calls('open_effect_window')).toEqual([['open_effect_window', { slotId: 4 }]]))
+    expect(paneWithTab(store.getState().window.windowPane.root, tabKey(View.Plugin, 4))).toBeUndefined()
   })
 })
 
@@ -272,7 +174,7 @@ describe('a track’s instrument', () => {
     expect(screen.getByText('Instrument, 2 effects')).toBeTruthy()
     // it can be switched off, shown and removed like an effect
     expect(screen.getByRole('button', { name: 'Synth 1 on' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Show Synth 1 here' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Open Synth 1 in a tab' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Remove Synth 1' })).toBeTruthy()
   })
 

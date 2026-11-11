@@ -18,6 +18,8 @@ export enum View {
   EffectsRack,
   // a pattern's notes on a grid of steps, against a piano keyboard
   PianoRoll,
+  // one effect's own interface. any number can be open, one per slot
+  Plugin,
 }
 
 // the label a view's tab gets when it's opened
@@ -32,6 +34,8 @@ export const viewLabels: Record<View, string> = {
   [View.Preferences]: 'Preferences',
   [View.EffectsRack]: 'Effects Rack',
   [View.PianoRoll]: 'Piano Roll',
+  // (a plugin's tab is named after it, see pluginTabLabel)
+  [View.Plugin]: 'Plugin',
 }
 
 // how a split pane lays out its children:
@@ -39,17 +43,26 @@ export const viewLabels: Record<View, string> = {
 export type SplitDirection = 'vertical' | 'horizontal'
 
 export type PaneTab = {
-  label: string
   component: View
+  // the effect a View.Plugin tab shows
+  slotId?: number
 }
 
+// what tells tabs apart: the view, and the slot for a plugin's tab
+export type TabKey = string
+
+export const tabKey = (view: View, slotId?: number): TabKey =>
+  (slotId === undefined ? String(view) : `${view}:${slotId}`)
+
+export const keyOf = (tab: PaneTab): TabKey => tabKey(tab.component, tab.slotId)
+
 // a pane in the window layout (see state/paneTree.ts)
-// - a leaf has `tabs` and `activeView`, the selected tab
+// - a leaf has `tabs` and `activeTab`, the selected tab's key
 // - a split has `direction`, `left` and `right` (left is the top when stacked)
 export type WindowNode = {
   id: string
   tabs: Array<PaneTab>
-  activeView?: View
+  activeTab?: TabKey
   direction?: SplitDirection
   left?: WindowNode
   right?: WindowNode

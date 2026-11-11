@@ -4,7 +4,6 @@ import type { RootState } from 'state/store'
 import {
   AddedEffect,
   ChannelId,
-  dockable,
   EditorInfo,
   EffectSlot,
   findSlot,
@@ -17,10 +16,11 @@ import {
   toTrack,
 } from '../../types/effects'
 import { LoadedProject } from '../../types/project'
-import { View } from '../../types/ui'
+import { tabKey, View } from '../../types/ui'
+import { paneWithTab } from '../paneTree'
 import { reduceLoadedProject, reduceProjectView } from './playlistSlice'
 import { setProjectNotice } from './projectSlice'
-import { openTab } from './windowSlice'
+import { closeTab, openPluginTab, openTab } from './windowSlice'
 
 // effect plugins: the ones the engine found, every channel's chain of them,
 // and what the Effects Rack tab shows. the engine owns the chains, and every
@@ -32,8 +32,6 @@ export interface EffectsState {
   racks: Racks
   // the channel the Effects Rack tab shows
   rackChannel: ChannelId
-  // the slot whose own interface is docked in the tab, or null for the stack
-  expandedSlotId: number | null
   // a slot to point out in the stack for a moment, e.g. one just dropped in
   highlightSlotId: number | null
 }
@@ -42,20 +40,14 @@ const initialState: EffectsState = {
   catalog: null,
   racks: [],
   rackChannel: 0,
-  expandedSlotId: null,
   highlightSlotId: null,
 }
 
-// after the racks change: the expanded slot has to still be on the rack's
-// channel with an interface to show, or the tab goes back to the stack. a
-// highlight goes with its slot
+// after the racks change: a highlight goes with its slot (and a plugin's
+// tab with its slot, see usePluginTabsFollowRacks)
 const tidy = (state: EffectsState) => {
-  const { expandedSlotId, highlightSlotId } = state
+  const { highlightSlotId } = state
 
-  if(expandedSlotId !== null
-    && !dockable(slotsOf(state.racks, state.rackChannel)).some(slot => slot.id === expandedSlotId)) {
-    state.expandedSlotId = null
-  }
   if(highlightSlotId !== null && !findSlot(state.racks, highlightSlotId)) {
     state.highlightSlotId = null
   }
@@ -72,15 +64,9 @@ export const effectsSlice = createSlice({
       state.racks = action.payload
       tidy(state)
     },
-    // show a channel in the rack tab, as its stack
+    // show a channel in the rack tab
     showRackChannel: (state, action: PayloadAction<ChannelId>) => {
       state.rackChannel = action.payload
-      state.expandedSlotId = null
-    },
-    // dock a slot's interface in the tab, or go back to the stack with null
-    expandSlot: (state, action: PayloadAction<number | null>) => {
-      state.expandedSlotId = action.payload
-      tidy(state)
     },
     highlightSlot: (state, action: PayloadAction<number | null>) => {
       state.highlightSlotId = action.payload
@@ -100,12 +86,11 @@ export const effectsSlice = createSlice({
   },
 })
 
-export const { setCatalog, setRacks, showRackChannel, expandSlot, highlightSlot } = effectsSlice.actions
+export const { setCatalog, setRacks, showRackChannel, highlightSlot } = effectsSlice.actions
 
 export const selectCatalog = (state: RootState) => state.effects.catalog
 export const selectRacks = (state: RootState) => state.effects.racks
 export const selectRackChannel = (state: RootState) => state.effects.rackChannel
-export const selectExpandedSlotId = (state: RootState) => state.effects.expandedSlotId
 export const selectHighlightSlotId = (state: RootState) => state.effects.highlightSlotId
 
 // a channel's chain, in the order the sound goes through it
@@ -192,11 +177,11 @@ export const setEffectBypassed = (slotId: number, bypassed: boolean) =>
     }
   }
 
-// the effect's own interface in a floating window. one docked in the tab
-// moves there, and the tab goes back to the stack
+// the effect's own interface in a floating window. it's in one place at a
+// time, so its tab closes
 export const openEffectWindow = (slotId: number) =>
-  async (dispatch: Dispatch, getState: () => RootState): Promise<void> => {
-    if(getState().effects.expandedSlotId === slotId) dispatch(expandSlot(null))
+  async (dispatch: Dispatch): Promise<void> => {
+    dispatch(closeTab(tabKey(View.Plugin, slotId)))
 
     try {
       await invoke<void>('open_effect_window', { slotId })
@@ -209,20 +194,32 @@ export const closeEffectWindow = (slotId: number) => async (): Promise<void> => 
   await invoke<void>('close_effect_window', { slotId }).catch(logError('close the effect’s window'))
 }
 
-// the effect's own interface, inside the main window: `clip` is the part of
-// the page it may cover, and `x`, `y` where its top-left corner goes. one
-// effect is docked at a time. rejects when it can't be (shown by the caller)
-export const dockEffect = (slotId: number, clip: Rect, x: number, y: number) => (): Promise<EditorInfo> =>
-  invoke<EditorInfo>('dock_effect', { slotId, clip, x, y })
-
-// the page moved under the docked interface
-export const moveDockedEffect = (clip: Rect, x: number, y: number) => async (): Promise<void> => {
-  await invoke<void>('move_docked_effect', { clip, x, y }).catch(logError('move the docked effect'))
+// the room a resizable interface may fill
+export interface Size {
+  width: number
+  height: number
 }
 
-// hide the docked interface
-export const undockEffect = () => async (): Promise<void> => {
-  await invoke<void>('undock_effect', {}).catch(logError('undock the effect'))
+// an effect's own interface, inside the main window (in its tab): `clip` is
+// the part of the page it may cover, `x`, `y` where its top-left corner
+// goes, and `fill` the room it has. several can be docked at once. resolves
+// to the size it took, rejects when it can't be (shown by the caller)
+export const dockEffect = (slotId: number, clip: Rect, x: number, y: number, fill: Size | null) =>
+  (): Promise<EditorInfo> => invoke<EditorInfo>('dock_effect', { slotId, clip, x, y, fill })
+
+// the page moved under a docked interface
+export const moveDockedEffect = (slotId: number, clip: Rect, x: number, y: number) =>
+  async (): Promise<void> => {
+    await invoke<void>('move_docked_effect', { slotId, clip, x, y }).catch(logError('move the docked effect'))
+  }
+
+// a resizable docked interface's room changed. resolves to the size it took
+export const resizeDockedEffect = (slotId: number, { width, height }: Size) => (): Promise<EditorInfo> =>
+  invoke<EditorInfo>('resize_docked_effect', { slotId, width, height })
+
+// hide a docked interface
+export const undockEffect = (slotId: number) => async (): Promise<void> => {
+  await invoke<void>('undock_effect', { slotId }).catch(logError('undock the effect'))
 }
 
 // open the Effects Rack tab (or select it where it's open) on a channel
@@ -231,18 +228,31 @@ export const showRack = (channel: ChannelId) => (dispatch: Dispatch) => {
   dispatch(openTab(View.EffectsRack))
 }
 
+// open the rack on a slot's channel, with its row pointed out
+export const showInRack = (slotId: number) => (dispatch: Dispatch, getState: () => RootState) => {
+  const found = findSlot(getState().effects.racks, slotId)
+  if(!found) return
+
+  showRack(found.channel)(dispatch)
+  dispatch(highlightSlot(slotId))
+}
+
+// open an effect's own tab in the pane the rack is in (or select it where
+// it's open). docking it there closes its window
+export const showPluginTab = (slotId: number) => (dispatch: Dispatch, getState: () => RootState) => {
+  const rack = paneWithTab(getState().window.windowPane.root, tabKey(View.EffectsRack))
+  dispatch(openPluginTab({ slotId, paneId: rack?.id }))
+}
+
 // an effect from the browser dropped on a mixer channel: it goes at the end
-// of the chain, and the rack opens on that channel with it expanded (or,
-// without an interface of its own, pointed out)
+// of the chain, and the rack opens on that channel with it pointed out
 export const dropEffectOnChannel = (channel: ChannelId, pluginId: string) =>
-  async (dispatch: Dispatch, getState: () => RootState): Promise<number | null> => {
+  async (dispatch: Dispatch): Promise<number | null> => {
     const slotId = await addEffect(channel, pluginId, null)(dispatch)
     if(slotId === null) return null
 
     showRack(channel)(dispatch)
-    const slot = findSlot(getState().effects.racks, slotId)?.slot
-    if(slot && slot.hasEditor && !slot.missing) dispatch(expandSlot(slotId))
-    else dispatch(highlightSlot(slotId))
+    dispatch(highlightSlot(slotId))
     return slotId
   }
 

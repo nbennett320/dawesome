@@ -31,7 +31,7 @@ import { useChannelDrop } from './useChannelDrop'
 import { AnalogButton, Led } from '../../components/fourtrack'
 import { MASTER_METER_KEY, RegisterMeter, trackMeterKey, useMixerMeters } from './useMixerMeters'
 
-// a channel's effects, for its strip's FX button
+// a channel's effects, for its strip's FX jack
 const useFx = (channel: ChannelId) => {
   const dispatch = useAppDispatch()
   const count = useAppSelector(selectChannelCount(channel))

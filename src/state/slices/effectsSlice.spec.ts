@@ -3,28 +3,31 @@ import { configureStore } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api/core'
 import playlistReducer, { reduceLoadedProject, reduceProjectView } from './playlistSlice'
 import projectReducer from './projectSlice'
-import windowReducer from './windowSlice'
+import windowReducer, { openPluginTab, openTab, splitPane } from './windowSlice'
 import effectsReducer, {
   addEffect,
+  dockEffect,
   dropEffectOnChannel,
-  expandSlot,
   fetchPlugins,
   highlightSlot,
   moveEffect,
   openEffectWindow,
   removeEffect,
+  resizeDockedEffect,
   scanPlugins,
   selectChannelActive,
   selectChannelCount,
   selectChannelSlots,
   setEffectBypassed,
   setRacks,
+  showInRack,
+  showPluginTab,
   showRack,
-  showRackChannel,
+  undockEffect,
 } from './effectsSlice'
 import { EffectSlot, Racks } from '../../types/effects'
 import { LoadedProject, ProjectView } from '../../types/project'
-import { View } from '../../types/ui'
+import { tabKey, View } from '../../types/ui'
 import * as paneTree from '../paneTree'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
@@ -94,7 +97,6 @@ describe('effectsSlice', () => {
     const store = makeStore()
     expect(state(store).effects.racks).toEqual([])
     expect(state(store).effects.rackChannel).toBe(0)
-    expect(state(store).effects.expandedSlotId).toBeNull()
   })
 
   it('selects a channel’s chain, its count and whether any of it is on', () => {
@@ -133,37 +135,6 @@ describe('effectsSlice', () => {
 
     store.dispatch(reduceProjectView({ project: view(), selected: null }))
     expect(state(store).effects.racks).toEqual([])
-  })
-
-  it('goes back to the stack when the expanded slot goes, or the channel changes', () => {
-    const store = makeStore()
-    store.dispatch(setRacks(racks))
-    store.dispatch(expandSlot(1))
-    expect(state(store).effects.expandedSlotId).toBe(1)
-
-    // undone away
-    store.dispatch(reduceProjectView({ project: view([{ track: 0, slots: [slot(2)] }]), selected: null }))
-    expect(state(store).effects.expandedSlotId).toBeNull()
-
-    store.dispatch(expandSlot(2))
-    store.dispatch(showRackChannel('master'))
-    expect(state(store).effects.rackChannel).toBe('master')
-    expect(state(store).effects.expandedSlotId).toBeNull()
-
-    // moved to another channel than the one shown
-    store.dispatch(showRackChannel(0))
-    store.dispatch(expandSlot(2))
-    store.dispatch(setRacks([{ track: 1, slots: [slot(2)] }]))
-    expect(state(store).effects.expandedSlotId).toBeNull()
-  })
-
-  it('only expands a slot with an interface to show', () => {
-    const store = makeStore()
-    store.dispatch(setRacks([{ track: 0, slots: [slot(1, { hasEditor: false }), slot(2, { missing: true })] }]))
-    store.dispatch(expandSlot(1))
-    expect(state(store).effects.expandedSlotId).toBeNull()
-    store.dispatch(expandSlot(2))
-    expect(state(store).effects.expandedSlotId).toBeNull()
   })
 
   it('drops a highlight whose slot is gone', () => {
@@ -230,14 +201,51 @@ describe('commands', () => {
     expect(state(store).effects.racks).toEqual(after)
   })
 
-  it('pops an expanded effect out, back to the stack', async () => {
+  it('pops an effect out of its tab: the tab closes, the window opens', async () => {
     const store = makeStore()
     store.dispatch(setRacks(racks))
-    store.dispatch(expandSlot(1))
+    store.dispatch(openPluginTab({ slotId: 1 }))
+    store.dispatch(openPluginTab({ slotId: 2 }))
 
     await dispatch(store)(openEffectWindow(1))
     expect(mockInvoke).toHaveBeenCalledWith('open_effect_window', { slotId: 1 })
-    expect(state(store).effects.expandedSlotId).toBeNull()
+    const tabs = paneTree.leaves(state(store).window.windowPane.root).flatMap(p => p.tabs)
+    expect(tabs.filter(t => t.component === View.Plugin)).toEqual([{ component: View.Plugin, slotId: 2 }])
+  })
+
+  it('sends the dock commands for a slot', async () => {
+    const store = makeStore()
+    const clip = { x: 1, y: 2, width: 300, height: 200 }
+    mockInvoke.mockResolvedValue({ width: 300, height: 200, resizable: true })
+
+    await dispatch(store)(dockEffect(4, clip, 10, 20, { width: 280, height: 180 }))
+    expect(mockInvoke).toHaveBeenLastCalledWith('dock_effect', { slotId: 4, clip, x: 10, y: 20, fill: { width: 280, height: 180 } })
+    expect(await dispatch(store)(resizeDockedEffect(4, { width: 500, height: 400 })))
+      .toEqual({ width: 300, height: 200, resizable: true })
+    expect(mockInvoke).toHaveBeenLastCalledWith('resize_docked_effect', { slotId: 4, width: 500, height: 400 })
+    await dispatch(store)(undockEffect(4))
+    expect(mockInvoke).toHaveBeenLastCalledWith('undock_effect', { slotId: 4 })
+  })
+
+  it('opens an effect’s tab in the pane the rack is in', () => {
+    const store = makeStore()
+    store.dispatch(openTab(View.EffectsRack))
+    store.dispatch(splitPane('root', tabKey(View.EffectsRack), 'horizontal'))
+    const root = () => state(store).window.windowPane.root
+    const rackPane = paneTree.paneWithTab(root(), tabKey(View.EffectsRack))?.id
+
+    dispatch(store)(showPluginTab(1))
+    expect(paneTree.paneWithTab(root(), tabKey(View.Plugin, 1))?.id).toBe(rackPane)
+  })
+
+  it('shows a slot in the rack: its channel, its row pointed out', () => {
+    const store = makeStore()
+    store.dispatch(setRacks(racks))
+    dispatch(store)(showInRack(3))
+
+    expect(state(store).effects.rackChannel).toBe('master')
+    expect(state(store).effects.highlightSlotId).toBe(3)
+    expect(paneTree.paneWithTab(state(store).window.windowPane.root, tabKey(View.EffectsRack))).toBeTruthy()
   })
 
   it('opens the rack tab on a channel, or selects it where it’s open', () => {
@@ -246,7 +254,7 @@ describe('commands', () => {
     const root = () => state(store).window.windowPane.root
 
     expect(state(store).effects.rackChannel).toBe('master')
-    expect(paneTree.paneWithView(root(), View.EffectsRack)?.activeView).toBe(View.EffectsRack)
+    expect(paneTree.paneWithTab(root(), tabKey(View.EffectsRack))?.activeTab).toBe(tabKey(View.EffectsRack))
 
     store.dispatch(showRack(1))
     // still the one tab
@@ -255,26 +263,18 @@ describe('commands', () => {
     expect(state(store).effects.rackChannel).toBe(1)
   })
 
-  it('dropped on a channel: added at the end, the rack opens with it expanded', async () => {
+  it('dropped on a channel: added at the end, the rack opens with it pointed out, and nothing else', async () => {
     const store = makeStore()
     const after: Racks = [{ track: 1, slots: [slot(1), slot(7)] }]
     mockInvoke.mockResolvedValue({ racks: after, slotId: 7 })
 
     await dispatch(store)(dropEffectOnChannel(1, 'vst3:x'))
     expect(mockInvoke).toHaveBeenCalledWith('add_effect', { track: 1, pluginId: 'vst3:x', index: null })
+    expect(mockInvoke).toHaveBeenCalledTimes(1)
     expect(state(store).effects.rackChannel).toBe(1)
-    expect(state(store).effects.expandedSlotId).toBe(7)
-    expect(state(store).effects.highlightSlotId).toBeNull()
-  })
-
-  it('dropped on a channel without an interface of its own: pointed out in the stack', async () => {
-    const store = makeStore()
-    mockInvoke.mockResolvedValue({ racks: [{ track: null, slots: [slot(8, { hasEditor: false })] }], slotId: 8 })
-
-    await dispatch(store)(dropEffectOnChannel('master', 'vst3:x'))
-    expect(state(store).effects.rackChannel).toBe('master')
-    expect(state(store).effects.expandedSlotId).toBeNull()
-    expect(state(store).effects.highlightSlotId).toBe(8)
+    expect(state(store).effects.highlightSlotId).toBe(7)
+    const tabs = paneTree.leaves(state(store).window.windowPane.root).flatMap(p => p.tabs)
+    expect(tabs.some(t => t.component === View.Plugin)).toBe(false)
   })
 
   it('dropped on a channel and failed: the rack isn’t opened', async () => {
@@ -282,7 +282,7 @@ describe('commands', () => {
     mockInvoke.mockRejectedValue('no')
 
     expect(await dispatch(store)(dropEffectOnChannel(2, 'vst3:x'))).toBeNull()
-    expect(paneTree.paneWithView(state(store).window.windowPane.root, View.EffectsRack)).toBeUndefined()
+    expect(paneTree.paneWithTab(state(store).window.windowPane.root, tabKey(View.EffectsRack))).toBeUndefined()
     expect(state(store).project.notice.kind).toBe('error')
   })
 })
