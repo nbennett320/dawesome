@@ -6,6 +6,7 @@ import Transport from './transport/Transport'
 import Sequencer from './sequencer/Sequencer'
 import AudioSettings from './audio-settings/AudioSettings'
 import Mixdown from './mixdown/Mixdown'
+import Preferences from './preferences/Preferences'
 import { View } from '../types/ui'
 
 // the component a tab shows for its view
@@ -25,6 +26,8 @@ export const matchViewComponent = (view: View): JSX.Element => {
       return <AudioSettings />
     case View.Mixdown:
       return <Mixdown />
+    case View.Preferences:
+      return <Preferences />
     default:
       // eslint-disable-next-line no-console
       console.error("Tab does not have a matching component: ", view)

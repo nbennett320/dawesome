@@ -42,3 +42,12 @@ describe('openTab', () => {
     })
   })
 })
+
+describe('Preferences tab', () => {
+  it('opens once, labelled Preferences', () => {
+    const once = reducer(initial(), openTab(View.Preferences))
+    const twice = reducer(once, openTab(View.Preferences))
+    const tabs = leaves(twice.windowPane.root).flatMap(pane => pane.tabs ?? [])
+    expect(tabs.filter(tab => tab.component === View.Preferences)).toEqual([{ label: 'Preferences', component: View.Preferences }])
+  })
+})

@@ -17,7 +17,7 @@ const recentProjectMenu = (dispatch: AppDispatch) =>
   })
 
 // the Window menu's items, by the names the engine sends
-const menuViews: Record<string, View> = {
+export const menuViews: Record<string, View> = {
   playlist: View.Playlist,
   sample: View.SamplePreview,
   mixer: View.Mixer,
@@ -27,6 +27,9 @@ const menuViews: Record<string, View> = {
   audio: View.AudioSettings,
   // File › Mixdown…
   mixdown: View.Mixdown,
+  // Dawesome › Preferences… and Preferences › Appearance…
+  preferences: View.Preferences,
+  appearance: View.Preferences,
 }
 
 // the Window and Preferences menus (and File › Mixdown…): open a tab, or select it where it's already open.

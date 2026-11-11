@@ -25,8 +25,11 @@ const walk = (dir: string): string[] =>
     return /\.(ts|tsx|scss|css)$/.test(e.name) ? [full] : []
   })
 
+// plus the page itself, whose <body> once carried a palette class
+const INDEX_HTML = path.resolve(SRC, '../index.html')
+
 export const findRawColors = (): string[] =>
-  walk(SRC).flatMap(file =>
+  [...walk(SRC), INDEX_HTML].flatMap(file =>
     fs
       .readFileSync(file, 'utf8')
       .split('\n')
