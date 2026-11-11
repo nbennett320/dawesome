@@ -496,6 +496,18 @@ fn find_webview(view: &NSView) -> Option<Retained<NSView>> {
   None
 }
 
+// how far down its view the page starts: a webview that reaches under the
+// window's title bar lays its page out below it, so the page's top isn't
+// the view's
+fn page_inset(page: &NSView) -> f64 {
+  let Some(window) = page.window() else { return 0. };
+  // both in the window's coordinates, which go up
+  let usable = window.contentLayoutRect();
+  let view = page.convertRect_toView(page.bounds(), None);
+  let over = (view.origin.y + view.size.height) - (usable.origin.y + usable.size.height);
+  over.max(0.)
+}
+
 impl DockViews {
   // the plugin's view at (x, y) on the page, and the clip view over just the
   // part of it inside `clip`
@@ -507,12 +519,14 @@ impl DockViews {
     let right = (clip.x + clip.width.max(0.)).min(x + size.width);
     let bottom = (clip.y + clip.height.max(0.)).min(y + size.height);
     let shown = NSSize::new((right - left).max(0.), (bottom - top).max(0.));
-    // that part in the page view's own coordinates, which go up or down
+    // that part in the page view's own coordinates, which go up or down.
+    // the page starts below whatever of its view is under the title bar
     let bounds = self.page.bounds();
+    let down = top + page_inset(&self.page);
     let origin_y = if self.page.isFlipped() {
-      bounds.origin.y + top
+      bounds.origin.y + down
     } else {
-      bounds.origin.y + bounds.size.height - top - shown.height
+      bounds.origin.y + bounds.size.height - down - shown.height
     };
     let rect = NSRect::new(NSPoint::new(bounds.origin.x + left, origin_y), shown);
     self.clip_view.setFrame(self.page.convertRect_toView(rect, Some(&parent)));
