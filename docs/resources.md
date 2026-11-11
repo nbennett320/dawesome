@@ -15,3 +15,7 @@ UI stuff
 - [P5 FFT waveforms](https://p5js.org/reference/#/p5.FFT/waveform)
 - [P5 Sound envelope example](https://p5js.org/examples/sound-noise-drum-envelope.html)
 
+Assets
+- [Open drums](https://github.com/fluid-music/open-drums/tree/main) - for free and open source 707 and 808 samples
+- http://machines.hyperreal.org/
+- [Korg KPR-77 samples](http://machines.hyperreal.org/manufacturers/Korg/KPR-77/samples/?0022)

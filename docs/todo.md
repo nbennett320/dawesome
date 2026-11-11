@@ -97,6 +97,8 @@ Easy to add ideas for improvements:
 - loop selection controlls in playlist
 - deep copy -> make distinct?
 - Bug: playlist pans when zoomed but try to drag/resize a vertically split window
+- sidebar resizeable
+  - cap at some width probably, if broght too close to the left hand side of the window, just collapse the sidebar
 
 Medium:
 - live show something is being recorded to a track (wave form, low res at first maybe
@@ -108,7 +110,17 @@ Refactor:
   - move icons and themes/ into assets/ after that
 
 
-
+---
+tempo ui: https://bencho.dev/blocks/rolling-counter?c=rolling-counter&bounce=5&stagger=25&blur=25&corner=28&theme=light
+docs 
+ - site/pages
+ - manual/handbook
+   - tascam inspired
+ - pages
+ - help menu bar item -> directs to doc site
+ - shortcut/intended usage guide
+ - design philosophy
+- sidebar resizable
 
 
 
