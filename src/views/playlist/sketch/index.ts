@@ -27,6 +27,7 @@ import {
   toggleSelected,
 } from '../../../editing/lasso'
 import { groupLanding } from '../../../editing/move'
+import { snapDown } from '../../../editing/snap'
 import { drawCutLine, drawLasso } from '../../../editing/look'
 import { Tool } from '../../../editing/tools'
 import { DRAG_THRESHOLD_PX, wheelIntent, zoomAround } from '../../../editing/view'
@@ -38,6 +39,7 @@ import {
   Edge, MAX_PITCH, Snapping, Span, StretchClip, TrimClip, edgeAt, patternTrimClip, pitchOf, sampleTrimClip,
   snapPoint, stretchAll, stretchSet, trimAll, trimmedWindow,
 } from './edges'
+import { paintedSpans } from './paint'
 
 export interface CanvasProps extends SketchProps {
   height: number
@@ -69,6 +71,8 @@ export interface CanvasProps extends SketchProps {
   onClipsStretch: (edits: StretchEdit[]) => Promise<unknown>
   // clips were clicked with the Cut tool (see Renderer.onClipsCut)
   onClipsCut: (ids: number[], beat: number) => Promise<unknown>
+  // clips were painted with the Draw tool (see Renderer.onPaint)
+  onPaint: (patternId: number | null, trackNumber: number, startBeat: number, endBeat: number) => Promise<unknown>
 }
 
 // how the Cut tool's cursor is drawn: a razor blade, its middle on the
@@ -204,6 +208,16 @@ interface EdgeDrag {
   // false until the mouse moves past the drag threshold, so a click on an
   // edge trims nothing
   active: boolean
+}
+
+// clips being painted along a lane with the Draw tool, while the mouse is
+// held. in beats, already snapped
+interface Paint {
+  track: number
+  // where the press was, snapped down to the line at or before it
+  start: number
+  // where the mouse is, snapped to the nearest line
+  end: number
 }
 
 // a sample being dragged in from the sidebar, or a pattern from the
@@ -370,6 +384,11 @@ export class Renderer extends RendererBase {
   // the cut a click would make now, with the Cut tool: the clips it would
   // cut, the one under the mouse first, and the beat
   #cutHover: { ids: number[], beat: number } | null = null
+  // clips being painted with the Draw tool, while the mouse is held
+  #paint: Paint | null = null
+  // the pattern the Draw tool paints: the one last selected in either
+  // sequencer. null paints a new empty note pattern
+  paintPatternId: number | null = null
 
   // the sequencers' rows and patterns, which pattern clips draw. read every
   // frame, so editing a pattern shows straight away without rebuilding
@@ -410,6 +429,9 @@ export class Renderer extends RendererBase {
   // clips were clicked with the Cut tool: each clip in `ids` is to be cut
   // in two at `beat`
   onClipsCut!: (ids: number[], beat: number) => Promise<unknown>
+  // clips were painted with the Draw tool: clips of `patternId` (null for a
+  // new note pattern) on trackNumber from startBeat to endBeat, snapped
+  onPaint!: (patternId: number | null, trackNumber: number, startBeat: number, endBeat: number) => Promise<unknown>
 
   // return the current zoom/scale
   getCurrentScale = (): number => this.currentScale
@@ -577,7 +599,7 @@ export class Renderer extends RendererBase {
   // while clips are being dragged, a box drawn, or a shift press is down
   // (whose clip would be toggled on release, after it was gone)
   takeSelection = (): number[] => {
-    if(this.clipDrag?.active || this.lasso || this.#shiftPress || this.edgeDrag) return []
+    if(this.clipDrag?.active || this.lasso || this.#shiftPress || this.edgeDrag || this.#paint) return []
     const ids = [...this.selectedIds]
     this.clearSelection()
     return ids
@@ -627,8 +649,9 @@ export class Renderer extends RendererBase {
   #dropPress = () => {
     this.#altHeld = false
     this.#cutPress = null
-    if(!this.#shiftPress && !this.lasso && !this.edgeDrag) return
+    if(!this.#shiftPress && !this.lasso && !this.edgeDrag && !this.#paint) return
     this.#shiftPress = null
+    this.#paint = null
     this.lasso = null
     this.#cancelEdgeDrag()
     this.wake()
@@ -638,8 +661,8 @@ export class Renderer extends RendererBase {
   #followAlt = (ev: KeyboardEvent) => {
     if(this.#altHeld === ev.altKey) return
     this.#altHeld = ev.altKey
-    // (the Cut tool's line moves too)
-    if(this.edgeDrag || this.tool === 'cut') this.wake()
+    // (the Cut tool's line moves too, and a paint's end)
+    if(this.edgeDrag || this.#paint || this.tool === 'cut') this.wake()
   }
 
   // what an edge being dragged, or a cut, snaps to just now
@@ -661,8 +684,87 @@ export class Renderer extends RendererBase {
     this.#cancelEdgeDrag()
     this.clipDrag = null
     this.#cutPress = null
+    this.#paint = null
     this.syncSnapSetting()
     this.wake()
+  }
+
+  // ---- the Draw tool ----
+
+  // what the Draw tool paints (sequencer.lastSelected)
+  // (called on every store update, so only a change does anything)
+  setPaintPattern = (patternId: number | null) => {
+    if(patternId === this.paintPatternId) return
+    this.paintPatternId = patternId
+    if(this.#paint) this.wake()
+  }
+
+  // the beat at canvas x `screenX`, kept to the playlist
+  #beatAt = (screenX: number): number =>
+    Math.min(Math.max(this.screenXToBeat(screenX), 0), this.beatsDisplayed)
+
+  // a press on empty lane space with the Draw tool, at canvas x, y: a paint
+  // starts there, on the line at or before the mouse
+  #startPaint = (x: number, y: number) => {
+    const track = this.trackAt(this.screenToPlaylistY(y))
+    if(track < 0) return
+    const start = snapDown(this.#beatAt(x), this.#snapping())
+    this.#paint = { track, start, end: start }
+    this.syncSnapSetting()
+  }
+
+  // the paint's end follows the mouse along its lane, snapped. run every
+  // frame, as the mouse may be outside the canvas
+  #followPaint = (p: P5CanvasInstance<CanvasProps>) => {
+    if(!this.#paint) return
+    this.#paint.end = snapPoint(this.#beatAt(p.mouseX), this.#snapping())
+  }
+
+  // the clips the paint would lay down if let go now (see paintedSpans):
+  // the pattern's, or one of the note pattern it would make
+  #paintSpans = (painting: Paint): Span[] => {
+    const pattern = this.paintPatternId === null ? undefined : this.patternOf(this.paintPatternId)
+    const beatsPerBar = this.transport?.beatsPerBar || theme.beatsPerBar
+    return paintedSpans(painting.start, painting.end, pattern ? pattern.length : null, beatsPerBar)
+  }
+
+  // the mouse came up: the clips are painted where their phantoms were,
+  // wherever it was let go
+  #endPaint = (p: P5CanvasInstance<CanvasProps>) => {
+    const painting = this.#paint
+    if(!painting) return
+    // (once more, to where the mouse was let go)
+    this.#followPaint(p)
+    this.#paint = null
+    // a pattern that's gone paints a new one, as its phantom showed
+    const pattern = this.paintPatternId !== null && this.patternOf(this.paintPatternId) ? this.paintPatternId : null
+    this.onPaint(pattern, painting.track, painting.start, painting.end)
+    this.wake()
+  }
+
+  // where each clip of the paint will be, outlined like a dragged clip's
+  // landing. called inside the zoom/pan transform
+  #drawPaint = (p: P5CanvasInstance<CanvasProps>) => {
+    const painting = this.#paint
+    if(!painting) return
+    const laneTop = this.#laneTop(painting.track)
+    if(laneTop === null) return
+
+    const ctx = p.drawingContext as CanvasRenderingContext2D
+    p.push()
+    ctx.setLineDash([4, 3])
+    p.strokeWeight(1)
+    paint.stroke(p, 'accent')
+    paint.fill(p, 'accentSoft', 0.25)
+    // in screen pixels across, so zoom doesn't stretch the outline or its dashes
+    p.scale(1 / this.currentScale, 1)
+    this.#paintSpans(painting).forEach(({ start, end }) => {
+      const left = this.beatToX(start) * this.currentScale
+      const width = this.beatToX(end - start) * this.currentScale
+      p.rect(left, laneTop + 2, width, staticDefaults.trackHeight - 4, 3)
+    })
+    ctx.setLineDash([])
+    p.pop()
   }
 
   // every clip that can be cut, as far as cutting goes
@@ -998,6 +1100,7 @@ export class Renderer extends RendererBase {
       || this.lasso !== null
       || this.#shiftPress !== null
       || this.edgeDrag !== null
+      || this.#paint !== null
       || this.seekDragging
       || this.scrollbarGrab !== null
   }
@@ -1392,8 +1495,8 @@ export class Renderer extends RendererBase {
     if(top > this.height) return
 
     const drag = this.draggedClip(p, canvas)
-    const targeted = !!drag
-      && this.landings(drag).some(landing => landing.track === this.trackCount)
+    const targeted = (!!drag && this.landings(drag).some(landing => landing.track === this.trackCount))
+      || this.#paint?.track === this.trackCount
 
     const h = NEW_TRACK_AREA_HEIGHT
     // centred in what's visible, so it doesn't stretch with zoom or scroll away
@@ -1472,11 +1575,11 @@ export class Renderer extends RendererBase {
   // whether something on the playlist is being dragged, or pressed: keys
   // that change the clips wait until it's let go
   isDragging = (): boolean =>
-    !!this.edgeDrag || !!this.clipDrag?.active || !!this.lasso || this.#shiftPress !== null
+    !!this.edgeDrag || !!this.clipDrag?.active || !!this.lasso || this.#shiftPress !== null || this.#paint !== null
 
   #handleRightClick = (ev: MouseEvent, p: P5CanvasInstance<CanvasProps>) => {
-    // not in the middle of dragging an edge
-    if(this.edgeDrag) return
+    // not in the middle of dragging an edge, or painting
+    if(this.edgeDrag || this.#paint) return
 
     // the clip on top, as for clicks (not one hidden under the timeline)
     const item = this.clipUnderMouse()
@@ -1573,8 +1676,8 @@ export class Renderer extends RendererBase {
           if(ev.shiftKey) {
             // on a clip's edge, a drag stretches the clip (and a click is
             // still a click on the clip). not with the Cut tool, which
-            // leaves edges alone
-            const edge = item && this.tool === 'select' ? this.edgeUnderMouse() : null
+            // leaves edges alone (Draw is Select on a clip)
+            const edge = item && this.tool !== 'cut' ? this.edgeUnderMouse() : null
             if(edge) {
               this.#startEdgeDrag(p, edge.item, edge.edge, true)
               return
@@ -1596,6 +1699,15 @@ export class Renderer extends RendererBase {
           if(this.tool === 'cut' && item) {
             this.#cutPress = { x: p.mouseX, y: p.mouseY, id: item.playlistItem.id }
             this.syncSnapSetting()
+            return
+          }
+
+          // the Draw tool on empty lane space (the new-track area too) paints
+          // clips along the lane, rather than panning. on a clip, it's Select
+          if(this.tool === 'draw' && !item) {
+            // (from the event: p5 hasn't caught its own mouse position up
+            // with this press yet)
+            this.#startPaint(ev.offsetX, ev.offsetY)
             return
           }
 
@@ -1638,9 +1750,12 @@ export class Renderer extends RendererBase {
       // listeners run before window listeners), so a drag still in progress
       // here was released outside the canvas and is cancelled
       p.mouseReleased = (ev?: MouseEvent) => {
-        // another button let go while an edge is dragged isn't the end of it
-        if(this.edgeDrag && ev && ev.button !== 0) return
+        // another button let go while an edge is dragged (or a paint) isn't
+        // the end of it
+        if((this.edgeDrag || this.#paint) && ev && ev.button !== 0) return
         this.#endSeek()
+        // (painted wherever the mouse is let go: its end stays in the playlist)
+        this.#endPaint(p)
         // (a trim is applied wherever the mouse is let go)
         this.#endEdgeDrag()
         // (a cut needs the mouse still on its clip: over the canvas, where
@@ -1676,8 +1791,9 @@ export class Renderer extends RendererBase {
 
       // drop a dragged clip where the phantom shows
       canvas.mouseReleased((ev?: MouseEvent) => {
-        if(this.edgeDrag && ev && ev.button !== 0) return
+        if((this.edgeDrag || this.#paint) && ev && ev.button !== 0) return
         this.#endEdgeDrag()
+        this.#endPaint(p)
         if(!ev || ev.button === 0) this.#endCutPress(p)
         const drag = this.clipDrag
         const target = this.dropTarget(p.mouseX, p.mouseY, drag?.grabX)
@@ -1732,6 +1848,12 @@ export class Renderer extends RendererBase {
         // an edge being dragged: the clips go back, and that's all
         if(this.edgeDrag) {
           this.#cancelEdgeDrag()
+          return
+        }
+        // a paint: nothing's painted, and that's all
+        if(this.#paint) {
+          this.#paint = null
+          this.wake()
           return
         }
         this.#shiftPress = null
@@ -1828,6 +1950,7 @@ export class Renderer extends RendererBase {
       this.onClipsTrim = props.onClipsTrim
       this.onClipsStretch = props.onClipsStretch
       this.onClipsCut = props.onClipsCut
+      this.onPaint = props.onPaint
 
       // ask the engine where the playhead is when playback starts or stops,
       // or after any other transport command. other prop updates (drops,
@@ -1992,12 +2115,14 @@ export class Renderer extends RendererBase {
       this.#followShiftPress(p)
       this.#followLasso(p)
       this.#followEdgeDrag(p)
+      this.#followPaint(p)
       // the edge a press would grab, which its clip marks with a bar (not
       // while something else is being dragged or the mouse is held)
-      const idle = !this.edgeDrag && !this.clipDrag && !this.sampleDrag && !this.lasso
+      const idle = !this.edgeDrag && !this.clipDrag && !this.sampleDrag && !this.lasso && !this.#paint
         && !this.isMouseDown && !this.seekDragging && this.scrollbarGrab === null
       const overTracks = idle && !overRuler(p.mouseY) && !this.overScrollbar(p.mouseX, p.mouseY)
-      const hover = overTracks && this.tool === 'select' ? this.edgeUnderMouse() : null
+      // (Draw is Select on a clip)
+      const hover = overTracks && this.tool !== 'cut' ? this.edgeUnderMouse() : null
       this.#hoverEdge = hover ? { id: hover.item.playlistItem.id, edge: hover.edge } : null
       // and with the Cut tool, where a click would cut
       // (not with shift held, when a click selects rather than cuts)
@@ -2037,6 +2162,7 @@ export class Renderer extends RendererBase {
       // render the clip being dragged on top of the other clips
       this.drawClipDrag(p, canvas)
       this.#drawCutLine(p)
+      this.#drawPaint(p)
       
       p.pop()
 
@@ -2061,7 +2187,7 @@ export class Renderer extends RendererBase {
         p.cursor('wait')
       } else if(this.edgeDrag) {
         p.cursor('ew-resize')
-      } else if(this.lasso) {
+      } else if(this.lasso || this.#paint) {
         p.cursor(p.CROSS)
       } else if(this.scrollbarGrab !== null || this.overScrollbar(p.mouseX, p.mouseY)) {
         p.cursor(p.ARROW)
@@ -2075,6 +2201,9 @@ export class Renderer extends RendererBase {
         p.cursor(RAZOR_CURSOR)
       } else if(this.clipUnderMouse()) {
         p.cursor(p.HAND)
+      } else if(this.tool === 'draw') {
+        // (empty lane space, where a press paints)
+        p.cursor(p.CROSS)
       } else {
         p.cursor(p.ARROW)
       }

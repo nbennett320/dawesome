@@ -21,7 +21,8 @@ import {
 } from '../../types/project'
 import { currentGesture } from '../gesture'
 import { Wind } from '../../types/transport'
-import { Synth } from '../../types/sequencer'
+import { SequencerState, Synth } from '../../types/sequencer'
+import { MixerSettings } from '../../types/mixer'
 import { openTab } from './windowSlice'
 
 // mirrors daw::timing::Note in the engine
@@ -134,6 +135,19 @@ const patternItem = (clip: LoadedPatternClip): PlaylistItem => ({
   pixelOffset: { ...NO_PIXEL_OFFSET },
 })
 
+// pattern clips painted with the Draw tool, as the engine's
+// paint_pattern_clips returns them (Painted in
+// engine/src/sequencer_commands.rs): the clips made, in order, the pattern
+// they play (made by the paint when none was given), the sequencer, the
+// mixer, and how many tracks there are now
+export interface PaintedClips {
+  clips: LoadedPatternClip[]
+  patternId: number
+  sequencer: SequencerState
+  mixer: MixerSettings
+  trackCount: number
+}
+
 // keep a clip's window as the engine has it: an entry when it's trimmed, none
 // when it plays all of its source
 const setWindow = (state: PlaylistState, id: number, window: ClipWindow | null | undefined) => {
@@ -217,6 +231,16 @@ export const playlistSlice = createSlice({
         state.playlistItems.push(patternItem(clip))
         setWindow(state, clip.id, clip.window)
       })
+    },
+    // pattern clips painted with the Draw tool (see paintPatternClips). the
+    // sequencer and the mixer take theirs from it too
+    reducePainted: (state, action: PayloadAction<PaintedClips>) => {
+      const { clips, trackCount } = action.payload
+      clips.forEach(clip => {
+        state.playlistItems.push(patternItem(clip))
+        setWindow(state, clip.id, clip.window)
+      })
+      state.ui.trackCount = trackCount
     },
     setClipboardCount: (state, action: PayloadAction<number>) => {
       state.clipboardCount = action.payload
@@ -903,7 +927,29 @@ export const splitClips = (ids: number[], beat: number) => async (
   }
 }
 
-export const { setClipboardCount, selectClips } = playlistSlice.actions
+export const { setClipboardCount, selectClips, reducePainted } = playlistSlice.actions
+
+// paint clips of a pattern along a track with the Draw tool, from startBeat
+// to endBeat (already snapped): end to end, the last cut short at the end.
+// with no pattern (null), a new empty note pattern long enough to hold the
+// drag, and one clip of it. one step to undo. a track below the last makes
+// one. null if the engine refused
+export const paintPatternClips = (
+  patternId: number | null,
+  trackNumber: number,
+  startBeat: number,
+  endBeat: number,
+) => async (dispatch: Dispatch): Promise<PaintedClips | null> => {
+  try {
+    const painted = await invoke<PaintedClips>('paint_pattern_clips', { patternId, trackNumber, startBeat, endBeat })
+    dispatch(reducePainted(painted))
+    return painted
+  } catch(e) {
+    // eslint-disable-next-line no-console
+    console.error('could not paint the pattern:', e)
+    return null
+  }
+}
 
 export const selectClipboardCount = (state: RootState) => state.playlist.clipboardCount
 

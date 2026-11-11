@@ -7,8 +7,8 @@ import { Tool } from '../../editing/tools'
 import { View } from '../../types/ui'
 import ToolTray from '../../components/editing/ToolTray'
 
-// the playlist's tools. (Draw comes with painting patterns)
-const TOOLS: ReadonlyArray<Tool> = ['select', 'cut']
+// the playlist's tools
+const TOOLS: ReadonlyArray<Tool> = ['select', 'draw', 'cut']
 
 // the strip above the ruler: the mouse tools, then snap
 const PlaylistTray = () => {

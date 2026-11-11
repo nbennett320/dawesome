@@ -19,6 +19,7 @@ import {
   togglePlay,
   setPlaylistTempo,
   reduceProjectView,
+  reducePainted,
 } from './playlistSlice'
 import { setProjectNotice } from './projectSlice'
 import { openTab, selectFocusedView } from './windowSlice'
@@ -37,6 +38,10 @@ export interface SequencerSliceState extends SequencerState {
   // Sequencer's drum pattern, and the Note Sequencer's and Piano Roll's
   // note pattern
   selected: Record<PatternKind, number | null>
+  // the pattern most recently selected, made or shown in either sequencer,
+  // of whichever kind: what the playlist's Draw tool paints. null when there
+  // isn't one (it was deleted, or a project was opened since)
+  lastSelected: number | null
   // the synth whose notes the Piano Roll edits
   pianoRollSynthId: number | null
   run: PatternRun | null
@@ -48,6 +53,7 @@ const initialState: SequencerSliceState = {
   patterns: [],
   folders: [],
   selected: { drum: null, note: null },
+  lastSelected: null,
   pianoRollSynthId: null,
   run: null,
 }
@@ -62,6 +68,8 @@ const fixSelection = (state: SequencerSliceState) => {
     if(ofKind.some(p => p.id === state.selected[kind])) return
     state.selected[kind] = ofKind[0]?.id ?? null
   })
+  // (not replaced by another: the Draw tool makes a pattern instead)
+  if(!state.patterns.some(p => p.id === state.lastSelected)) state.lastSelected = null
   if(!state.synths.some(s => s.id === state.pianoRollSynthId)) {
     state.pianoRollSynthId = state.synths[0]?.id ?? null
   }
@@ -87,7 +95,9 @@ export const sequencerSlice = createSlice({
     // show a pattern in the sequencer of its kind
     selectPattern: (state, action: PayloadAction<number>) => {
       const pattern = state.patterns.find(p => p.id === action.payload)
-      if(pattern) state.selected[kindOf(pattern)] = pattern.id
+      if(!pattern) return
+      state.selected[kindOf(pattern)] = pattern.id
+      state.lastSelected = pattern.id
     },
     // the synth whose notes the Piano Roll edits
     setPianoRollSynth: (state, action: PayloadAction<number>) => {
@@ -118,6 +128,7 @@ export const sequencerSlice = createSlice({
       .addCase(reduceLoadedProject, (state, action) => {
         take(state, action.payload.sequencer)
         state.selected = { drum: null, note: null }
+        state.lastSelected = null
         state.pianoRollSynthId = null
         state.run = null
         fixSelection(state)
@@ -127,6 +138,16 @@ export const sequencerSlice = createSlice({
       .addCase(reduceProjectView, (state, action) => {
         take(state, action.payload.project.sequencer)
         fixSelection(state)
+      })
+      // clips painted with the playlist's Draw tool: the sequencer, with the
+      // pattern they play selected (made by the paint, when there was none)
+      .addCase(reducePainted, (state, action) => {
+        take(state, action.payload.sequencer)
+        fixSelection(state)
+        const pattern = state.patterns.find(p => p.id === action.payload.patternId)
+        if(!pattern) return
+        state.selected[kindOf(pattern)] = pattern.id
+        state.lastSelected = pattern.id
       })
       // nothing plays once the engine has stopped
       .addCase(setPlaying, (state, action) => {
@@ -557,6 +578,8 @@ export const selectSelectedPatternId = (kind: PatternKind) => (state: RootState)
   state.sequencer.selected[kind]
 export const selectSelectedPattern = (kind: PatternKind) => (state: RootState): Pattern | null =>
   state.sequencer.patterns.find(p => p.id === state.sequencer.selected[kind]) ?? null
+// the pattern the playlist's Draw tool paints (see lastSelected)
+export const selectLastSelectedPattern = (state: RootState) => state.sequencer.lastSelected
 export const selectPianoRollSynth = (state: RootState) =>
   state.sequencer.synths.find(s => s.id === state.sequencer.pianoRollSynthId) ?? null
 export const selectPatternRun = (state: RootState) => state.sequencer.run
