@@ -1,7 +1,9 @@
 import type { Mock } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import { store } from './store'
-import { selectPattern, setSequencer, togglePlayHere } from './slices/sequencerSlice'
+import {
+  playPattern, selectPattern, setSequencer, togglePlayHere,
+} from './slices/sequencerSlice'
 import { openTab } from './slices/windowSlice'
 import { listenForTransportKey } from '../util/keys'
 import { View } from '../types/ui'
@@ -22,9 +24,14 @@ const sent = () => mockInvoke.mock.calls
   .map(([command, args]) => [command, args])
   .filter(([command]) => (command as string).startsWith('t_'))
 
-const patterns = (ids: number[]) => ({
+// drum patterns, and note patterns 13 and 15
+const patterns = (ids: number[], noteIds: number[] = []) => ({
   rows: [],
-  patterns: ids.map(id => ({ id, name: null, length: 16, steps: {} })),
+  synths: [],
+  patterns: [
+    ...ids.map(id => ({ id, name: null, length: 16, steps: {} })),
+    ...noteIds.map(id => ({ id, name: null, kind: 'note' as const, length: 16, steps: {} })),
+  ],
   folders: [],
 })
 
@@ -36,8 +43,9 @@ describe('the Play key and Space', () => {
     mockInvoke.mockReset()
     mockInvoke.mockImplementation(async (command: string) =>
       (command === 'get_playlist_transport' ? stopped : undefined))
-    store.dispatch(setSequencer(patterns([3, 5])))
+    store.dispatch(setSequencer(patterns([3, 5], [13, 15])))
     store.dispatch(selectPattern(5))
+    store.dispatch(selectPattern(15))
   })
 
   it('plays the playlist when the playlist has the focus', async () => {
@@ -52,10 +60,23 @@ describe('the Play key and Space', () => {
     expect(sent()).toEqual([['t_toggle_playlist', {}]])
   })
 
-  it('loops the selected pattern when the Sequencer has the focus', async () => {
+  it('loops the selected drum pattern when the Drum Sequencer has the focus', async () => {
     store.dispatch(openTab(View.Sequencer))
     await pressPlay()
     expect(sent()).toEqual([['t_toggle_pattern', { patternId: 5 }]])
+  })
+
+  it('loops the selected note pattern from the Note Sequencer and the Piano Roll', async () => {
+    store.dispatch(openTab(View.NoteSequencer))
+    await pressPlay()
+    store.dispatch(openTab(View.PianoRoll))
+    await pressPlay()
+    expect(sent()).toEqual([['t_toggle_pattern', { patternId: 15 }], ['t_toggle_pattern', { patternId: 15 }]])
+  })
+
+  it('loops a pattern from its start, by its id alone', async () => {
+    await store.dispatch(playPattern(3))
+    expect(sent()).toEqual([['t_play_pattern', { patternId: 3 }]])
   })
 
   it('plays the playlist from the Sequencer when there is no pattern', async () => {

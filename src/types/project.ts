@@ -1,7 +1,8 @@
 import { ArmedTrack } from './audio'
 import { ClipInfo, ClipWindow } from './clip'
+import { Racks } from './effects'
 import { MixerSettings } from './mixer'
-import { SequencerState } from './sequencer'
+import { SequencerState, Synth } from './sequencer'
 import type { SnapNote } from '../state/slices/playlistSlice'
 
 // project files (.dawesome) hold the playlist's clips and settings, and the
@@ -74,6 +75,17 @@ export interface MissingSample {
   reason: string
 }
 
+// an effect or synth whose plugin couldn't be loaded. it stays as a
+// placeholder with its settings kept. track is null for the master (and,
+// presumably, for a synth, which isn't on a track)
+export interface MissingEffect {
+  track: number | null
+  name: string
+  vendor: string
+  path: string
+  reason: string
+}
+
 // what the engine's load_project and new_project return
 // a clip whose take was brought into the project's folder, and where it is now
 export interface MovedClip {
@@ -102,6 +114,33 @@ export interface LoadedProject extends ProjectSettings {
   patternClips: LoadedPatternClip[]
   // the tracks armed to record (left out by older engines)
   armed?: ArmedTrack[]
+  // each channel's effects (left out by older engines: none)
+  effects?: Racks
+  // plugins that couldn't be loaded, effects and synths (left out by older
+  // engines: none)
+  missingEffects?: MissingEffect[]
+  // what was left out because it was saved in a way that's no longer read
+  // (an instrument in a rack, notes in a drum pattern), as sentences to show
+  // (left out by older engines: nothing)
+  dropped?: string[]
+}
+
+// the engine lists missing synths with the missing effects. the synths say
+// which they are (`missing`), so each takes the first entry with its name
+// (or its plugin's name, which a numbered synth's starts with) and vendor,
+// and the rest are effects
+export const splitMissing = (
+  missingEffects: MissingEffect[],
+  synths: Synth[],
+): { effects: MissingEffect[], synths: Synth[] } => {
+  const effects = [...missingEffects]
+  const missing = synths.filter(synth => synth.missing)
+  missing.forEach(synth => {
+    const i = effects.findIndex(effect => effect.vendor === synth.vendor
+      && (effect.name === synth.name || synth.name.startsWith(`${effect.name} `)))
+    if(i >= 0) effects.splice(i, 1)
+  })
+  return { effects, synths: missing }
 }
 
 // the clips recorded since the engine was last asked (see collect_recording
@@ -120,6 +159,8 @@ export interface ProjectView {
   patternClips: LoadedPatternClip[]
   mixer: MixerSettings
   sequencer: SequencerState
+  // each channel's effects (left out by older engines: none)
+  effects?: Racks
 }
 
 // what the engine's undo and redo return

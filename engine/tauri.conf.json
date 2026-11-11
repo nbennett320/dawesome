@@ -19,7 +19,9 @@
       "icons/dawesome.icns",
       "icons/icon.ico"
     ],
-    "resources": [],
+    "resources": {
+      "assets/dawesome/": "samples/"
+    },
     "externalBin": [],
     "copyright": "",
     "category": "DeveloperTool",

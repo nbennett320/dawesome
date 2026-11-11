@@ -2,6 +2,7 @@
 // colours. the stylesheet (fourtrack.scss) is imported once, from index.tsx
 export * from './AnalogButton'
 export * from './Cassette'
+export * from './Jack'
 export * from './Knob'
 export * from './Led'
 export * from './LevelMeter'

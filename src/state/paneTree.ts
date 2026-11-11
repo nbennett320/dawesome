@@ -3,11 +3,13 @@
 // - a leaf pane has tabs, and shows the selected one
 // - a split pane shows its two children side by side or stacked
 //
-// every view is open in at most one pane: some views (like the playlist)
-// share one renderer, so two copies of them can't be on screen at once
+// every tab is open in at most one pane, and a tab is told apart by its key
+// (see tabKey): the view, so some views (like the playlist), which share one
+// renderer, can't be on screen twice. a plugin's tab adds its slot, so any
+// number of plugins can have tabs
 //
 // these functions never mutate the tree they're given, they return a new one
-import { PaneTab, SplitDirection, View, WindowNode } from '../types/ui'
+import { keyOf, PaneTab, SplitDirection, TabKey, WindowNode } from '../types/ui'
 
 export const isLeaf = (node: WindowNode): boolean => !node.left || !node.right
 
@@ -21,9 +23,13 @@ export const leaves = (node: WindowNode): WindowNode[] => (
 export const findPane = (node: WindowNode, id: string): WindowNode | undefined =>
   leaves(node).find(leaf => leaf.id === id)
 
-// the leaf pane a view is open in
-export const paneWithView = (node: WindowNode, view: View): WindowNode | undefined =>
-  leaves(node).find(leaf => leaf.tabs.some(t => t.component === view))
+// the leaf pane a tab is open in
+export const paneWithTab = (node: WindowNode, key: TabKey): WindowNode | undefined =>
+  leaves(node).find(leaf => leaf.tabs.some(t => keyOf(t) === key))
+
+// a pane's selected tab
+export const activeTabOf = (pane: WindowNode): PaneTab | undefined =>
+  pane.tabs.find(t => keyOf(t) === pane.activeTab)
 
 // replace the node with this id by what `fn` returns. returning null removes
 // the node, and its parent split collapses into the other child
@@ -49,28 +55,35 @@ const update = (
 const orEmptyRoot = (root: WindowNode, updated: WindowNode | null): WindowNode =>
   updated ?? { id: root.id, tabs: [] }
 
-export const selectTab = (root: WindowNode, paneId: string, view: View): WindowNode =>
-  orEmptyRoot(root, update(root, paneId, pane => ({ ...pane, activeView: view })))
+export const selectTab = (root: WindowNode, paneId: string, key: TabKey): WindowNode =>
+  orEmptyRoot(root, update(root, paneId, pane => ({ ...pane, activeTab: key })))
 
-// close a view's tab. a pane left with no tabs is removed
-export const closeTab = (root: WindowNode, view: View): WindowNode => {
-  const pane = paneWithView(root, view)
+// close a tab. a pane left with no tabs is removed
+export const closeTab = (root: WindowNode, key: TabKey): WindowNode => {
+  const pane = paneWithTab(root, key)
   if(!pane) return root
 
   return orEmptyRoot(root, update(root, pane.id, leaf => {
-    const index = leaf.tabs.findIndex(t => t.component === view)
-    const tabs = leaf.tabs.filter(t => t.component !== view)
+    const index = leaf.tabs.findIndex(t => keyOf(t) === key)
+    const tabs = leaf.tabs.filter(t => keyOf(t) !== key)
 
     if(!tabs.length) return null
 
     // closing the selected tab selects its neighbour, like vs code
-    const activeView = leaf.activeView === view
-      ? tabs[Math.min(index, tabs.length - 1)].component
-      : leaf.activeView
+    const activeTab = leaf.activeTab === key
+      ? keyOf(tabs[Math.min(index, tabs.length - 1)])
+      : leaf.activeTab
 
-    return { ...leaf, tabs, activeView }
+    return { ...leaf, tabs, activeTab }
   }))
 }
+
+// close every tab that `keep` turns down
+export const closeTabsUnless = (root: WindowNode, keep: (tab: PaneTab) => boolean): WindowNode =>
+  leaves(root)
+    .flatMap(leaf => leaf.tabs)
+    .filter(tab => !keep(tab))
+    .reduce((tree, tab) => closeTab(tree, keyOf(tab)), root)
 
 // add a tab to a pane and select it. `index` defaults to the end
 export const addTab = (
@@ -82,19 +95,19 @@ export const addTab = (
   const tabs = [...leaf.tabs]
   tabs.splice(index ?? tabs.length, 0, tab)
 
-  return { ...leaf, tabs, activeView: tab.component }
+  return { ...leaf, tabs, activeTab: keyOf(tab) }
 }))
 
-// move a view's tab to a pane (the same pane reorders it) and select it
+// move a tab to a pane (the same pane reorders it) and select it
 // - index: where among the pane's current tabs to insert it, defaults to the end
 export const moveTab = (
   root: WindowNode,
-  view: View,
+  key: TabKey,
   toPaneId: string,
   index?: number,
 ): WindowNode => {
-  const from = paneWithView(root, view)
-  const tab = from?.tabs.find(t => t.component === view)
+  const from = paneWithTab(root, key)
+  const tab = from?.tabs.find(t => keyOf(t) === key)
   if(!from || !tab || !findPane(root, toPaneId)) return root
 
   // closing the tab first removes its pane if it was the only tab, which
@@ -108,31 +121,31 @@ export const moveTab = (
     ? index - 1
     : index
 
-  return addTab(closeTab(root, view), toPaneId, tab, insertAt)
+  return addTab(closeTab(root, key), toPaneId, tab, insertAt)
 }
 
-// move a view's tab into a new pane beside `paneId`
+// move a tab into a new pane beside `paneId`
 // - direction: 'vertical' puts the panes side by side, 'horizontal' stacks them
 // - newPaneId, splitId: ids for the new pane and the split holding both
 // - before: put the new pane left of (or above) `paneId` instead of after it
 export const splitPane = (
   root: WindowNode,
   paneId: string,
-  view: View,
+  key: TabKey,
   direction: SplitDirection,
   newPaneId: string,
   splitId: string,
   before = false,
 ): WindowNode => {
-  const from = paneWithView(root, view)
-  const tab = from?.tabs.find(t => t.component === view)
+  const from = paneWithTab(root, key)
+  const tab = from?.tabs.find(t => keyOf(t) === key)
   if(!from || !tab || !findPane(root, paneId)) return root
 
   // splitting a pane's only tab away would leave it empty
   if(from.id === paneId && from.tabs.length === 1) return root
 
-  const closed = closeTab(root, view)
-  const newPane: WindowNode = { id: newPaneId, tabs: [tab], activeView: view }
+  const closed = closeTab(root, key)
+  const newPane: WindowNode = { id: newPaneId, tabs: [tab], activeTab: key }
 
   return orEmptyRoot(closed, update(closed, paneId, pane => ({
     id: splitId,

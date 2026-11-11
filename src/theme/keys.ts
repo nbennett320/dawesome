@@ -24,4 +24,6 @@ export interface Preferences {
   appearance: 'system' | Appearance
   lightTheme: string
   darkTheme: string
+  // where a plugin's own interface opens: a floating window, or a tab
+  pluginView: 'window' | 'tab'
 }

@@ -8,23 +8,25 @@ import {
   movePatternToFolder,
   removePatternFolder,
   renamePatternFolder,
+  selectFoldersOf,
   selectPattern,
-  selectPatternFolders,
   selectPatternRun,
-  selectPatterns,
+  selectPatternsOf,
   selectSelectedPatternId,
+  sequencerView,
 } from '../../../state/slices/sequencerSlice'
 import { selectPlaylistItems } from '../../../state/slices/playlistSlice'
 import { setProjectNotice } from '../../../state/slices/projectSlice'
 import { openTab } from '../../../state/slices/windowSlice'
-import { DragItem, beginSampleDrag } from '../../../state/sampleDrag'
+import { DragItem, FolderScope, beginSampleDrag } from '../../../state/sampleDrag'
 import {
   FolderNode, ROOT, allItems, buildTree, findFolder, freeName, isWithin,
 } from '../../../types/folderTree'
 import {
-  Pattern, folderIdOf, folderKey, folderPathLabel, patternFolderInfos, patternHint, patternLabel, searchPatterns,
+  Pattern, PatternKind, folderIdOf, folderKey, folderPathLabel, patternFolderInfos, patternHint, patternLabel,
+  searchPatterns,
 } from '../../../types/sequencer'
-import { View } from '../../../types/ui'
+import { viewLabels } from '../../../types/ui'
 import { useTransport } from '../../../views/transport/useTransport'
 import ClipMenu, { ClipMenuItem } from '../../../views/playlist/ClipMenu'
 import { AnalogButton, Led } from '../../fourtrack'
@@ -40,8 +42,16 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
+// each kind's page: its folders' drag scope, and what it's called
+const PAGES: Record<PatternKind, { scope: FolderScope, label: string }> = {
+  drum: { scope: 'patterns', label: 'Drum patterns' },
+  note: { scope: 'note-patterns', label: 'Note patterns' },
+}
+
 interface RowProps {
   pattern: Pattern
+  // the sequencer it's shown in
+  shownIn: string
   hint: string
   // placed in the playlist at least once
   used: boolean
@@ -51,9 +61,9 @@ interface RowProps {
   onSelect: (pattern: Pattern) => void
 }
 
-// one pattern: click to show it in the Sequencer, drag it into the playlist
-// or a folder
-const PatternRow = ({ pattern, hint, used, selected, playing, depth, onSelect }: RowProps) => {
+// one pattern: click to show it in its sequencer, drag it into the
+// playlist or a folder
+const PatternRow = ({ pattern, shownIn, hint, used, selected, playing, depth, onSelect }: RowProps) => {
   const label = patternLabel(pattern)
   const { pressed, isClick } = useClickWithoutDrag()
 
@@ -62,9 +72,9 @@ const PatternRow = ({ pattern, hint, used, selected, playing, depth, onSelect }:
       role='treeitem'
       selected={selected}
       used={used}
-      title={`${label}. Click to show it in the Sequencer, drag into the playlist to place it`}
+      title={`${label}. Click to show it in the ${shownIn}, drag into the playlist to place it`}
       style={{ paddingLeft: depth * 12 + 8 }}
-      // only a drag starts on mousedown: showing the Sequencer straight away
+      // only a drag starts on mousedown: showing the sequencer straight away
       // could hide the playlist (when they share a pane) before it's dropped
       onMouseDown={ev => {
         if(ev.button !== 0) return
@@ -85,18 +95,21 @@ type Menu =
   | { kind: 'folder', node: FolderNode<Pattern>, x: number, y: number }
   | { kind: 'top', x: number, y: number }
 
-// the Sequencer's patterns, in folders: find them by name, drag them into
-// the playlist, and file them away
-const PatternBrowser = () => {
+// a kind's patterns (the Drum Sequencer's, or the Note Sequencer's), in
+// folders of that kind: find them by name, drag them into the playlist, and
+// file them away
+const PatternBrowser = ({ kind }: { kind: PatternKind }) => {
   const dispatch = useAppDispatch()
-  const patterns = useAppSelector(selectPatterns)
-  const folders = useAppSelector(selectPatternFolders)
-  const selectedId = useAppSelector(selectSelectedPatternId)
+  const patterns = useAppSelector(selectPatternsOf(kind))
+  const folders = useAppSelector(selectFoldersOf(kind))
+  const selectedId = useAppSelector(selectSelectedPatternId(kind))
   const run = useAppSelector(selectPatternRun)
   const items = useAppSelector(selectPlaylistItems)
   const { transport } = useTransport()
   const beatsPerBar = transport?.beatsPerBar ?? 4
-  const [expanded, setExpanded] = useSessionSet('patterns')
+  const { scope, label } = PAGES[kind]
+  const shownIn = viewLabels[sequencerView(kind)]
+  const [expanded, setExpanded] = useSessionSet(scope)
   // the folder clicked last: new folders go in it
   const [selectedFolder, setSelectedFolder] = React.useState<string | null>(null)
   const [renamingFolder, setRenamingFolder] = React.useState<string | null>(null)
@@ -105,8 +118,8 @@ const PatternBrowser = () => {
   const boxRef = React.useRef<HTMLDivElement>(null)
   const listRef = React.useRef<HTMLDivElement>(null)
 
-  // the engine owns the sequencer: catch up with it, in case the Sequencer
-  // tab hasn't been opened yet
+  // the engine owns the sequencer: catch up with it, in case its tab hasn't
+  // been opened yet
   React.useEffect(() => { dispatch(loadSequencer()) }, [dispatch])
 
   const clipCounts = React.useMemo(() => {
@@ -147,14 +160,14 @@ const PatternBrowser = () => {
   const show = (pattern: Pattern) => {
     setSelectedFolder(null)
     dispatch(selectPattern(pattern.id))
-    dispatch(openTab(View.Sequencer))
+    dispatch(openTab(sequencerView(kind)))
   }
 
   // folders
 
   const newFolder = (parent: string) => {
     const siblings = (findFolder(tree, parent) ?? tree).folders.map(f => f.name)
-    dispatch(addPatternFolder(freeName('New folder', siblings), folderIdOf(parent)))
+    dispatch(addPatternFolder(freeName('New folder', siblings), folderIdOf(parent), kind))
       .then(id => {
         open(parent)
         setSelectedFolder(folderKey(id))
@@ -190,7 +203,7 @@ const PatternBrowser = () => {
       const pattern = patterns.find(p => p.id === item.patternId)
       return !!pattern && folderKey(pattern.folder) !== key
     }
-    if(item.kind === 'folder' && item.scope === 'patterns') {
+    if(item.kind === 'folder' && item.scope === scope) {
       const parent = infos.find(f => f.key === item.key)?.parent ?? ROOT
       // not where it is already, and not inside itself
       return parent !== key && !isWithin(infos, key, item.key)
@@ -252,6 +265,7 @@ const PatternBrowser = () => {
     return (
       <PatternRow
         pattern={pattern}
+        shownIn={shownIn}
         hint={where ? `${where} · ${hint}` : hint}
         used={clips > 0}
         selected={pattern.id === selectedId}
@@ -288,7 +302,7 @@ const PatternBrowser = () => {
         dropTarget={dropTarget}
         onFolderMenu={(node, ev) => setMenu({ kind: 'folder', node, ...at(ev) })}
         onFolderDragStart={(node, ev) => beginSampleDrag(
-          { kind: 'folder', scope: 'patterns', key: node.key, label: node.name }, ev)}
+          { kind: 'folder', scope, key: node.key, label: node.name }, ev)}
         folderHint={node => {
           const count = allItems(node).length
           return count ? String(count) : undefined
@@ -297,7 +311,7 @@ const PatternBrowser = () => {
         renderItem={(pattern, depth) => renderPattern(pattern, depth)}
       >
         {!patterns.length && !folders.length && (
-          <div className='px-3 py-2 text-xs text-ink-faint'>No patterns yet. Make one in the Sequencer.</div>
+          <div className='px-3 py-2 text-xs text-ink-faint'>No patterns yet. Make one in the {shownIn}.</div>
         )}
       </FolderTree>
     )
@@ -320,7 +334,7 @@ const PatternBrowser = () => {
         ref={listRef}
         className='flex-1 min-h-0 overflow-y-auto overflow-x-hidden'
         role='tree'
-        aria-label='Patterns'
+        aria-label={label}
         tabIndex={-1}
         onContextMenu={ev => {
           ev.preventDefault()

@@ -34,7 +34,7 @@ const emptyProject: LoadedProject = {
   clips: [],
   missing: [],
   mixer: { tracks: [], master: { volumeDb: 0, pan: 0, mute: false, solo: false } },
-  sequencer: { rows: [], patterns: [], folders: [] },
+  sequencer: { rows: [], synths: [], patterns: [], folders: [] },
   patternClips: [],
 }
 
@@ -195,7 +195,55 @@ describe('runProjectCommand', () => {
 
     expect(store.getState().project.path).toBe('/songs/old.dawesome')
     expect(store.getState().playlist.tempo).toBe(90)
-    expect(store.getState().project.notice).toEqual({ kind: 'missing', samples: missing })
+    expect(store.getState().project.notice).toEqual({ kind: 'missing', samples: missing, effects: [], synths: [], dropped: [] })
+  })
+
+  it('lists the plugins it couldn’t load, with or without missing samples', async () => {
+    const store = makeStore()
+    const missingEffects = [
+      { track: 2, name: 'Verb', vendor: 'Acme', path: '/x/Verb.vst3', reason: 'not installed' },
+      { track: null, name: 'Limit', vendor: 'Acme', path: '/x/Limit.vst3', reason: 'not installed' },
+    ]
+    engine({ load_project: { ...emptyProject, missingEffects } })
+    mockOpen.mockResolvedValue('/songs/old.dawesome')
+
+    await run(store, 'open')
+
+    expect(store.getState().project.notice).toEqual({ kind: 'missing', samples: [], effects: missingEffects, synths: [], dropped: [] })
+  })
+
+  it('tells missing synths from missing effects, and says what was left out', async () => {
+    const store = makeStore()
+    const verb = { track: 2, name: 'Verb', vendor: 'Acme', path: '/x/Verb.vst3', reason: 'not installed' }
+    const pad = { track: null, name: 'Pad', vendor: 'Acme', path: '/x/Pad.vst3', reason: 'not installed' }
+    const synth = (id: number, name: string, missing: boolean) => ({
+      id, pluginId: `vst3:${id}`, name, vendor: 'Acme', volume: 1, muted: false, missing, hasEditor: true,
+    })
+    const synths = [synth(1, 'Pad', true), synth(2, 'Pad 2', true), synth(3, 'Keys', false)]
+    const dropped = ['Track 1’s instrument was saved by an older version, and was left out.']
+    engine({
+      load_project: {
+        ...emptyProject,
+        sequencer: { ...emptyProject.sequencer, synths },
+        missingEffects: [verb, pad, { ...pad }],
+        dropped,
+      },
+    })
+    mockOpen.mockResolvedValue('/songs/old.dawesome')
+
+    await run(store, 'open')
+
+    expect(store.getState().project.notice).toEqual({
+      kind: 'missing', samples: [], effects: [verb], synths: synths.slice(0, 2), dropped,
+    })
+  })
+
+  it('says what was left out, even when nothing is missing', async () => {
+    const store = makeStore()
+    engine({ load_project: { ...emptyProject, dropped: ['Notes in drum patterns were left out.'] } })
+    mockOpen.mockResolvedValue('/songs/old.dawesome')
+    await run(store, 'open')
+    expect(store.getState().project.notice).toMatchObject({ kind: 'missing', dropped: ['Notes in drum patterns were left out.'] })
   })
 
   it('keeps the current project when one can’t be opened', async () => {

@@ -4,7 +4,8 @@ import { ask, open, save } from '@tauri-apps/plugin-dialog'
 import { readDir } from '@tauri-apps/plugin-fs'
 import { dirname, documentDir, join } from '@tauri-apps/api/path'
 import type { RootState } from 'state/store'
-import { MissingSample, PROJECT_EXTENSION } from '../../types/project'
+import { MissingEffect, MissingSample, PROJECT_EXTENSION } from '../../types/project'
+import { Synth } from '../../types/sequencer'
 import { newProject, openProject, saveProject } from './playlistSlice'
 import { clearPendingMixerSends } from './mixerSlice'
 import { setSequencer } from './sequencerSlice'
@@ -15,7 +16,9 @@ export type ProjectCommand = 'new' | 'open' | 'save' | 'save-as'
 
 // shown above the workspace after a project command
 export type ProjectNotice =
-  | { kind: 'missing', samples: MissingSample[] }
+  // what a project couldn't find, or left out. (older notices may not have
+  // the synths and what was dropped)
+  | { kind: 'missing', samples: MissingSample[], effects: MissingEffect[], synths?: Synth[], dropped?: string[] }
   | { kind: 'error', message: string }
   // something worth knowing, like where a take was saved
   | { kind: 'info', message: string }
@@ -136,15 +139,18 @@ const exclusive = async (run: () => Promise<void>) => {
   }
 }
 
-// open a project file, showing any samples it couldn't find. returns
+// open a project file, showing any samples or plugins it couldn't find. returns
 // whether it opened
 const openFrom = async (dispatch: Dispatch, path: string): Promise<boolean> => {
   try {
     // fader moves not sent yet belong to the old project
     clearPendingMixerSends()
     const missing = await openProject(path)(dispatch)
+    const { samples, effects, synths, dropped } = missing
     dispatch(setProjectPath(path))
-    dispatch(setProjectNotice(missing.length > 0 ? { kind: 'missing', samples: missing } : null))
+    dispatch(setProjectNotice(
+      [samples, effects, synths, dropped].some(list => list.length > 0) ? { kind: 'missing', ...missing } : null,
+    ))
     await noteRecent(path)
     return true
   } catch(e) {

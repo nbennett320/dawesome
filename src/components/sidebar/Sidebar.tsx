@@ -12,13 +12,17 @@ import SampleBrowser from '../toolbars/sample-browser/SampleBrowser'
 import PatternBrowser from '../toolbars/pattern-browser/PatternBrowser'
 import RecordingsBrowser from '../toolbars/recordings-browser/RecordingsBrowser'
 import ClipsBrowser from '../toolbars/clips-browser/ClipsBrowser'
+import PluginBrowser from '../toolbars/plugin-browser/PluginBrowser'
 import styles from './styles.module.scss'
 
 const pages: Record<SidebarPage, () => React.ReactElement> = {
   [SidebarPage.Samples]: () => <SampleBrowser />,
-  [SidebarPage.Patterns]: () => <PatternBrowser />,
+  [SidebarPage.Patterns]: () => <PatternBrowser kind='drum' />,
+  [SidebarPage.NotePatterns]: () => <PatternBrowser kind='note' />,
   [SidebarPage.Recordings]: () => <RecordingsBrowser />,
   [SidebarPage.Clips]: () => <ClipsBrowser />,
+  [SidebarPage.Effects]: () => <PluginBrowser kind='effect' />,
+  [SidebarPage.Instruments]: () => <PluginBrowser kind='instrument' />,
 }
 
 const Sidebar = () => {

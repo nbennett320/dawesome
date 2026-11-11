@@ -3,6 +3,9 @@ import SidebarIcon from '../icons/SidebarIcon'
 import PatternIcon from '../icons/PatternIcon'
 import RecordingsIcon from '../icons/RecordingsIcon'
 import ClipsIcon from '../icons/ClipsIcon'
+import EffectsIcon from '../icons/EffectsIcon'
+import NotePatternIcon from '../icons/NotePatternIcon'
+import InstrumentsIcon from '../icons/InstrumentsIcon'
 import { AnalogButton } from '../fourtrack'
 import { SidebarPage } from '../../types/ui'
 
@@ -15,9 +18,12 @@ interface Props {
 
 const keys: Array<{ page: SidebarPage, name: string, Icon: React.ComponentType<React.SVGAttributes<object>> }> = [
   { page: SidebarPage.Samples, name: 'samples', Icon: SidebarIcon },
-  { page: SidebarPage.Patterns, name: 'patterns', Icon: PatternIcon },
+  { page: SidebarPage.Patterns, name: 'drum patterns', Icon: PatternIcon },
+  { page: SidebarPage.NotePatterns, name: 'note patterns', Icon: NotePatternIcon },
   { page: SidebarPage.Recordings, name: 'recordings', Icon: RecordingsIcon },
   { page: SidebarPage.Clips, name: 'clips', Icon: ClipsIcon },
+  { page: SidebarPage.Effects, name: 'effects', Icon: EffectsIcon },
+  { page: SidebarPage.Instruments, name: 'instruments', Icon: InstrumentsIcon },
 ]
 
 // the rail down the left: a key per sidebar page, latched while it's showing.

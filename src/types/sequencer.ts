@@ -1,14 +1,18 @@
 import { FolderInfo, ROOT } from './folderTree'
 
-// the pattern sequencer: rows of samples shared by every pattern, and
-// patterns that light some of each row's steps. mirrors
-// engine/src/daw/daw_core/sequencer.rs
+// the sequencers: drum patterns light steps on rows of samples, and note
+// patterns hold notes for synths (instrument plugins). the rows are shared
+// by every drum pattern, the synths by every note pattern. mirrors
+// engine/src/daw/daw_core/sequencer.rs (see context/vst-project/04-api.md)
 
 // a step is a 16th note
 export const STEPS_PER_BEAT = 4
 
-// the lengths a pattern can be, in bars
+// the lengths a drum pattern can be, in bars
 export const BAR_CHOICES = [1, 2, 4]
+
+// and the longest a note pattern can be (it can be any number from 1)
+export const MAX_NOTE_BARS = 64
 
 // a row's volume, as a gain: 1 leaves the sample as is
 export const ROW_VOLUME_MAX = 2
@@ -20,16 +24,73 @@ export interface SequencerRow {
   muted: boolean
 }
 
+// a note in a note pattern, played on its synth. times are in steps from
+// the pattern's start, and may be fractional
+export interface Note {
+  // MIDI note number, 0 to 127 (60 is middle C)
+  pitch: number
+  start: number
+  length: number
+  // 0 to 1
+  velocity: number
+}
+
+// an instrument plugin in the Note Sequencer's list. its id is also a slot
+// id, so its interface opens, docks and pops out as an effect's does. the
+// engine keeps a copy for each track that plays it: the app only sees this
+export interface Synth {
+  id: number
+  pluginId: string
+  // unique in the project: "DecentSampler", then "DecentSampler 2"
+  name: string
+  vendor: string
+  // a gain, like a row's
+  volume: number
+  muted: boolean
+  // its plugin isn't installed: kept, with its notes and settings, silent
+  missing: boolean
+  hasEditor: boolean
+}
+
+// a pattern is one or the other, never both
+export type PatternKind = 'drum' | 'note'
+
 export interface Pattern {
   id: number
   // unnamed patterns are shown by their number
   name: string | null
+  // left out by older projects: a drum pattern
+  kind?: PatternKind
   // in steps
   length: number
-  // the steps lit on each row, by row id
+  // a drum pattern's lit steps on each row, by row id
   steps: Record<string, number[]>
+  // a note pattern's notes for each synth, by synth id (synths without any
+  // are left out)
+  notes?: Record<string, Note[]>
   // the folder it's in, in the sidebar's pattern browser (left out at the top)
   folder?: number | null
+}
+
+export const kindOf = (pattern: Pick<Pattern, 'kind'>): PatternKind => pattern.kind ?? 'drum'
+
+const NO_NOTES: Note[] = []
+
+// a synth's notes in a pattern. the same empty list every time, so
+// selectors don't re-render for nothing
+export const synthNotes = (pattern: Pick<Pattern, 'notes'>, synthId: number): Note[] =>
+  pattern.notes?.[synthId] ?? NO_NOTES
+
+// every synth's notes in a pattern, in one list
+export const allNotes = (pattern: Pick<Pattern, 'notes'>): Note[] =>
+  Object.values(pattern.notes ?? {}).flat()
+
+// a pattern with a synth's notes replaced (what the engine will make of it)
+export const withNotes = (pattern: Pattern, synthId: number, notes: Note[]): Pattern => {
+  const next = { ...pattern.notes }
+  if(notes.length) next[synthId] = notes
+  else delete next[synthId]
+  return { ...pattern, notes: next }
 }
 
 // a folder of patterns, in the sidebar's pattern browser. folders only sort
@@ -37,6 +98,8 @@ export interface Pattern {
 export interface PatternFolder {
   id: number
   name: string
+  // which page it's on (left out by older projects: drum)
+  kind?: PatternKind
   // the folder it's in (left out at the top)
   parent?: number | null
 }
@@ -44,6 +107,7 @@ export interface PatternFolder {
 // what every sequencer command returns
 export interface SequencerState {
   rows: SequencerRow[]
+  synths: Synth[]
   patterns: Pattern[]
   folders: PatternFolder[]
 }
@@ -96,6 +160,43 @@ export const stepAt = (elapsedMs: number, pattern: Pattern, beatIntervalMs: numb
 export const litRows = (pattern: Pattern, rows: SequencerRow[]): number[][] =>
   rows.map(row => (pattern.steps[row.id] ?? []).filter(s => s < pattern.length))
 
+export interface NoteBars {
+  rows: number
+  bars: Array<{ start: number, end: number, row: number }>
+}
+
+// notes as small bars: those that start in the part of a pattern played
+// (`from` to `to`, in steps), as it plays them, each cut where that part or
+// the pattern (`length` steps) ends. `row` is 0 for the highest pitch shown,
+// and `rows` how many there are: the notes' range, with a little room so a
+// single pitch isn't drawn as one fat bar
+export const noteBars = (
+  all: Note[],
+  length: number,
+  from: number,
+  to: number,
+  minRows = 12,
+): NoteBars => {
+  const last = Math.min(to, length)
+  const notes = all.filter(n => n.start >= from && n.start < last)
+  if(!notes.length) return { rows: 0, bars: [] }
+
+  const low = Math.min(...notes.map(n => n.pitch))
+  const high = Math.max(...notes.map(n => n.pitch))
+  const rows = Math.max(minRows, high - low + 1)
+  // the notes' range in the middle of the rows
+  const top = high + Math.floor((rows - (high - low + 1)) / 2)
+
+  return {
+    rows,
+    bars: notes.map(n => ({ start: n.start, end: Math.min(last, n.start + n.length), row: top - n.pitch })),
+  }
+}
+
+// a pattern clip's notes, every synth's, as small bars (see noteBars)
+export const clipNoteBars = (pattern: Pattern, from: number, to: number, minRows = 12): NoteBars =>
+  noteBars(allNotes(pattern), pattern.length, from, to, minRows)
+
 // what's shown faintly after a pattern's name: its length, and how many
 // times it's in the playlist
 export const patternHint = (pattern: Pattern, beatsPerBar: number, clips: number): string => {
@@ -104,7 +205,7 @@ export const patternHint = (pattern: Pattern, beatsPerBar: number, clips: number
   return clips ? `${length} · ${clips}×` : length
 }
 
-// the patterns whose label has the search in it, keeping the Sequencer's order
+// the patterns whose label has the search in it, keeping their order
 export const searchPatterns = (patterns: Pattern[], query: string): Pattern[] => {
   const search = query.trim().toLowerCase()
   if(!search) return patterns

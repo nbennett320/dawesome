@@ -8,13 +8,12 @@ import {
 } from '../../state/slices/sequencerSlice'
 import {
   Pattern,
-  ROW_VOLUME_MAX,
   STEPS_PER_BEAT,
   SequencerRow as Row,
   fileName,
   isLit,
 } from '../../types/sequencer'
-import { AnalogButton, Knob, Led } from '../../components/fourtrack'
+import RowControls from './RowControls'
 
 // a step being painted: pressing a step lights it (or clears it), and every
 // step the mouse moves over while held is set the same way
@@ -31,9 +30,6 @@ interface Props {
   paint: React.MutableRefObject<Paint | null>
   onStep: (rowId: number, step: number, on: boolean) => void
 }
-
-// a volume as a percentage of the sample's own level
-const percent = (volume: number) => `${Math.round(volume * 100)}%`
 
 // one sample: its name (click to hear it), mute, volume and remove, then a
 // key for each of the pattern's steps
@@ -95,50 +91,17 @@ const SequencerRow = ({ row, pattern, beatsPerBar, playingStep, paint, onStep }:
 
   return (
     <div className='flex flex-row items-center gap-2'>
-      <div className='ft-strip shrink-0 w-64 h-11 flex flex-row items-center gap-1.5 px-1.5'>
-        <button
-          type='button'
-          className={`ft-scribble flex-1 min-w-0 truncate text-left text-xs font-medium px-1 py-0.5 hover:bg-surface-alt ${row.muted ? 'text-ink-faint italic' : ''}`}
-          title={`${row.path}. Click to hear it`}
-          onClick={() => dispatch(previewSequencerRow(row.id))}
-        >
-          {name}
-        </button>
-        <div className='flex flex-col items-center gap-0.5'>
-          <Led color='amber' state={row.muted ? 'on' : 'off'} />
-          <AnalogButton
-            variant='text'
-            size='xs'
-            latched={row.muted}
-            aria-label={`Mute ${name}`}
-            title='Mute'
-            onPress={() => dispatch(setSequencerRowMuted(row.id, !row.muted))}
-          >
-            M
-          </AnalogButton>
-        </div>
-        <Knob
-          size={26}
-          min={0}
-          max={ROW_VOLUME_MAX}
-          center={1}
-          step={0.01}
-          value={row.volume}
-          onChange={v => dispatch(setSequencerRowVolume(row.id, v))}
-          label={`${name} volume`}
-          formatValue={percent}
-          title={`Volume ${percent(row.volume)}. Double-click for 100%`}
-        />
-        <AnalogButton
-          variant='text'
-          size='xs'
-          aria-label={`Remove ${name}`}
-          title='Remove the row, and its steps from every pattern'
-          onPress={() => dispatch(removeSequencerRow(row.id))}
-        >
-          ×
-        </AnalogButton>
-      </div>
+      <RowControls
+        name={name}
+        nameTitle={`${row.path}. Click to hear it`}
+        onName={() => dispatch(previewSequencerRow(row.id))}
+        muted={row.muted}
+        onMute={muted => dispatch(setSequencerRowMuted(row.id, muted))}
+        volume={row.volume}
+        onVolume={v => dispatch(setSequencerRowVolume(row.id, v))}
+        removeTitle='Remove the row, and its steps from every pattern'
+        onRemove={() => dispatch(removeSequencerRow(row.id))}
+      />
       <div className='flex flex-row items-center'>{steps}</div>
     </div>
   )

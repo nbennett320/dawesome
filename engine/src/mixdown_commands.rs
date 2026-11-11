@@ -127,7 +127,7 @@ fn start(
   mixdowns.cancel.store(false, Ordering::Relaxed);
 
   let rate = options.format.render_rate(rate);
-  let started = mixdown::snapshot(state)
+  let started = mixdown::snapshot(state, rate)
     .and_then(|snapshot| Ok((snapshot, MixdownFile::create(Path::new(&options.dir), &options.name, options.format, rate)?)));
   let (snapshot, mut file) = match started {
     Ok(started) => started,

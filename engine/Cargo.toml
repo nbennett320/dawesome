@@ -35,15 +35,46 @@ num-traits = "0.2.15"
 lazy_static = "1.4.0"
 hound = "3.5.0"
 symphonia = "0.5.1"
-mlua = { version = "*", features = [ "lua54" ] }
+mlua = { version = "*", features = [ "lua54", "vendored" ] }
 rtrb = "0.3"
 trash = "~5.2.3"  # 5.3 needs rustc 1.87
 # MP3s for mixdowns (builds its own LAME, which is LGPL)
 mp3lame-encoder = "0.3.0"
+# VST3 plugins: bindings generated from the SDK's headers (we write the host)
+vst3 = "0.3"
+
+# opening a plugin's bundle (macOS) or library (Linux, Windows)
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+# plugin editors' windows, and docking them in the main window
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSGeometry", "NSString"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+  "std", "NSGraphics", "NSPanel", "NSResponder", "NSScreen", "NSView", "NSWindow",
+] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+libloading = "0.7"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 pulse = { version = "2.26.*", package= "libpulse-binding" }
 psimple = { version="2.25.*", package="libpulse-simple-binding" }
+
+# the app and its events, for the windows tests/plugins.rs opens
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2-foundation = { version = "0.3", default-features = false, features = [
+  "std", "NSData", "NSDate", "NSDictionary", "NSRunLoop",
+] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+  "std", "NSApplication", "NSBitmapImageRep", "NSEvent", "NSImageRep", "NSRunningApplication",
+] }
+
+# checks against the plugins installed on this machine. its own main runs
+# them on the process's main thread, which plugins expect; they only run when
+# asked: cargo test --no-default-features --test plugins -- --ignored
+[[test]]
+name = "plugins"
+harness = false
 
 [features]
 # turned on by `tauri build`, which embeds ../dist. without it (`tauri dev`,

@@ -19,6 +19,8 @@ pub struct ProjectView {
   pub pattern_clips: Vec<LoadedPatternClip>,
   pub mixer: daw::MixerSettings,
   pub sequencer: daw::SequencerState,
+  // each channel's effects
+  pub effects: crate::effects::Racks,
 }
 
 pub fn project_view(state: &daw::InnerState) -> ProjectView {
@@ -36,7 +38,8 @@ pub fn project_view(state: &daw::InnerState) -> ProjectView {
     clips,
     pattern_clips,
     mixer: mixer_settings(state),
-    sequencer: state.playlist.sequencer.lock().unwrap().state(),
+    sequencer: crate::synth_commands::sequencer_state(state),
+    effects: state.playlist.effects.racks(),
   }
 }
 

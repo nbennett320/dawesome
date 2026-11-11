@@ -374,9 +374,9 @@ export class Renderer extends RendererBase {
   // cut, the one under the mouse first, and the beat
   #cutHover: { ids: number[], beat: number } | null = null
 
-  // the Sequencer's rows and patterns, which pattern clips draw. read every
+  // the sequencers' rows and patterns, which pattern clips draw. read every
   // frame, so editing a pattern shows straight away without rebuilding
-  sequencer: SequencerState = { rows: [], patterns: [], folders: [] }
+  sequencer: SequencerState = { rows: [], synths: [], patterns: [], folders: [] }
 
   // the clips picked with shift+click or a shift+drag box, by id
   selectedIds: Set<number> = new Set()

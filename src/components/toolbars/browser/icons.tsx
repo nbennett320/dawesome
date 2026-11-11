@@ -33,3 +33,28 @@ export const NewFolderIcon = () => (
     <path d='M8 7.5v4M6 9.5h4' fill='none' stroke='currentColor' strokeWidth='1.25' strokeLinecap='round' />
   </svg>
 )
+
+// a knob, for an effect plugin
+export const KnobIcon = () => (
+  <svg viewBox='0 0 16 16' className='w-3.5 h-3.5 shrink-0 text-ink-faint' aria-hidden>
+    <circle cx='8' cy='8' r='5.25' fill='currentColor' opacity='.35' stroke='currentColor' strokeWidth='1' />
+    <path d='M8 8L5.5 5.5' fill='none' stroke='currentColor' strokeWidth='1.5' strokeLinecap='round' />
+  </svg>
+)
+
+// a few piano keys, for an instrument plugin
+export const KeysIcon = ({ className = 'w-3.5 h-3.5 text-ink-faint' }: { className?: string }) => (
+  <svg viewBox='0 0 16 16' className={`shrink-0 ${className}`} aria-hidden>
+    <rect x='1.5' y='3' width='13' height='10' rx='1' fill='currentColor' opacity='.2' stroke='currentColor' strokeWidth='1' />
+    <path d='M5.5 3v10M10.5 3v10' fill='none' stroke='currentColor' strokeWidth='1' />
+    <path d='M4.5 3h2v5.5h-2zM9.5 3h2v5.5h-2z' fill='currentColor' />
+  </svg>
+)
+
+// a warning sign, for a plugin that couldn't be read
+export const WarningIcon = () => (
+  <svg viewBox='0 0 16 16' className='w-3.5 h-3.5 shrink-0 text-danger' aria-hidden>
+    <path d='M8 2.5l6 10.5H2z' fill='none' stroke='currentColor' strokeWidth='1.25' strokeLinejoin='round' />
+    <path d='M8 6.5v3M8 11.25v.01' fill='none' stroke='currentColor' strokeWidth='1.5' strokeLinecap='round' />
+  </svg>
+)

@@ -10,6 +10,11 @@ const APPEARANCES = [
   { value: 'dark', label: 'Dark' },
 ]
 
+const PLUGIN_VIEWS = [
+  { value: 'window', label: 'In a window of their own' },
+  { value: 'tab', label: 'In a tab' },
+]
+
 // how the app looks. changes apply as they're made
 const Preferences = () => {
   const dispatch = useAppDispatch()
@@ -43,6 +48,13 @@ const Preferences = () => {
             value={preferences.darkTheme}
             options={named('dark')}
             onChange={darkTheme => dispatch(changePreferences({ darkTheme }))}
+          />
+          <Choice
+            id='preferences-plugin-view'
+            label='Plugins open'
+            value={preferences.pluginView}
+            options={PLUGIN_VIEWS}
+            onChange={pluginView => dispatch(changePreferences({ pluginView: pluginView as Prefs['pluginView'] }))}
           />
         </section>
       </div>

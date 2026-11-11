@@ -1,29 +1,24 @@
 import React from 'react'
 import { Tab, Tabs, TabList, TabPanel } from 'react-tabs'
-import { useDrag, useDragLayer, useDrop } from 'react-dnd'
+import { useDrag, useDrop } from 'react-dnd'
 import {
   closeTab,
   focusPane,
   moveTab,
   selectFocusedPaneId,
   selectTab,
+  selectTabLabel,
   selectWindowPane,
   splitPane,
 } from '../../state/slices/windowSlice'
 import { leaves } from '../../state/paneTree'
 import { useAppDispatch, useAppSelector } from '../../hooks/redux'
 import { matchViewComponent } from '../../views/matchViewComponent'
-import { PaneTab, View, WindowNode } from '../../types/ui'
+import { keyOf, PaneTab, TabKey, WindowNode } from '../../types/ui'
 import { cssVar } from '../../theme/apply'
 import Close from '../icons/Close'
 import { AnalogButton, Led } from '../fourtrack'
-
-// react-dnd type for a tab being dragged
-const PANE_TAB = 'pane-tab'
-
-interface DraggedTab {
-  view: View
-}
+import { DraggedTab, PANE_TAB, useDraggingTab } from './dragTab'
 
 // where a tab dropped on a pane's body goes: an edge splits the pane there,
 // the centre moves the tab into the pane
@@ -68,16 +63,19 @@ interface TabItemProps {
 // to insert that tab before it
 const TabItem = ({ pane, tab, index, selected, lit }: TabItemProps) => {
   const dispatch = useAppDispatch()
+  const key = keyOf(tab)
+  // worked out each time: a plugin's tab is named after the others like it
+  const label = useAppSelector(selectTabLabel(tab))
 
   const [, dragRef] = useDrag(() => ({
     type: PANE_TAB,
-    item: { view: tab.component } as DraggedTab,
-  }), [tab.component])
+    item: { key } as DraggedTab,
+  }), [key])
 
   const [{ isOver }, dropRef] = useDrop(() => ({
     accept: PANE_TAB,
     drop: (item: DraggedTab) => {
-      dispatch(moveTab({ view: item.view, paneId: pane.id, index }))
+      dispatch(moveTab({ key: item.key, paneId: pane.id, index }))
     },
     collect: monitor => ({ isOver: monitor.isOver() }),
   }), [pane.id, index])
@@ -89,18 +87,18 @@ const TabItem = ({ pane, tab, index, selected, lit }: TabItemProps) => {
       style={{ boxShadow: isOver ? `inset 2px 0 0 ${cssVar('accent')}` : undefined }}
     >
       <Led color='blue' state={lit ? 'on' : 'off'} />
-      <span className={`ft-label ${selected ? 'text-ink' : 'group-hover:text-ink-mid'}`}>{tab.label}</span>
+      <span className={`ft-label ${selected ? 'text-ink' : 'group-hover:text-ink-mid'}`}>{label}</span>
 
       <button
         className={`rounded-sm p-0.5 text-ink-faint hover:bg-sunken hover:text-ink ${
           selected ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
         }`}
-        title={`Close ${tab.label}`}
-        aria-label={`Close ${tab.label}`}
+        title={`Close ${label}`}
+        aria-label={`Close ${label}`}
         onClick={ev => {
           // don't select the tab being closed
           ev.stopPropagation()
-          dispatch(closeTab(tab.component))
+          dispatch(closeTab(key))
         }}
       >
         <Close height={12} width={12} fill='currentColor' />
@@ -116,7 +114,7 @@ const TabListEnd = ({ pane }: { pane: WindowNode }) => {
   const [, dropRef] = useDrop(() => ({
     accept: PANE_TAB,
     drop: (item: DraggedTab) => {
-      dispatch(moveTab({ view: item.view, paneId: pane.id }))
+      dispatch(moveTab({ key: item.key, paneId: pane.id }))
     },
   }), [pane.id])
 
@@ -132,8 +130,8 @@ const DropOverlay = ({ pane }: { pane: WindowNode }) => {
 
   // whether dropping in a zone would change anything: a pane's only tab
   // can't be split away from it, or moved into the pane it's already in
-  const canDropIn = (z: DropZone, view: View) => {
-    const own = pane.tabs.some(t => t.component === view)
+  const canDropIn = (z: DropZone, key: TabKey) => {
+    const own = pane.tabs.some(t => keyOf(t) === key)
     if(z === 'center') return !own
     return !own || pane.tabs.length > 1
   }
@@ -141,7 +139,7 @@ const DropOverlay = ({ pane }: { pane: WindowNode }) => {
   const zoneFor = (item: DraggedTab, offset: { x: number, y: number } | null) => {
     if(!ref.current || !offset) return null
     const z = dropZoneAt(ref.current.getBoundingClientRect(), offset.x, offset.y)
-    return canDropIn(z, item.view) ? z : null
+    return canDropIn(z, item.key) ? z : null
   }
 
   const [{ isOver }, dropRef] = useDrop(() => ({
@@ -153,11 +151,11 @@ const DropOverlay = ({ pane }: { pane: WindowNode }) => {
       const z = zoneFor(item, monitor.getClientOffset())
 
       if(z === 'center') {
-        dispatch(moveTab({ view: item.view, paneId: pane.id }))
+        dispatch(moveTab({ key: item.key, paneId: pane.id }))
       } else if(z) {
         const direction = z === 'left' || z === 'right' ? 'vertical' : 'horizontal'
         const before = z === 'left' || z === 'top'
-        dispatch(splitPane(pane.id, item.view, direction, before))
+        dispatch(splitPane(pane.id, item.key, direction, before))
       }
     },
     collect: monitor => ({ isOver: monitor.isOver() }),
@@ -209,18 +207,17 @@ const TabbedPane = ({ pane }: Props) => {
   const dispatch = useAppDispatch()
   const root = useAppSelector(selectWindowPane)
   const focusedPaneId = useAppSelector(selectFocusedPaneId)
-  const draggingTab = useDragLayer(monitor =>
-    monitor.isDragging() && monitor.getItemType() === PANE_TAB)
+  const draggingTab = useDraggingTab()
 
   const selectedIndex = Math.max(
-    0, pane.tabs.findIndex(t => t.component === pane.activeView))
+    0, pane.tabs.findIndex(t => keyOf(t) === pane.activeTab))
   const split = leaves(root).length > 1
   const focused = split && pane.id === focusedPaneId
 
   // move the selected tab into a new pane beside this one
   const splitSelected = (direction: 'vertical' | 'horizontal') => {
     const tab = pane.tabs[selectedIndex]
-    if(tab) dispatch(splitPane(pane.id, tab.component, direction))
+    if(tab) dispatch(splitPane(pane.id, keyOf(tab), direction))
   }
   const canSplit = pane.tabs.length > 1
 
@@ -236,7 +233,7 @@ const TabbedPane = ({ pane }: Props) => {
         selectedIndex={selectedIndex}
         onSelect={idx => {
           const tab = pane.tabs[idx]
-          if(tab) dispatch(selectTab({ paneId: pane.id, view: tab.component }))
+          if(tab) dispatch(selectTab({ paneId: pane.id, key: keyOf(tab) }))
         }}
         forceRenderTabPanel
         selectedTabPanelClassName='react-tabs__tab-panel--selected h-full'
@@ -247,7 +244,7 @@ const TabbedPane = ({ pane }: Props) => {
           <TabList className='flex flex-row' style={{ margin: 0, border: 'none' }}>
             {pane.tabs.map((tab, index) => (
               <Tab
-                key={tab.component}
+                key={keyOf(tab)}
                 style={{ userSelect: 'none', padding: 0 }}
               >
                 <TabItem
@@ -289,8 +286,8 @@ const TabbedPane = ({ pane }: Props) => {
 
         <div className='flex-1 min-h-0 relative overflow-hidden'>
           {pane.tabs.map(tab => (
-            <TabPanel key={tab.component}>
-              {matchViewComponent(tab.component)}
+            <TabPanel key={keyOf(tab)}>
+              {matchViewComponent(tab)}
             </TabPanel>
           ))}
 

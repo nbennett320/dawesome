@@ -1,5 +1,14 @@
 // saving and loading projects: the playlist's clips, their settings, the
-// playlist's settings, and the mixer, in a JSON file (.dawesome)
+// playlist's settings, the mixer and its effects, in a JSON file (.dawesome)
+//
+// an effect is saved with its plugin's id, bundle and settings (base64). one
+// whose plugin can't be loaded comes back missing, keeping its settings, and
+// is saved again just as it was read. the Note Sequencer's synths are saved
+// the same way, with the sequencer
+//
+// a project saved by the stage-1 build of plugins (an instrument in a
+// track's rack, notes in a drum pattern) loads without those, and says so
+// (see drop_stage_one)
 //
 // sample paths inside the project's folder are saved relative to it, so a
 // project folder can be moved or shared. other samples are saved as
@@ -102,6 +111,13 @@ pub struct Project {
   // the tracks armed to record, and the input channels each records
   #[serde(skip_serializing_if = "Vec::is_empty")]
   pub armed: Vec<crate::recording::ArmedTrack>,
+  // each channel's effects, in order, left out when there are none
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub effects: Vec<crate::effects::SavedRack>,
+  // what was left out of the file as it was read, a sentence for each kind
+  // of thing (never saved)
+  #[serde(skip)]
+  pub dropped: Vec<String>,
 }
 
 impl Default for Project {
@@ -114,6 +130,8 @@ impl Default for Project {
       sequencer: daw::SavedSequencer::default(),
       pattern_clips: Vec::new(),
       armed: Vec::new(),
+      effects: Vec::new(),
+      dropped: Vec::new(),
     }
   }
 }
@@ -121,9 +139,13 @@ impl Default for Project {
 impl Project {
   // read a project from its JSON, refusing ones this app can't play
   pub fn from_json(json: &str) -> Result<Self, String> {
-    let project: Project = serde_json::from_str(json)
+    let mut value: serde_json::Value = serde_json::from_str(json)
+      .map_err(|e| format!("not a valid project file: {}", e))?;
+    let dropped = drop_stage_one(&mut value);
+    let mut project: Project = serde_json::from_value(value)
       .map_err(|e| format!("not a valid project file: {}", e))?;
     project.validate()?;
+    project.dropped = dropped;
 
     Ok(project)
   }
@@ -215,6 +237,46 @@ pub struct MissingSample {
   pub reason: String,
 }
 
+// take what the stage-1 build of plugins saved, and this one doesn't read,
+// out of a project's JSON: instruments in racks (an effect saved with
+// "kind": "instrument"), and notes in patterns as a plain list. gives a
+// sentence for each kind of thing taken (P28: they're not converted)
+fn drop_stage_one(project: &mut serde_json::Value) -> Vec<String> {
+  let mut instruments = 0;
+  if let Some(racks) = project.get_mut("effects").and_then(|e| e.as_array_mut()) {
+    for rack in racks.iter_mut() {
+      if let Some(slots) = rack.get_mut("slots").and_then(|s| s.as_array_mut()) {
+        let before = slots.len();
+        slots.retain(|slot| slot.get("kind").and_then(|k| k.as_str()) != Some("instrument"));
+        instruments += before - slots.len();
+      }
+    }
+  }
+  let mut patterns = 0;
+  if let Some(list) = project.pointer_mut("/sequencer/patterns").and_then(|p| p.as_array_mut()) {
+    for pattern in list.iter_mut().filter_map(|p| p.as_object_mut()) {
+      if let Some(notes) = pattern.get("notes").and_then(|n| n.as_array()) {
+        if !notes.is_empty() { patterns += 1; }
+        pattern.remove("notes");
+      }
+    }
+  }
+
+  let mut dropped = Vec::new();
+  let plural = |n: usize, one: &str, many: &str| if n == 1 { format!("1 {}", one) } else { format!("{} {}", n, many) };
+  if instruments > 0 {
+    dropped.push(format!(
+      "{} in a mixer channel's effects {} left out: instruments are synths in the Note Sequencer now",
+      plural(instruments, "instrument", "instruments"), if instruments == 1 { "was" } else { "were" }));
+  }
+  if patterns > 0 {
+    dropped.push(format!(
+      "The notes in {} were left out: notes are in note patterns now",
+      plural(patterns, "drum pattern", "drum patterns")));
+  }
+  dropped
+}
+
 // what the frontend needs to show a project once it's loaded
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -228,6 +290,14 @@ pub struct LoadedProject {
   pub sequencer: daw::SequencerState,
   pub pattern_clips: Vec<LoadedPatternClip>,
   pub armed: Vec<crate::recording::ArmedTrack>,
+  // each channel's effects
+  pub effects: crate::effects::Racks,
+  // effects whose plugins couldn't be loaded (they're in their racks,
+  // marked missing), and synths (in the synth list, marked missing)
+  pub missing_effects: Vec<crate::effects::MissingEffect>,
+  // what the file had that was left out, a sentence for each kind of thing
+  // (for the project notice; empty when nothing was)
+  pub dropped: Vec<String>,
 }
 
 // the folder a project file is in, which its relative sample paths start from
@@ -318,6 +388,18 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
   };
 
   let ui = *state.playlist.ui.lock().unwrap();
+  // (with no lock held: the plugins give their settings on the main thread,
+  // and their open windows where they are)
+  crate::effect_windows::keep_positions(&state.playlist.effects);
+  let effects = state.playlist.effects.saved();
+  // each synth's settings are its master copy's (passed on to the others
+  // first, so what's saved is what's heard)
+  state.playlist.effects.push_synth_states(true);
+  let mut sequencer = sequencer;
+  for synth in &mut sequencer.synths {
+    synth.state = base64::encode(state.playlist.effects.state_of(synth.id).unwrap_or_default());
+    synth.window = state.playlist.effects.window_position(synth.id);
+  }
 
   let mut mixer = state.playlist.mixer.settings(0);
   mixer.tracks.retain(|track| track.settings != daw::ChannelSettings::default() || track.name.is_some());
@@ -347,6 +429,8 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
     sequencer,
     pattern_clips,
     armed: state.recorder.lock().unwrap().armed(),
+    effects,
+    dropped: Vec::new(),
   }
 }
 
@@ -387,12 +471,20 @@ pub fn apply(
     })
     .collect();
 
-  // the sequencer's rows, with their paths found like clips'
+  // the sequencer's rows, with their paths found like clips', and its synths
+  // under new ids (slot ids aren't reused in a session)
   let mut saved = project.sequencer.clone();
   for row in &mut saved.rows {
     row.path = resolved_path(&row.path, project_dir).to_string_lossy().into_owned();
   }
+  saved.renumber_synths(|| state.playlist.effects.new_id());
   let row_samples = daw::RowSample::load_rows(&saved);
+  // the effects and synths, with no lock held: their plugins load on the
+  // main thread. the synths' plugins don't follow the list until it's the
+  // new project's
+  let pause = state.playlist.effects.pause_synths();
+  let mut missing_effects = state.playlist.effects.load_saved(&project.effects);
+  missing_effects.extend(state.playlist.effects.load_synths(&saved.synths));
   // the UI isn't frozen while that loads: anything played meanwhile stops
   // before the playlist changes under it
   daw::stop_playlist(state);
@@ -454,7 +546,7 @@ pub fn apply(
     for (path, reason) in sequencer.restore_loaded(saved, row_samples) {
       missing.push(MissingSample { path, reason });
     }
-    sequencer.state()
+    sequencer.state(&*state.playlist.effects)
   };
 
   // pattern clips, each with a new id. a clip of a pattern the project
@@ -493,8 +585,23 @@ pub fn apply(
   state.history.lock().unwrap().clear();
   // and anything copied meanwhile was the old project's
   state.clipboard.lock().unwrap().clear();
+  drop(audiograph);
+  // each track gets a copy of the synths it plays
+  drop(pause);
+  crate::synth_commands::follow(state);
 
-  LoadedProject { settings, clips, missing, mixer, sequencer, pattern_clips, armed: project.armed.clone() }
+  LoadedProject {
+    settings,
+    clips,
+    missing,
+    mixer,
+    sequencer,
+    pattern_clips,
+    armed: project.armed.clone(),
+    effects: state.playlist.effects.racks(),
+    missing_effects,
+    dropped: project.dropped.clone(),
+  }
 }
 
 // write the current playlist to a project file. the file is written next to
@@ -662,7 +769,7 @@ pub fn save_project_to(
 
     let moved: Vec<(String, String)> = relocated.into_iter().map(|take| (take.from, take.to)).collect();
     if seq.move_row_samples(&moved) {
-      sequencer = Some(seq.state());
+      sequencer = Some(seq.state(&*state.playlist.effects));
     }
     drop(seq);
     drop(audiograph);
@@ -1134,7 +1241,7 @@ mod tests {
       let (row, pattern) = {
         let mut seq = audiograph.sequencer.lock().unwrap();
         let row = seq.add_row(kick.to_str().unwrap()).unwrap();
-        let pattern = seq.add_pattern(2, 4).unwrap();
+        let pattern = seq.add_pattern(2, 4, daw::PatternKind::Drum).unwrap();
         seq.set_step(pattern, row, 0, true).unwrap();
         seq.set_step(pattern, row, 12, true).unwrap();
         seq.rename_pattern(pattern, "intro").unwrap();
@@ -1195,7 +1302,7 @@ mod tests {
     let pattern = {
       let mut seq = state.playlist.sequencer.lock().unwrap();
       let row = seq.add_row("assets/assets_66-bd-01.wav").unwrap();
-      let pattern = seq.add_pattern(bars, 4).unwrap();
+      let pattern = seq.add_pattern(bars, 4, daw::PatternKind::Drum).unwrap();
       seq.set_step(pattern, row, 0, true).unwrap();
       pattern
     };
@@ -1389,5 +1496,272 @@ mod tests {
     let fresh = apply(&state, &Project::default(), None);
     assert!(fresh.sequencer.patterns.is_empty());
     assert!(fresh.pattern_clips.is_empty());
+  }
+
+  // each channel's effects, without their ids: (track, [(name, bypassed, missing)])
+  use crate::effects::SavedEffect;
+
+  fn rack_shape(racks: &crate::effects::Racks) -> Vec<(Option<u32>, Vec<(String, bool, bool)>)> {
+    racks.iter()
+      .map(|r| (r.track, r.slots.iter().map(|s| (s.name.clone(), s.bypassed, s.missing)).collect()))
+      .collect()
+  }
+
+  #[test]
+  fn test_effects_saved_and_loaded() {
+    use crate::daw::Channel;
+    use crate::effects::testing::*;
+    let dir = test_dir("effects");
+    let file = dir.join("fx.dawesome");
+
+    let mut rig = rig();
+    let state = rig.state.clone();
+    let effects = &state.playlist.effects;
+    let a = effects.add(Channel::Track(1), &gain().id, None).unwrap();
+    let b = effects.add(Channel::Track(1), &gain().id, None).unwrap();
+    let m = effects.add(Channel::Master, &gain().id, None).unwrap();
+    // the second ahead of the first, so order shows
+    effects.move_to(b, Channel::Track(1), 0).unwrap();
+    rig.turn(a, 0.25);
+    rig.turn(m, 0.75);
+    effects.set_bypassed(b, true).unwrap();
+    let heard = rig.level(Some(1));
+    save_to(&state, &file).unwrap();
+
+    let saved = saved_json(file.to_str().unwrap());
+    assert_eq!(saved.effects.len(), 2);
+    assert_eq!(saved.effects[0].track, Some(1));
+    assert_eq!(saved.effects[1].track, None);
+    let first = &saved.effects[0].slots[1];
+    assert_eq!((first.plugin_id.as_str(), first.path.as_str(), first.bypassed), (gain().id.as_str(), "/fake/Gain.vst3", false));
+    assert_eq!(base64::decode(&first.state).unwrap(), 0.25f32.to_le_bytes());
+    assert!(saved.effects[0].slots[0].bypassed);
+
+    let mut other = rig_with_an_effect();
+    let loaded = load_from(&other.state, &file).unwrap();
+    assert!(loaded.missing_effects.is_empty());
+    assert_eq!(rack_shape(&loaded.effects), vec![
+      (Some(1), vec![("Gain".into(), true, false), ("Gain".into(), false, false)]),
+      (None, vec![("Gain".into(), false, false)]),
+    ]);
+    assert_eq!(loaded.effects, other.state.playlist.effects.racks());
+    assert!((other.level(Some(1)) - heard).abs() < 1e-6);
+    assert!((heard - 0.2 * 0.25 * 0.75).abs() < 1e-6);
+    // the old project's effects went
+    assert_eq!(other.loader.alive.load(std::sync::atomic::Ordering::SeqCst), 3);
+    assert_eq!(capture(&other.state, Some(&dir)).effects, capture(&state, Some(&dir)).effects);
+
+    fs::remove_dir_all(dir).unwrap();
+  }
+
+  // a rig that already has an effect, which loading a project replaces
+  fn rig_with_an_effect() -> crate::effects::testing::Rig {
+    let rig = crate::effects::testing::rig();
+    rig.effects().add(crate::daw::Channel::Track(7), &crate::effects::testing::gain().id, None).unwrap();
+    rig
+  }
+
+  #[test]
+  fn test_missing_effects_are_kept_and_saved_as_they_were() {
+    use crate::effects::testing::*;
+    let dir = test_dir("missing-effects");
+    let file = dir.join("old.dawesome");
+    let absent = absent();
+    // an effect that isn't installed, one found by its saved path though
+    // the catalog doesn't know it, and one with damaged settings
+    let json = serde_json::json!({
+      "effects": [
+        { "track": 0, "slots": [
+          { "pluginId": absent.id, "name": "Absent", "vendor": "Fake Audio", "path": "/gone/Absent.vst3",
+            "bypassed": true, "state": base64::encode([1u8, 2, 3]) },
+          { "pluginId": "vst3:00000000000000000000000000000099", "name": "Elsewhere", "vendor": "Them",
+            "path": "/fake/Elsewhere.vst3", "state": base64::encode(0.5f32.to_le_bytes()) },
+        ] },
+        { "track": null, "slots": [
+          { "pluginId": gain().id, "name": "Gain", "vendor": "Fake Audio", "path": "/fake/Gain.vst3", "state": "!!" },
+        ] },
+      ],
+    });
+    fs::write(&file, json.to_string()).unwrap();
+
+    let mut rig = rig();
+    let loaded = load_from(&rig.state, &file).unwrap();
+    assert_eq!(rack_shape(&loaded.effects), vec![
+      (Some(0), vec![("Absent".into(), true, true), ("Elsewhere".into(), false, false)]),
+      (None, vec![("Gain".into(), false, true)]),
+    ]);
+    let names: Vec<(Option<u32>, String)> = loaded.missing_effects.iter().map(|m| (m.track, m.name.clone())).collect();
+    assert_eq!(names, vec![(Some(0), "Absent".to_string()), (None, "Gain".to_string())]);
+    assert_eq!(loaded.missing_effects[0].reason, "not installed");
+    assert_eq!(loaded.missing_effects[0].path, "/gone/Absent.vst3");
+    // only the one that loaded is heard
+    assert!((rig.level(Some(0)) - 0.1).abs() < 1e-6);
+    let wire = serde_json::to_value(&loaded).unwrap();
+    assert_eq!(wire["missingEffects"][0]["name"], "Absent");
+    assert_eq!(wire["effects"][0]["slots"][0]["missing"], true);
+
+    let again = dir.join("again.dawesome");
+    save_to(&rig.state, &again).unwrap();
+    let before = saved_json(file.to_str().unwrap()).effects;
+    let after = saved_json(again.to_str().unwrap()).effects;
+    assert_eq!(after[0].slots[0], before[0].slots[0]);
+    // (settings that can't be read at all aren't kept)
+    assert_eq!(after[1].slots[0], SavedEffect { state: String::new(), ..before[1].slots[0].clone() });
+    assert_eq!(loaded.missing_effects[1].reason, "its saved settings are damaged");
+    assert_eq!(after[0].slots[1].state, before[0].slots[1].state);
+
+    fs::remove_dir_all(dir).unwrap();
+  }
+
+  #[test]
+  fn test_projects_without_effects_load_with_none() {
+    let rig = rig_with_an_effect();
+    assert!(Project::from_json("{}").unwrap().effects.is_empty());
+    let loaded = apply(&rig.state, &Project::from_json(r#"{"tempo": 100}"#).unwrap(), None);
+    assert!(loaded.effects.is_empty());
+    assert!(rig.effects().racks().is_empty());
+    assert_eq!(rig.loader.alive.load(std::sync::atomic::Ordering::SeqCst), 0);
+    // and a project without effects is saved without them
+    let json = serde_json::to_value(capture(&rig.state, None)).unwrap();
+    assert!(json.get("effects").is_none());
+  }
+
+  #[test]
+  fn test_new_project_clears_the_effects() {
+    let rig = rig_with_an_effect();
+    let loaded = apply(&rig.state, &Project::default(), None);
+    assert!(loaded.effects.is_empty());
+    assert!(rig.effects().racks().is_empty());
+  }
+
+  #[test]
+  fn test_synths_and_note_patterns_saved_and_loaded() {
+    use crate::effects::testing::*;
+    use std::sync::atomic::Ordering::SeqCst;
+    let dir = test_dir("synths");
+    let file = dir.join("keys.dawesome");
+
+    let rig = rig();
+    let state = rig.state.clone();
+    let synth = crate::synth_commands::add(&state, &synth().id).unwrap().synth_id;
+    let quiet = crate::synth_commands::add(&state, &crate::effects::testing::synth().id).unwrap().synth_id;
+    rig.turn(synth, 0.3);
+    crate::synth_commands::set_volume(&state, synth, 0.5, None).unwrap();
+    crate::synth_commands::set_muted(&state, quiet, true).unwrap();
+    state.playlist.effects.keep_window_position(synth, crate::effects::WindowPosition { x: 5., y: 6. });
+    let pattern = state.playlist.sequencer.lock().unwrap().add_pattern(8, 4, daw::PatternKind::Note).unwrap();
+    let note = daw::PatternNote { pitch: 64, start: 2., length: 3., velocity: 0.5 };
+    crate::sequencer_commands::set_notes(&state, pattern, synth, vec![note], None).unwrap();
+    let folder = state.playlist.sequencer.lock().unwrap().add_folder("Keys", None, daw::PatternKind::Note).unwrap();
+    state.playlist.sequencer.lock().unwrap().move_pattern(pattern, Some(folder)).unwrap();
+    crate::sequencer_commands::add_pattern_clip_for_tests(&state, pattern, 3, Some(0.));
+    save_to(&state, &file).unwrap();
+
+    let json: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    let saved = &json["sequencer"]["synths"][0];
+    assert_eq!((saved["name"].as_str(), saved["volume"].as_f64(), saved["muted"].as_bool()), (Some("Synth"), Some(0.5), Some(false)));
+    assert_eq!(base64::decode(saved["state"].as_str().unwrap()).unwrap(), 0.3f32.to_le_bytes());
+    assert_eq!(saved["window"], serde_json::json!({ "x": 5., "y": 6. }));
+    assert_eq!(json["sequencer"]["synths"][1]["name"], "Synth 2");
+    assert_eq!(json["sequencer"]["patterns"][0]["kind"], "note");
+    assert_eq!(json["sequencer"]["folders"][0]["kind"], "note");
+
+    let mut other = rig_with_an_effect();
+    let loaded = load_from(&other.state, &file).unwrap();
+    assert!(loaded.missing_effects.is_empty() && loaded.dropped.is_empty());
+    let synths = &loaded.sequencer.synths;
+    assert_eq!(synths.iter().map(|s| (s.name.as_str(), s.volume, s.muted, s.missing)).collect::<Vec<_>>(),
+      vec![("Synth", 0.5, false, false), ("Synth 2", 1., true, false)]);
+    // with their notes (under the ids they have now)
+    let id = synths[0].id;
+    let made = loaded.sequencer.pattern(pattern).unwrap();
+    assert_eq!((made.kind, made.length, made.folder), (daw::PatternKind::Note, 128, Some(folder)));
+    assert_eq!(made.notes[&id], vec![note]);
+    assert!((other.gain_of(id) - 0.3).abs() < 1e-6);
+    assert_eq!(other.effects().window_position(id), Some(crate::effects::WindowPosition { x: 5., y: 6. }));
+    // the track's copy is there, playing the master copy's settings
+    assert_eq!(other.copy_gain(id, Some(3)), Some(0.3));
+    assert!((other.hear_notes(id, Some(3), &[(60, 0, 300)], 400)[100] - 0.3 * 0.5).abs() < 1e-6);
+    // (the old project's effect went: two masters and a copy)
+    assert_eq!(other.loader.alive.load(SeqCst), 3);
+
+    // saved again, the same
+    let again = dir.join("again.dawesome");
+    save_to(&other.state, &again).unwrap();
+    let mut first = saved_json(file.to_str().unwrap()).sequencer;
+    let mut second = saved_json(again.to_str().unwrap()).sequencer;
+    first.renumber_synths({ let mut n = 0; move || { n += 1; n } });
+    second.renumber_synths({ let mut n = 0; move || { n += 1; n } });
+    assert_eq!(first, second);
+
+    fs::remove_dir_all(dir).unwrap();
+  }
+
+  #[test]
+  fn test_a_missing_synth_keeps_its_notes_and_settings() {
+    use crate::effects::testing::*;
+    let gone = gone_synth();
+    let json = serde_json::json!({
+      "version": 2,
+      "sequencer": {
+        "rows": [],
+        "synths": [{ "id": 4, "pluginId": gone.id, "name": "Gone Synth", "vendor": "Fake Audio",
+          "path": "/gone/Synth.vst3", "volume": 0.75, "state": base64::encode([7u8, 8]) }],
+        "patterns": [{ "id": 0, "name": null, "kind": "note", "length": 16, "steps": {},
+          "notes": { "4": [{ "pitch": 60, "start": 0, "length": 1, "velocity": 1 }] } }],
+      },
+      "patternClips": [{ "patternId": 0, "trackNumber": 1, "startBeat": 0 }],
+    });
+    let rig = rig();
+    let loaded = apply(&rig.state, &Project::from_json(&json.to_string()).unwrap(), None);
+    assert_eq!(loaded.missing_effects.len(), 1);
+    assert_eq!((loaded.missing_effects[0].track, loaded.missing_effects[0].name.as_str()), (None, "Gone Synth"));
+    let synth = &loaded.sequencer.synths[0];
+    assert!(synth.missing && !synth.has_editor);
+    assert_eq!(loaded.sequencer.patterns[0].notes[&synth.id].len(), 1);
+    // silent: no copies
+    assert!(rig.effects().copy_ids().is_empty());
+
+    let saved = capture(&rig.state, None).sequencer;
+    assert_eq!(base64::decode(&saved.synths[0].state).unwrap(), vec![7u8, 8]);
+    assert_eq!((saved.synths[0].path.as_str(), saved.synths[0].volume), ("/gone/Synth.vst3", 0.75));
+    assert_eq!(saved.patterns[0].notes[&saved.synths[0].id].len(), 1);
+  }
+
+  #[test]
+  fn test_a_stage_one_project_loads_without_its_instruments_and_notes() {
+    use crate::effects::testing::*;
+    let json = serde_json::json!({
+      "version": 2,
+      "sequencer": {
+        "rows": [],
+        "patterns": [
+          { "id": 0, "name": null, "length": 16, "steps": {},
+            "notes": [{ "pitch": 60, "start": 0, "length": 1, "velocity": 1 }] },
+          { "id": 1, "name": null, "length": 16, "steps": {},
+            "notes": [{ "pitch": 62, "start": 0, "length": 1, "velocity": 1 }] },
+          { "id": 2, "name": null, "length": 16, "steps": {} },
+        ],
+      },
+      "effects": [
+        { "track": 0, "slots": [
+          { "pluginId": synth().id, "name": "Synth", "kind": "instrument", "path": "/fake/Synth.vst3" },
+          { "pluginId": gain().id, "name": "Gain", "path": "/fake/Gain.vst3" },
+        ] },
+      ],
+    });
+    let rig = rig();
+    let loaded = apply(&rig.state, &Project::from_json(&json.to_string()).unwrap(), None);
+    assert_eq!(loaded.dropped, vec![
+      "1 instrument in a mixer channel's effects was left out: instruments are synths in the Note Sequencer now".to_string(),
+      "The notes in 2 drum patterns were left out: notes are in note patterns now".to_string(),
+    ]);
+    assert_eq!(serde_json::to_value(&loaded).unwrap()["dropped"].as_array().unwrap().len(), 2);
+    assert_eq!(rack_shape(&loaded.effects), vec![(Some(0), vec![("Gain".into(), false, false)])]);
+    assert_eq!(loaded.sequencer.patterns.len(), 3);
+    assert!(loaded.sequencer.patterns.iter().all(|p| p.kind == daw::PatternKind::Drum && p.notes.is_empty()));
+    assert!(loaded.sequencer.synths.is_empty());
+    // nothing dropped: nothing said
+    assert!(Project::from_json(r#"{"tempo": 100}"#).unwrap().dropped.is_empty());
   }
 }

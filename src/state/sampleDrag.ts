@@ -1,29 +1,46 @@
-// dragging a sample from the sidebar into the playlist or the sequencer,
-// or a pattern from the Sequencer's pattern strip into the playlist
+// dragging a sample from the sidebar into the playlist or the Drum
+// Sequencer, a pattern from a sequencer's pattern strip into the playlist,
+// an effect onto a mixer channel, or an instrument into the Note Sequencer
 //
 // this uses plain mouse events instead of HTML drag and drop (react-dnd):
 // during an HTML drag the playlist canvas couldn't draw the clip following
 // the mouse, while mouse events keep p5's draw loop running as normal
 
 // the sidebar browsers that have folders
-export type FolderScope = 'recordings' | 'clips' | 'patterns'
+export type FolderScope = 'recordings' | 'clips' | 'patterns' | 'note-patterns'
 
 // what's being dragged. a folder only moves within its browser: it can't be
-// placed in the playlist or the Sequencer
+// placed in the playlist or a sequencer. an effect (from the sidebar) and a
+// slot (a row of the Effects Rack) go onto a mixer channel or the rack. an
+// instrument (from the sidebar) goes into the Note Sequencer, or onto a
+// track's mixer strip
 export type DragItem =
   | { kind: 'sample', path: string }
   | { kind: 'pattern', patternId: number, label: string }
   | { kind: 'folder', scope: FolderScope, key: string, label: string }
+  | { kind: 'effect', pluginId: string, label: string }
+  | { kind: 'instrument', pluginId: string, label: string }
+  | { kind: 'slot', slotId: number, label: string }
 
 // what can be dropped into the playlist (or, for samples, the Sequencer)
-export type PlaceableItem = Exclude<DragItem, { kind: 'folder' }>
+export type PlaceableItem = Extract<DragItem, { kind: 'sample' | 'pattern' }>
 
-export const isPlaceable = (item: DragItem): item is PlaceableItem => item.kind !== 'folder'
+export const isPlaceable = (item: DragItem): item is PlaceableItem =>
+  item.kind === 'sample' || item.kind === 'pattern'
+
+// what can be dropped on a mixer channel or into the Effects Rack
+export type EffectDragItem = Extract<DragItem, { kind: 'effect' | 'slot' }>
+
+export const isEffectItem = (item: DragItem): item is EffectDragItem =>
+  item.kind === 'effect' || item.kind === 'slot'
 
 // tells drags apart: the same key is the same thing being dragged
 export const dragItemKey = (item: DragItem): string => {
   if(item.kind === 'sample') return `sample:${item.path}`
   if(item.kind === 'pattern') return `pattern:${item.patternId}`
+  if(item.kind === 'effect') return `effect:${item.pluginId}`
+  if(item.kind === 'instrument') return `instrument:${item.pluginId}`
+  if(item.kind === 'slot') return `slot:${item.slotId}`
   return `folder:${item.scope}:${item.key}`
 }
 

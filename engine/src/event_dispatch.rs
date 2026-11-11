@@ -267,15 +267,14 @@ pub fn set_playlist_time_signature(
 
 // (async: off the main thread, as listing a folder can take a while)
 #[tauri::command(async)]
-pub fn get_sidebar_samples() -> Result<(
-  Vec<String>, 
-  Vec<String>, 
-  Vec<String>, 
+pub fn get_sidebar_samples(app: tauri::AppHandle) -> Result<(
+  Vec<String>,
+  Vec<String>,
+  Vec<String>,
   Vec<String>
 ), String> {
-  let (samples, samples_paths, dirs, dirs_paths) = 
-    app::env::get_sample_browser_root();
-  Ok((samples, samples_paths, dirs, dirs_paths))
+  let root = app::env::sample_browser_root(&app)?;
+  app::env::get_sample_browser_root(&root)
 }
 
 #[tauri::command(async)]

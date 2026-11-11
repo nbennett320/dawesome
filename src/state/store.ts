@@ -8,6 +8,7 @@ import sequencerReducer from './slices/sequencerSlice'
 import recordingReducer from './slices/recordingSlice'
 import mixdownReducer from './slices/mixdownSlice'
 import appearanceReducer from './slices/appearanceSlice'
+import effectsReducer from './slices/effectsSlice'
 
 export const store = configureStore({
   reducer: {
@@ -20,6 +21,7 @@ export const store = configureStore({
     recording: recordingReducer,
     mixdown: mixdownReducer,
     appearance: appearanceReducer,
+    effects: effectsReducer,
   },
 })
 

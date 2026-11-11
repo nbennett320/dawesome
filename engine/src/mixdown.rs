@@ -9,6 +9,18 @@
 // it renders a copy of the song, taken when it starts, with a mixer of its
 // own: the song can be played and changed meanwhile, and the faders moved,
 // without any of it reaching the render, or the render reaching the meters
+//
+// the effects and synths too: every effect that's switched on gets a second
+// instance of its plugin for the mixdown, and every synth one for each track
+// that plays it, loaded at the mixdown's rate with the live one's settings
+// copied over (a synth's master copy's), so playback carries on with the
+// live ones. one that can't be loaded again fails the mixdown rather
+// than being left out. the second instances are torn down (on the main
+// thread) when the render's done. pattern clips' notes are sent to them a
+// beat at a time, as playback sends them. a plugin loaded just now is given
+// time to set itself up before its settings are copied, and the copies are
+// given that time too, played silence, before the render starts (see SETTLE
+// in effects.rs)
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -25,6 +37,9 @@ const QUIET: f32 = 3.162_278e-5; // -90 dBFS
 const QUIET_FOR: Duration = Duration::from_millis(250);
 const TAIL_MAX: Duration = Duration::from_secs(10);
 const TAIL_FADE: Duration = Duration::from_millis(10);
+// the plugins' copies are played silence a step at a time, about as fast as
+// they're heard, while they set themselves up (see SETTLE in effects.rs)
+const SETTLE_STEP: Duration = Duration::from_millis(10);
 
 pub const NOTHING_TO_MIX: &str = "There's nothing in the playlist to mix down";
 pub const CANCELLED: &str = "Mixdown cancelled";
@@ -34,6 +49,10 @@ pub struct Snapshot {
   graph: daw::AudioGraph<'static>,
   // where the last clip ends
   end: Duration,
+  // for the effects' transport
+  time_signature: daw::TimeSignature,
+  // second instances of the effects, for the render's own engine
+  effects: crate::effects::MixdownEffects,
 }
 
 impl Snapshot {
@@ -42,9 +61,11 @@ impl Snapshot {
   }
 }
 
-// copy the song: its clips, patterns and mixer. the locks are held only
-// while copying (the graph's, then the sequencer's: always in that order)
-pub fn snapshot(state: &daw::InnerState) -> Result<Snapshot, String> {
+// copy the song: its clips, patterns, mixer and effects, for a render at
+// `rate`. the locks are held only while copying (the graph's, then the
+// sequencer's: always in that order), and not while the effects are loaded
+pub fn snapshot(state: &daw::InnerState, rate: u32) -> Result<Snapshot, String> {
+  let time_signature = *state.playlist.time_signature.lock().unwrap();
   let graph = {
     let live = state.playlist.audiograph.lock().unwrap();
     let mut graph = daw::AudioGraph::new(live.sample_rate(), live.tempo(), live.max_beats());
@@ -60,7 +81,11 @@ pub fn snapshot(state: &daw::InnerState) -> Result<Snapshot, String> {
 
   let end = graph.end();
   if end.is_zero() { return Err(NOTHING_TO_MIX.into()); }
-  Ok(Snapshot { graph, end })
+  // (the live copies in step too, though the mixdown's take the master
+  // copies' settings)
+  state.playlist.effects.push_synth_states(true);
+  let effects = state.playlist.effects.mixdown_chains(rate, &graph.synth_tracks())?;
+  Ok(Snapshot { graph, end, time_signature, effects })
 }
 
 // how far a render has got, readable from another thread while it works
@@ -86,7 +111,7 @@ impl Progress {
   }
 }
 
-// render the song at `rate`, handing the mix to `sink` a chunk at a time,
+// render the song at `rate` (the one it was snapshot for), handing the mix to `sink` a chunk at a time,
 // stereo and interleaved. from the playlist's start to the last clip's end,
 // and the tail after it. stops with CANCELLED when `cancel` is set, or with
 // the sink's error. returns how many frames it rendered
@@ -100,14 +125,36 @@ pub fn render(
   progress: &Progress,
   cancel: &AtomicBool,
 ) -> Result<u64, String> {
-  let Snapshot { mut graph, end } = snapshot;
+  // (declared first, so the plugins go after the engine that runs them)
+  let Snapshot { mut graph, end, time_signature, effects } = snapshot;
+  let crate::effects::MixdownEffects { chains, copies, plugins: _plugins, settle } = effects;
   let beat = graph.beat_interval();
   if beat.is_zero() { return Err("the tempo is zero".into()); }
 
   let (engine, mut renderer) = daw::Engine::new(rate);
+  for (channel, slots) in chains {
+    match channel {
+      daw::Channel::Track(n) => engine.set_track_chain(&graph.mixer.track_route(n), slots)?,
+      daw::Channel::Master => engine.set_master_chain(slots)?,
+    }
+  }
   let end_frame = engine.frames_in(end);
   progress.total.store(end_frame, Ordering::Relaxed);
   progress.done.store(0, Ordering::Relaxed);
+
+  // the copies have only just been loaded, and some can't play yet: they
+  // finish setting up on the main run loop, some only once they've been
+  // played. so they're played silence for a while first, before the run
+  // starts (its frames are counted from its start), and what they make of
+  // it is thrown away
+  let settling = std::time::Instant::now();
+  let mut silence = vec![0f32; engine.frames_in(SETTLE_STEP) as usize * 2];
+  while settling.elapsed() < settle {
+    if cancel.load(Ordering::Relaxed) { return Err(CANCELLED.into()); }
+    silence.fill(0.);
+    renderer.render(&mut silence, std::time::Instant::now(), Duration::ZERO);
+    std::thread::sleep(SETTLE_STEP);
+  }
 
   let mut out = vec![0f32; CHUNK * 2];
   let mut frame = 0u64;
@@ -136,11 +183,22 @@ pub fn render(
       .into_iter()
       .map(|(delay, source, route)| engine.boxed_voice(source, Some(RUN), engine.frames_in(at + delay), route))
       .collect();
+    // (a mixdown plays the song once through: no loop to cut notes at)
+    let notes = graph.run_notes(beat, None);
     if at.is_zero() {
-      engine.start_run(RUN, graph.mixer.master(), voices)?;
+      // the mix starts at the song's start
+      let start = daw::RunStart {
+        tempo: graph.tempo() as f64,
+        beats_per_bar: time_signature.numerator,
+        beat_unit: time_signature.denominator,
+        origin: 0,
+      };
+      engine.start_run_at(RUN, graph.mixer.master(), start, voices)?;
     } else {
       engine.play(voices)?;
     }
+    daw::play_slice_notes(&engine, RUN, at, notes, &copies)?;
+
     at += beat;
     render_to(engine.frames_in(at.min(end)), &mut frame, sink)?;
   }
@@ -192,7 +250,7 @@ mod tests {
 
   fn mixdown(state: &daw::InnerState, rate: u32) -> Vec<f32> {
     let mut samples = Vec::new();
-    render(snapshot(state).unwrap(), rate, &mut |chunk| { samples.extend_from_slice(chunk); Ok(()) },
+    render(snapshot(state, rate).unwrap(), rate, &mut |chunk| { samples.extend_from_slice(chunk); Ok(()) },
       &Progress::default(), &AtomicBool::new(false)).unwrap();
     samples
   }
@@ -234,7 +292,7 @@ mod tests {
       let mut sequencer = state.playlist.sequencer.lock().unwrap();
       let kick = sequencer.add_row(KICK).unwrap();
       let long = sequencer.add_row(LONG).unwrap();
-      let pattern = sequencer.add_pattern(1, 4).unwrap();
+      let pattern = sequencer.add_pattern(1, 4, daw::PatternKind::Drum).unwrap();
       for (row, step) in [(kick, 0), (kick, 6), (long, 15)] {
         sequencer.set_step(pattern, row, step, true).unwrap();
       }
@@ -320,7 +378,7 @@ mod tests {
     let state = daw::InnerState::default();
     // a pattern whose last hit, the long sample, rings well past its end
     pattern_clip(&state, 0, Duration::ZERO);
-    let snap = snapshot(&state).unwrap();
+    let snap = snapshot(&state, 48_000).unwrap();
     let end = daw::run_frame(snap.end().as_nanos() as i128, 48_000) as usize;
     let mixed = mixdown(&state, 48_000);
     let frames = mixed.len() / 2;
@@ -331,14 +389,14 @@ mod tests {
     // a clip that ends in silence ends at its end
     let state = daw::InnerState::default();
     add_clip(&state, KICK.into(), 0, Some(0.)).unwrap();
-    let end = daw::run_frame(snapshot(&state).unwrap().end().as_nanos() as i128, 48_000) as usize;
+    let end = daw::run_frame(snapshot(&state, 48_000).unwrap().end().as_nanos() as i128, 48_000) as usize;
     assert!(mixdown(&state, 48_000).len() / 2 <= end + 1);
   }
 
   #[test]
   fn test_an_empty_playlist_is_refused() {
     let state = daw::InnerState::default();
-    assert_eq!(snapshot(&state).err().unwrap(), NOTHING_TO_MIX);
+    assert_eq!(snapshot(&state, 48_000).err().unwrap(), NOTHING_TO_MIX);
   }
 
   #[test]
@@ -348,7 +406,7 @@ mod tests {
     let before = mixdown(&state, 48_000);
     state.playlist.mixer.take_levels();
 
-    let snap = snapshot(&state).unwrap();
+    let snap = snapshot(&state, 48_000).unwrap();
     state.playlist.mixer.set_mute(0, true);
     state.playlist.audiograph.lock().unwrap().set_tempo(60.);
     let mut samples = Vec::new();
@@ -370,7 +428,7 @@ mod tests {
     let progress = Progress::default();
     let cancel = AtomicBool::new(false);
     let mut chunks = 0;
-    let result = render(snapshot(&state).unwrap(), 48_000, &mut |_| {
+    let result = render(snapshot(&state, 48_000).unwrap(), 48_000, &mut |_| {
       chunks += 1;
       if chunks == 3 { cancel.store(true, Ordering::Relaxed); }
       Ok(())
@@ -379,7 +437,7 @@ mod tests {
     assert!(progress.fraction() > 0. && progress.fraction() < 1.);
 
     let progress = Progress::default();
-    render(snapshot(&state).unwrap(), 48_000, &mut |_| Ok(()), &progress, &AtomicBool::new(false)).unwrap();
+    render(snapshot(&state, 48_000).unwrap(), 48_000, &mut |_| Ok(()), &progress, &AtomicBool::new(false)).unwrap();
     assert_eq!(progress.fraction(), 1.);
   }
 
@@ -402,5 +460,252 @@ mod tests {
     // each kick is heard where it starts: the mix jumps there
     let silent = starts.iter().filter(|&&at| peak(&mixed[at * 2..(at + 100) * 2]) < 0.01).count();
     assert_eq!(silent, 0);
+  }
+
+  #[test]
+  fn test_effects_are_mixed_down_through_second_instances() {
+    use crate::daw::Channel;
+    use crate::effects::testing::*;
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let rig = rig();
+    let state = &rig.state;
+    add_clip(state, KICK.into(), 0, Some(0.)).unwrap();
+    add_clip(state, LONG.into(), 1, Some(0.5)).unwrap();
+    // under the limiter's knee, so the gains multiply exactly
+    state.playlist.mixer.set_master_volume_db(-12.);
+    let dry = mixdown(state, 48_000);
+
+    let effects = &state.playlist.effects;
+    let a = effects.add(Channel::Track(0), &gain().id, None).unwrap();
+    let m = effects.add(Channel::Master, &gain().id, None).unwrap();
+    let off = effects.add(Channel::Track(1), &gain().id, None).unwrap();
+    rig.turn(a, 0.25);
+    effects.set_bypassed(off, true).unwrap();
+    let loads = rig.loader.loads.load(SeqCst);
+    let wet = mixdown(state, 48_000);
+
+    // the bypassed one isn't loaded again; the others are, and are gone after
+    assert_eq!(rig.loader.loads.load(SeqCst), loads + 2);
+    assert_eq!(rig.loader.alive.load(SeqCst), 3);
+    assert_eq!(rig.loader.rates.lock().unwrap()[loads..], [48_000, 48_000]);
+    // the live ones are as they were
+    assert!((rig.gain_of(a) - 0.25).abs() < 1e-9 && (rig.gain_of(m) - START_GAIN).abs() < 1e-9);
+
+    // the kick through both, the long sample through the master's only
+    let kick_only = {
+      let state = daw::InnerState::default();
+      add_clip(&state, KICK.into(), 0, Some(0.)).unwrap();
+      state.playlist.mixer.set_master_volume_db(-12.);
+      mixdown(&state, 48_000)
+    };
+    let n = dry.len().min(wet.len()).min(kick_only.len());
+    let expected: Vec<f32> = (0..n).map(|i| {
+      let long = dry[i] - kick_only[i];
+      (kick_only[i] * 0.25 + long) * START_GAIN
+    }).collect();
+    assert!(peak(&wet[..n]) > 0.01);
+    let off_by = worst(&wet[..n], &expected);
+    assert!(off_by < 1e-5, "off by {}", off_by);
+  }
+
+  // the frames that sound (left side of interleaved stereo), as runs of (from, to)
+  fn sounding(samples: &[f32]) -> Vec<(usize, usize)> {
+    let mut runs: Vec<(usize, usize)> = Vec::new();
+    for (i, pair) in samples.chunks(2).enumerate() {
+      if pair[0] == 0. { continue; }
+      match runs.last_mut() {
+        Some(run) if run.1 == i => run.1 = i + 1,
+        _ => runs.push((i, i + 1)),
+      }
+    }
+    runs
+  }
+
+  // a rig with the fake synth (its master copy playing at 0.25), and a one
+  // bar note pattern of two notes for it: one from step 3 to 6, one from 14
+  // to the end. (rig, synth, pattern)
+  fn synth_and_notes() -> (crate::effects::testing::Rig, u64, u64) {
+    use crate::effects::testing::*;
+    let rig = rig();
+    let synth = crate::synth_commands::add(&rig.state, &synth().id).unwrap().synth_id;
+    rig.turn(synth, 0.25);
+    let pattern = {
+      let mut sequencer = rig.state.playlist.sequencer.lock().unwrap();
+      let pattern = sequencer.add_pattern(1, 4, daw::PatternKind::Note).unwrap();
+      let note = |pitch, start, length| daw::PatternNote { pitch, start, length, velocity: 1. };
+      sequencer.set_pattern_notes(pattern, synth, vec![note(62, 14., 4.), note(60, 3., 3.)]).unwrap();
+      pattern
+    };
+    (rig, synth, pattern)
+  }
+
+  // a clip of a pattern on a track, at `at`, with the synths following it
+  fn note_clip(state: &daw::InnerState, pattern: u64, track: u32, at: Duration) -> u64 {
+    let clip = state.playlist.audiograph.lock().unwrap()
+      .add_pattern_node::<daw::timing::Note>(pattern, at, track, None).unwrap();
+    crate::synth_commands::follow(state);
+    clip
+  }
+
+  // the playlist as the scheduler plays it, a beat at a time, from `from`,
+  // `total` long, on the rig's engine (whose chains are the live plugins)
+  fn play_on_rig(rig: &mut crate::effects::testing::Rig, run: u64, from: Duration, total: Duration) -> Vec<f32> {
+    let engine = rig.engine.clone();
+    let rate = engine.sample_rate();
+    let copies = rig.effects().copy_ids();
+    {
+      let mut graph = rig.state.playlist.audiograph.lock().unwrap();
+      let beat = graph.beat_interval();
+      graph.init();
+      engine.start_run(run, graph.mixer.master(), vec![]).unwrap();
+      let mut at = Duration::ZERO;
+      while at < total {
+        graph.set_current_offset(Some(from + at));
+        let voices = graph.run_sounds_at(at, rate, beat, false, at.is_zero()).into_iter()
+          .map(|(delay, source, route)| engine.boxed_voice(source, Some(run), engine.frames_in(at + delay), route))
+          .collect();
+        engine.play(voices).unwrap();
+        daw::play_slice_notes(&engine, run, at, graph.run_notes(beat, None), &copies).unwrap();
+        at += beat;
+      }
+      graph.pause();
+    }
+    let mut out = vec![0f32; engine.frames_in(total) as usize * 2];
+    rig.renderer.render(&mut out, Instant::now(), Duration::ZERO);
+    out
+  }
+
+  #[test]
+  fn test_a_pattern_clips_notes_play_on_its_tracks_copy_and_are_mixed_down() {
+    let (mut rig, _, pattern) = synth_and_notes();
+    let state = rig.state.clone();
+    // on beat 1 (half a second in at 120 bpm), cut at step 15. a step is
+    // 6000 frames at 48kHz
+    let clip = note_clip(&state, pattern, 2, Duration::from_millis(500));
+    state.playlist.audiograph.lock().unwrap().set_pattern_window(clip, 0., Some(15.)).unwrap();
+
+    // the first crosses a beat (a slice), the second is cut at the clip's end
+    let expected = vec![(24_000 + 18_000, 24_000 + 36_000), (24_000 + 84_000, 24_000 + 90_000)];
+    let played = play_on_rig(&mut rig, 100, Duration::ZERO, Duration::from_secs(3));
+    assert_eq!(sounding(&played), expected);
+    assert_eq!(played[(24_000 + 20_000) * 2], 0.25);
+
+    // from the middle of the first: it isn't started late, and nothing is
+    // left hanging
+    let played = play_on_rig(&mut rig, 101, Duration::from_secs(1), Duration::from_secs(2));
+    assert_eq!(sounding(&played), vec![(108_000 - 48_000, 114_000 - 48_000)]);
+
+    // the mixdown hears the same, through a second instance of the synth
+    let mixed = mixdown(&state, 48_000);
+    assert_eq!(sounding(&mixed), expected);
+    // and on another track, through a copy made for that track
+    state.playlist.audiograph.lock().unwrap().pattern_nodes[0].track_number = 3;
+    assert_eq!(sounding(&mixdown(&state, 48_000)), expected);
+  }
+
+  #[test]
+  fn test_a_synth_on_two_tracks_is_mixed_down_through_each_tracks_fader() {
+    let (rig, synth, pattern) = synth_and_notes();
+    let state = rig.state.clone();
+    // the other track's clip plays other notes: from step 8 to 10
+    let other = {
+      let mut sequencer = state.playlist.sequencer.lock().unwrap();
+      let other = sequencer.add_pattern(1, 4, daw::PatternKind::Note).unwrap();
+      sequencer.set_pattern_notes(other, synth, vec![daw::PatternNote { pitch: 70, start: 8., length: 2., velocity: 1. }]).unwrap();
+      other
+    };
+    note_clip(&state, pattern, 1, Duration::ZERO);
+    note_clip(&state, other, 3, Duration::ZERO);
+    state.playlist.mixer.set_volume_db(3, -6.);
+
+    let mixed = mixdown(&state, 48_000);
+    assert_eq!(sounding(&mixed), vec![(18_000, 36_000), (48_000, 60_000), (84_000, 96_000)]);
+    let ratio = mixed[50_000 * 2] / mixed[20_000 * 2];
+    assert!((ratio - 0.501).abs() < 0.01, "{}", ratio);
+    // a copy each, and the master's: none of them the live ones
+    assert_eq!(rig.loader.alive.load(std::sync::atomic::Ordering::SeqCst), 3);
+
+    // muted, it isn't heard on either; quieter, on both
+    crate::synth_commands::set_muted(&state, synth, true).unwrap();
+    assert!(sounding(&mixdown(&state, 48_000)).is_empty());
+    crate::synth_commands::set_muted(&state, synth, false).unwrap();
+    crate::synth_commands::set_volume(&state, synth, 0.5, None).unwrap();
+    let quieter = mixdown(&state, 48_000);
+    assert!((quieter[20_000 * 2] - mixed[20_000 * 2] * 0.5).abs() < 1e-6);
+    assert!((quieter[50_000 * 2] - mixed[50_000 * 2] * 0.5).abs() < 1e-6);
+  }
+
+  #[test]
+  fn test_a_synth_added_just_now_is_mixed_down_once_it_has_set_itself_up() {
+    use crate::effects::testing::*;
+    // synths that set themselves up a moment after they're loaded, as a
+    // sampler loads its sounds: until then they're silent and their settings
+    // say they're empty, and a copy given those stays empty
+    let rig = rig();
+    let settle = Duration::from_millis(150);
+    *rig.loader.settles_in.lock().unwrap() = settle;
+    let state = rig.state.clone();
+    let note = |pitch, start, length| daw::PatternNote { pitch, start, length, velocity: 1. };
+    let pattern = state.playlist.sequencer.lock().unwrap().add_pattern(1, 4, daw::PatternKind::Note).unwrap();
+    note_clip(&state, pattern, 2, Duration::ZERO);
+
+    // mixed down as soon as it's added, without waiting for it: silent
+    let first = crate::synth_commands::add(&state, &synth().id).unwrap().synth_id;
+    crate::sequencer_commands::set_notes(&state, pattern, first, vec![note(60, 3., 3.), note(62, 14., 4.)], None).unwrap();
+    assert!(sounding(&mixdown(&state, 48_000)).is_empty());
+
+    // with the wait, the same, straight after another is added in its place:
+    // the notes are there, from the song's start
+    rig.effects().use_settle(settle);
+    crate::synth_commands::remove(&state, first).unwrap();
+    let second = crate::synth_commands::add(&state, &synth().id).unwrap().synth_id;
+    crate::sequencer_commands::set_notes(&state, pattern, second, vec![note(60, 3., 3.), note(62, 14., 4.)], None).unwrap();
+    let mixed = mixdown(&state, 48_000);
+    assert_eq!(sounding(&mixed), vec![(18_000, 36_000), (84_000, 96_000)]);
+    assert_eq!(mixed[20_000 * 2], START_GAIN);
+  }
+
+  #[test]
+  fn test_a_note_pattern_on_its_own_plays_on_the_master_copies() {
+    let (mut rig, _, pattern) = synth_and_notes();
+    let engine = rig.engine.clone();
+    // a clip on a track too: its copy doesn't play the pattern on its own
+    note_clip(&rig.state, pattern, 2, Duration::from_secs(60));
+    let copies = rig.effects().copy_ids();
+    assert_eq!(copies.len(), 2);
+    // two times round, as the scheduler loops it: back to its start each bar
+    {
+      let mut graph = rig.state.playlist.audiograph.lock().unwrap();
+      let beat = graph.beat_interval();
+      let bar = beat * 4;
+      engine.start_run(200, graph.mixer.master(), vec![]).unwrap();
+      let mut at = Duration::ZERO;
+      while at < bar * 2 {
+        graph.set_current_offset(Some(if at >= bar { at - bar } else { at }));
+        let notes = graph.pattern_notes(pattern, beat);
+        assert!(notes.iter().all(|n| n.route.is_none()));
+        daw::play_slice_notes(&engine, 200, at, notes, &copies).unwrap();
+        at += beat;
+      }
+    }
+    // (the track's strip is muted: what's heard is the master copy's)
+    rig.state.playlist.mixer.set_mute(2, true);
+    let mut heard = vec![0f32; 4 * 48_000 * 2];
+    rig.renderer.render(&mut heard, Instant::now(), Duration::ZERO);
+    assert_eq!(sounding(&heard), vec![(18_000, 36_000), (84_000, 96_000), (114_000, 132_000), (180_000, 192_000)]);
+  }
+
+  #[test]
+  fn test_a_mixdown_fails_if_an_effect_cant_be_loaded_again() {
+
+    use crate::daw::Channel;
+    use crate::effects::testing::*;
+    let rig = rig();
+    add_clip(&rig.state, KICK.into(), 0, Some(0.)).unwrap();
+    rig.state.playlist.effects.add(Channel::Track(0), &gain().id, None).unwrap();
+    rig.loader.broken.store(true, std::sync::atomic::Ordering::SeqCst);
+    let err = snapshot(&rig.state, 48_000).err().unwrap();
+    assert!(err.starts_with("Gain couldn't be loaded for the mixdown"), "{}", err);
   }
 }

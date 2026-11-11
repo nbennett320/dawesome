@@ -22,12 +22,32 @@ import {
   selectRecording,
   setTrackArmed,
 } from '../../state/slices/recordingSlice'
+import {
+  fetchEffects, selectChannelActive, selectChannelCount, showRack,
+} from '../../state/slices/effectsSlice'
+import { ChannelId, channelKey } from '../../types/effects'
 import ChannelStrip from './ChannelStrip'
+import { useChannelDrop } from './useChannelDrop'
 import { AnalogButton, Led } from '../../components/fourtrack'
 import { MASTER_METER_KEY, RegisterMeter, trackMeterKey, useMixerMeters } from './useMixerMeters'
 
-const TrackStrip = ({ trackNumber, register }: { trackNumber: number, register: RegisterMeter }) => {
+// a channel's effects, for its strip's FX jack
+const useFx = (channel: ChannelId) => {
   const dispatch = useAppDispatch()
+  const count = useAppSelector(selectChannelCount(channel))
+  const lit = useAppSelector(selectChannelActive(channel))
+
+  return { count, lit, onOpen: () => dispatch(showRack(channel)) }
+}
+
+const TrackStrip = ({ trackNumber, register, dropping }: {
+  trackNumber: number
+  register: RegisterMeter
+  // an effect or instrument dragged over it would go on it
+  dropping: boolean
+}) => {
+  const dispatch = useAppDispatch()
+  const fx = useFx(trackNumber)
   const mix = useAppSelector(selectTrackMix(trackNumber))
   const name = useAppSelector(selectTrackName(trackNumber))
   const anySolo = useAppSelector(selectAnySolo)
@@ -58,6 +78,9 @@ const TrackStrip = ({ trackNumber, register }: { trackNumber: number, register: 
         },
       }}
       silenced={anySolo && !mix.solo && !mix.mute}
+      fx={fx}
+      dropKey={channelKey(trackNumber)}
+      dropping={dropping}
     />
   )
 }
@@ -104,6 +127,10 @@ const Mixer = () => {
   const playing = useAppSelector(selectPlaylistPlaying)
   const master = useAppSelector(selectMasterMix)
   const { register, clipped, clearClip } = useMixerMeters(playing)
+  const masterFx = useFx('master')
+  // effects and instruments dragged onto the strips
+  const boxRef = React.useRef<HTMLDivElement>(null)
+  const dropTarget = useChannelDrop(boxRef)
 
   // the engine owns the mixer. catch up with it when the tab opens and when
   // the playlist gains tracks
@@ -117,21 +144,31 @@ const Mixer = () => {
       // eslint-disable-next-line no-console
       console.error('could not read the recording setup:', e)
     })
+    // and each channel's effects
+    dispatch(fetchEffects()).catch(e => {
+      // eslint-disable-next-line no-console
+      console.error('could not read the effects:', e)
+    })
   }, [dispatch, trackCount])
 
   const tracks = Array.from({ length: trackCount }, (_, i) => i)
 
   return (
-    <div className='ft-panel h-full w-full flex flex-row text-sm select-none overflow-y-auto'>
+    <div ref={boxRef} className='ft-panel h-full w-full flex flex-row text-sm select-none overflow-y-auto'>
       <div className='flex-1 min-w-0 overflow-x-auto'>
-        <div className='ft-tray rounded-lg m-2 h-[calc(100%-1rem)] flex flex-row gap-0.5 p-0.5 w-max' style={{ minHeight: 320 }}>
+        <div className='ft-tray rounded-lg m-2 h-[calc(100%-1rem)] flex flex-row gap-0.5 p-0.5 w-max' style={{ minHeight: 348 }}>
           {tracks.map(trackNumber => (
-            <TrackStrip key={trackNumber} trackNumber={trackNumber} register={register} />
+            <TrackStrip
+              key={trackNumber}
+              trackNumber={trackNumber}
+              register={register}
+              dropping={dropTarget === trackNumber}
+            />
           ))}
         </div>
       </div>
 
-      <div className='shrink-0 py-2 pr-2' style={{ minHeight: 336 }}>
+      <div className='shrink-0 py-2 pr-2' style={{ minHeight: 364 }}>
         <div className='ft-tray rounded-lg h-full p-0.5'>
         <ChannelStrip
           label='Master'
@@ -140,6 +177,9 @@ const Mixer = () => {
           onVolume={db => dispatch(setMasterVolume(db))}
           meterKey={MASTER_METER_KEY}
           register={register}
+          fx={masterFx}
+          dropKey={channelKey('master')}
+          dropping={dropTarget === 'master'}
           header={(
             <button
               type='button'

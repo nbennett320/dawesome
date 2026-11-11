@@ -5,6 +5,7 @@ import { isTextTarget } from '../util/keys'
 import { editShortcut, editShortcutHandler } from '../util/shortcuts'
 import { travel } from './history'
 import { runClipCommandFromMenu } from './clipCommands'
+import { runNoteSelectAllFromMenu } from './noteCommands'
 
 // the Edit menu and its shortcuts, wherever in the window the keyboard is.
 // a shortcut reaches here from the menu, from the key press itself, or both
@@ -32,7 +33,11 @@ export const useEditCommands = () => {
           break
         case 'select-all':
           if(typing) document.execCommand('selectAll')
-          else runClipCommandFromMenu('select-all')
+          else {
+            // whichever of the Playlist and the Piano Roll is focused
+            runClipCommandFromMenu('select-all')
+            runNoteSelectAllFromMenu()
+          }
           break
         default:
       }

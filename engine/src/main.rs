@@ -23,6 +23,13 @@ mod mixdown;
 mod mixdown_file;
 mod mixdown_commands;
 mod bind_functions;
+mod plugin;
+mod plugin_catalog;
+mod main_thread;
+mod effects;
+mod effect_commands;
+mod effect_windows;
+mod synth_commands;
 
 use std::env;
 use std::sync::{Arc, Mutex};
@@ -81,6 +88,9 @@ fn init_tauri() {
   use mixdown_commands::*;
   use appearance_commands::{themes, preferences, set_preferences, set_window_background};
   use history_commands::{undo, redo};
+  use effect_commands::*;
+  use effect_windows::*;
+  use synth_commands::*;
 
   // read before the menu is built, which lists them
   let recent_projects = recent::RecentProjects::load();
@@ -93,11 +103,31 @@ fn init_tauri() {
     }
   });
 
+  let state = Arc::new(daw::InnerState::default());
+
+  // the plugins found last time, then a look for new or changed ones in the
+  // background
+  let plugins = state.playlist.effects.plugins.clone();
+  if let Some(file) = plugin_catalog::default_file() {
+    plugins.open(&file);
+  }
+  plugins.scan(false);
+
+  let racks = state.playlist.effects.clone();
+  let following = state.clone();
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
-    .setup(app::window::setup)
-    .manage(Arc::new(daw::InnerState::default()))
+    .setup(move |app| {
+      // (setup runs on the main thread, which plugins are called on)
+      main_thread::init(app.handle().clone());
+      effects::keep_idling(racks.clone());
+      effects::follow_output(&racks);
+      effect_windows::init(&racks);
+      synth_commands::keep_following(following.clone());
+      app::window::setup(app)
+    })
+    .manage(state)
     .manage(recent_projects)
     .manage(preferences::AppPreferences::load())
     .manage(Arc::new(mixdown_commands::Mixdowns::default()))
@@ -218,7 +248,28 @@ fn init_tauri() {
       start_mixdown,
       mixdown_status,
       cancel_mixdown,
-      reveal_file
+      reveal_file,
+      open_effect_window,
+      close_effect_window,
+      dock_effect,
+      move_docked_effect,
+      resize_docked_effect,
+      undock_effect,
+      get_plugins,
+      scan_plugins,
+      get_effects,
+      add_effect,
+      remove_effect,
+      move_effect,
+      set_effect_bypassed,
+      set_pattern_notes,
+      add_synth,
+      remove_synth,
+      set_synth_volume,
+      set_synth_muted,
+      add_synth_on_track,
+      play_note,
+      stop_note
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
@@ -227,9 +278,16 @@ fn init_tauri() {
 /**
  * args: 
  *   -d | --debug => debug mode
+ *   --scan-plugin <path> => scan one plugin bundle and print what's in it
  */
 fn main() {
   let args: Vec<String> = env::args().skip(1).collect();
+
+  // `--scan-plugin <path>`: this is a child process scanning one plugin
+  // bundle (see plugin::scan), so nothing else starts
+  if let Some(code) = plugin::scan::scanner_main(&args) {
+    std::process::exit(code)
+  }
 
   if args.is_empty() {
     init_tauri();

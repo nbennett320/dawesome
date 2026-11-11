@@ -23,6 +23,9 @@ export const menuViews: Record<string, View> = {
   mixer: View.Mixer,
   transport: View.Transport,
   sequencer: View.Sequencer,
+  'note-sequencer': View.NoteSequencer,
+  'effects-rack': View.EffectsRack,
+  'piano-roll': View.PianoRoll,
   // Preferences › Audio Settings…
   audio: View.AudioSettings,
   // File › Mixdown…
