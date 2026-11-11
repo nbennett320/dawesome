@@ -11,6 +11,8 @@ import {
   setPatternBars,
 } from '../../state/slices/sequencerSlice'
 import { selectPlaylistItems } from '../../state/slices/playlistSlice'
+import { openTab } from '../../state/slices/windowSlice'
+import { View } from '../../types/ui'
 import { beginSampleDrag } from '../../state/sampleDrag'
 import { BAR_CHOICES, Pattern, patternBars, patternLabel } from '../../types/sequencer'
 import { AnalogButton, Led } from '../../components/fourtrack'
@@ -170,6 +172,14 @@ const PatternStrip = ({ beatsPerBar, playingId }: { beatsPerBar: number, playing
           </div>
 
           <div className='flex flex-row gap-1 ml-auto'>
+            <AnalogButton
+              variant='text'
+              size='sm'
+              title='Edit this pattern’s notes in the Piano Roll'
+              onPress={() => dispatch(openTab(View.PianoRoll))}
+            >
+              Piano roll
+            </AnalogButton>
             <AnalogButton
               variant='text'
               size='sm'

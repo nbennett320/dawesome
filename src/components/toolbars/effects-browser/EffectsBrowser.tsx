@@ -8,7 +8,7 @@ import { AnalogButton, ResetIcon } from '../../fourtrack'
 import { Bar } from '../../common'
 import BrowserSearch from '../browser/BrowserSearch'
 import BrowserRow, { RowHint } from '../browser/BrowserRow'
-import { Chevron, FolderIcon, KnobIcon, WarningIcon } from '../browser/icons'
+import { Chevron, FolderIcon, KeysIcon, KnobIcon, WarningIcon } from '../browser/icons'
 import { useSessionSet } from '../browser/useSessionSet'
 
 // how often the engine is asked how a scan is going
@@ -30,27 +30,40 @@ const pluginFolders = (): string[] => {
 const fileName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path
 
 // the kinds of plugin the browser lists, each in a section of its own
-// (instruments join when they can be played)
-const SECTIONS: Array<{ kind: PluginKind, plural: string }> = [
-  { kind: 'effect', plural: 'effects' },
+const SECTIONS: Array<{ kind: PluginKind, title: string, plural: string }> = [
+  { kind: 'effect', title: 'Effects', plural: 'effects' },
+  { kind: 'instrument', title: 'Instruments', plural: 'instruments' },
 ]
 
-// one plugin: drag it onto a mixer channel, or into the Effects Rack
-const PluginRow = ({ plugin }: { plugin: PluginInfo }) => (
-  <BrowserRow
-    role='treeitem'
-    selected={false}
-    title={`${plugin.name} by ${plugin.vendor}${plugin.version ? ` (${plugin.version})` : ''}. Drag onto a mixer channel or into the Effects Rack`}
-    style={{ paddingLeft: 20 }}
-    onMouseDown={ev => {
-      if(ev.button !== 0) return
-      beginSampleDrag({ kind: 'effect', pluginId: plugin.id, label: plugin.name }, ev)
-    }}
-  >
-    <KnobIcon />
-    <span className='truncate'>{plugin.name}</span>
-    <RowHint className='ml-auto pl-2 max-w-[45%]'>{plugin.vendor}</RowHint>
-  </BrowserRow>
+// one plugin: drag it onto a mixer channel, or into the Effects Rack. an
+// instrument goes on a track, as the instrument that plays its notes
+const PluginRow = ({ plugin }: { plugin: PluginInfo }) => {
+  const instrument = plugin.kind === 'instrument'
+  const where = instrument
+    ? 'Drag onto a track in the Mixer to play its notes with it'
+    : 'Drag onto a mixer channel or into the Effects Rack'
+
+  return (
+    <BrowserRow
+      role='treeitem'
+      selected={false}
+      title={`${plugin.name} by ${plugin.vendor}${plugin.version ? ` (${plugin.version})` : ''}. ${where}`}
+      style={{ paddingLeft: 20 }}
+      onMouseDown={ev => {
+        if(ev.button !== 0) return
+        beginSampleDrag({ kind: 'effect', pluginId: plugin.id, label: plugin.name, instrument }, ev)
+      }}
+    >
+      {instrument ? <KeysIcon /> : <KnobIcon />}
+      <span className='truncate'>{plugin.name}</span>
+      <RowHint className='ml-auto pl-2 max-w-[45%]'>{plugin.vendor}</RowHint>
+    </BrowserRow>
+  )
+}
+
+// a section's heading, so effects and instruments are told apart
+const SectionHeading = ({ children }: { children: React.ReactNode }) => (
+  <div className='ft-label px-3 pt-2 pb-1'>{children}</div>
 )
 
 // a category's folder: click to open or close it
@@ -136,8 +149,9 @@ const PluginSection = ({ plugins, kind, query }: { plugins: PluginInfo[], kind: 
   )
 }
 
-// the effect plugins the engine found, by category: drag one onto a mixer
-// channel (or into the Effects Rack) to use it
+// the plugins the engine found, effects then instruments, by category: drag
+// an effect onto a mixer channel (or into the Effects Rack) to use it, and
+// an instrument onto a track to play its notes
 const EffectsBrowser = () => {
   const dispatch = useAppDispatch()
   const catalog = useAppSelector(selectCatalog)
@@ -169,7 +183,7 @@ const EffectsBrowser = () => {
 
   return (
     <div className='flex flex-col h-full min-h-0'>
-      <BrowserSearch value={query} onChange={setQuery} label='Search effects'>
+      <BrowserSearch value={query} onChange={setQuery} label='Search plugins'>
         <AnalogButton
           size='xs'
           aria-label='Rescan plugins'
@@ -197,37 +211,48 @@ const EffectsBrowser = () => {
         </div>
       )}
 
-      <div className='flex-1 min-h-0 overflow-y-auto overflow-x-hidden pb-2' role='tree' aria-label='Effects'>
-        {SECTIONS.map(({ kind, plural }) => {
+      <div className='flex-1 min-h-0 overflow-y-auto overflow-x-hidden pb-2' role='tree' aria-label='Plugins'>
+        {SECTIONS.map(({ kind, title, plural }) => {
           const ofKind = plugins.filter(plugin => plugin.kind === kind)
           const matching = groupPlugins(plugins, kind, query).length > 0
+          let body: React.ReactNode = <PluginSection plugins={plugins} kind={kind} query={query} />
 
           if(!ofKind.length) {
             if(!catalog || scanning) {
-              return (
-                <div key={kind} className='px-3 py-2 text-xs text-ink-faint'>
+              body = (
+                <div className='px-3 py-2 text-xs text-ink-faint'>
                   {catalog ? 'Looking for plugins…' : 'Loading…'}
                 </div>
               )
+            } else {
+              // where it looked, said once: under the first kind there's none of
+              const first = SECTIONS.find(section => !plugins.some(plugin => plugin.kind === section.kind))
+              body = (
+                <div className='px-3 py-2 text-xs text-ink-faint'>
+                  <p className='text-ink-soft'>No VST3 {plural} found</p>
+                  {first?.kind === kind && (
+                    <>
+                      <p className='mt-1'>Looked in:</p>
+                      <ul className='mt-0.5'>
+                        {pluginFolders().map(folder => (
+                          <li key={folder} className='font-mono text-[10px] break-all'>{folder}</li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </div>
+              )
             }
-            return (
-              <div key={kind} className='px-3 py-2 text-xs text-ink-faint'>
-                <p className='text-ink-soft'>No VST3 {plural} found</p>
-                <p className='mt-1'>Looked in:</p>
-                <ul className='mt-0.5'>
-                  {pluginFolders().map(folder => (
-                    <li key={folder} className='font-mono text-[10px] break-all'>{folder}</li>
-                  ))}
-                </ul>
-              </div>
-            )
+          } else if(searching && !matching) {
+            body = <div className='px-3 py-2 text-xs text-ink-faint'>No {plural} match.</div>
           }
 
-          if(searching && !matching) {
-            return <div key={kind} className='px-3 py-2 text-xs text-ink-faint'>No {plural} match.</div>
-          }
-
-          return <PluginSection key={kind} plugins={plugins} kind={kind} query={query} />
+          return (
+            <section key={kind} aria-label={title}>
+              <SectionHeading>{title}</SectionHeading>
+              {body}
+            </section>
+          )
         })}
 
         {failed.length > 0 && <FailedList failed={failed} />}

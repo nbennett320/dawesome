@@ -20,6 +20,17 @@ export interface SequencerRow {
   muted: boolean
 }
 
+// a note in a pattern, played on the instrument of the track its clip is
+// on. times are in steps from the pattern's start, and may be fractional
+export interface Note {
+  // MIDI note number, 0 to 127 (60 is middle C)
+  pitch: number
+  start: number
+  length: number
+  // 0 to 1
+  velocity: number
+}
+
 export interface Pattern {
   id: number
   // unnamed patterns are shown by their number
@@ -30,7 +41,15 @@ export interface Pattern {
   steps: Record<string, number[]>
   // the folder it's in, in the sidebar's pattern browser (left out at the top)
   folder?: number | null
+  // its notes (left out by older engines and projects: none)
+  notes?: Note[]
 }
+
+const NO_NOTES: Note[] = []
+
+// a pattern's notes. the same empty list every time, so selectors don't
+// re-render for nothing
+export const notesOf = (pattern: Pick<Pattern, 'notes'>): Note[] => pattern.notes ?? NO_NOTES
 
 // a folder of patterns, in the sidebar's pattern browser. folders only sort
 // patterns: they don't change how anything plays
@@ -95,6 +114,33 @@ export const stepAt = (elapsedMs: number, pattern: Pattern, beatIntervalMs: numb
 // each row's lit steps in a pattern, in row order: what a pattern clip draws
 export const litRows = (pattern: Pattern, rows: SequencerRow[]): number[][] =>
   rows.map(row => (pattern.steps[row.id] ?? []).filter(s => s < pattern.length))
+
+// a pattern clip's notes as small bars: those that start in the part of the
+// pattern the clip plays (`from` to `to`, in steps), as it plays them, each
+// cut where the clip or the pattern ends. `row` is 0 for the highest pitch
+// shown, and `rows` how many there are: the notes' range, with a little
+// room so a single pitch isn't drawn as one fat bar
+export const clipNoteBars = (
+  pattern: Pattern,
+  from: number,
+  to: number,
+  minRows = 12,
+): { rows: number, bars: Array<{ start: number, end: number, row: number }> } => {
+  const last = Math.min(to, pattern.length)
+  const notes = notesOf(pattern).filter(n => n.start >= from && n.start < last)
+  if(!notes.length) return { rows: 0, bars: [] }
+
+  const low = Math.min(...notes.map(n => n.pitch))
+  const high = Math.max(...notes.map(n => n.pitch))
+  const rows = Math.max(minRows, high - low + 1)
+  // the notes' range in the middle of the rows
+  const top = high + Math.floor((rows - (high - low + 1)) / 2)
+
+  return {
+    rows,
+    bars: notes.map(n => ({ start: n.start, end: Math.min(last, n.start + n.length), row: top - n.pitch })),
+  }
+}
 
 // what's shown faintly after a pattern's name: its length, and how many
 // times it's in the playlist

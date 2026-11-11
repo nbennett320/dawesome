@@ -12,7 +12,8 @@ import effectsReducer, { expandSlot, setRacks, showRack } from '../../state/slic
 import { EffectSlot, Racks } from '../../types/effects'
 import { View } from '../../types/ui'
 import EffectsRack from './EffectsRack'
-import { gapAt, rackDrop } from './useRackDrop'
+import { gapAt, rackDrop, rackGap } from './useRackDrop'
+import { channelDrop } from '../mixer/useChannelDrop'
 import { channelChoices } from './ChannelSelect'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
@@ -242,6 +243,87 @@ describe('dropping into the stack', () => {
     // from another channel
     expect(rackDrop(chain, 0, { kind: 'slot', slotId: 5, label: '' }, 1)).toEqual({ kind: 'move', index: 1 })
     expect(rackDrop(chain, 0, { kind: 'slot', slotId: 99, label: '' }, 1)).toBeNull()
+  })
+})
+
+describe('a track’s instrument', () => {
+  const synth = (id: number, change: Partial<EffectSlot> = {}) =>
+    slot(id, { name: `Synth ${id}`, kind: 'instrument', ...change })
+  const chains = (): Racks => [
+    { track: 0, slots: [synth(1), slot(2), slot(3)] },
+    { track: 1, slots: [slot(5)] },
+    { track: 2, slots: [synth(6)] },
+    { track: null, slots: [slot(9)] },
+  ]
+  const instrument = { kind: 'effect' as const, pluginId: 'vst3:synth', label: 'Synth', instrument: true }
+  const effect = { kind: 'effect' as const, pluginId: 'vst3:x', label: 'X' }
+
+  it('is listed first, marked as the instrument, with the clips joining after it', () => {
+    racks = chains()
+    setup()
+
+    const rows = screen.getAllByRole('listitem')
+    expect(rows.map(row => row.getAttribute('aria-label'))).toEqual(['Synth 1', 'Effect 2', 'Effect 3'])
+    expect(rows[0].getAttribute('aria-roledescription')).toBe('instrument')
+    expect(rows[0].textContent).toContain('Instrument')
+    expect(rows[1].textContent).not.toContain('Instrument')
+    expect(screen.getByText('Notes ↓')).toBeTruthy()
+    expect(screen.getByText('+ clips ↓')).toBeTruthy()
+    expect(screen.getByText('Instrument, 2 effects')).toBeTruthy()
+    // it can be switched off, shown and removed like an effect
+    expect(screen.getByRole('button', { name: 'Synth 1 on' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Show Synth 1 here' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Remove Synth 1' })).toBeTruthy()
+  })
+
+  it('has no gap above it for an effect, and an instrument only goes first', () => {
+    const chain = chains()
+    expect(rackGap(chain, 0, effect, 0)).toBe(1)
+    expect(rackGap(chain, 0, effect, 2)).toBe(2)
+    expect(rackGap(chain, 1, effect, 0)).toBe(0)
+    expect(rackGap(chain, 1, instrument, 1)).toBe(0)
+
+    expect(rackDrop(chain, 0, effect, 0)).toEqual({ kind: 'add', index: 1 })
+    // an effect row dragged to the top stays below the instrument
+    expect(rackDrop(chain, 0, { kind: 'slot', slotId: 3, label: '' }, 0)).toEqual({ kind: 'move', index: 1 })
+    expect(rackDrop(chain, 0, { kind: 'slot', slotId: 2, label: '' }, 0)).toBeNull()
+  })
+
+  it('from the sidebar, is added as a track’s instrument wherever it’s dropped, never on the master', () => {
+    const chain = chains()
+    expect(rackDrop(chain, 1, instrument, 1)).toEqual({ kind: 'add', index: null })
+    expect(rackDrop(chain, 0, instrument, 3)).toEqual({ kind: 'add', index: null })
+    expect(rackDrop(chain, 'master', instrument, 0)).toBeNull()
+  })
+
+  it('moves to another track that has none, never within its chain or to the master', () => {
+    const chain = chains()
+    const row = { kind: 'slot' as const, slotId: 1, label: '' }
+    expect(rackDrop(chain, 0, row, 2)).toBeNull()
+    expect(rackDrop(chain, 1, row, 1)).toEqual({ kind: 'move', index: 0 })
+    expect(rackDrop(chain, 2, row, 0)).toBeNull()
+    expect(rackDrop(chain, 'master', row, 0)).toBeNull()
+  })
+
+  it('dropped on a mixer strip: a track takes it, the master refuses it', () => {
+    const chain = chains()
+    expect(channelDrop(chain, 1, instrument)).toEqual({ kind: 'add' })
+    expect(channelDrop(chain, 0, instrument)).toEqual({ kind: 'add' })
+    expect(channelDrop(chain, 'master', instrument)).toBeNull()
+    expect(channelDrop(chain, 'master', effect)).toEqual({ kind: 'add' })
+
+    const row = { kind: 'slot' as const, slotId: 1, label: '' }
+    expect(channelDrop(chain, 3, row)).toEqual({ kind: 'move', index: 0 })
+    expect(channelDrop(chain, 0, row)).toBeNull()
+    expect(channelDrop(chain, 2, row)).toBeNull()
+    expect(channelDrop(chain, 'master', row)).toBeNull()
+    // an effect still goes to the end
+    expect(channelDrop(chain, 2, { kind: 'slot', slotId: 2, label: '' })).toEqual({ kind: 'move', index: 1 })
+  })
+
+  it('treats a slot without a kind (an older engine) as an effect', () => {
+    const chain: Racks = [{ track: 0, slots: [slot(1), slot(2)] }]
+    expect(rackGap(chain, 0, effect, 0)).toBe(0)
   })
 })
 

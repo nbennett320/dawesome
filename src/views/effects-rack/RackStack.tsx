@@ -9,7 +9,8 @@ import {
   selectHighlightSlotId,
   setEffectBypassed,
 } from '../../state/slices/effectsSlice'
-import { ChannelId, EffectSlot } from '../../types/effects'
+import { ChannelId, EffectSlot, isInstrument } from '../../types/effects'
+import { KeysIcon } from '../../components/toolbars/browser/icons'
 import { AnalogButton, Led } from '../../components/fourtrack'
 import ChannelSelect from './ChannelSelect'
 import { ExpandIcon, GripIcon, PopOutIcon, RemoveIcon } from './icons'
@@ -66,10 +67,12 @@ interface RowProps {
 }
 
 // one effect in the chain. drag it (by any part that isn't a key) to
-// reorder it, or onto a mixer strip to move it to that channel
+// reorder it, or onto a mixer strip to move it to that channel. a track's
+// instrument stays first, and can only be dragged onto another track
 const RackRow = ({ slot, highlighted, dragging }: RowProps) => {
   const dispatch = useAppDispatch()
   const ref = React.useRef<HTMLDivElement>(null)
+  const instrument = isInstrument(slot)
 
   React.useEffect(() => {
     if(highlighted) ref.current?.scrollIntoView?.({ block: 'nearest' })
@@ -85,19 +88,28 @@ const RackRow = ({ slot, highlighted, dragging }: RowProps) => {
       ref={ref}
       role='listitem'
       aria-label={slot.name}
+      aria-roledescription={instrument ? 'instrument' : undefined}
       className={`ft-strip flex flex-row items-center gap-2 h-9 pl-1.5 pr-2 cursor-grab ${tone} ${dragging ? 'opacity-40' : ''}`}
       {...{ [RACK_ROW]: slot.id }}
+      data-instrument={instrument || undefined}
       onMouseDown={ev => {
         if(ev.button !== 0) return
         if((ev.target as HTMLElement).closest('button, select, input')) return
         beginSampleDrag({ kind: 'slot', slotId: slot.id, label: slot.name }, ev)
       }}
     >
-      <span className='text-ink-faint' title='Drag to reorder, or onto a mixer channel to move it there'>
-        <GripIcon />
-      </span>
+      {instrument ? (
+        <span className='text-ink-soft' title='The track’s instrument, which plays its notes. Drag onto another track in the Mixer to move it there'>
+          <KeysIcon className='w-3.5 h-3.5' />
+        </span>
+      ) : (
+        <span className='text-ink-faint' title='Drag to reorder, or onto a mixer channel to move it there'>
+          <GripIcon />
+        </span>
+      )}
       <OnKey slot={slot} />
       <SlotName slot={slot} />
+      {instrument && <span className='ft-label shrink-0'>Instrument</span>}
 
       {slot.hasEditor && !slot.missing && (
         <>
@@ -165,13 +177,18 @@ const RackStack = ({ channel, slots }: { channel: ChannelId, slots: EffectSlot[]
   }), [])
 
   const out = channel === 'master' ? 'Master fader' : 'Fader'
+  // with an instrument first, the track's clips join the sound after it
+  const instrument = isInstrument(slots[0])
+  const effects = slots.length - (instrument ? 1 : 0)
+  let count = effects ? `${effects} effect${effects === 1 ? '' : 's'}` : 'No effects'
+  if(instrument) count = effects ? `Instrument, ${count.toLowerCase()}` : 'Instrument'
 
   return (
     <div className='ft-panel h-full w-full flex flex-col text-sm select-none'>
       <RackStrip>
         <ChannelSelect channel={channel} />
         <span className='ft-label normal-case tracking-normal'>
-          {slots.length ? `${slots.length} effect${slots.length === 1 ? '' : 's'}` : 'No effects'}
+          {count}
         </span>
       </RackStrip>
 
@@ -180,7 +197,7 @@ const RackStack = ({ channel, slots }: { channel: ChannelId, slots: EffectSlot[]
         className='flex-1 min-h-0 overflow-y-auto px-3 pb-3'
       >
         <div className='max-w-xl flex flex-col'>
-          <div className='ft-label text-center py-1'>In ↓</div>
+          <div className='ft-label text-center py-1'>{instrument ? 'Notes ↓' : 'In ↓'}</div>
 
           {slots.length ? (
             <div role='list' aria-label='Effects, in order' className='flex flex-col gap-1.5'>
@@ -188,6 +205,11 @@ const RackStack = ({ channel, slots }: { channel: ChannelId, slots: EffectSlot[]
                 <React.Fragment key={slot.id}>
                   {gap === i && <DropLine />}
                   <RackRow slot={slot} highlighted={highlighted === slot.id} dragging={dragged === slot.id} />
+                  {i === 0 && instrument && (
+                    <div className='ft-label text-center' title='The track’s clips are mixed with the instrument, and the effects come after both'>
+                      + clips ↓
+                    </div>
+                  )}
                 </React.Fragment>
               ))}
               {gap === slots.length && <DropLine />}

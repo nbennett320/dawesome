@@ -16,6 +16,8 @@ export enum View {
   Preferences,
   // one channel's effects, in the order the sound goes through them
   EffectsRack,
+  // a pattern's notes on a grid of steps, against a piano keyboard
+  PianoRoll,
 }
 
 // the label a view's tab gets when it's opened
@@ -29,6 +31,7 @@ export const viewLabels: Record<View, string> = {
   [View.Mixdown]: 'Mixdown',
   [View.Preferences]: 'Preferences',
   [View.EffectsRack]: 'Effects Rack',
+  [View.PianoRoll]: 'Piano Roll',
 }
 
 // how a split pane lays out its children:

@@ -23,7 +23,7 @@ import {
   setTrackArmed,
 } from '../../state/slices/recordingSlice'
 import {
-  fetchEffects, selectChannelActive, selectChannelCount, showRack,
+  fetchEffects, selectChannelActive, selectChannelCount, selectChannelHasInstrument, showRack,
 } from '../../state/slices/effectsSlice'
 import { ChannelId, channelKey } from '../../types/effects'
 import ChannelStrip from './ChannelStrip'
@@ -36,8 +36,9 @@ const useFx = (channel: ChannelId) => {
   const dispatch = useAppDispatch()
   const count = useAppSelector(selectChannelCount(channel))
   const lit = useAppSelector(selectChannelActive(channel))
+  const instrument = useAppSelector(selectChannelHasInstrument(channel))
 
-  return { count, lit, onOpen: () => dispatch(showRack(channel)) }
+  return { count, lit, instrument, onOpen: () => dispatch(showRack(channel)) }
 }
 
 const TrackStrip = ({ trackNumber, register, dropping }: {

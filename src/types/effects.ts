@@ -34,7 +34,7 @@ export interface PluginCatalog {
   total: number
 }
 
-// one effect in a channel's chain
+// one effect (or a track's instrument) in a channel's chain
 export interface EffectSlot {
   // unique in the project, never reused
   id: number
@@ -47,6 +47,9 @@ export interface EffectSlot {
   missing: boolean
   // has an interface of its own to show
   hasEditor: boolean
+  // an instrument is always first in a track's chain, one per track, never
+  // on the master (left out by older engines: an effect)
+  kind?: PluginKind
 }
 
 // a channel's chain, in the order the sound goes through it
@@ -118,6 +121,20 @@ export const findSlot = (
   return null
 }
 
+// whether a slot is a track's instrument
+export const isInstrument = (slot: EffectSlot | undefined): boolean => slot?.kind === 'instrument'
+
+// a track's instrument, if it has one that loaded: what plays its notes
+export const instrumentOf = (slots: EffectSlot[]): EffectSlot | null =>
+  slots.find(slot => isInstrument(slot) && !slot.missing) ?? null
+
+// the tracks with an instrument that can play notes, in order
+export const instrumentTracks = (racks: Racks): number[] =>
+  racks
+    .filter(rack => rack.track !== null && instrumentOf(rack.slots))
+    .map(rack => rack.track as number)
+    .sort((a, b) => a - b)
+
 // whether an effect is doing anything: switched on, and loaded
 export const isActive = (slot: EffectSlot): boolean => !slot.bypassed && !slot.missing
 
@@ -130,6 +147,13 @@ export const fxLit = (slots: EffectSlot[]): boolean => slots.some(isActive)
 // the effects whose own interface can be docked in the rack tab
 export const dockable = (slots: EffectSlot[]): EffectSlot[] =>
   slots.filter(slot => slot.hasEditor && !slot.missing)
+
+// the gaps an effect can be dropped in: never above a track's instrument,
+// which stays first. an instrument only ever goes first (gap 0)
+export const fitGap = (slots: EffectSlot[], gap: number, instrument: boolean): number => {
+  if(instrument) return 0
+  return isInstrument(slots[0]) ? Math.max(1, gap) : gap
+}
 
 // moving a slot within its own chain: dropped in `gap` (0 is above the first
 // row, slots.length below the last), it goes to the index move_effect wants,

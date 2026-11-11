@@ -6,17 +6,21 @@
 // during an HTML drag the playlist canvas couldn't draw the clip following
 // the mouse, while mouse events keep p5's draw loop running as normal
 
+import { findSlot, isInstrument, Racks } from '../types/effects'
+
 // the sidebar browsers that have folders
 export type FolderScope = 'recordings' | 'clips' | 'patterns'
 
 // what's being dragged. a folder only moves within its browser: it can't be
-// placed in the playlist or the Sequencer. an effect (from the sidebar) and
-// a slot (a row of the Effects Rack) go onto a mixer channel or the rack
+// placed in the playlist or the Sequencer. an effect or instrument (from
+// the sidebar) and a slot (a row of the Effects Rack) go onto a mixer
+// channel or the rack. `instrument` marks a plugin that's an instrument,
+// which only a track takes
 export type DragItem =
   | { kind: 'sample', path: string }
   | { kind: 'pattern', patternId: number, label: string }
   | { kind: 'folder', scope: FolderScope, key: string, label: string }
-  | { kind: 'effect', pluginId: string, label: string }
+  | { kind: 'effect', pluginId: string, label: string, instrument?: boolean }
   | { kind: 'slot', slotId: number, label: string }
 
 // what can be dropped into the playlist (or, for samples, the Sequencer)
@@ -30,6 +34,11 @@ export type EffectDragItem = Extract<DragItem, { kind: 'effect' | 'slot' }>
 
 export const isEffectItem = (item: DragItem): item is EffectDragItem =>
   item.kind === 'effect' || item.kind === 'slot'
+
+// whether what's dragged is an instrument: one from the sidebar, or a
+// track's instrument from the rack
+export const draggedInstrument = (racks: Racks, item: EffectDragItem): boolean =>
+  (item.kind === 'effect' ? !!item.instrument : isInstrument(findSlot(racks, item.slotId)?.slot))
 
 // tells drags apart: the same key is the same thing being dragged
 export const dragItemKey = (item: DragItem): string => {

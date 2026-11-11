@@ -9,6 +9,7 @@ import {
   EffectSlot,
   findSlot,
   fxLit,
+  isInstrument,
   PluginCatalog,
   Racks,
   Rect,
@@ -112,6 +113,9 @@ export const selectChannelSlots = (channel: ChannelId) => (state: RootState): Ef
   slotsOf(state.effects.racks, channel)
 export const selectChannelCount = (channel: ChannelId) => (state: RootState): number =>
   slotsOf(state.effects.racks, channel).length
+// whether a channel has an instrument (loaded or not)
+export const selectChannelHasInstrument = (channel: ChannelId) => (state: RootState): boolean =>
+  slotsOf(state.effects.racks, channel).some(isInstrument)
 // whether any of a channel's effects is on (not bypassed, and loaded)
 export const selectChannelActive = (channel: ChannelId) => (state: RootState): boolean =>
   fxLit(slotsOf(state.effects.racks, channel))

@@ -1,7 +1,8 @@
-import { createSlice, Dispatch, PayloadAction } from '@reduxjs/toolkit'
+import { createSelector, createSlice, Dispatch, PayloadAction } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api/core'
 import type { RootState } from '../store'
-import { Pattern, SequencerState, withStep } from '../../types/sequencer'
+import { Note, Pattern, SequencerState, withStep } from '../../types/sequencer'
+import { instrumentTracks } from '../../types/effects'
 import { PlaylistTransport } from '../../types/transport'
 import { View } from '../../types/ui'
 import { LoadedPatternClip } from '../../types/project'
@@ -30,9 +31,15 @@ export interface PatternRun {
 }
 
 export interface SequencerSliceState extends SequencerState {
-  // the pattern the Sequencer tab shows, which its Play loops
+  // the pattern the Sequencer and Piano Roll tabs show, which their Play
+  // loops
   selectedPatternId: number | null
   run: PatternRun | null
+  // the track whose instrument plays a pattern's notes while it plays on
+  // its own (the Piano Roll's "Plays on"), as picked. null, or a track that
+  // has lost its instrument, means the first track with one (see
+  // selectPlaysOn)
+  playsOn: number | null
 }
 
 const initialState: SequencerSliceState = {
@@ -41,6 +48,7 @@ const initialState: SequencerSliceState = {
   folders: [],
   selectedPatternId: null,
   run: null,
+  playsOn: null,
 }
 
 // keep a pattern selected while there are any: the one that was, or the
@@ -74,8 +82,16 @@ export const sequencerSlice = createSlice({
       const i = state.patterns.findIndex(p => p.id === patternId)
       if(i >= 0) state.patterns[i] = withStep(state.patterns[i], rowId, step, on)
     },
+    // and a pattern's notes, as they're drawn and dragged
+    reduceNotes: (state, action: PayloadAction<{ patternId: number, notes: Note[] }>) => {
+      const pattern = state.patterns.find(p => p.id === action.payload.patternId)
+      if(pattern) pattern.notes = action.payload.notes
+    },
     setRun: (state, action: PayloadAction<PatternRun | null>) => {
       state.run = action.payload
+    },
+    setPlaysOn: (state, action: PayloadAction<number | null>) => {
+      state.playsOn = action.payload
     },
   },
   extraReducers: builder => {
@@ -87,6 +103,7 @@ export const sequencerSlice = createSlice({
         state.folders = sequencer?.folders ?? []
         state.selectedPatternId = null
         state.run = null
+        state.playsOn = null
         fixSelection(state)
       })
       // an undo or redo may have changed the rows and patterns. the selected
@@ -105,8 +122,8 @@ export const sequencerSlice = createSlice({
   },
 })
 
-export const { selectPattern, setSequencer } = sequencerSlice.actions
-const { reduceStep, setRun } = sequencerSlice.actions
+export const { selectPattern, setSequencer, setPlaysOn } = sequencerSlice.actions
+const { reduceStep, reduceNotes, setRun } = sequencerSlice.actions
 
 export default sequencerSlice.reducer
 
@@ -224,6 +241,106 @@ export const setPatternStep = (patternId: number, rowId: number, step: number, o
     return edit('change the step', 'set_pattern_step', { patternId, rowId, step, on, gesture })(dispatch)
   }
 
+// how often a pattern's notes are sent while they're being dragged
+const SEND_NOTES_EVERY_MS = 30
+
+// per pattern: the notes waiting to be sent, while a send was recent
+interface QueuedNotes {
+  notes: Note[]
+  // the gesture they were changed in, taken when they were (it may be over
+  // by the time they're sent)
+  gesture: number | null
+  dispatch: Dispatch
+}
+const queuedNotes = new Map<number, QueuedNotes | null>()
+
+// counts the sends, so only the answer to the latest is kept: an earlier
+// one arriving late would put back notes since dragged elsewhere. nor is an
+// answer kept while newer notes are waiting to be sent
+let noteSends = 0
+
+const sendNotes = (patternId: number, { notes, gesture, dispatch }: QueuedNotes): Promise<void> => {
+  noteSends += 1
+  const send = noteSends
+  return invoke<SequencerState>('set_pattern_notes', { patternId, notes, gesture })
+    .then(sequencer => {
+      if(send === noteSends && !queuedNotes.get(patternId)) dispatch(setSequencer(sequencer))
+    })
+    .catch(e => {
+      sequencerError('change the notes')(e)
+      // and show the notes as the engine has them
+      return loadSequencer()(dispatch)
+    })
+}
+
+// replace a pattern's notes. shown straight away, and sent at most every
+// SEND_NOTES_EVERY_MS, the latest always last (flushNoteSends sends it
+// now). every change made in one drag is one step to undo: see
+// state/gesture.ts
+export const setPatternNotes = (patternId: number, notes: Note[]) => (dispatch: Dispatch): Promise<void> => {
+  dispatch(reduceNotes({ patternId, notes }))
+  const change = { notes, gesture: currentGesture(), dispatch }
+
+  if(queuedNotes.has(patternId)) {
+    queuedNotes.set(patternId, change)
+    return Promise.resolve()
+  }
+
+  queuedNotes.set(patternId, null)
+  const flush = () => {
+    const next = queuedNotes.get(patternId)
+    if(next) {
+      queuedNotes.set(patternId, null)
+      sendNotes(patternId, next)
+      setTimeout(flush, SEND_NOTES_EVERY_MS)
+    } else {
+      queuedNotes.delete(patternId)
+    }
+  }
+  setTimeout(flush, SEND_NOTES_EVERY_MS)
+
+  return sendNotes(patternId, change)
+}
+
+// send the notes still waiting, now: when a drag ends, and before an undo
+// (a change has to have reached the engine to be undone)
+export const flushNoteSends = (): Promise<unknown> =>
+  Promise.all(Array.from(queuedNotes.entries()).map(([patternId, next]) => {
+    if(!next) return undefined
+    queuedNotes.set(patternId, null)
+    return sendNotes(patternId, next)
+  }))
+
+// forget notes still waiting to be sent, and answers still to come, e.g.
+// after an undo has replaced them
+export const clearPendingNoteSends = () => {
+  queuedNotes.clear()
+  noteSends += 1
+}
+
+// the tabs that show the selected pattern, and loop it with Play while
+// they're the focused pane's
+export const PATTERN_VIEWS = [View.Sequencer, View.PianoRoll]
+
+export const isPatternView = (view: View | undefined): boolean =>
+  view !== undefined && PATTERN_VIEWS.includes(view)
+
+// the tracks with an instrument to play notes on, in order
+export const selectInstrumentTracks = createSelector(
+  [(state: RootState) => state.effects.racks],
+  racks => instrumentTracks(racks),
+)
+
+// the track whose instrument plays a pattern's notes while it plays on its
+// own: the one picked, while it has an instrument, or else the first track
+// with one. null when no track has one (its notes aren't heard)
+export const selectPlaysOn = (state: RootState): number | null => {
+  const tracks = selectInstrumentTracks(state)
+  const picked = state.sequencer.playsOn
+  if(picked !== null && tracks.includes(picked)) return picked
+  return tracks[0] ?? null
+}
+
 // after a transport command: whether the engine plays, and which pattern
 export const syncRun = async (dispatch: Dispatch) => {
   await syncPlayingFrom(dispatch)
@@ -269,37 +386,45 @@ export const showPattern = (patternId: number) => (dispatch: Dispatch) => {
   dispatch(openTab(View.Sequencer))
 }
 
-// the Play key: with the Sequencer the focused pane's tab, loop its pattern
-// (or pause what's playing); anywhere else, play the playlist as always
+// loop a pattern on its own, its notes on the "Plays on" track's
+// instrument, or stop it (or pause what's playing)
+export const togglePattern = (patternId: number) => async (dispatch: Dispatch, getState: () => RootState) => {
+  try {
+    await invoke('t_toggle_pattern', { patternId, track: selectPlaysOn(getState()) })
+  } catch(e) {
+    sequencerError('play the pattern')(e)
+  }
+  await syncRun(dispatch)
+}
+
+// the Play key: with the Sequencer or the Piano Roll the focused pane's
+// tab, loop its pattern (or pause what's playing); anywhere else, play the
+// playlist as always
 export const togglePlayHere = () => async (dispatch: Dispatch, getState: () => RootState) => {
   const state = getState()
   const patternId = state.sequencer.selectedPatternId
 
-  if(selectFocusedView(state) !== View.Sequencer || patternId === null) {
+  if(!isPatternView(selectFocusedView(state)) || patternId === null) {
     await togglePlay()(dispatch)
     dispatch(setRun(null))
     return
   }
 
-  try {
-    await invoke('t_toggle_pattern', { patternId })
-  } catch(e) {
-    sequencerError('play the pattern')(e)
-  }
-  await syncRun(dispatch)
+  await togglePattern(patternId)(dispatch, getState)
 }
 
 // loop a pattern from its start, stopping whatever was playing
-export const playPattern = (patternId: number) => async (dispatch: Dispatch) => {
+export const playPattern = (patternId: number) => async (dispatch: Dispatch, getState: () => RootState) => {
   try {
-    await invoke('t_play_pattern', { patternId })
+    await invoke('t_play_pattern', { patternId, track: selectPlaysOn(getState()) })
   } catch(e) {
     sequencerError('play the pattern')(e)
   }
   await syncRun(dispatch)
 }
 
-// stop a pattern playing on its own (focus left the Sequencer). the
+// stop a pattern playing on its own (focus left the Sequencer and the
+// Piano Roll). the
 // playlist's playhead stays where it was
 export const stopPattern = () => async (dispatch: Dispatch) => {
   try {

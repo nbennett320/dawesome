@@ -177,8 +177,9 @@ interface Props {
   silenced?: boolean
   // renaming (track strips). an empty name goes back to the default
   onRename?: (name: string) => void
-  // the channel's effects: how many, whether any is on, and opening the rack
-  fx?: { count: number, lit: boolean, onOpen: () => void }
+  // the channel's effects: how many, whether any is on, whether one is the
+  // track's instrument, and opening the rack
+  fx?: { count: number, lit: boolean, instrument?: boolean, onOpen: () => void }
   // the channel as dropped effects see it (see useChannelDrop)
   dropKey?: string
   // an effect dragged over the strip would go on it
@@ -222,7 +223,7 @@ const ChannelStrip = ({
       <NameLabel label={label} silenced={silenced} onRename={onRename} />
     </div>
 
-    {fx && <FxButton channel={label} count={fx.count} lit={fx.lit} onOpen={fx.onOpen} />}
+    {fx && <FxButton channel={label} count={fx.count} lit={fx.lit} instrument={fx.instrument} onOpen={fx.onOpen} />}
 
     <div className='flex flex-col items-center h-16'>
       {pan && (

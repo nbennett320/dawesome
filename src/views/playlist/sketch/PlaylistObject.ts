@@ -7,7 +7,7 @@ import { PlaylistItem } from '../../../types/playlist'
 import { P5BoundingBox, State as ComponentState } from '../../../render/P5Component'
 import { paint, theme } from './theme'
 import type { SectionKey } from '../../../theme/keys'
-import { STEPS_PER_BEAT, litRows, patternLabel } from '../../../types/sequencer'
+import { STEPS_PER_BEAT, clipNoteBars, litRows, patternLabel } from '../../../types/sequencer'
 import { hiddenBeyond } from './edges'
 
 interface Props extends PlaylistComponentProps {
@@ -284,7 +284,7 @@ class PlaylistObject extends PlaylistComponent<State> {
   }
 
   // a pattern clip's body: a lane per sequencer row, with a cell for each
-  // lit step, over faint beat lines
+  // lit step, and its notes as small bars, over faint beat lines
   drawPattern = () => {
     const pattern = this.#pattern()
     const { left, top, width, height } = this.waveform.boundingBox()
@@ -310,9 +310,24 @@ class PlaylistObject extends PlaylistComponent<State> {
       this.p.line(x, bodyTop, x, bodyTop + bodyHeight)
     }
 
+    // its notes as small bars, below its drum hits when it has both
     const lanes = litRows(pattern, (this.renderer as Renderer).sequencer.rows)
+    const { rows, bars } = clipNoteBars(pattern, from, to)
+    const hits = lanes.some(steps => steps.length)
+    if(bars.length) {
+      const notesTop = hits ? bodyTop + bodyHeight / 2 : bodyTop
+      const rowHeight = (hits ? bodyHeight / 2 : bodyHeight) / rows
+      this.p.noStroke()
+      paint.fill(this.p, 'patternHit')
+      bars.forEach(({ start, end, row }) => {
+        const x = stepX(start)
+        const w = Math.min(stepX(end), right) - x
+        if(w > 0) this.p.rect(x, notesTop + row * rowHeight, w, Math.max(1, rowHeight * 0.8))
+      })
+    }
+
     if(!lanes.length) return
-    const laneHeight = bodyHeight / lanes.length
+    const laneHeight = (bars.length && hits ? bodyHeight / 2 : bodyHeight) / lanes.length
     // a little gap around each cell, unless they'd vanish
     const gapX = Math.min(stepWidth * .15, 1 / this.currentScale)
     const gapY = Math.min(laneHeight * .15, 1)

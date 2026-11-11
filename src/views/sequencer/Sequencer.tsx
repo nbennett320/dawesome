@@ -1,7 +1,5 @@
 import React from 'react'
-import { useStore } from 'react-redux'
 import { useAppDispatch, useAppSelector } from '../../hooks/redux'
-import type { RootState } from '../../state/store'
 import {
   PatternRun,
   addSequencerRow,
@@ -10,41 +8,13 @@ import {
   selectSelectedPattern,
   selectSequencerRows,
   setPatternStep,
-  stopPattern,
 } from '../../state/slices/sequencerSlice'
-import { selectFocusedView } from '../../state/slices/windowSlice'
 import { onSampleDrag } from '../../state/sampleDrag'
 import { Pattern, stepAt } from '../../types/sequencer'
-import { View } from '../../types/ui'
 import { useTransport } from '../transport/useTransport'
 import PatternStrip from './PatternStrip'
 import SequencerRow, { Paint } from './SequencerRow'
-
-// a pattern playing on its own stops once the Sequencer isn't the focused
-// pane's tab: another tab selected, another pane clicked, or the tab closed
-const useStopWhenUnfocused = () => {
-  const store = useStore<RootState>()
-  const dispatch = useAppDispatch()
-
-  React.useEffect(() => {
-    let stopping = false
-    const stopIfPlaying = () => {
-      if(stopping || !store.getState().sequencer.run) return
-      stopping = true
-      dispatch(stopPattern()).finally(() => { stopping = false })
-    }
-
-    const check = () => {
-      if(selectFocusedView(store.getState()) !== View.Sequencer) stopIfPlaying()
-    }
-
-    const unsubscribe = store.subscribe(check)
-    return () => {
-      unsubscribe()
-      stopIfPlaying()
-    }
-  }, [store, dispatch])
-}
+import { useStopWhenUnfocused } from './useStopWhenUnfocused'
 
 // the step of `pattern` playing now, or null when it isn't the pattern
 // playing. followed every frame, but only a new step re-renders: rows

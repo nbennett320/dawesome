@@ -12,4 +12,9 @@ describe('menuViews', () => {
     expect(menuViews.preferences).toBe(View.Preferences)
     expect(menuViews.appearance).toBe(View.Preferences)
   })
+
+  it('opens the Effects Rack and the Piano Roll (view-effects-rack, view-piano-roll)', () => {
+    expect(menuViews['effects-rack']).toBe(View.EffectsRack)
+    expect(menuViews['piano-roll']).toBe(View.PianoRoll)
+  })
 })

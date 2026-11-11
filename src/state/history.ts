@@ -9,7 +9,7 @@ import {
   dropQueuedClipSettings, flushClipSettings, reduceProjectView, refreshTrackCount,
 } from './slices/playlistSlice'
 import { clearPendingMixerSends, flushMixerSends } from './slices/mixerSlice'
-import { syncRun } from './slices/sequencerSlice'
+import { clearPendingNoteSends, flushNoteSends, syncRun } from './slices/sequencerSlice'
 
 export type Way = 'undo' | 'redo'
 // where the command came from: the Edit menu (or its shortcut), or the key
@@ -50,12 +50,13 @@ export const travel = (way: Way, source: Source = 'menu') => (
     try {
       // a setting changed a moment ago may not have reached the engine yet:
       // it has to be there to be undone
-      await Promise.all([flushClipSettings(getState), flushMixerSends()])
+      await Promise.all([flushClipSettings(getState), flushMixerSends(), flushNoteSends()])
       const travelled = await invoke<Travelled>(way, {})
       if(!travelled.changed) return false
 
       dropQueuedClipSettings()
       clearPendingMixerSends()
+      clearPendingNoteSends()
       dispatch(reduceProjectView({ project: travelled.project, selected: travelled.selected }))
       // clips may have come back on, or gone from, the bottom tracks
       await refreshTrackCount()(dispatch)

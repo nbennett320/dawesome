@@ -8,6 +8,7 @@ import AudioSettings from './audio-settings/AudioSettings'
 import Mixdown from './mixdown/Mixdown'
 import Preferences from './preferences/Preferences'
 import EffectsRack from './effects-rack/EffectsRack'
+import PianoRoll from './piano-roll/PianoRoll'
 import { View } from '../types/ui'
 
 // the component a tab shows for its view
@@ -31,6 +32,8 @@ export const matchViewComponent = (view: View): JSX.Element => {
       return <Preferences />
     case View.EffectsRack:
       return <EffectsRack />
+    case View.PianoRoll:
+      return <PianoRoll />
     default:
       // eslint-disable-next-line no-console
       console.error("Tab does not have a matching component: ", view)
