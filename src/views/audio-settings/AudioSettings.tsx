@@ -100,7 +100,7 @@ const OffsetField = ({ value, disabled, onChange }: {
           }}
         />
       </Field>
-      <span className='text-xs text-slate-500 max-w-md'>
+      <span className='text-xs text-ink-soft max-w-md'>
         If recordings land late, raise this by how much. Bluetooth headphones often need 150 to 250.
       </span>
     </div>
@@ -192,7 +192,7 @@ const AudioSettings = () => {
             disabled={disabled}
             onChange={frames => apply({ bufferFrames: frames ? Number(frames) : null })}
           />
-          <p className='text-xs text-slate-500 max-w-md'>
+          <p className='text-xs text-ink-soft max-w-md'>
             Smaller buffers mean less delay, but are more work for the computer. 
             If playback crackles, choose a bigger one.
           </p>
@@ -209,7 +209,7 @@ const AudioSettings = () => {
           />
           <InputMeter onOpened={load} onError={inputError} />
           {status.input && (
-            <span className='text-xs text-slate-500'>
+            <span className='text-xs text-ink-soft'>
               Input latency {msLabel(status.input.latencyMs)} · {rateLabel(status.input.sampleRate)}
               {output && status.input.sampleRate !== output.sampleRate
                 && ` (it can't record at ${rateLabel(output.sampleRate)}, so takes are converted as they play)`}
@@ -240,13 +240,13 @@ const AudioSettings = () => {
             <span>Nothing: the output couldn&apos;t be opened</span>
           )}
 
-          {note && <span className='text-xs text-slate-500'>{note}</span>}
+          {note && <span className='text-xs text-ink-soft'>{note}</span>}
         </section>
 
         <div className='flex flex-row gap-2 items-center'>
           {/* <button
             type='button'
-            className='rounded px-2 py-1 hover:bg-slate-100 text-slate-600'
+            className='rounded px-2 py-1 hover:bg-panel text-ink-mid'
             disabled={disabled}
             onClick={load}
           >
@@ -257,7 +257,7 @@ const AudioSettings = () => {
             <ResetIcon />
           </AnalogButton>
 
-          {applying && <span className='text-xs text-slate-500'>Switching…</span>}
+          {applying && <span className='text-xs text-ink-soft'>Switching…</span>}
         </div>
       </div>
     </div>

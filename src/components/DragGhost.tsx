@@ -1,4 +1,5 @@
 import React from 'react'
+import { cssVar } from '../theme/apply'
 import { dragItemLabel, onSampleDrag } from '../state/sampleDrag'
 
 // an element marked with this draws what's dragged over it itself (the
@@ -44,7 +45,7 @@ const DragGhost = () => {
 
   return (
     <div
-      className="text-xs text-slate-700 whitespace-nowrap overflow-hidden text-ellipsis rounded shadow-sm"
+      className="text-xs text-ink whitespace-nowrap overflow-hidden text-ellipsis rounded shadow-sm"
       style={{
         position: 'fixed',
         // held by the middle of its label, like the clip in the canvas
@@ -54,9 +55,9 @@ const DragGhost = () => {
         maxWidth: '12rem',
         padding: '0 6px',
         lineHeight: `${LABEL_HEIGHT}px`,
-        // like a clip's label in the playlist (see sketch/theme.ts)
-        border: '1px solid rgb(203, 213, 225)',
-        background: 'rgba(241, 245, 249, 0.95)',
+        // like a clip's label in the playlist (the playlist's clipBorder and clipLabel)
+        border: `1px solid ${cssVar('lineStrong')}`,
+        background: cssVar('panel', 0.95),
         pointerEvents: 'none',
         zIndex: 1000,
       }}

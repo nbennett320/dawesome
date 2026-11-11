@@ -3,36 +3,10 @@
 // cool greys (Tailwind slate) with sky accents.
 // All classes are prefixed `ft-`. Imported once, from index.tsx
 //
-// colours are CSS custom properties, so a wrapper can re-theme them at
-// runtime. SCSS variables are for values only used here
-
-// shadows are slate-900 at a low opacity
-$shadow: #0f172a;
+// colours are CSS custom properties written by applyTheme (src/theme), so a
+// theme re-colours them at runtime. SCSS variables are for values only used here
 
 :root {
-  // text
-  --ft-ink: #334155; // slate-700
-  --ft-ink-soft: #64748b; // slate-500
-  --ft-ink-faint: #94a3b8; // slate-400
-  // knob pointers, the fader cap's line, latched keys
-  --ft-accent: #0ea5e9; // sky-500
-  --ft-focus: #38bdf8; // sky-400
-
-  // plastic
-  --ft-panel: #f1f5f9; // slate-100
-  --ft-line: #e2e8f0; // slate-200
-  --ft-line-strong: #cbd5e1; // slate-300
-  --ft-cap-top: #ffffff;
-  --ft-cap-bottom: #f4f7fa;
-  --ft-cap-down: #eef2f6;
-
-  // displays: readouts, the counter
-  --ft-display: #e8eef4;
-  --ft-display-text: #475569; // slate-600
-
-  // the slot a fader or meter sits in
-  --ft-slot: #d5dde6;
-
   --ft-font: system-ui, sans-serif;
   --ft-font-label: system-ui, sans-serif;
   --ft-font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
@@ -52,12 +26,12 @@ $shadow: #0f172a;
 
 // a shallow recess that keys sit in
 .ft-tray {
-  background: #e7ecf2;
-  box-shadow: inset 0 1px 2px rgba($shadow, .07);
+  background: var(--ft-tray);
+  box-shadow: inset 0 1px 2px rgb(var(--c-shadow) / .07);
 }
 
 .ft-strip {
-  background: #fff;
+  background: var(--ft-face);
   border-radius: 5px;
   box-shadow: 0 0 0 1px var(--ft-line);
 }
@@ -82,11 +56,11 @@ $shadow: #0f172a;
   border-radius: 3px;
   background: var(--ft-display);
   color: var(--ft-display-text);
-  box-shadow: inset 0 1px 1px rgba($shadow, .06);
+  box-shadow: inset 0 1px 1px rgb(var(--c-shadow) / .06);
 
   &:focus {
     @include focus-ring(1px);
-    background: #fff;
+    background: var(--ft-face);
   }
 }
 
@@ -104,7 +78,7 @@ input.ft-readout {
   border-radius: 4px;
   background: var(--ft-display);
   color: var(--ft-display-text);
-  box-shadow: inset 0 1px 1px rgba($shadow, .06);
+  box-shadow: inset 0 1px 1px rgb(var(--c-shadow) / .06);
 }
 
 // a paper label stuck on the strip, for its name
@@ -143,7 +117,7 @@ input.ft-readout {
   box-shadow:
     0 0 0 1px var(--ft-line-strong),
     0 var(--ft-depth) 0 var(--ft-line-strong),
-    0 calc(var(--ft-depth) + 1px) 3px rgba($shadow, .08);
+    0 calc(var(--ft-depth) + 1px) 3px rgb(var(--c-shadow) / .08);
   transition: transform .06s ease, box-shadow .06s ease, background .06s ease, color .06s;
   -webkit-tap-highlight-color: transparent;
 
@@ -155,7 +129,7 @@ input.ft-readout {
   &[aria-pressed="true"] {
     transform: translateY(var(--ft-depth));
     background: var(--ft-cap-down);
-    box-shadow: 0 0 0 1px var(--ft-line-strong), inset 0 1px 2px rgba($shadow, .1);
+    box-shadow: 0 0 0 1px var(--ft-line-strong), inset 0 1px 2px rgb(var(--c-shadow) / .1);
   }
 
   // a latched key is lit, so it reads as on at a glance
@@ -249,24 +223,20 @@ input.ft-readout {
   &--danger,
   &--danger[aria-pressed="true"],
   &--danger:hover:not(:disabled) {
-    color: #dc2626; // red-600
+    color: var(--ft-danger);
   }
 }
 
 // the record key's dot
 .ft-icon-rec {
-  color: #ef4444; // red-500
+  color: var(--ft-record);
 }
 
 // ---------- LED ----------
 
 // each colour: its lit colour and glow, and a pale unlit tint
-$led-colors: (
-  "red": (#ef4444, rgba(239, 68, 68, .45), #e9d5d5),
-  "amber": (#f59e0b, rgba(245, 158, 11, .45), #ece3cf),
-  "lime": (#84cc16, rgba(132, 204, 22, .45), #dfe7cf),
-  "blue": (#0ea5e9, rgba(14, 165, 233, .45), #d6e3ee),
-);
+// quoted: unquoted, red, lime and blue would be Sass colors
+$led-colors: 'red', 'amber', 'lime', 'blue';
 
 .ft-led {
   display: block;
@@ -275,14 +245,14 @@ $led-colors: (
   height: 6px;
   border-radius: 50%;
   background: var(--led-off);
-  box-shadow: inset 0 0 0 1px rgba($shadow, .08);
+  box-shadow: inset 0 0 0 1px rgb(var(--c-shadow) / .08);
   transition: background .08s, box-shadow .08s, opacity .08s;
 
-  @each $name, $c in $led-colors {
+  @each $name in $led-colors {
     &--#{$name} {
-      --led: #{nth($c, 1)};
-      --led-glow: #{nth($c, 2)};
-      --led-off: #{nth($c, 3)};
+      --led: var(--ft-led-#{$name}-on);
+      --led-glow: var(--ft-led-#{$name}-glow);
+      --led-off: var(--ft-led-#{$name}-off);
     }
   }
 
@@ -322,7 +292,7 @@ $led-colors: (
   cursor: ns-resize;
   touch-action: none;
   user-select: none;
-  box-shadow: 0 1px 3px rgba($shadow, .15), 0 0 0 1px var(--ft-line-strong);
+  box-shadow: 0 1px 3px rgb(var(--c-shadow) / .15), 0 0 0 1px var(--ft-line-strong);
 
   &:focus-visible {
     @include focus-ring;
@@ -333,15 +303,15 @@ $led-colors: (
     position: absolute;
     inset: 0;
     border-radius: 50%;
-    background: repeating-conic-gradient(#e2e8f0 0deg 7deg, #f1f5f9 7deg 14deg);
+    background: repeating-conic-gradient(var(--ft-dial-a) 0deg 7deg, var(--ft-dial-b) 7deg 14deg);
   }
 
   &__cap {
     position: absolute;
     inset: 16%;
     border-radius: 50%;
-    background: linear-gradient(180deg, #ffffff, #f1f5f9);
-    box-shadow: 0 0 0 1px var(--ft-line), 0 1px 2px rgba($shadow, .12);
+    background: linear-gradient(180deg, var(--ft-knob-top), var(--ft-knob-bottom));
+    box-shadow: 0 0 0 1px var(--ft-line), 0 1px 2px rgb(var(--c-shadow) / .12);
   }
 
   // a line from the centre to the edge
@@ -360,12 +330,12 @@ $led-colors: (
 
 @mixin slot {
   background: var(--ft-slot);
-  box-shadow: inset 0 1px 1px rgba($shadow, .12);
+  box-shadow: inset 0 1px 1px rgb(var(--c-shadow) / .12);
 }
 
 @mixin fader-cap {
-  background: linear-gradient(180deg, #ffffff, #f1f5f9);
-  box-shadow: 0 0 0 1px var(--ft-line-strong), 0 1px 3px rgba($shadow, .15);
+  background: linear-gradient(180deg, var(--ft-knob-top), var(--ft-knob-bottom));
+  box-shadow: 0 0 0 1px var(--ft-line-strong), 0 1px 3px rgb(var(--c-shadow) / .15);
 
   // a line across its middle
   &::after {
@@ -384,7 +354,7 @@ $led-colors: (
 }
 
 // and the cap, with a few grip ridges
-$ridge: rgba($shadow, .07);
+$ridge: rgb(var(--c-shadow) / .07);
 
 .ft-fader-cap {
   @include fader-cap;
@@ -396,7 +366,7 @@ $ridge: rgba($shadow, .07);
       transparent 36% 64%, $ridge 64% 68%, transparent 68% 76%, $ridge 76% 80%,
       transparent 80%
     ),
-    linear-gradient(180deg, #ffffff, #f1f5f9);
+    linear-gradient(180deg, var(--ft-knob-top), var(--ft-knob-bottom));
 
   &::after {
     left: 3px;
@@ -530,7 +500,7 @@ $ridge: rgba($shadow, .07);
     position: absolute;
     inset: 0;
     pointer-events: none;
-    background: repeating-linear-gradient(0deg, transparent 0 3px, rgba(255, 255, 255, .7) 3px 4px);
+    background: repeating-linear-gradient(0deg, transparent 0 3px, var(--ft-meter-gap) 3px 4px);
   }
 }
 
@@ -542,7 +512,7 @@ $ridge: rgba($shadow, .07);
   padding: 3px;
   border-radius: 4px;
   background: var(--ft-display);
-  box-shadow: inset 0 1px 1px rgba($shadow, .06);
+  box-shadow: inset 0 1px 1px rgb(var(--c-shadow) / .06);
 
   &__digit {
     width: 14px;
@@ -551,7 +521,7 @@ $ridge: rgba($shadow, .07);
     align-items: center;
     justify-content: center;
     border-radius: 2px;
-    background: #fff;
+    background: var(--ft-face);
     box-shadow: 0 0 0 1px var(--ft-line);
     font-family: var(--ft-font-mono);
     font-size: 13px;
@@ -572,7 +542,7 @@ $ridge: rgba($shadow, .07);
   padding: 3px;
   border-radius: 4px;
   background: var(--ft-display);
-  box-shadow: inset 0 1px 1px rgba($shadow, .06);
+  box-shadow: inset 0 1px 1px rgb(var(--c-shadow) / .06);
   font-family: var(--ft-font-mono);
   font-size: 13px;
   font-weight: 600;
@@ -584,7 +554,7 @@ $ridge: rgba($shadow, .07);
     height: var(--ft-roll-h);
     overflow: hidden;
     border-radius: 2px;
-    background: #fff;
+    background: var(--ft-face);
     box-shadow: 0 0 0 1px var(--ft-line);
 
     // the wheel curving away at the top and bottom
@@ -594,10 +564,10 @@ $ridge: rgba($shadow, .07);
       inset: 0;
       pointer-events: none;
       background: linear-gradient(
-        rgba($shadow, .07),
+        rgb(var(--c-shadow) / .07),
         transparent 30%,
         transparent 70%,
-        rgba($shadow, .07)
+        rgb(var(--c-shadow) / .07)
       );
     }
   }
@@ -623,7 +593,7 @@ $ridge: rgba($shadow, .07);
 // ---------- Cassette ----------
 
 // the tape, seen through the cassette's window
-$tape: #94a3b8; // slate-400
+$tape: var(--ft-tape);
 
 .ft-cassette {
   display: block;
@@ -642,7 +612,7 @@ $tape: #94a3b8; // slate-400
   }
 
   &__label {
-    fill: #f8fafc; // slate-50
+    fill: var(--ft-label);
     stroke: var(--ft-line);
   }
 
@@ -661,7 +631,7 @@ $tape: #94a3b8; // slate-400
     border: 0;
     border-radius: 3px;
     outline: 1.5px solid var(--ft-focus);
-    background: #fff;
+    background: var(--ft-face);
     font: 600 10px var(--ft-font-label);
     letter-spacing: .14em;
     text-transform: uppercase;
@@ -696,7 +666,7 @@ $tape: #94a3b8; // slate-400
   // coloured bands across the bottom of the label
   &__stripe {
     &--1 { fill: var(--ft-accent); }
-    &--2 { fill: #7dd3fc; } // sky-300
+    &--2 { fill: var(--ft-stripe); }
   }
 
   &__window {
@@ -710,11 +680,11 @@ $tape: #94a3b8; // slate-400
 
   &__pack-edge {
     fill: none;
-    stroke: rgba($shadow, .12);
+    stroke: rgb(var(--c-shadow) / .12);
   }
 
   &__hub {
-    fill: #fff;
+    fill: var(--ft-hub);
     stroke: var(--ft-line-strong);
   }
 
@@ -725,7 +695,7 @@ $tape: #94a3b8; // slate-400
   }
 
   &__tooth {
-    fill: #fff;
+    fill: var(--ft-hub);
   }
 
   &__opening {
@@ -739,14 +709,14 @@ $tape: #94a3b8; // slate-400
   }
 
   &__pin {
-    fill: #fff;
+    fill: var(--ft-hub);
     stroke: var(--ft-line-strong);
   }
 
   // the deck under the cassette, with the tape pulled out over its heads
 
   &__plate {
-    fill: #e7ecf2; // the trays' recess
+    fill: var(--ft-tray);
   }
 
   &__head {
@@ -763,7 +733,7 @@ $tape: #94a3b8; // slate-400
   }
 
   &__roller {
-    fill: #fff;
+    fill: var(--ft-hub);
     stroke: var(--ft-line-strong);
   }
 
@@ -784,7 +754,7 @@ $tape: #94a3b8; // slate-400
 
   &__tape-marks {
     fill: none;
-    stroke: rgba(#fff, .55);
+    stroke: var(--ft-tape-marks);
     stroke-width: 1.5;
   }
 

@@ -5,7 +5,8 @@ import Waveform from './Waveform'
 import { ClipView, CanvasProps, Renderer, staticDefaults } from './index'
 import { PlaylistItem } from '../../../types/playlist'
 import { P5BoundingBox, State as ComponentState } from '../../../render/P5Component'
-import { theme } from './theme'
+import { paint, theme } from './theme'
+import type { SectionKey } from '../../../theme/keys'
 import { STEPS_PER_BEAT, litRows, patternLabel } from '../../../types/sequencer'
 import { hiddenBeyond } from './edges'
 
@@ -18,6 +19,7 @@ interface Props extends PlaylistComponentProps {
   trackHeight: number
 }
 
+type ClipColor = SectionKey<'playlist'>
 type State = ComponentState<Record<string, never>>
 
 // room at the end of the label for the modified dot, in screen pixels
@@ -189,9 +191,10 @@ class PlaylistObject extends PlaylistComponent<State> {
     // a pattern clip's amber)
     const selected = (this.renderer as Renderer)?.selectedIds.has(this.playlistItem.id)
     const isPattern = this.playlistItem.patternId !== undefined
-    let colors = { border: theme.clipBorder, card: theme.clip, label: theme.clipLabel }
-    if(isPattern) colors = { border: theme.patternBorder, card: theme.patternClip, label: theme.patternLabel }
-    if(selected) colors = { border: theme.selectedBorder, card: theme.selectedClip, label: theme.selectedLabel }
+    let colors: { border: ClipColor, card: ClipColor, label: ClipColor } =
+      { border: 'clipBorder', card: 'clip', label: 'clipLabel' }
+    if(isPattern) colors = { border: 'patternBorder', card: 'patternClip', label: 'patternLabel' }
+    if(selected) colors = { border: 'selectedBorder', card: 'selectedClip', label: 'selectedLabel' }
     const { border } = colors
     // drawn in screen pixels across (like the label's text), so zoom doesn't
     // stretch the card's border or its corners
@@ -199,14 +202,14 @@ class PlaylistObject extends PlaylistComponent<State> {
     this.p.push()
     this.p.scale(1 / scale, 1)
     this.p.strokeWeight(selected ? 1.5 : 1)
-    this.p.stroke(...border)
-    this.p.fill(...colors.card)
+    paint.stroke(this.p, border)
+    paint.fill(this.p, colors.card)
     this.p.rect(left * scale, cardTop, width * scale, cardHeight, 3)
     this.p.noStroke()
-    this.p.fill(...colors.label)
+    paint.fill(this.p, colors.label)
     this.p.rect(left * scale + .5, cardTop + .5, width * scale - 1, this.labelHeight - inset - .5, 3, 3, 0, 0)
     this.p.strokeWeight(1)
-    this.p.stroke(...border)
+    paint.stroke(this.p, border)
     this.p.line(left * scale, top + this.labelHeight, right * scale, top + this.labelHeight)
 
     // a small triangle in the label, pointing into the clip, at each edge
@@ -214,7 +217,7 @@ class PlaylistObject extends PlaylistComponent<State> {
     const hidden = width * scale >= TRIANGLES_FROM_WIDTH ? this.#hidden() : { left: false, right: false }
     const labelMiddle = cardTop + (this.labelHeight - inset) / 2
     this.p.noStroke()
-    this.p.fill(...border)
+    paint.fill(this.p, border)
     if(hidden.left) {
       const x = left * scale + 3
       this.p.triangle(x, labelMiddle - 4, x, labelMiddle + 4, x + 5, labelMiddle)
@@ -228,7 +231,7 @@ class PlaylistObject extends PlaylistComponent<State> {
 
     // render text
     this.p.noStroke()
-    this.p.fill(...theme.clipText)
+    paint.fill(this.p, 'clipText')
     this.p.textFont(theme.font)
     this.p.textSize(11)
     this.p.textAlign(this.p.LEFT, this.p.TOP)
@@ -245,7 +248,7 @@ class PlaylistObject extends PlaylistComponent<State> {
     // a dot at the end of the label: this clip's settings were changed
     // in the Sample tab. drawn unscaled, so it stays round when zoomed
     if(this.modified) {
-      this.p.fill(...theme.modified)
+      paint.fill(this.p, 'modified')
       this.p.circle(
         right * this.currentScale - MODIFIED_DOT_SPACE / 2 - rightSpace,
         top + this.labelHeight / 2,
@@ -257,7 +260,7 @@ class PlaylistObject extends PlaylistComponent<State> {
     const bar = (this.renderer as Renderer)?.edgeBarOn?.(this.playlistItem.id)
     if(bar) {
       this.p.noStroke()
-      this.p.fill(...theme.accent)
+      paint.fill(this.p, 'accent')
       this.p.rect(
         bar === 'left' ? left * scale : right * scale - EDGE_BAR_WIDTH,
         cardTop,
@@ -268,7 +271,7 @@ class PlaylistObject extends PlaylistComponent<State> {
 
     if((this.renderer as Renderer)?.debugMode) {
       // text width debug
-      this.p.fill(255,187,153,255*.3)
+      paint.fill(this.p, 'debug', 0.3)
       this.p.rect(
         (left + 1) * this.currentScale,
         top + 6,
@@ -300,7 +303,7 @@ class PlaylistObject extends PlaylistComponent<State> {
     const last = Math.min(to, pattern.length)
 
     this.p.strokeWeight(1 / this.currentScale)
-    this.p.stroke(...theme.patternBeat)
+    paint.stroke(this.p, 'patternBeat')
     const firstBeat = (Math.floor(from / STEPS_PER_BEAT) + 1) * STEPS_PER_BEAT
     for(let step = firstBeat; step < last; step += STEPS_PER_BEAT) {
       const x = stepX(step)
@@ -315,7 +318,7 @@ class PlaylistObject extends PlaylistComponent<State> {
     const gapY = Math.min(laneHeight * .15, 1)
 
     this.p.noStroke()
-    this.p.fill(...theme.patternHit)
+    paint.fill(this.p, 'patternHit')
     lanes.forEach((steps, lane) => {
       const y = bodyTop + lane * laneHeight
       // only the hits that start inside the clip, as it plays them
@@ -356,7 +359,7 @@ class PlaylistObject extends PlaylistComponent<State> {
       // mouse drop height debug
       const { pixelOffset } = this.playlistItem
       this.p.strokeWeight(2)
-      this.p.stroke(255,187,153)
+      paint.stroke(this.p, 'debug')
       this.p.line(left, pixelOffset.yOffset, right, pixelOffset.yOffset)
 
     }

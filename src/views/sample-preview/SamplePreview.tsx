@@ -94,7 +94,7 @@ const SamplePreview = () => {
 
   if(!clip) {
     return (
-      <div className='ft-panel h-full w-full flex items-center justify-center text-sm text-slate-400'>
+      <div className='ft-panel h-full w-full flex items-center justify-center text-sm text-ink-faint'>
         Double-click a clip in the playlist to inspect it.
       </div>
     )
@@ -126,7 +126,7 @@ const SamplePreview = () => {
     <div className='ft-panel h-full w-full p-4 flex flex-col gap-3 text-sm overflow-auto'>
       <div className='flex flex-row items-end justify-between gap-4'>
         <div className='min-w-0 flex flex-col gap-2'>
-          <h2 className='text-base font-medium text-slate-700 truncate' title={clip.path}>{name}</h2>
+          <h2 className='text-base font-medium text-ink truncate' title={clip.path}>{name}</h2>
 
           <div className='flex flex-row flex-wrap gap-3'>
             {played !== null && (
@@ -171,12 +171,12 @@ const SamplePreview = () => {
           />
         )}
         {!waveformData && waveform?.state !== 'error' && (
-          <div className='h-full flex items-center justify-center text-xs text-slate-400'>
+          <div className='h-full flex items-center justify-center text-xs text-ink-faint'>
             Loading waveform…
           </div>
         )}
         {waveform?.state === 'error' && (
-          <div className='h-full flex items-center justify-center text-xs text-red-600'>
+          <div className='h-full flex items-center justify-center text-xs text-danger'>
             Couldn&apos;t load the waveform: {waveform.message}
           </div>
         )}

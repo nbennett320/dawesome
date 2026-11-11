@@ -2,7 +2,9 @@
 import * as fs from 'fs'
 import * as path from 'path'
 
-// enabled once every color site is converted
+// every color comes from the theme (engine/themes/base.json): use a token
+// class (bg-surface), cssVar('ink') in inline styles, or painter(section) on
+// canvases. only src/theme/ may hold raw colors
 const SRC = path.resolve(__dirname, '..')
 const THEME_DIR = __dirname
 
@@ -35,7 +37,7 @@ export const findRawColors = (): string[] =>
       ),
   )
 
-describe.skip('no raw colors outside src/theme', () => {
+describe('no raw colors outside src/theme', () => {
   it('has none', () => {
     expect(findRawColors()).toEqual([])
   })

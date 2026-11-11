@@ -32,7 +32,7 @@ const FolderRow = <T, >({
       aria-expanded={open}
       selected={selected}
       title={node.name}
-      className={dropping ? '!bg-sky-100 ring-1 ring-inset ring-sky-400' : ''}
+      className={dropping ? '!bg-accent-tint-strong ring-1 ring-inset ring-accent-focus' : ''}
       style={{ paddingLeft: depth * 12 + 8 }}
       {...{ [DROP_FOLDER]: node.key }}
       onMouseDown={ev => {
@@ -86,7 +86,7 @@ const FolderTree = <T, >({
 
   return (
     <div
-      className={`min-h-full pb-2 ${dropTarget === '' ? 'bg-sky-50/60 ring-1 ring-inset ring-sky-300' : ''}`}
+      className={`min-h-full pb-2 ${dropTarget === '' ? 'bg-accent-tint/60 ring-1 ring-inset ring-accent-soft' : ''}`}
       {...{ [DROP_FOLDER]: '' }}
     >
       {rows.map(row => {

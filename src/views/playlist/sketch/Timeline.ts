@@ -4,7 +4,7 @@ import { P5CanvasInstance } from 'react-p5-wrapper'
 import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import { CanvasProps, Renderer } from './index'
 import { P5BoundingBox } from '../../../render/P5Component'
-import { theme } from './theme'
+import { paint, theme } from './theme'
 import { MIN_LABEL_GAP, gridSteps, visibleBeats } from './grid'
 
 interface Props extends PlaylistComponentProps {}
@@ -56,13 +56,13 @@ class Timeline extends PlaylistComponent {
       const bar = i % theme.beatsPerBar === 0
 
       // a tick up from the bottom, taller on each bar
-      p.stroke(...theme.rulerLine)
+      paint.stroke(p, 'rulerLine')
       p.strokeWeight(1)
       p.line(x, this.timelineHeight - (bar ? 10 : 5), x, this.timelineHeight)
 
       if(i % labelEvery === 0) {
         p.noStroke()
-        p.fill(...(bar ? theme.rulerBarText : theme.rulerText))
+        paint.fill(p, bar ? 'rulerBarText' : 'rulerText')
         p.textStyle(bar ? p.BOLD : p.NORMAL)
         p.text(i + 1, x + 3, this.timelineHeight - 8)
       }
@@ -81,11 +81,11 @@ class Timeline extends PlaylistComponent {
     if(beat === null) return
 
     const x = beat * beatWidth
-    p.stroke(...theme.loopEnd)
+    paint.stroke(p, 'loopEnd')
     p.strokeWeight(1.5)
     p.line(x, 2, x, this.timelineHeight)
     p.noStroke()
-    p.fill(...theme.loopEnd)
+    paint.fill(p, 'loopEnd')
     // the flag points back along the loop
     p.triangle(x, 2, x - 7, 5.5, x, 9)
   }
@@ -93,14 +93,14 @@ class Timeline extends PlaylistComponent {
   render() {
     const { p } = this
     p.noStroke()
-    p.fill(...theme.ruler)
+    paint.fill(p, 'ruler')
     p.rect(0, -1, this.timelineWidth, this.timelineHeight + 1)
     this.drawNumbers()
 
     // a line under the ruler, 1px whatever the zoom
     p.push()
     p.scale(1 / this.currentScale, 1)
-    p.stroke(...theme.rulerLine)
+    paint.stroke(p, 'rulerLine')
     p.strokeWeight(1)
     p.line(0, this.timelineHeight - .5, this.timelineWidth * this.currentScale, this.timelineHeight - .5)
     p.pop()

@@ -14,6 +14,7 @@ import { leaves } from '../../state/paneTree'
 import { useAppDispatch, useAppSelector } from '../../hooks/redux'
 import { matchViewComponent } from '../../views/matchViewComponent'
 import { PaneTab, View, WindowNode } from '../../types/ui'
+import { cssVar } from '../../theme/apply'
 import Close from '../icons/Close'
 import { AnalogButton, Led } from '../fourtrack'
 
@@ -85,13 +86,13 @@ const TabItem = ({ pane, tab, index, selected, lit }: TabItemProps) => {
     <div
       ref={node => { dragRef(dropRef(node)) }}
       className='group flex flex-row items-center gap-2 h-8 pl-3 pr-1.5'
-      style={{ boxShadow: isOver ? 'inset 2px 0 0 rgb(14, 165, 233)' : undefined }}
+      style={{ boxShadow: isOver ? `inset 2px 0 0 ${cssVar('accent')}` : undefined }}
     >
       <Led color='blue' state={lit ? 'on' : 'off'} />
-      <span className={`ft-label ${selected ? 'text-slate-700' : 'group-hover:text-slate-600'}`}>{tab.label}</span>
+      <span className={`ft-label ${selected ? 'text-ink' : 'group-hover:text-ink-mid'}`}>{tab.label}</span>
 
       <button
-        className={`rounded-sm p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 ${
+        className={`rounded-sm p-0.5 text-ink-faint hover:bg-sunken hover:text-ink ${
           selected ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
         }`}
         title={`Close ${tab.label}`}
@@ -176,8 +177,8 @@ const DropOverlay = ({ pane }: { pane: WindowNode }) => {
           className='absolute pointer-events-none'
           style={{
             ...zoneStyle[zone],
-            background: 'rgba(125, 211, 252, 0.2)',
-            border: '1px solid rgba(14, 165, 233, 0.6)',
+            background: cssVar('accentSoft', 0.2),
+            border: `1px solid ${cssVar('accent', 0.6)}`,
             borderRadius: 4,
           }}
         />
@@ -241,7 +242,7 @@ const TabbedPane = ({ pane }: Props) => {
         selectedTabPanelClassName='react-tabs__tab-panel--selected h-full'
       >
         <div
-          className='ft-panel flex flex-row items-stretch border-b border-slate-200'
+          className='ft-panel flex flex-row items-stretch border-b border-line'
         >
           <TabList className='flex flex-row' style={{ margin: 0, border: 'none' }}>
             {pane.tabs.map((tab, index) => (

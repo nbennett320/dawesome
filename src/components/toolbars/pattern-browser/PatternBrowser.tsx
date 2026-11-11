@@ -273,7 +273,7 @@ const PatternBrowser = () => {
             {renderPattern(pattern, 0, folderPathLabel(folders, pattern.folder))}
           </React.Fragment>
         ))}
-        {!found.length && <div className='px-3 py-2 text-xs text-slate-400'>No patterns match.</div>}
+        {!found.length && <div className='px-3 py-2 text-xs text-ink-faint'>No patterns match.</div>}
       </div>
     )
   } else {
@@ -297,7 +297,7 @@ const PatternBrowser = () => {
         renderItem={(pattern, depth) => renderPattern(pattern, depth)}
       >
         {!patterns.length && !folders.length && (
-          <div className='px-3 py-2 text-xs text-slate-400'>No patterns yet. Make one in the Sequencer.</div>
+          <div className='px-3 py-2 text-xs text-ink-faint'>No patterns yet. Make one in the Sequencer.</div>
         )}
       </FolderTree>
     )

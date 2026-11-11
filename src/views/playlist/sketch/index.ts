@@ -19,7 +19,8 @@ import {
   PlaylistWindow
 } from '../../../types/playlist'
 import { CutClip, canCut, cutPoint, cutTargets } from './cut'
-import { theme } from './theme'
+import { onThemeChange } from '../../../theme/apply'
+import { paint, theme } from './theme'
 import { PlaylistTransport } from '../../../types/transport'
 import { positionAt } from '../../transport/tape'
 import {
@@ -703,7 +704,7 @@ export class Renderer extends RendererBase {
     const ctx = p.drawingContext as CanvasRenderingContext2D
     const x = this.beatToX(cut.beat)
     p.push()
-    p.stroke(...theme.accent)
+    paint.stroke(p, 'accent')
     // (x is stretched by the zoom, so the line's width is given without it)
     p.strokeWeight(1.5 / this.currentScale)
     ctx.setLineDash([4, 3])
@@ -963,8 +964,8 @@ export class Renderer extends RendererBase {
     const y = top - this.scrollY + 1
 
     p.push()
-    p.fill(...theme.lassoFill, 255 * .08)
-    p.stroke(...theme.selectedBorder)
+    paint.fill(p, 'lassoFill', 0.08)
+    paint.stroke(p, 'selectedBorder')
     p.strokeWeight(1)
     const ctx = p.drawingContext as CanvasRenderingContext2D
     ctx.setLineDash([4, 3])
@@ -1292,8 +1293,8 @@ export class Renderer extends RendererBase {
     p.push()
     ctx.setLineDash([4, 3])
     p.strokeWeight(1)
-    p.stroke(...theme.accent)
-    p.fill(...theme.accentSoft, 255*.25)
+    paint.stroke(p, 'accent')
+    paint.fill(p, 'accentSoft', 0.25)
     // in screen pixels across, so zoom doesn't stretch the outline or its dashes
     p.scale(1 / this.currentScale, 1)
     this.landings(drag).forEach(({ item, beat, track }) => {
@@ -1414,11 +1415,11 @@ export class Renderer extends RendererBase {
     p.push()
     if(targeted) {
       p.noStroke()
-      p.fill(...theme.accentSoft, 64)
+      paint.fill(p, 'accentSoft', 64 / 255)
       p.rect(0, top, this.width, h)
-      p.stroke(...theme.accent)
+      paint.stroke(p, 'accent')
     } else {
-      p.stroke(...theme.idle)
+      paint.stroke(p, 'idle')
     }
 
     p.strokeWeight(1.5)
@@ -1429,7 +1430,7 @@ export class Renderer extends RendererBase {
 
     if(targeted) {
       p.noStroke()
-      p.fill(...theme.accent)
+      paint.fill(p, 'accent')
       p.textFont(theme.font)
       p.textSize(11)
       p.textAlign(p.LEFT, p.CENTER)
@@ -1447,7 +1448,7 @@ export class Renderer extends RendererBase {
 
     p.push()
     p.noStroke()
-    p.fill(...theme.scrollbar, active ? 140 : 80)
+    paint.fill(p, 'scrollbar', (active ? 140 : 80) / 255)
     p.rect(this.width - width - margin, bar.thumbTop + 2, width, bar.thumbHeight - 4, width / 2)
     p.pop()
   }
@@ -1547,6 +1548,15 @@ export class Renderer extends RendererBase {
       window.addEventListener('keyup', this.#followAlt)
       // labels drawn before the font loaded are drawn again in it
       document.fonts?.ready.then(this.wake)
+      // colours are read as they're drawn, so a theme change only needs a
+      // redraw. stopped when the instance is removed. a closure of its own, so
+      // removing an old instance can't unsubscribe a newer one
+      const offTheme = onThemeChange(() => this.wake())
+      const remove = p.remove.bind(p)
+      p.remove = () => {
+        offTheme()
+        remove()
+      }
       this.wake()
 
       // handle mouse press, and pick up a clip if one was pressed on
@@ -1995,7 +2005,7 @@ export class Renderer extends RendererBase {
         }
       )
       
-      p.background(...theme.background)
+      paint.background(p, 'background')
 
       this.transformX = p.constrain(this.transformX, width * (1 - currentScale), 0)
       // NaN never recovers through constrain, and breaks every clip's
@@ -2027,7 +2037,7 @@ export class Renderer extends RendererBase {
 
       // every other track lane is shaded a little
       p.noStroke()
-      p.fill(...theme.laneAlt)
+      paint.fill(p, 'laneAlt')
       for(let n = 1; n < trackCount; n += 2) {
         p.rect(0, trackTop(n), width, staticDefaults.trackHeight)
       }
@@ -2042,7 +2052,7 @@ export class Renderer extends RendererBase {
       const [firstBeat, lastBeat] = visibleBeats(pixelsPerBeat, this.transformX, width, beatsDisplayed)
       for(let beat = Math.ceil(firstBeat / lineEvery) * lineEvery; beat < lastBeat; beat += lineEvery) {
         const x = beat * width / beatsDisplayed
-        p.stroke(...(beat % theme.beatsPerBar === 0 ? theme.barLine : theme.beatLine))
+        paint.stroke(p, beat % theme.beatsPerBar === 0 ? 'barLine' : 'beatLine')
         p.line(x, 0, x, gridBottom)
       }
 
@@ -2104,7 +2114,7 @@ export class Renderer extends RendererBase {
         const debugWinHeight = 157
         const debugWinTop = staticDefaults.timelineHeight + 10
         p.noStroke()
-        p.fill(255,187,153,255*.6)
+        paint.fill(p, 'debug', 0.6)
         p.rect(
           p.width - debugWinWidth, 
           debugWinTop,
@@ -2112,8 +2122,8 @@ export class Renderer extends RendererBase {
           debugWinHeight - 10
         )
 
-        p.stroke(0,0,0)
-        p.fill(0,0,0)
+        paint.stroke(p, 'debugText')
+        paint.fill(p, 'debugText')
         p.strokeWeight(.1)
         p.textSize(11)
         p.textAlign(p.LEFT)

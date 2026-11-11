@@ -46,7 +46,7 @@ const App = () => {
   }, [projectPath])
 
   return (
-    <div className="AppRoot min-h-screen text-gray-800">
+    <div className="AppRoot min-h-screen text-ink-strong">
       <Topbar />
       <ProjectNotice />
       <div className="WorkspaceContainer flex flex-row w-full">

@@ -135,7 +135,7 @@ const Sequencer = () => {
 
       <div
         ref={bodyRef}
-        className={`flex-1 min-h-0 overflow-auto m-2 rounded-lg p-2 ft-tray ${dropping ? 'ring-2 ring-sky-400' : ''}`}
+        className={`flex-1 min-h-0 overflow-auto m-2 rounded-lg p-2 ft-tray ${dropping ? 'ring-2 ring-accent-focus' : ''}`}
       >
         <div className='flex flex-col gap-1.5 w-max min-w-full'>
           {pattern && rows.map(row => (
@@ -151,7 +151,7 @@ const Sequencer = () => {
           ))}
           <div
             className={`rounded-md border-2 border-dashed px-3 py-4 text-xs text-center ${
-              dropping ? 'border-sky-400 text-sky-700 bg-sky-50' : 'border-slate-300 text-slate-500'
+              dropping ? 'border-accent-focus text-accent-ink bg-accent-tint' : 'border-line-strong text-ink-soft'
             }`}
           >
             {hint}

@@ -4,7 +4,7 @@ import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import { CanvasProps, Renderer, staticDefaults } from './index'
 import PlaylistObject from './PlaylistObject'
 import { P5BoundingBox, State as ComponentState } from '../../../render/P5Component'
-import { theme } from './theme'
+import { paint } from './theme'
 
 interface Props extends PlaylistComponentProps {
   trackNumber: number
@@ -95,7 +95,7 @@ class PlaylistTrack extends PlaylistComponent<State> {
     })
 
     // render track lines
-    p.stroke(...theme.laneLine)
+    paint.stroke(p, 'laneLine')
     p.strokeWeight(1)
     p.line(0, maxHeight + .3, timelineWidth, maxHeight + .3)
   }

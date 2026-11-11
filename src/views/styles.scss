@@ -1,12 +1,4 @@
 .react-tabs {
-  -webkit-tap-highlight-color: transparent;
-
-  &__tab-list {
-    border-bottom: 1px solid #aaa;
-    margin: 0 0 10px;
-    padding: 0;
-  }
-
   &__tab {
     display: inline-block;
     border-left: 1px solid transparent;
@@ -15,18 +7,17 @@
     // bottom: -1px;
     position: relative;
     list-style: none;
-    padding: 6px;
     cursor: pointer;
 
     &--selected {
-      background: #fff;
-      border-color: #aaa;
-      color: black;
+      background: rgb(var(--c-surface));
+      border-color: rgb(var(--c-ink-faint));
+      color: rgb(var(--c-ink-strong));
       // border-radius: 5px 5px 0 0;
     }
 
     &--disabled {
-      color: GrayText;
+      color: rgb(var(--c-ink-faint));
       cursor: default;
     }
 
@@ -55,7 +46,7 @@
 
 // split pane styles
 .Resizer {
-  background: #000;
+  background: rgb(var(--c-shadow));
   opacity: 0.2;
   z-index: 1;
   -moz-box-sizing: border-box;
@@ -74,28 +65,28 @@
 .Resizer.horizontal {
   height: 11px;
   margin: -5px 0;
-  border-top: 5px solid rgba(255, 255, 255, 0);
-  border-bottom: 5px solid rgba(255, 255, 255, 0);
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
   cursor: row-resize;
   width: 100%;
 }
 
 .Resizer.horizontal:hover {
-  border-top: 5px solid rgba(0, 0, 0, 0.5);
-  border-bottom: 5px solid rgba(0, 0, 0, 0.5);
+  border-top: 5px solid rgb(var(--c-shadow) / .5);
+  border-bottom: 5px solid rgb(var(--c-shadow) / .5);
 }
 
 .Resizer.vertical {
   width: 11px;
   margin: 0 -5px;
-  border-left: 5px solid rgba(255, 255, 255, 0);
-  border-right: 5px solid rgba(255, 255, 255, 0);
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
   cursor: col-resize;
 }
 
 .Resizer.vertical:hover {
-  border-left: 5px solid rgba(0, 0, 0, 0.5);
-  border-right: 5px solid rgba(0, 0, 0, 0.5);
+  border-left: 5px solid rgb(var(--c-shadow) / .5);
+  border-right: 5px solid rgb(var(--c-shadow) / .5);
 }
 
 .Resizer.disabled {

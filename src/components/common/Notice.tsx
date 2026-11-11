@@ -2,8 +2,8 @@ import React from 'react'
 
 // led: something to look at, danger: something that failed
 const TONES = {
-  led: 'border-amber-300 bg-amber-50 text-amber-900',
-  danger: 'border-red-200 bg-red-50 text-red-900',
+  led: 'border-led-line bg-led-tint text-led-ink',
+  danger: 'border-danger-line bg-danger-tint text-danger-ink',
 }
 
 const Notice = ({ tone, role = 'alert', children, className = 'rounded border px-3 py-2' }: {

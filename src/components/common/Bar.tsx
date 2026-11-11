@@ -1,6 +1,6 @@
 import React from 'react'
 
-const FILLS = { ok: 'bg-lime-500', clip: 'bg-red-500' }
+const FILLS = { ok: 'bg-ok', clip: 'bg-danger-bright' }
 
 // a track and its fill, for progress and levels. the track's size and the aria
 // attributes come from the caller
@@ -10,7 +10,7 @@ const Bar = ({ value, tone = 'ok', className = '', ...aria }: {
   tone?: keyof typeof FILLS
   className?: string
 } & React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={`h-2 rounded-sm bg-slate-200 overflow-hidden ${className}`} {...aria}>
+  <div className={`h-2 rounded-sm bg-sunken overflow-hidden ${className}`} {...aria}>
     <div className={`h-full ${FILLS[tone]}`} style={{ width: `${value * 100}%` }} />
   </div>
 )

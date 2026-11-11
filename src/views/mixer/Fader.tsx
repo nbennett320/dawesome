@@ -95,7 +95,7 @@ const Fader = ({ label, value, onChange, onReset, children }: Props) => {
   return (
     <div className='flex flex-row h-full gap-1'>
       {/* scale */}
-      <div className='relative w-5 text-[9px] leading-none text-slate-400 font-semibold select-none' aria-hidden>
+      <div className='relative w-5 text-[9px] leading-none text-ink-faint font-semibold select-none' aria-hidden>
         {SCALE_MARKS.map(db => (
           <span
             key={db}
@@ -118,7 +118,7 @@ const Fader = ({ label, value, onChange, onReset, children }: Props) => {
         aria-valuenow={value}
         aria-valuetext={`${formatDb(value)} dB`}
         title='Drag (shift for fine moves), or double-click to reset'
-        className='relative w-8 h-full cursor-ns-resize touch-none outline-none rounded focus-visible:ring-2 focus-visible:ring-sky-400'
+        className='relative w-8 h-full cursor-ns-resize touch-none outline-none rounded focus-visible:ring-2 focus-visible:ring-accent-focus'
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
@@ -130,7 +130,7 @@ const Fader = ({ label, value, onChange, onReset, children }: Props) => {
         {SCALE_MARKS.map(db => (
           <div
             key={db}
-            className={`absolute left-0.5 right-0.5 h-px ${db === 0 ? 'bg-slate-400' : 'bg-slate-200'}`}
+            className={`absolute left-0.5 right-0.5 h-px ${db === 0 ? 'bg-ink-faint' : 'bg-sunken'}`}
             style={{ bottom: `calc(${dbToPosition(db)} * (100% - ${THUMB_HEIGHT}px) + ${THUMB_HEIGHT / 2}px)` }}
           />
         ))}

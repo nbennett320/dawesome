@@ -111,7 +111,7 @@ const Mixdown = () => {
         <div className='flex flex-col gap-3 max-w-xl'>
           <span className='ft-label'>Done</span>
           <span className='ft-lcd text-xs w-fit'>{fileName(status.path)}</span>
-          <span className='text-xs text-slate-500 break-all select-text'>{status.path}</span>
+          <span className='text-xs text-ink-soft break-all select-text'>{status.path}</span>
           {error && (
             <Notice tone='led'>{error}</Notice>
           )}
@@ -160,7 +160,7 @@ const Mixdown = () => {
               disabled={disabled}
               onChange={e => dispatch(setMixdownPlace({ project, name: e.currentTarget.value }))}
             />
-            <span className='text-xs text-slate-500'>.{extension}</span>
+            <span className='text-xs text-ink-soft'>.{extension}</span>
           </div>
         </Field>
 

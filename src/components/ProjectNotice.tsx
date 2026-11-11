@@ -35,7 +35,7 @@ const ProjectNotice = () => {
                 // eslint-disable-next-line react/no-array-index-key
                 <li key={i} className='truncate' title={sample.path}>
                   <span className='font-mono'>{sample.path}</span>
-                  <span className='text-amber-700'> ({sample.reason})</span>
+                  <span className='text-led-ink'> ({sample.reason})</span>
                 </li>
               ))}
             </ul>
@@ -59,7 +59,7 @@ const ProjectNotice = () => {
 
   // (info isn't a Notice tone: it's neither a warning nor a failure)
   if(info) {
-    return <div role='status' className={`${shape} bg-slate-50 border-slate-200 text-slate-700`}>{body}</div>
+    return <div role='status' className={`${shape} bg-surface-alt border-line text-ink`}>{body}</div>
   }
 
   return (
