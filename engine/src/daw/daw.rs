@@ -232,8 +232,9 @@ pub fn run_playlist(
     let pattern_track = *state.playlist.pattern_track.lock().unwrap();
 
     // the sounds of the slice `dur` long, `at` into the run, as voices, and
-    // its notes
-    let slice_voices = |at: Duration, dur: Duration, on_beat: bool, resume: bool| {
+    // its notes. while the playlist loops (`loop_len`), its notes end by the
+    // loop's end (see run_notes). a pattern's notes already end at its length
+    let slice_voices = |at: Duration, dur: Duration, on_beat: bool, resume: bool, loop_len: Option<Duration>| {
       let audiograph_ref = state.playlist.audiograph.lock().unwrap();
       println!("tick: {}ms", audiograph_ref.current_offset.unwrap_or_default().as_millis());
 
@@ -241,7 +242,7 @@ pub fn run_playlist(
       let (sounds, notes) = match mode {
         state::PlayMode::Playlist => (
           audiograph_ref.run_sounds_at(at, engine.sample_rate(), dur, metronome, resume),
-          audiograph_ref.run_notes(dur),
+          audiograph_ref.run_notes(dur, loop_len),
         ),
         state::PlayMode::Pattern(id) => (
           audiograph_ref.pattern_sounds(id, dur, metronome, resume),
@@ -284,7 +285,11 @@ pub fn run_playlist(
         })
         .collect()
     };
-    let (voices, first_notes) = slice_voices(count_in, slice, lead.is_zero(), true);
+    let first_loop = match mode {
+      state::PlayMode::Playlist => loop_len(&state),
+      state::PlayMode::Pattern(_) => None,
+    };
+    let (voices, first_notes) = slice_voices(count_in, slice, lead.is_zero(), true, first_loop);
     first.extend(voices);
 
     // where the run is in the song, for the effects: its frame 0 is the
@@ -392,7 +397,7 @@ pub fn run_playlist(
       // send the next slice
       state.playlist.audiograph.lock().unwrap().set_current_offset(Some(next));
       slice = tempo_interval;
-      let (voices, notes) = slice_voices(next_at, slice, true, false);
+      let (voices, notes) = slice_voices(next_at, slice, true, false, loop_len);
       if let Err(e) = engine.play(voices) {
         println!("could not schedule the next beat: {}", e);
       }

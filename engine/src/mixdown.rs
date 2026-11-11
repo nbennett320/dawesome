@@ -179,7 +179,8 @@ pub fn render(
       .into_iter()
       .map(|(delay, source, route)| engine.boxed_voice(source, Some(RUN), engine.frames_in(at + delay), route))
       .collect();
-    let notes = graph.run_notes(beat);
+    // (a mixdown plays the song once through: no loop to cut notes at)
+    let notes = graph.run_notes(beat, None);
     if at.is_zero() {
       // the mix starts at the song's start
       let start = daw::RunStart {
@@ -551,7 +552,7 @@ mod tests {
           .map(|(delay, source, route)| engine.boxed_voice(source, Some(run), engine.frames_in(at + delay), route))
           .collect();
         engine.play(voices).unwrap();
-        daw::play_slice_notes(&engine, run, at, graph.run_notes(beat)).unwrap();
+        daw::play_slice_notes(&engine, run, at, graph.run_notes(beat, None)).unwrap();
         at += beat;
       }
       graph.pause();

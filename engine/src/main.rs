@@ -119,6 +119,7 @@ fn init_tauri() {
       // (setup runs on the main thread, which plugins are called on)
       main_thread::init(app.handle().clone());
       effects::keep_idling(racks.clone());
+      effects::follow_output(&racks);
       effect_windows::init(&racks);
       app::window::setup(app)
     })

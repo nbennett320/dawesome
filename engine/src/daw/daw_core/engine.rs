@@ -673,18 +673,25 @@ impl Engine {
 
   // wait until the callback has put in place every chain sent so far, so no
   // slot taken out of one is still being run. returns whether it got there
-  // (with no output running it never does)
+  // (with no output running it never does), or the renderer is gone (its
+  // stream has closed, and its chains went with it: nothing can run them)
   pub fn wait_for_chains(&self, timeout: Duration) -> bool {
     let sent = self.shared.chains_sent.load(Ordering::Acquire);
     let deadline = Instant::now() + timeout;
     loop {
-      if self.shared.chains_applied.load(Ordering::Acquire) >= sent {
+      if self.shared.chains_applied.load(Ordering::Acquire) >= sent || self.renderer_gone() {
         self.collect_garbage();
         return true;
       }
       if Instant::now() >= deadline { return false; }
       thread::sleep(Duration::from_millis(1));
     }
+  }
+
+  // whether the renderer has been dropped (the command queue's other end is
+  // gone). a renderer is only dropped when it isn't rendering
+  fn renderer_gone(&self) -> bool {
+    self.commands.lock().unwrap().is_abandoned()
   }
 
   fn send(&self, command: Command) -> Result<(), String> {
@@ -1087,7 +1094,7 @@ impl Renderer {
     self.throw_away(Garbage::Voices(voices));
   }
 
-  fn add_notes(&mut self, track: u32, run: Option<u64>, notes: Vec<TimedNote>) {
+  fn add_notes(&mut self, track: u32, run: Option<u64>, mut notes: Vec<TimedNote>) {
     // where they're counted from: the run's first frame, or now. a run that's
     // stopped or been replaced has nothing to play them in
     let (owner, zero) = match (run, &self.run) {
@@ -1099,18 +1106,67 @@ impl Renderer {
       }
     };
 
+    // a note that should have started already starts now. one that should
+    // have ended already too isn't played at all: its note-on and note-off
+    // would both land now, where the note-off comes first (see take_notes),
+    // and it would hang. so each pitch's late notes are paired in time order,
+    // each note-off with the earliest late note-on still waiting, and the
+    // pairs are left out. a late note-off with no late note-on to pair with
+    // ends a note that started earlier, so it comes now, before any late
+    // note-on of the pitch that's still played (sorting in place doesn't
+    // allocate)
     let frame = self.frame;
+    let late = |note: &TimedNote| zero + note.at < frame;
+    notes.sort_unstable_by_key(|note| (note.pitch.min(127), note.at, matches!(note.kind, NoteKind::On { .. })));
     match self.buses.iter_mut().find(|bus| bus.channel == Channel::Track(track)) {
       Some(bus) => {
-        for note in &notes {
-          if bus.notes.len() >= MAX_NOTES {
-            self.shared.dropped_notes.fetch_add(1, Ordering::Relaxed);
-            continue;
+        let mut from = 0;
+        while from < notes.len() {
+          let pitch = notes[from].pitch.min(127);
+          let to = from + notes[from..].iter().take_while(|note| note.pitch.min(127) == pitch).count();
+          let same_pitch = &notes[from..to];
+          from = to;
+
+          // how many of its late notes pair up
+          let (mut waiting, mut pairs) = (0, 0);
+          for note in same_pitch.iter().filter(|note| late(note)) {
+            match note.kind {
+              NoteKind::On { .. } => waiting += 1,
+              NoteKind::Off if waiting > 0 => {
+                waiting -= 1;
+                pairs += 1;
+              }
+              NoteKind::Off => {}
+            }
           }
-          // one that should have happened already happens now
-          let at = zero + note.at;
-          if at < frame { self.shared.late.fetch_add(1, Ordering::Relaxed); }
-          bus.notes.push(PendingNote { owner, frame: at.max(frame), pitch: note.pitch.min(127), kind: note.kind });
+
+          // the same walk again, leaving the pairs out (any `pairs` of the
+          // late note-ons will do: they'd all land now)
+          let (mut waiting, mut ons_left_out) = (0, 0);
+          for note in same_pitch {
+            if late(note) {
+              self.shared.late.fetch_add(1, Ordering::Relaxed);
+              match note.kind {
+                NoteKind::On { .. } => {
+                  waiting += 1;
+                  if ons_left_out < pairs {
+                    ons_left_out += 1;
+                    continue;
+                  }
+                }
+                NoteKind::Off if waiting > 0 => {
+                  waiting -= 1;
+                  continue;
+                }
+                NoteKind::Off => {}
+              }
+            }
+            if bus.notes.len() >= MAX_NOTES {
+              self.shared.dropped_notes.fetch_add(1, Ordering::Relaxed);
+              continue;
+            }
+            bus.notes.push(PendingNote { owner, frame: (zero + note.at).max(frame), pitch, kind: note.kind });
+          }
         }
       }
       // (the engine couldn't send its bus)
@@ -1156,6 +1212,15 @@ lazy_static! {
     settings: AudioSettings::load_default(),
     notice: None,
   });
+  // told each time engine() opens an output (see on_output_opened)
+  static ref ON_OPENED: Mutex<Option<Arc<dyn Fn() + Send + Sync>>> = Mutex::new(None);
+}
+
+// `f` hears each time engine() opens an output, once it's open, with no
+// lock of this module held (so it may call engine()). whoever had nothing
+// to play on until then (the effects' chains) can send it now
+pub fn on_output_opened(f: impl Fn() + Send + Sync + 'static) {
+  *ON_OPENED.lock().unwrap() = Some(Arc::new(f));
 }
 
 // the rate of the output that's open, without opening one
@@ -1187,6 +1252,10 @@ pub fn engine() -> Result<Arc<Engine>, String> {
 
   let engine = output.engine.clone();
   outputs.open = Some(output);
+  drop(outputs);
+
+  let opened = ON_OPENED.lock().unwrap().clone();
+  if let Some(opened) = opened { opened(); }
   Ok(engine)
 }
 
@@ -1862,6 +1931,61 @@ mod tests {
     let out = render(&mut renderer, 30);
 
     assert_eq!(sounding(&out), vec![(5, 20)]);
+  }
+
+  #[test]
+  fn test_a_note_over_before_it_arrives_is_left_out_not_hung() {
+    let (engine, mut renderer, mixer) = with_tone();
+    let route = mixer.track_route(0);
+    engine.start_run(1, mixer.master(), vec![]).unwrap();
+    // the notes come a buffer late (as a run's first slice can, if the
+    // callback runs between the run's start and its notes)
+    render(&mut renderer, 20);
+    engine.play_notes(&route, Some(1), vec![TimedNote::on(5, 60, 1.), TimedNote::off(10, 60)]).unwrap();
+    let out = render(&mut renderer, 30);
+
+    assert!(out.iter().all(|&s| s == 0.));
+    let bus = &renderer.buses[0];
+    assert!(bus.notes.is_empty());
+    assert!(bus.held_by_run.iter().all(|&n| n == 0));
+    // and a stop leaves nothing sounding
+    engine.stop_run(1).unwrap();
+    assert!(render(&mut renderer, 30).iter().all(|&s| s == 0.));
+  }
+
+  #[test]
+  fn test_a_late_note_that_hasnt_ended_plays_from_now_to_its_end() {
+    let (engine, mut renderer, mixer) = with_tone();
+    let route = mixer.track_route(0);
+    engine.start_run(1, mixer.master(), vec![]).unwrap();
+    render(&mut renderer, 20);
+    engine.play_notes(&route, Some(1), vec![TimedNote::on(5, 60, 1.), TimedNote::off(40, 60)]).unwrap();
+    let out = render(&mut renderer, 30);
+
+    assert_eq!(sounding(&out), vec![(0, 20)]);
+    assert!(renderer.buses[0].held_by_run.iter().all(|&n| n == 0));
+  }
+
+  #[test]
+  fn test_a_late_note_ending_where_the_same_pitch_starts_again_still_plays_on() {
+    let (engine, mut renderer, mixer) = with_tone();
+    let route = mixer.track_route(0);
+    engine.start_run(1, mixer.master(), vec![]).unwrap();
+    engine.play_notes(&route, Some(1), vec![TimedNote::on(5, 60, 1.)]).unwrap();
+    let mut out = render(&mut renderer, 20);
+    // late: the first note's end and the next one's start (at a clip
+    // boundary), and a short note that's over already
+    engine.play_notes(&route, Some(1), vec![
+      TimedNote::on(12, 60, 1.),
+      TimedNote::off(12, 60),
+      TimedNote::on(14, 60, 1.),
+      TimedNote::off(16, 60),
+      TimedNote::off(30, 60),
+    ]).unwrap();
+    out.extend(render(&mut renderer, 20));
+
+    assert_eq!(sounding(&out), vec![(5, 30)]);
+    assert!(renderer.buses[0].held_by_run.iter().all(|&n| n == 0));
   }
 
   #[test]

@@ -945,11 +945,17 @@ impl AudioGraph<'static> {
   // at the clip's end, whichever comes first. a note that started before the
   // slice isn't played (an instrument can't start partway through a note),
   // so a run from the middle of one leaves it out
-  pub fn run_notes(&self, dur: Duration) -> Vec<SliceNote> {
+  //
+  // - loop_end: where the playlist jumps back to its start, when it loops.
+  //   a note still sounding there ends there, so it doesn't run on into the
+  //   next time round (and cut short the same pitch starting again at the
+  //   top). one starting at or after it isn't played
+  pub fn run_notes(&self, dur: Duration, loop_end: Option<Duration>) -> Vec<SliceNote> {
     if !self.running || self.pattern_nodes.is_empty() { return Vec::new(); }
 
     let window_start = self.current_offset.unwrap_or(Duration::ZERO).as_nanos() as i128;
     let window_end = window_start + dur.as_nanos() as i128;
+    let loop_end = loop_end.map_or(i128::MAX, |end| end.as_nanos() as i128);
     let beat = self.beat_interval();
     let sequencer = self.sequencer.lock().unwrap();
     let mut notes = Vec::new();
@@ -962,8 +968,8 @@ impl AudioGraph<'static> {
       let route = self.mixer.track_route(node.track_number);
       for note in pattern.notes.iter().filter(|note| note.start >= from && note.start < to) {
         let on = node.heard_at(note.start, beat);
-        if on < window_start || on >= window_end { continue; }
-        let off = node.heard_at(note.end().min(to), beat);
+        if on < window_start || on >= window_end || on >= loop_end { continue; }
+        let off = node.heard_at(note.end().min(to), beat).min(loop_end);
         notes.push(SliceNote::new(on - window_start, off - window_start, route.clone(), note));
       }
     }
@@ -2446,6 +2452,29 @@ mod tests {
     // a longer pattern makes its clips longer
     graph.sequencer.lock().unwrap().set_pattern_bars(pattern, 2, 4).unwrap();
     assert_eq!(graph.end(), ms(7_000));
+  }
+
+  #[test]
+  fn test_a_note_still_sounding_at_the_loops_end_ends_there() {
+    let (mut graph, _, pattern) = graph_with_pattern();
+    {
+      // a step is 125ms at 120bpm: 60 from 1.5s to 2s, 62 from 1.875s
+      let note = |pitch, start, length| daw::PatternNote { pitch, start, length, velocity: 1. };
+      let mut seq = graph.sequencer.lock().unwrap();
+      seq.set_pattern_notes(pattern, vec![note(60, 12., 4.), note(62, 15., 1.)]).unwrap();
+    }
+    graph.add_pattern_node::<daw::timing::QuarterNote>(pattern, ms(0), 0, None).unwrap();
+    graph.init();
+    graph.set_current_offset(Some(ms(1_500)));
+    let heard = |notes: Vec<SliceNote>| -> Vec<(u8, Duration, Duration)> {
+      notes.into_iter().map(|n| (n.pitch, n.on, n.off)).collect()
+    };
+
+    // not looping: as the pattern has them
+    assert_eq!(heard(graph.run_notes(ms(500), None)), vec![(60, ms(0), ms(500)), (62, ms(375), ms(500))]);
+    // looping at 1.75s (a loop held while recording, say): 60 ends at the
+    // loop's end, where the next time round starts, and 62 is past it
+    assert_eq!(heard(graph.run_notes(ms(500), Some(ms(1_750)))), vec![(60, ms(0), ms(250))]);
   }
 
   #[test]

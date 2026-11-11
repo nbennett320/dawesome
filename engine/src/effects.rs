@@ -39,7 +39,8 @@ use crate::plugin_catalog::Plugins;
 
 // how long to wait for the engine to take a chain before carrying on (with
 // no output running it never does; a plugin is still safe to tear down then,
-// as its processor stops calling it first)
+// as its processor stops calling it first). a slot isn't sent to another
+// engine without it, though: see held_by
 const WAIT: Duration = Duration::from_millis(500);
 // how often loaded plugins are given time on the main thread
 const IDLE_EVERY: Duration = Duration::from_millis(50);
@@ -370,6 +371,10 @@ struct Inner {
   sent: BTreeMap<Channel, Vec<u64>>,
   // the output is being replaced: nothing is sent until it's back
   paused: bool,
+  // an engine the chains were taken off that hasn't been seen to let go of
+  // them (its callback stalled). nothing is sent to another engine until it
+  // has, or it's gone: a slot is never in two engines' chains
+  held_by: Option<Arc<daw::Engine>>,
   // the rate plugins are loaded at while no output is open
   rate: u32,
 }
@@ -385,6 +390,9 @@ pub struct Effects {
   pub plugins: Arc<Plugins>,
   backend: Mutex<Backend>,
   on_unload: Mutex<Option<Arc<dyn Fn(u64) + Send + Sync>>>,
+  // plugins of effects that have left the racks, by id, while their unload
+  // callbacks run (so with_plugin still reaches them: see unload)
+  unloading: Mutex<HashMap<u64, Arc<Mutex<Box<dyn Hosted>>>>>,
 }
 
 impl Effects {
@@ -395,6 +403,7 @@ impl Effects {
         engine: None,
         sent: BTreeMap::new(),
         paused: false,
+        held_by: None,
         rate: DEFAULT_RATE,
       }),
       next_id: AtomicU64::new(1),
@@ -403,6 +412,7 @@ impl Effects {
       plugins: Arc::new(Plugins::default()),
       backend: Mutex::new(Backend { loader: Arc::new(Vst3), output: Arc::new(LiveOutput), wait: WAIT, settle: SETTLE }),
       on_unload: Mutex::new(None),
+      unloading: Mutex::new(HashMap::new()),
     }
   }
 
@@ -459,15 +469,21 @@ impl Effects {
 
   // `f` hears an effect's id just before its plugin is torn down (removed,
   // undone, or replaced by another project's), on the main thread, with the
-  // racks unlocked
+  // racks unlocked. it has left the racks by then, but with_plugin still
+  // reaches its plugin
   pub fn on_unload(&self, f: impl Fn(u64) + Send + Sync + 'static) {
     *self.on_unload.lock().unwrap() = Some(Arc::new(f));
   }
 
+  // an effect's plugin, while it's in a rack or being unloaded
   fn hosted(&self, slot_id: u64) -> Option<Arc<Mutex<Box<dyn Hosted>>>> {
-    let inner = self.inner.lock().unwrap();
-    let (channel, i) = find(&inner, slot_id)?;
-    inner.racks[&channel][i].loaded().map(|l| l.plugin.clone())
+    {
+      let inner = self.inner.lock().unwrap();
+      if let Some((channel, i)) = find(&inner, slot_id) {
+        return inner.racks[&channel][i].loaded().map(|l| l.plugin.clone());
+      }
+    }
+    self.unloading.lock().unwrap().get(&slot_id).cloned()
   }
 
   // ---- changes (each one undoable: see effect_commands.rs)
@@ -846,21 +862,38 @@ impl Effects {
   // ---- the output
 
   // the output is about to be replaced: every chain comes off the engine
-  // (waiting for it to take them), and none is sent until `attach`
+  // (waiting for it to take them), and none is sent until `attach`. if it
+  // doesn't take them in time, none is sent to another engine until it has
+  // (see held_by)
   pub fn detach(&self) {
     let wait = self.backend().wait;
-    let engine = {
+    let (engine, had_chains) = {
       let mut inner = self.inner.lock().unwrap();
       inner.paused = true;
       let engine = inner.engine.take();
+      let had_chains = !inner.sent.is_empty();
       if let Some(engine) = &engine {
         self.empty(engine, &mut inner);
       }
       inner.sent.clear();
-      engine
+      (engine, had_chains)
     };
     if let Some(engine) = engine {
-      engine.wait_for_chains(wait);
+      if !engine.wait_for_chains(wait) && had_chains {
+        self.inner.lock().unwrap().held_by = Some(engine);
+      }
+    }
+  }
+
+  // an output has just been opened: send it the chains, if they had nowhere
+  // to go until now (see follow_output)
+  pub fn output_opened(&self) {
+    let done = main_thread::run(|| {
+      let mut inner = self.inner.lock().unwrap();
+      self.sync(&mut inner);
+    });
+    if let Err(e) = done {
+      println!("the effects weren't put on the new output: {}", e);
     }
   }
 
@@ -924,17 +957,27 @@ impl Effects {
   }
 
   // tear down effects that have left the racks, once the engine has let go
-  // of their slots
+  // of their slots. the unload callbacks run first, while with_plugin can
+  // still reach each plugin (through `unloading`), so a window showing one
+  // is closed with its plugin there to let go of it
   fn unload(&self, engine: Option<Arc<daw::Engine>>, effects: Vec<Effect>) {
-    let ids: Vec<u64> = effects.iter().filter(|e| e.loaded().is_some()).map(|e| e.desc.id).collect();
-    if ids.is_empty() { return; }
+    let leaving: Vec<(u64, Arc<Mutex<Box<dyn Hosted>>>)> = effects.iter()
+      .filter_map(|e| e.loaded().map(|l| (e.desc.id, l.plugin.clone())))
+      .collect();
+    if leaving.is_empty() { return; }
+    self.unloading.lock().unwrap().extend(leaving.iter().cloned());
     if let Some(engine) = engine {
       engine.wait_for_chains(self.backend().wait);
     }
     let on_unload = self.on_unload.lock().unwrap().clone();
     if let Some(on_unload) = on_unload {
-      for &id in &ids { on_unload(id); }
+      for (id, _) in &leaving { on_unload(*id); }
     }
+    {
+      let mut unloading = self.unloading.lock().unwrap();
+      for (id, _) in &leaving { unloading.remove(id); }
+    }
+    drop(leaving);
     drop(effects);
   }
 
@@ -984,13 +1027,28 @@ impl Effects {
     if !same {
       // (an output that's been replaced without us hearing of it)
       if let Some(old) = inner.engine.take() {
+        let had_chains = !inner.sent.is_empty();
         self.empty(&old, inner);
-        old.wait_for_chains(backend.wait);
+        if !old.wait_for_chains(backend.wait) && had_chains {
+          inner.held_by = Some(old);
+        }
       }
       inner.sent.clear();
       inner.engine = engine.clone();
     }
     let Some(engine) = engine else { return };
+
+    // nothing goes to this engine, nor is any plugin touched, while another
+    // may still be running the slots. the effects pass sound dry until the
+    // other lets go (or is gone), which the next sync looks at again
+    if let Some(old) = inner.held_by.clone() {
+      if Arc::ptr_eq(&old, &engine) || old.wait_for_chains(backend.wait) {
+        inner.held_by = None;
+      } else {
+        println!("effects are left off the audio output (heard dry) until the old output lets go of them");
+        return;
+      }
+    }
 
     // every plugin prepared for the engine's rate
     let rate = engine.sample_rate();
@@ -1067,6 +1125,24 @@ pub fn keep_idling(effects: Arc<Effects>) {
   if let Err(e) = started {
     println!("plugins won't be given idle time: {}", e);
   }
+}
+
+// send the chains to an output as soon as it opens, so effects added (or a
+// project loaded) while no output could be opened are heard once one is.
+// it's done on a thread of its own: the output can be opened from inside a
+// sync, with the racks locked, and this waits for that to finish (a sync
+// with nothing new to send sends nothing)
+pub fn follow_output(effects: &Arc<Effects>) {
+  let racks = Arc::downgrade(effects);
+  daw::on_output_opened(move || {
+    let racks = racks.clone();
+    let started = std::thread::Builder::new().name("effects to output".into()).spawn(move || {
+      if let Some(effects) = racks.upgrade() { effects.output_opened(); }
+    });
+    if let Err(e) = started {
+      println!("the effects weren't put on the new output: {}", e);
+    }
+  });
 }
 
 // fake plugins for tests: a gain, whose settings are the gain, and a synth
@@ -1458,6 +1534,114 @@ mod tests {
     assert_eq!(rig.loader.alive.load(Ordering::SeqCst), 0);
     assert_eq!(*heard.lock().unwrap(), vec![a, b]);
     assert!(!rig.effects().has_loaded());
+  }
+
+  #[test]
+  fn test_an_unload_callback_can_still_reach_the_plugin() {
+    let rig = rig();
+    let effects = rig.state.playlist.effects.clone();
+    // each id heard, and whether its plugin could be reached then
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let (h, racks) = (heard.clone(), Arc::downgrade(&effects));
+    effects.on_unload(move |id| {
+      let reached = racks.upgrade().map_or(false, |effects| effects.hosted(id).is_some());
+      h.lock().unwrap().push((id, reached));
+    });
+
+    // removed
+    let a = effects.add(Channel::Track(0), &gain().id, None).unwrap();
+    effects.remove(a).unwrap();
+    // replaced by another instrument
+    let s = effects.add(Channel::Track(0), &synth().id, None).unwrap();
+    effects.add(Channel::Track(0), &synth().id, None).unwrap();
+    // undone away
+    let before = effects.snapshot();
+    let b = effects.add(Channel::Master, &gain().id, None).unwrap();
+    let mut left = effects.snapshot();
+    effects.restore(&before, &mut left);
+    // cleared
+    let t = effects.racks()[0].slots[0].id;
+    effects.clear();
+
+    assert_eq!(*heard.lock().unwrap(), vec![(a, true), (s, true), (b, true), (t, true)]);
+    // gone once the callbacks have run
+    assert!(effects.hosted(a).is_none() && effects.hosted(t).is_none());
+    assert!(effects.unloading.lock().unwrap().is_empty());
+    assert_eq!(rig.loader.alive.load(Ordering::SeqCst), 0);
+  }
+
+  // an engine whose callback has stalled (its renderer is never run) keeps
+  // the chains it was sent, so none goes to the next engine until it lets go
+  #[test]
+  fn test_chains_wait_for_a_stalled_engine_to_let_go_before_going_to_another() {
+    let mut rig = rig();
+    // the old engine never takes the chains it's sent (nor empties them)
+    let (stalled, stalled_renderer) = daw::Engine::new(RATE);
+    let stalled = Arc::new(stalled);
+    rig.effects().use_backend(rig.loader.clone(), Arc::new(Fixed(stalled.clone())), Duration::ZERO);
+    let a = rig.effects().add(Channel::Track(0), &gain().id, None).unwrap();
+    rig.effects().detach();
+    assert!(!stalled.wait_for_chains(Duration::ZERO));
+
+    // the new one: the effects pass sound dry, and stay that way through
+    // edits, while the old one may still be running them
+    rig.effects().use_backend(rig.loader.clone(), Arc::new(Fixed(rig.engine.clone())), Duration::ZERO);
+    rig.effects().attach();
+    assert!(close(rig.level(Some(0)), 0.2));
+    let b = rig.effects().add(Channel::Track(0), &gain().id, None).unwrap();
+    assert!(close(rig.level(Some(0)), 0.2));
+    assert_eq!(rig.layout(), vec![(Some(0), vec![a, b])]);
+
+    // once it's gone (its stream closed), the next edit sends them
+    drop(stalled_renderer);
+    rig.effects().move_to(b, Channel::Track(0), 0).unwrap();
+    assert!(close(rig.level(Some(0)), 0.2 * 0.25));
+  }
+
+  #[test]
+  fn test_chains_go_to_a_stalled_engine_once_it_has_caught_up() {
+    let mut rig = rig();
+    let (stalled, mut stalled_renderer) = daw::Engine::new(RATE);
+    rig.effects().use_backend(rig.loader.clone(), Arc::new(Fixed(Arc::new(stalled))), Duration::ZERO);
+    rig.effects().add(Channel::Track(0), &gain().id, None).unwrap();
+    rig.effects().detach();
+    rig.effects().use_backend(rig.loader.clone(), Arc::new(Fixed(rig.engine.clone())), Duration::ZERO);
+    rig.effects().attach();
+    assert!(close(rig.level(Some(0)), 0.2));
+
+    // it renders again, letting go of them
+    let mut out = vec![0f32; 16];
+    stalled_renderer.render(&mut out, Instant::now(), Duration::ZERO);
+    rig.effects().attach();
+    assert!(close(rig.level(Some(0)), 0.1));
+  }
+
+  // no output could be opened when the effects were added: they're heard as
+  // soon as one is
+  #[test]
+  fn test_effects_reach_an_output_opened_later() {
+    struct Later(Mutex<Option<Arc<daw::Engine>>>);
+
+    impl Output for Later {
+      fn engine(&self) -> Result<Arc<daw::Engine>, String> {
+        self.engine_if_open().ok_or_else(|| "no output yet".into())
+      }
+
+      fn engine_if_open(&self) -> Option<Arc<daw::Engine>> {
+        self.0.lock().unwrap().clone()
+      }
+    }
+
+    let mut rig = rig();
+    let later = Arc::new(Later(Mutex::new(None)));
+    rig.effects().use_backend(rig.loader.clone(), later.clone(), Duration::ZERO);
+    rig.effects().add(Channel::Track(0), &gain().id, None).unwrap();
+    assert!(rig.effects().inner.lock().unwrap().engine.is_none());
+
+    // the output opens (as daw::engine() would, telling follow_output)
+    *later.0.lock().unwrap() = Some(rig.engine.clone());
+    rig.effects().output_opened();
+    assert!(close(rig.level(Some(0)), 0.1));
   }
 
   #[test]
