@@ -10,8 +10,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ui-tests:
-    name: UI tests (jest)
+  ui:
+    name: UI checks (lint, types, tests, build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,7 +22,10 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm exec tsc --noEmit
       - run: pnpm ui:test
+      - run: pnpm ui:build
 
   engine-tests:
     name: Engine tests (cargo)
