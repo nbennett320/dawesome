@@ -730,8 +730,10 @@ pub fn play_slice_notes(engine: &daw::Engine, run: u64, at: Duration, notes: Vec
     timed.push(daw::TimedNote::on(engine.frames_in(at + note.on), note.pitch, note.velocity));
     timed.push(daw::TimedNote::off(engine.frames_in(at + note.off), note.pitch));
   }
-  for (_, (route, timed)) in by_track {
-    engine.play_notes(&route, Some(run), timed)?;
+  // (to the track's instrument, if it has one)
+  for (number, (route, timed)) in by_track {
+    let Some(instrument) = engine.track_instrument(number) else { continue };
+    engine.play_notes(&route, instrument, Some(run), timed)?;
   }
   Ok(())
 }

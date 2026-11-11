@@ -1405,7 +1405,9 @@ pub mod testing {
       let timed = notes.iter()
         .flat_map(|&(pitch, from, to)| [daw::TimedNote::on(from, pitch, 1.), daw::TimedNote::off(to, pitch)])
         .collect();
-      self.engine.play_notes(&route, Some(self.run), timed).unwrap();
+      if let Some(instrument) = self.engine.track_instrument(track) {
+        self.engine.play_notes(&route, instrument, Some(self.run), timed).unwrap();
+      }
       let mut out = vec![0f32; frames * 2];
       self.renderer.render(&mut out, std::time::Instant::now(), Duration::ZERO);
       out.chunks(2).map(|f| f[0]).collect()

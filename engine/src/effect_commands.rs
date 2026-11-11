@@ -73,12 +73,14 @@ pub fn play_note_on(state: &daw::InnerState, engine: &daw::Engine, track: u32, p
   if pitch > 127 { return Err(format!("there's no note {}", pitch)); }
   let velocity = if velocity.is_finite() { velocity.clamp(0., 1.) } else { 1. };
   let route = state.playlist.mixer.track_route(track);
-  engine.play_notes(&route, None, vec![daw::TimedNote::on(0, pitch, velocity)])
+  let Some(instrument) = engine.track_instrument(track) else { return Ok(()) };
+  engine.play_notes(&route, instrument, None, vec![daw::TimedNote::on(0, pitch, velocity)])
 }
 
 pub fn stop_note_on(state: &daw::InnerState, engine: &daw::Engine, track: u32, pitch: u8) -> Result<(), String> {
   let route = state.playlist.mixer.track_route(track);
-  engine.play_notes(&route, None, vec![daw::TimedNote::off(0, pitch.min(127))])
+  let Some(instrument) = engine.track_instrument(track) else { return Ok(()) };
+  engine.play_notes(&route, instrument, None, vec![daw::TimedNote::off(0, pitch.min(127))])
 }
 
 #[tauri::command]
