@@ -64,8 +64,10 @@
     cursor: col-resize;
   }
 
+  // stacked, react-split-pane's divider was shrunk down to its borders, so
+  // there was no line: only the grab area, which shades on hover
   &.horizontal {
-    height: 11px;
+    height: 10px;
     margin: -5px 0;
     border-top: 5px solid transparent;
     border-bottom: 5px solid transparent;
