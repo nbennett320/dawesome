@@ -1,0 +1,26 @@
+{
+  "name": "Charcoal Light",
+  "appearance": "light",
+  "colors": {
+    "surface": "#ffffff",
+    "panel": "#f4f4f5",
+    "raised": "#ffffff",
+    "sunken": "#e4e4e7",
+    "line": "#e4e4e7",
+    "lineStrong": "#d4d4d8",
+    "inkStrong": "#27272a",
+    "ink": "#3f3f46",
+    "inkSoft": "#71717a",
+    "inkFaint": "#a1a1aa",
+    "accent": "#0ea5e9",
+    "accentSoft": "#7dd3fc",
+    "accentTint": "#f0f9ff",
+    "accentInk": "#0369a1",
+    "led": "#f59e0b",
+    "ledTint": "#fffbeb",
+    "ledInk": "#78350f",
+    "danger": "#dc2626",
+    "dangerTint": "#fef2f2",
+    "shadow": "#18181b"
+  }
+}

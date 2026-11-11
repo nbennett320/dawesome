@@ -7,6 +7,9 @@ mod project;
 mod project_files;
 mod recording;
 mod recent;
+mod theme;
+mod preferences;
+mod appearance_commands;
 mod history;
 mod history_commands;
 mod mixer_commands;
@@ -76,6 +79,7 @@ fn init_tauri() {
   use bounce::*;
   use join::*;
   use mixdown_commands::*;
+  use appearance_commands::{themes, preferences, set_preferences};
   use history_commands::{undo, redo};
 
   // read before the menu is built, which lists them
@@ -95,6 +99,7 @@ fn init_tauri() {
     .setup(app::window::setup)
     .manage(Arc::new(daw::InnerState::default()))
     .manage(recent_projects)
+    .manage(preferences::AppPreferences::load())
     .manage(Arc::new(mixdown_commands::Mixdowns::default()))
     .invoke_handler(tauri::generate_handler![
       get_playlist_playing,
@@ -127,6 +132,9 @@ fn init_tauri() {
       move_audiograph_nodes,
       remove_audiograph_node,
       remove_audiograph_nodes,
+      themes,
+      preferences,
+      set_preferences,
       undo,
       redo,
       get_node_data,
