@@ -20,14 +20,14 @@ export class EventEmitter<EventPayload> {
 
     this.options?.logger?.('emit', payload);
 
-    for (const handler of this.handlers) {
+    this.handlers.forEach(handler => {
       if (handler) {
         const res = handler(payload) as Promise<void>;
         if (typeof res?.then === 'function') {
           promises.push(res);
         }
       }
-    }
+    });
 
     await Promise.all(promises);
   }
