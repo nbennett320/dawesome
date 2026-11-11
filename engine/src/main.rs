@@ -249,6 +249,7 @@ fn init_tauri() {
       close_effect_window,
       dock_effect,
       move_docked_effect,
+      resize_docked_effect,
       undock_effect,
       get_plugins,
       scan_plugins,

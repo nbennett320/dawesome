@@ -190,6 +190,18 @@ pub struct SavedEffect {
   // the plugin's settings, base64
   #[serde(default)]
   pub state: String,
+  // where its floating window was last, if it's been open (left out if not,
+  // as projects had it before)
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub window: Option<WindowPosition>,
+}
+
+// a floating window's top-left corner, as plugin::window gives it: macOS
+// screen points with y going up
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+pub struct WindowPosition {
+  pub x: f64,
+  pub y: f64,
 }
 
 // a channel's effects, as saved in a project
@@ -393,6 +405,10 @@ pub struct Effects {
   // plugins of effects that have left the racks, by id, while their unload
   // callbacks run (so with_plugin still reaches them: see unload)
   unloading: Mutex<HashMap<u64, Arc<Mutex<Box<dyn Hosted>>>>>,
+  // where each effect's floating window was last, by id, so it opens there
+  // again and is saved with the project. kept after an effect goes, so
+  // undoing its removal brings it back with its window's place
+  windows: Mutex<HashMap<u64, WindowPosition>>,
 }
 
 impl Effects {
@@ -413,6 +429,7 @@ impl Effects {
       backend: Mutex::new(Backend { loader: Arc::new(Vst3), output: Arc::new(LiveOutput), wait: WAIT, settle: SETTLE }),
       on_unload: Mutex::new(None),
       unloading: Mutex::new(HashMap::new()),
+      windows: Mutex::new(HashMap::new()),
     }
   }
 
@@ -473,6 +490,16 @@ impl Effects {
   // reaches its plugin
   pub fn on_unload(&self, f: impl Fn(u64) + Send + Sync + 'static) {
     *self.on_unload.lock().unwrap() = Some(Arc::new(f));
+  }
+
+  // where an effect's floating window was last, if it's been open (in this
+  // session, or when the project was saved)
+  pub fn window_position(&self, slot_id: u64) -> Option<WindowPosition> {
+    self.windows.lock().unwrap().get(&slot_id).copied()
+  }
+
+  pub fn keep_window_position(&self, slot_id: u64, position: WindowPosition) {
+    self.windows.lock().unwrap().insert(slot_id, position);
   }
 
   // an effect's plugin, while it's in a rack or being unloaded
@@ -713,6 +740,7 @@ impl Effects {
             path: desc.path,
             bypassed: desc.bypassed,
             kind: desc.kind,
+            window: self.window_position(desc.id),
             state: base64::encode(state),
           }
         }).collect(),
@@ -734,6 +762,7 @@ impl Effects {
       let rate = if saved.iter().all(|rack| rack.slots.is_empty()) { DEFAULT_RATE } else { self.load_rate() };
       let mut missing = Vec::new();
       let mut racks: BTreeMap<Channel, Vec<Effect>> = BTreeMap::new();
+      let mut windows = HashMap::new();
       for rack in saved {
         for effect in &rack.slots {
           let found = self.plugins.find(&effect.plugin_id);
@@ -768,6 +797,10 @@ impl Effects {
             Instance::Missing { .. } => Desc { path: effect.path.clone(), ..desc },
             Instance::Loaded(_) => desc,
           };
+          // its window opens where it was, under the id it has now
+          if let Some(position) = effect.window {
+            windows.insert(desc.id, position);
+          }
           racks.entry(channel_of(rack.track)).or_default().push(Effect { desc, instance });
         }
       }
@@ -777,6 +810,7 @@ impl Effects {
         effects.sort_by_key(|e| !e.desc.instrument());
       }
 
+      *self.windows.lock().unwrap() = windows;
       let mut inner = self.inner.lock().unwrap();
       inner.racks = racks;
       self.sync(&mut inner);
@@ -1780,6 +1814,47 @@ mod tests {
       { "track": 0, "slots": [{ "pluginId": "vst3:unknown", "name": "Old", "path": "/gone/Old.vst3" }] },
     ])).unwrap();
     assert_eq!(old[0].slots[0].kind, PluginKind::Effect);
+  }
+
+  #[test]
+  fn test_window_positions_are_saved_and_follow_their_effects_into_a_loaded_project() {
+    let rig = rig();
+    let effects = rig.effects();
+    let a = effects.add(Channel::Track(0), &gain().id, None).unwrap();
+    let b = effects.add(Channel::Track(0), &gain().id, None).unwrap();
+    let at = WindowPosition { x: -40.5, y: 900. };
+    effects.keep_window_position(b, at);
+
+    // only the effect whose window has been open has one, and the other is
+    // saved as before
+    let saved = effects.saved();
+    assert_eq!(saved[0].slots[0].window, None);
+    assert_eq!(saved[0].slots[1].window, Some(at));
+    let json = serde_json::to_value(&saved).unwrap();
+    assert!(json[0]["slots"][0].get("window").is_none());
+    assert_eq!(json[0]["slots"][1]["window"], serde_json::json!({ "x": -40.5, "y": 900. }));
+
+    // loaded again, the effects have new ids: the position is under b's
+    effects.load_saved(&saved);
+    let ids: Vec<u64> = effects.racks()[0].slots.iter().map(|s| s.id).collect();
+    assert!(!ids.contains(&a) && !ids.contains(&b));
+    assert_eq!(effects.window_position(ids[0]), None);
+    assert_eq!(effects.window_position(ids[1]), Some(at));
+    assert_eq!(effects.window_position(b), None);
+
+    // removing it and undoing that keeps its place
+    let before = effects.snapshot();
+    effects.remove(ids[1]).unwrap();
+    let mut left = effects.snapshot();
+    effects.restore(&before, &mut left);
+    assert_eq!(effects.saved()[0].slots[1].window, Some(at));
+
+    // a project from before windows were saved loads without any
+    let old: Vec<SavedRack> = serde_json::from_value(serde_json::json!([
+      { "track": 0, "slots": [{ "pluginId": gain().id, "name": "Gain" }] },
+    ])).unwrap();
+    effects.load_saved(&old);
+    assert_eq!(effects.window_position(effects.racks()[0].slots[0].id), None);
   }
 
   // a real plugin through the racks: CHOW Tape Model on a track, heard,

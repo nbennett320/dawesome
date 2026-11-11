@@ -1,5 +1,5 @@
 // native windows and views for plugin editors: a floating window per
-// popped-out plugin, and the one plugin docked inside the main window. the
+// popped-out plugin, and any number docked inside the main window. the
 // layer the effect window commands call. it takes raw window pointers and a
 // Plugin, and knows nothing of Tauri or the engine
 //
@@ -87,12 +87,22 @@ mod other {
     pub fn close(self, _plugin: &mut Plugin) {}
   }
 
-  pub fn dock(_plugin: &mut Plugin, _host_view: *mut c_void, _clip: Rect, _x: f64, _y: f64) -> Result<Dock, String> {
+  pub fn dock(
+    _plugin: &mut Plugin,
+    _host_view: *mut c_void,
+    _clip: Rect,
+    _x: f64,
+    _y: f64,
+    _fill: Option<(u32, u32)>,
+  ) -> Result<Dock, String> {
     Err(UNSUPPORTED.into())
   }
 
   impl Dock {
     pub fn place(&self, _clip: Rect, _x: f64, _y: f64) {}
+    pub fn fill(&self, _plugin: &mut Plugin, _w: u32, _h: u32) -> (u32, u32) {
+      (0, 0)
+    }
     pub fn size(&self) -> (u32, u32) {
       (0, 0)
     }

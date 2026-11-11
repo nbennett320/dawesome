@@ -331,7 +331,9 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
   };
 
   let ui = *state.playlist.ui.lock().unwrap();
-  // (with no lock held: the plugins give their settings on the main thread)
+  // (with no lock held: the plugins give their settings on the main thread,
+  // and their open windows where they are)
+  crate::effect_windows::keep_positions(&state.playlist.effects);
   let effects = state.playlist.effects.saved();
 
   let mut mixer = state.playlist.mixer.settings(0);

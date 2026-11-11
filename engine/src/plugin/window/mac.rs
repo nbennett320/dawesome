@@ -11,6 +11,7 @@ use objc2_app_kit::{
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use std::cell::Cell;
 use std::ffi::c_void;
+use std::sync::{Arc, Mutex};
 
 define_class!(
   // safe: NSView has no subclassing requirements, and this adds no Drop
@@ -365,25 +366,67 @@ impl Drop for EditorWindow {
 }
 
 // a plugin's editor inside the main window, over the page (decision D11).
-// a clipping view of `clip` goes above the webview, and the plugin's view
-// sits in it at (x, y) at its own size; the parts outside `clip` are cut off.
-// clicks and keys inside the plugin go to it, everything else to the page
+// the plugin's view sits at (x, y) on the page at its own size, and the
+// parts of it outside `clip` are cut off. clicks and keys inside the plugin
+// go to it, everything else to the page. any number may be docked at once
+//
+// the clipping view above the webview covers only the part of the plugin
+// that's inside `clip`, never more: a clipping view draws black wherever
+// it's bigger than the plugin in it (seen around PanCake 2, 2026-11-11), and
+// the page must show there
 //
 // `host_view` is what Tauri's ns_view() gives: the window's content view
 // (the WKWebView is found inside it, or the content view is taken to be
 // where the page is) or the WKWebView itself (the clip view goes beside it,
 // in its superview). page coordinates are measured from that view's top-left
 pub struct Dock {
+  views: DockViews,
+  // where the page last put it: the clip and the plugin's top-left
+  placed: Arc<Mutex<(Rect, f64, f64)>>,
+}
+
+#[derive(Clone)]
+struct DockViews {
   clip_view: Retained<EditorView>,
   holder: Retained<EditorView>,
   // the view the page's coordinates are measured from
   page: Retained<NSView>,
 }
 
+// the views, weakly, for the resize callback a plugin keeps
+struct WeakDockViews {
+  clip_view: MainWeak<EditorView>,
+  holder: MainWeak<EditorView>,
+  page: MainWeak<NSView>,
+}
+
+impl WeakDockViews {
+  fn of(views: &DockViews) -> Self {
+    WeakDockViews {
+      clip_view: MainWeak(Weak::from_retained(&views.clip_view)),
+      holder: MainWeak(Weak::from_retained(&views.holder)),
+      page: MainWeak(Weak::from_retained(&views.page)),
+    }
+  }
+
+  fn load(&self) -> Option<DockViews> {
+    Some(DockViews { clip_view: self.clip_view.load()?, holder: self.holder.load()?, page: self.page.load()? })
+  }
+}
+
 // safe to move with its Plugin, as EditorWindow is
 unsafe impl Send for Dock {}
 
-pub fn dock(plugin: &mut Plugin, host_view: *mut c_void, clip: Rect, x: f64, y: f64) -> Result<Dock, String> {
+// `fill` is the room there is for it: a plugin that can resize takes that
+// size, snapped to one it accepts (see Dock::fill)
+pub fn dock(
+  plugin: &mut Plugin,
+  host_view: *mut c_void,
+  clip: Rect,
+  x: f64,
+  y: f64,
+  fill: Option<(u32, u32)>,
+) -> Result<Dock, String> {
   let mtm = MainThreadMarker::new().ok_or("plugins dock on the main thread")?;
   // safe: the caller passes a live NSView (or null, which gives None)
   let host = unsafe { Retained::retain(host_view as *mut NSView) }.ok_or("no view to dock the plugin in")?;
@@ -401,7 +444,9 @@ pub fn dock(plugin: &mut Plugin, host_view: *mut c_void, clip: Rect, x: f64, y: 
   if clip_view.respondsToSelector(sel!(setClipsToBounds:)) {
     clip_view.setClipsToBounds(true);
   }
-  let holder = EditorView::new(mtm, NSRect::new(NSPoint::ZERO, NSSize::new(clip.width.max(1.), clip.height.max(1.))), true);
+  // only as big as the plugin's view, once it has one: anything around it
+  // is the page's
+  let holder = EditorView::new(mtm, content(1, 1), true);
   clip_view.addSubview(&holder);
   // on top of everything in it, the webview included
   parent.addSubview(&clip_view);
@@ -410,18 +455,24 @@ pub fn dock(plugin: &mut Plugin, host_view: *mut c_void, clip: Rect, x: f64, y: 
   if !parent.isFlipped() {
     clip_view.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMinYMargin);
   }
-  let dock = Dock { clip_view, holder, page };
+  let dock = Dock { views: DockViews { clip_view, holder, page }, placed: Arc::new(Mutex::new((clip, x, y))) };
   dock.place(clip, x, y);
 
-  let weak = MainWeak(Weak::from_retained(&dock.holder));
+  // the plugin asked for a size: the clip follows it
+  let (weak, placed) = (WeakDockViews::of(&dock.views), dock.placed.clone());
   plugin.on_editor_resize(Box::new(move |w, h| {
-    if let Some(holder) = weak.load() {
-      holder.setFrameSize(NSSize::new(w as f64, h as f64));
+    if let Some(views) = weak.load() {
+      views.holder.setFrameSize(NSSize::new(w as f64, h as f64));
+      let (clip, x, y) = *placed.lock().unwrap_or_else(|e| e.into_inner());
+      views.lay_out(clip, x, y);
     }
   }));
-  match plugin.open_editor(view_ptr(&dock.holder)) {
+  match plugin.open_editor(view_ptr(&dock.views.holder)) {
     Ok((w, h)) => {
-      dock.holder.setFrameSize(NSSize::new(w as f64, h as f64));
+      dock.resized(w, h);
+      if let Some((w, h)) = fill {
+        dock.fill(plugin, w, h);
+      }
       Ok(dock)
     }
     Err(e) => {
@@ -445,26 +496,63 @@ fn find_webview(view: &NSView) -> Option<Retained<NSView>> {
   None
 }
 
+impl DockViews {
+  // the plugin's view at (x, y) on the page, and the clip view over just the
+  // part of it inside `clip`
+  fn lay_out(&self, clip: Rect, x: f64, y: f64) {
+    // safe: reading a live view's superview
+    let Some(parent) = (unsafe { self.clip_view.superview() }) else { return };
+    let size = self.holder.frame().size;
+    let (left, top) = (clip.x.max(x), clip.y.max(y));
+    let right = (clip.x + clip.width.max(0.)).min(x + size.width);
+    let bottom = (clip.y + clip.height.max(0.)).min(y + size.height);
+    let shown = NSSize::new((right - left).max(0.), (bottom - top).max(0.));
+    // that part in the page view's own coordinates, which go up or down
+    let bounds = self.page.bounds();
+    let origin_y = if self.page.isFlipped() {
+      bounds.origin.y + top
+    } else {
+      bounds.origin.y + bounds.size.height - top - shown.height
+    };
+    let rect = NSRect::new(NSPoint::new(bounds.origin.x + left, origin_y), shown);
+    self.clip_view.setFrame(self.page.convertRect_toView(rect, Some(&parent)));
+    // the clip view goes down from its top-left, as the page does
+    self.holder.setFrameOrigin(NSPoint::new(x - left, y - top));
+  }
+}
+
 impl Dock {
   // the page moved under it: `clip` and (x, y) as dock takes them
   pub fn place(&self, clip: Rect, x: f64, y: f64) {
     if MainThreadMarker::new().is_none() {
       return;
     }
-    // safe: reading a live view's superview
-    let Some(parent) = (unsafe { self.clip_view.superview() }) else { return };
-    // the clip in the page view's own coordinates, which go up or down
-    let bounds = self.page.bounds();
-    let size = NSSize::new(clip.width.max(0.), clip.height.max(0.));
-    let top = if self.page.isFlipped() {
-      bounds.origin.y + clip.y
-    } else {
-      bounds.origin.y + bounds.size.height - clip.y - size.height
-    };
-    let rect = NSRect::new(NSPoint::new(bounds.origin.x + clip.x, top), size);
-    self.clip_view.setFrame(self.page.convertRect_toView(rect, Some(&parent)));
-    // the clip view goes down from its top-left, as the page does
-    self.holder.setFrameOrigin(NSPoint::new(x - clip.x, y - clip.y));
+    *self.placed.lock().unwrap_or_else(|e| e.into_inner()) = (clip, x, y);
+    self.views.lay_out(clip, x, y);
+  }
+
+  // the plugin's view is (w, h) now
+  fn resized(&self, w: u32, h: u32) {
+    if w == 0 || h == 0 {
+      return;
+    }
+    self.views.holder.setFrameSize(NSSize::new(w as f64, h as f64));
+    let (clip, x, y) = *self.placed.lock().unwrap_or_else(|e| e.into_inner());
+    self.views.lay_out(clip, x, y);
+  }
+
+  // there's (w, h) of room for it: a plugin that can resize is asked to
+  // take it, snapped as the floating window's are; a fixed one stays as it
+  // is. gives the size it has now
+  pub fn fill(&self, plugin: &mut Plugin, w: u32, h: u32) -> (u32, u32) {
+    if MainThreadMarker::new().is_none() {
+      return (0, 0);
+    }
+    if plugin.editor_can_resize() {
+      let (w, h) = plugin.resize_editor(w.max(1), h.max(1));
+      self.resized(w, h);
+    }
+    self.size()
   }
 
   // the editor's size (it may have asked for another)
@@ -472,7 +560,7 @@ impl Dock {
     if MainThreadMarker::new().is_none() {
       return (0, 0);
     }
-    let size = self.holder.frame().size;
+    let size = self.views.holder.frame().size;
     (size.width.round() as u32, size.height.round() as u32)
   }
 
@@ -481,18 +569,18 @@ impl Dock {
     if MainThreadMarker::new().is_none() {
       return;
     }
-    let window = self.clip_view.window();
+    let window = self.views.clip_view.window();
     let focused = window
       .as_ref()
       .and_then(|w| w.firstResponder())
       .and_then(|r| r.downcast::<NSView>().ok())
-      .map_or(false, |v| v.isDescendantOf(&self.clip_view));
+      .map_or(false, |v| v.isDescendantOf(&self.views.clip_view));
     forget_resizes(plugin);
     plugin.close_editor();
-    self.clip_view.removeFromSuperview();
+    self.views.clip_view.removeFromSuperview();
     // the keyboard goes back to the page
     if let (true, Some(window)) = (focused, window) {
-      window.makeFirstResponder(Some(&self.page));
+      window.makeFirstResponder(Some(&self.views.page));
     }
   }
 }
@@ -501,11 +589,9 @@ impl Drop for Dock {
   fn drop(&mut self) {
     if MainThreadMarker::new().is_none() {
       // AppKit objects can't be freed here: keep them alive for good
-      std::mem::forget(self.clip_view.clone());
-      std::mem::forget(self.holder.clone());
-      std::mem::forget(self.page.clone());
+      std::mem::forget(self.views.clone());
       return;
     }
-    self.clip_view.removeFromSuperview();
+    self.views.clip_view.removeFromSuperview();
   }
 }

@@ -60,6 +60,7 @@ fn main() {
     ("editor_opens_in_a_window", editor_opens_in_a_window),
     ("editors_float_in_their_own_windows", editors_float_in_their_own_windows),
     ("pancake_docks_over_the_page", pancake_docks_over_the_page),
+    ("plugins_dock_side_by_side", plugins_dock_side_by_side),
   ];
 
   let mut failed = 0;
@@ -676,6 +677,46 @@ mod screen {
     window
   }
 
+  // like host_window, but off the screen, so the user doesn't see it (and
+  // borderless, so AppKit doesn't move it on, or shrink it to fit)
+  pub fn hidden_host_window(mtm: MainThreadMarker, width: f64, height: f64) -> Retained<NSWindow> {
+    let rect = NSRect::new(NSPoint::new(-20000., -20000.), NSSize::new(width, height));
+    // safe: as host_window
+    let window = unsafe {
+      let window = NSWindow::initWithContentRect_styleMask_backing_defer(
+        NSWindow::alloc(mtm),
+        rect,
+        NSWindowStyleMask::Borderless,
+        NSBackingStoreType::Buffered,
+        false,
+      );
+      window.setReleasedWhenClosed(false);
+      window
+    };
+    window.orderFront(None);
+    window
+  }
+
+  // the window as its views draw it (title bar and all), and the colour at
+  // (x, y) points from the content view's top left in it, as 0-255 samples
+  pub fn drawn_pixels(window: &NSWindow) -> Option<impl Fn(f64, f64) -> Vec<usize>> {
+    // safe: the content view's superview is live while the window is
+    let frame = unsafe { window.contentView()?.superview() }?;
+    let bitmap = frame.bitmapImageRepForCachingDisplayInRect(frame.bounds())?;
+    frame.cacheDisplayInRect_toBitmapImageRep(frame.bounds(), &bitmap);
+    let bounds = frame.bounds().size;
+    let content = window.contentRectForFrameRect(window.frame()).size;
+    let scale = bitmap.pixelsWide() as f64 / bounds.width;
+    let title = bounds.height - content.height;
+    Some(move |x: f64, y: f64| {
+      let mut samples = [0usize; 8];
+      let (px, py) = ((x * scale) as isize, ((y + title) * scale) as isize);
+      // safe: room for every sample of a pixel, at a point inside the image
+      unsafe { bitmap.getPixel_atX_y(std::ptr::NonNull::from(&mut samples).cast(), px, py) };
+      samples[..bitmap.samplesPerPixel() as usize].to_vec()
+    })
+  }
+
   pub fn ptr<T>(object: &T) -> *mut c_void {
     object as *const T as *mut c_void
   }
@@ -895,7 +936,7 @@ fn pancake_docks_over_the_page() -> Result<Outcome, String> {
   // the pane is 300x400 at (100, 50) on the page, and the plugin is scrolled
   // 20 up and 20 left inside it
   let clip = Rect { x: 100., y: 50., width: 300., height: 400. };
-  let dock = window::dock(&mut pancake, ptr(&*page), clip, 80., 30.)?;
+  let dock = window::dock(&mut pancake, ptr(&*page), clip, 80., 30., None)?;
   run(&app, 1.5);
   let size = pancake.editor_size().ok_or("PanCake's editor isn't open")?;
   ensure(dock.size() == size, format!("the dock says {:?}, the editor {:?}", dock.size(), size))?;
@@ -920,7 +961,9 @@ fn pancake_docks_over_the_page() -> Result<Outcome, String> {
   let clip = Rect { x: 40., y: 20., width: 600., height: 640. };
   dock.place(clip, 40., 20.);
   run(&app, 1.);
-  ensure(frame_of(&clip_view) == (60., 0., 600., 640.), format!("the clip view moved to {:?}", frame_of(&clip_view)))?;
+  // (only as big as the plugin: the page shows around it)
+  let shown = (60., 10. + 650. - 20. - size.1 as f64, size.0 as f64, size.1 as f64);
+  ensure(frame_of(&clip_view) == shown, format!("the clip view moved to {:?}, not {:?}", frame_of(&clip_view), shown))?;
   ensure(frame_of(&holder).0 == 0. && frame_of(&holder).1 == 0., format!("the plugin's view moved to {:?}", frame_of(&holder)))?;
   lines.push(format!("\n          placed again at {:?}{}", clip, shot(&host, "5-pancake-placed")));
 
@@ -937,7 +980,7 @@ fn pancake_docks_over_the_page() -> Result<Outcome, String> {
   ensure(!focused || responder == Some(Retained::as_ptr(&page) as *const c_void), "the page didn't get the keyboard back")?;
 
   // the content view itself, as Tauri's ns_view() may give it
-  let dock = window::dock(&mut pancake, ptr(&*content), Rect { x: 0., y: 0., width: 200., height: 200. }, 0., 0.)?;
+  let dock = window::dock(&mut pancake, ptr(&*content), Rect { x: 0., y: 0., width: 200., height: 200. }, 0., 0., None)?;
   run(&app, 0.5);
   let clip_view: Retained<NSView> = content.subviews().objectAtIndex(1);
   ensure(frame_of(&clip_view) == (0., 500., 200., 200.), format!("in the content view it's at {:?}", frame_of(&clip_view)))?;
@@ -950,5 +993,115 @@ fn pancake_docks_over_the_page() -> Result<Outcome, String> {
 
 #[cfg(not(target_os = "macos"))]
 fn pancake_docks_over_the_page() -> Result<Outcome, String> {
+  Ok(Outcome::Skip("only checked on macOS".into()))
+}
+
+// CHOW (resizable) and PanCake 2 (fixed) docked at once, each in a pane much
+// bigger than it, in a window off the screen: CHOW fills its pane, PanCake
+// sits centred in its with the page showing around it (not black), and
+// clicks around it reach the page
+#[cfg(target_os = "macos")]
+fn plugins_dock_side_by_side() -> Result<Outcome, String> {
+  use objc2::rc::Retained;
+  use objc2::{MainThreadMarker, MainThreadOnly};
+  use objc2_app_kit::NSView;
+  use objc2_foundation::{NSPoint, NSRect, NSSize};
+  use plugin::window::{self, Rect};
+  use screen::{drawn_pixels, frame_of, ptr, run, shot};
+
+  let Some(mtm) = MainThreadMarker::new() else { return Ok(Outcome::Skip("needs the main thread".into())) };
+  let Some(mut chow) = load("CHOWTapeModel.vst3", RATE)? else { return not_installed("CHOW Tape Model") };
+  let Some(mut pancake) = load("PanCake 2.vst3", RATE)? else { return not_installed("PanCake 2") };
+  let app = screen::app(mtm);
+  let host = screen::hidden_host_window(mtm, 1700., 900.);
+  let content = host.contentView().ok_or("no content view")?;
+  let page = NSView::initWithFrame(NSView::alloc(mtm), NSRect::new(NSPoint::ZERO, NSSize::new(1700., 900.)));
+  content.addSubview(&page);
+  let mut lines = vec![];
+
+  // two panes of 800x840, side by side
+  let left = Rect { x: 0., y: 0., width: 800., height: 840. };
+  let right = Rect { x: 820., y: 0., width: 800., height: 840. };
+  let chow_dock = window::dock(&mut chow, ptr(&*page), left, 0., 0., Some((800, 840)))?;
+  let pancake_dock = window::dock(&mut pancake, ptr(&*page), right, 820., 0., Some((800, 840)))?;
+  let chow_size = chow.editor_size().ok_or("CHOW's editor isn't open")?;
+  let pancake_size = pancake.editor_size().ok_or("PanCake's editor isn't open")?;
+  ensure(chow_dock.size() == chow_size, format!("CHOW's dock says {:?}, its editor {:?}", chow_dock.size(), chow_size))?;
+  ensure(pancake_dock.size() == pancake_size, format!("PanCake's dock says {:?}", pancake_dock.size()))?;
+  ensure(chow.editor_can_resize() && !pancake.editor_can_resize(), "CHOW should resize and PanCake not")?;
+  // CHOW took about the room it had (snapped), PanCake kept its own size
+  ensure(
+    chow_size.0 <= 800 && chow_size.1 <= 840 && (chow_size.0 > 700 || chow_size.1 > 740),
+    format!("CHOW didn't fill its pane: {:?}", chow_size),
+  )?;
+  ensure(pancake_size.0 < 760 && pancake_size.1 < 800, format!("PanCake is too big to check around: {:?}", pancake_size))?;
+  // PanCake centred in its pane, as the page would ask
+  let (pw, ph) = (pancake_size.0 as f64, pancake_size.1 as f64);
+  let (px, py) = (820. + (800. - pw) / 2., (840. - ph) / 2.);
+  pancake_dock.place(right, px, py);
+  run(&app, 1.5);
+  ensure(content.subviews().len() == 3, format!("the content view has {} subviews", content.subviews().len()))?;
+  let pancake_clip: Retained<NSView> = content.subviews().objectAtIndex(2);
+  let holder = pancake_clip.subviews().objectAtIndex(0);
+  // the clip view covers PanCake and nothing more
+  let expected = (820. + (800. - pw) / 2., 900. - (840. - ph) / 2. - ph, pw, ph);
+  ensure(frame_of(&pancake_clip) == expected, format!("PanCake's clip view is at {:?}, not {:?}", frame_of(&pancake_clip), expected))?;
+  ensure(frame_of(&holder) == (0., 0., pw, ph), format!("PanCake's view is at {:?}", frame_of(&holder)))?;
+
+  // clicks (content view points, y up): beside PanCake in its pane, the page;
+  // on PanCake and on CHOW, the plugins
+  let up = |y: f64| 900. - y;
+  let beside = content.hitTest(NSPoint::new(825., up(10.))).ok_or("nothing beside PanCake")?;
+  ensure(*beside == *page, "a click beside PanCake in its pane doesn't reach the page")?;
+  let on_pancake = content.hitTest(NSPoint::new(px + pw / 2., up(py + ph / 2.))).ok_or("nothing on PanCake")?;
+  ensure(on_pancake.isDescendantOf(&holder) && *on_pancake != *holder, "a click on PanCake doesn't reach it")?;
+  let on_chow = content.hitTest(NSPoint::new(chow_size.0 as f64 / 2., up(chow_size.1 as f64 / 2.))).ok_or("nothing on CHOW")?;
+  ensure(!on_chow.isDescendantOf(&page) && *on_chow != *page, "a click on CHOW doesn't reach it")?;
+
+  // drawn: around PanCake is what's drawn where no pane is (the window's
+  // background through the page), not black
+  let pixel = drawn_pixels(&host).ok_or("the window couldn't be drawn")?;
+  let background = pixel(1680., 890.);
+  let around = [(825., 10.), (px - 5., py + ph / 2.), (px + pw + 5., py + ph / 2.), (px + pw / 2., py + ph + 5.)];
+  for (x, y) in around {
+    let seen = pixel(x, y);
+    ensure(seen == background, format!("beside PanCake at {:?} is {:?}, where the page is {:?}", (x, y), seen, background))?;
+  }
+  let inside = pixel(px + pw / 2., py + ph / 2.);
+  lines.push(format!(
+    "\n          CHOW filled {:?} of 800x840, PanCake {:?} centred; around it {:?} as the page, inside {:?}{}",
+    chow_size,
+    pancake_size,
+    background,
+    inside,
+    shot(&host, "7-two-docked")
+  ));
+
+  // the pane shrinks: CHOW takes the new room
+  let taken = chow_dock.fill(&mut chow, 420, 380);
+  run(&app, 0.5);
+  let chow_clip: Retained<NSView> = content.subviews().objectAtIndex(1);
+  let chow_holder = chow_clip.subviews().objectAtIndex(0);
+  ensure(taken == chow.editor_size().unwrap_or_default(), format!("CHOW took {:?}, its editor says otherwise", taken))?;
+  ensure(taken.0 <= 420 && taken.1 <= 380 && taken != chow_size, format!("CHOW didn't shrink: {:?}", taken))?;
+  ensure(
+    frame_of(&chow_holder) == (0., 0., taken.0 as f64, taken.1 as f64),
+    format!("CHOW's view is at {:?}", frame_of(&chow_holder)),
+  )?;
+  // a fixed plugin keeps its size
+  ensure(pancake_dock.fill(&mut pancake, 300, 300) == pancake_size, "PanCake changed size")?;
+  lines.push(format!("\n          CHOW shrunk to {:?}{}", taken, shot(&host, "8-chow-shrunk")));
+
+  // one undocked, the other stays
+  pancake_dock.undock(&mut pancake);
+  ensure(content.subviews().len() == 2 && chow.editor_size().is_some(), "undocking PanCake disturbed CHOW")?;
+  chow_dock.undock(&mut chow);
+  ensure(content.subviews().len() == 1, "a clip view is still there")?;
+  host.close();
+  Ok(Outcome::Pass(lines.concat()))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn plugins_dock_side_by_side() -> Result<Outcome, String> {
   Ok(Outcome::Skip("only checked on macOS".into()))
 }
