@@ -7,7 +7,7 @@ An awesome, libre, and cross-platform DAW
 built with Rust, Tauri, React, and Typescript.
 
 <img 
-  src="./docs/sc10.png" 
+  src="./notes/sc10.png" 
   alt="an early screenshot of Dawesome in its current state" 
 />
 
@@ -197,6 +197,10 @@ See the [Vitest docs](https://vitest.dev/) for more information.
 
 Lints the frontend with ESLint (`eslint.config.mjs`).
 
+#### `pnpm version:bump --to {x.y.z}`
+
+Bump the version to what's passed as the parameter.
+
 ## Resources
 
 ### Research, articles, tutorials, and misc. implementation details
@@ -212,15 +216,15 @@ Lints the frontend with ESLint (`eslint.config.mjs`).
 - [PulseAudio](https://www.freedesktop.org/software/pulseaudio/doxygen/)
 - [Wry](https://github.com/tauri-apps/wry)
 
-See `docs/` for more.
+See `notes/` for more.
 
 ## Gallery
 <img 
-  src="./docs/sc7.png" 
+  src="./notes/sc7.png" 
   alt="the playlist ui interface can no be zoomed in" 
 />
 <img 
-  src="./docs/sc9.png" 
+  src="./notes/sc9.png" 
   alt="the playlist ui interface can no be zoomed in" 
 />
 
@@ -229,3 +233,6 @@ See `docs/` for more.
 Dawesome is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. See [`LICENSE`](./LICENSE).
 
 MP3 export uses [LAME](https://lame.sourceforge.io), which is licensed under the GNU LGPL.
+
+Samples packaged with the release binaries are provided from [Open Drums by Fluid Music](https://github.com/fluid-music/open-drums), which were sourced from [machines.hyperreal.org](http://machines.hyperreal.org/).
+

@@ -1,0 +1,196 @@
+---
+title: Projects
+---
+
+# 4 Projects
+
+A project is one song: its playlist, patterns, mixer, effects and settings,
+saved in a project file with the extension `.dawesome`. Recordings and other
+audio Dawesome makes for the project are kept in folders beside it.
+
+## 4-1 Starting a new project
+
+Choose **File ▸ New Project** (**⌘N (Ctrl+N)**).
+
+The playlist, Sequencer and mixer are cleared, and the window's title shows
+**Untitled — Dawesome**.
+
+::: warning CAUTION
+If the playlist has clips, Dawesome asks **Replace the current project?**
+before it clears anything. If the playlist is empty, it does not ask, even
+if you have made patterns, mixer changes or effects. Save first.
+:::
+
+## 4-2 Opening a project
+
+1. Choose **File ▸ Open…** (**⌘O (Ctrl+O)**).
+2. If the playlist has clips, Dawesome asks **Replace the current project?**.
+   Confirm to carry on.
+   <!-- VERIFY: the confirm dialog's button labels (system dialog, e.g. Yes/No or OK/Cancel). -->
+3. In the **Open project** dialog, choose a `.dawesome` file.
+
+When the project opens, the notice bar lists anything it couldn't find:
+
+- **Samples** — Clips whose sample couldn't be loaded are left out of the
+  playlist. Each missing file is listed with the reason.
+<!-- PROVISIONAL -->
+- **Plugins** — Effects whose plugin isn't installed pass sound straight
+  through. Their settings are kept, and saved again with the project.
+
+*Click* **×** to dismiss the notice.
+
+::: tip NOTE
+A project saved by a newer version of Dawesome, in a format this version
+doesn't read, is refused. The notice bar says so.
+:::
+
+### 4-2-1 Open Recent
+
+**File ▸ Open Recent** lists the eight projects you opened or saved most
+recently, newest first. Each is listed by name; when two projects share a
+name, the folder each is in is added.
+
+- Choose a project to open it. As with **Open…**, Dawesome asks first if the
+  playlist has clips.
+- A project that can't be opened (moved, deleted or damaged) is taken off the
+  list.
+- **Clear Recent** empties the list. With nothing in it, the submenu shows
+  **No Recent Projects**.
+
+The list is kept between launches (see [2-5](./install.md#_2-5-where-settings-are-kept)).
+
+## 4-3 Saving a project
+
+### 4-3-1 Save
+
+Choose **File ▸ Save** (**⌘S (Ctrl+S)**).
+
+- A project that has been saved before is saved to the same file.
+- A project that has never been saved opens the **Save project** dialog, as
+  **Save As…** does.
+
+The project file is written in one go, so a save that fails part-way never
+leaves a half-written file in its place.
+
+### 4-3-2 Save As
+
+1. Choose **File ▸ Save As…** (**⇧⌘S (Ctrl+Shift+S)**).
+2. In the **Save project** dialog, type a name and choose where to save.
+   The first time, the dialog starts in your Documents folder, named
+   **Untitled**.
+3. *Click* **Save**.
+
+Dawesome makes a folder named after the project, and saves the project file
+inside it ([4-5](#_4-5-the-project-folder)). If you choose a folder that
+already has the project's name, it saves into that folder rather than
+making another.
+
+After **Save As…**, you are working in the new project. The project you saved
+from keeps its file and its folders as they were: its recordings and clips
+are copied into the new project's folder, not moved.
+
+<!-- VERIFY: the dialog's confirm button label ("Save") is the system's own. -->
+
+::: tip NOTE
+If some recordings couldn't be brought into the project's folder, the notice
+bar says **Saved, but some takes are still outside the project's folder**.
+The project still uses them from where they are.
+:::
+
+## 4-4 Renaming a project from the cassette
+
+You can name the project on the **Transport** tab's cassette.
+
+1. *Double-click* the cassette (or press **Enter** on it).
+2. Type a name, then press **Enter** or *click* away. **Esc** cancels.
+
+- If the project has never been saved, the **Save project** dialog opens with
+  the name filled in.
+- If it has, Dawesome asks **Save as "*name*"?**, then saves a copy under the
+  new name in a folder next to the old one, and carries on in the copy. The
+  old project stays as it was. If a project of that name is already there,
+  the question says it will be replaced.
+
+## 4-5 The project folder
+
+A saved project is a folder named after it:
+
+```
+my_song/
+  my_song.dawesome
+  recordings/
+    my_song_11092026_0.wav
+    my_song_11092026_1.wav
+  clips/
+    kick_copy_1.wav
+```
+
+- `my_song.dawesome` — The project file.
+- `recordings/` — Takes you record. Each is named after the project, the
+  date it was recorded (month, day, year) and its number that day. You can
+  file takes into folders of your own from the **Recordings** browser.
+- `clips/` — Audio files Dawesome writes itself, with **Deep copy** and
+  **Join**. The folder is made the first time you use one of them.
+
+These folders appear in the sidebar's **Recordings** and **Clips** browsers
+(see [3-4](./parts.md#_3-4-sidebar)).
+
+### 4-5-1 Recording before you save
+
+You can record into a project that has never been saved. Its takes are kept
+in a folder in Dawesome's application data folder (on macOS,
+`~/Library/Application Support/dawesome/unsaved/`). When you first save the
+project, they are moved into its `recordings/` folder and renamed after the
+project.
+
+::: tip NOTE
+If you start a new project or open another one without saving, takes
+recorded into the unsaved project stay in a dated folder inside
+`dawesome/unsaved/`. No browser shows them; find them there in your file
+manager.
+:::
+
+**Deep copy** and **Join** need a saved project, so their files have
+somewhere to go. Save the project first.
+
+### 4-5-2 Samples and moving a project
+
+Samples you add from the samples browser are not copied into the project.
+The project file stores where each one is:
+
+- a sample inside the project's folder is stored relative to the folder, so
+  the folder can be moved or shared;
+- any other sample is stored by its full path.
+
+::: warning CAUTION
+If you move a project folder to another computer, samples from outside the
+folder won't be found there. Their clips are left out when the project opens,
+and listed in the notice bar.
+:::
+
+### 4-5-3 Projects from older versions
+
+A project saved as a single `.dawesome` file, without a folder of its own,
+still opens. **Save** writes it back where it is, with its recordings in a
+`recordings` folder next to the file. **Save As…** gives it a folder.
+
+## 4-6 What is saved
+
+| Saved with the project | Not saved |
+| --- | --- |
+| Tempo, time signature, metronome, loop, snap and snap length, count-in | The undo history (it starts again with each project) |
+| Playlist clips and pattern clips, with their trims and settings | The playlist's mouse tool (a project opens with the select tool) |
+| Sequencer rows and patterns | Mixdown settings |
+| Mixer settings of changed or named tracks | Audio settings and preferences (see [2-5](./install.md#_2-5-where-settings-are-kept)) |
+| Armed tracks and their input channels | |
+| Each channel's effects and their settings <!-- PROVISIONAL --> | |
+<!-- VERIFY: whether the tab and pane layout, and plugin window positions (commit ba304a9), are saved with the project. -->
+
+## 4-7 Closing Dawesome
+
+::: warning CAUTION
+Dawesome does not warn about unsaved changes when you quit or close its
+window. Save before you quit.
+:::
+
+<!-- VERIFY: no close-request handler exists at c2295cb; confirm closing the window quits the app and nothing prompts. -->

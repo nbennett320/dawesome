@@ -1,0 +1,529 @@
+/*
+ * The site in the app's colours and its four-track controls: flat light
+ * plastic, shallow keycaps, soft LCD readouts, spaced uppercase labels and
+ * LEDs. Colours are the app's built-in themes, slate-light and slate-dark
+ * (engine/themes/), and the shapes follow src/components/fourtrack/fourtrack.scss.
+ */
+
+/* ---------- Colours ---------- */
+
+:root {
+  /* slate-light */
+  --ft-surface: #ffffff;
+  --ft-panel: #f1f5f9;
+  --ft-raised: #ffffff;
+  --ft-sunken: #e2e8f0;
+  --ft-line: #e2e8f0;
+  --ft-line-strong: #cbd5e1;
+  --ft-ink-strong: #1e293b;
+  --ft-ink: #334155;
+  --ft-ink-mid: #475569;
+  --ft-ink-soft: #64748b;
+  --ft-ink-faint: #94a3b8;
+  --ft-accent: #0ea5e9;
+  --ft-accent-strong: #0284c7;
+  --ft-accent-ink: #0369a1;
+  --ft-accent-tint: #f0f9ff;
+  --ft-led: #f59e0b;
+  --ft-led-tint: #fffbeb;
+  --ft-led-ink: #78350f;
+  --ft-record: #ef4444;
+  --ft-danger-tint: #fef2f2;
+  --ft-danger-ink: #7f1d1d;
+  --ft-shadow: 15 23 42;
+
+  /* the controls, mixed as base.json mixes them */
+  --ft-cap-top: var(--ft-raised);
+  --ft-cap-bottom: color-mix(in srgb, var(--ft-raised) 80%, var(--ft-panel));
+  --ft-display: color-mix(in srgb, var(--ft-panel) 40%, var(--ft-sunken));
+  --ft-tray: color-mix(in srgb, var(--ft-panel) 35%, var(--ft-sunken));
+
+  --ft-font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+.dark {
+  /* slate-dark */
+  --ft-surface: #0f172a;
+  --ft-panel: #1e293b;
+  --ft-raised: #273449;
+  --ft-sunken: #0b1120;
+  --ft-line: #334155;
+  --ft-line-strong: #475569;
+  --ft-ink-strong: #f1f5f9;
+  --ft-ink: #cbd5e1;
+  --ft-ink-mid: #b0bccc;
+  --ft-ink-soft: #94a3b8;
+  --ft-ink-faint: #64748b;
+  --ft-accent: #38bdf8;
+  --ft-accent-strong: #38bdf8;
+  --ft-accent-ink: #7dd3fc;
+  --ft-accent-tint: #0c2a43;
+  --ft-led: #f59e0b;
+  --ft-led-tint: #2a2214;
+  --ft-led-ink: #fcd34d;
+  --ft-record: #f87171;
+  --ft-danger-tint: #2b1520;
+  --ft-danger-ink: #fecaca;
+  --ft-shadow: 0 0 0;
+}
+
+/* VitePress's own variables, pointed at the app's */
+:root,
+.dark {
+  --vp-font-family-base: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --vp-font-family-mono: var(--ft-font-mono);
+
+  --vp-c-bg: var(--ft-surface);
+  --vp-c-bg-alt: var(--ft-panel);
+  --vp-c-bg-elv: var(--ft-raised);
+  --vp-c-bg-soft: var(--ft-panel);
+
+  --vp-c-border: var(--ft-line-strong);
+  --vp-c-divider: var(--ft-line);
+  --vp-c-gutter: var(--ft-line);
+
+  --vp-c-text-1: var(--ft-ink-strong);
+  --vp-c-text-2: var(--ft-ink-soft);
+  --vp-c-text-3: var(--ft-ink-faint);
+
+  --vp-c-brand-1: var(--ft-accent-ink);
+  --vp-c-brand-2: var(--ft-accent-strong);
+  --vp-c-brand-3: var(--ft-accent);
+  --vp-c-brand-soft: color-mix(in srgb, var(--ft-accent) 14%, transparent);
+
+  --vp-c-default-soft: var(--ft-display);
+
+  --vp-code-bg: var(--ft-display);
+  --vp-code-color: var(--ft-ink-mid);
+  --vp-code-block-bg: var(--ft-panel);
+
+  --vp-c-tip-1: var(--ft-accent-ink);
+  --vp-c-tip-soft: var(--ft-accent-tint);
+  --vp-c-warning-1: var(--ft-led-ink);
+  --vp-c-warning-soft: var(--ft-led-tint);
+  --vp-c-danger-1: var(--ft-danger-ink);
+  --vp-c-danger-soft: var(--ft-danger-tint);
+
+  --vp-home-hero-name-color: var(--ft-ink-strong);
+  --vp-sidebar-bg-color: var(--ft-panel);
+  --vp-nav-bg-color: var(--ft-panel);
+  --vp-local-search-bg: var(--ft-surface);
+}
+
+/* ---------- The panel ---------- */
+
+/* the top bar is the deck's panel, like the app's topbar */
+.VPNavBar,
+.VPNavBar.has-sidebar .content-body,
+.VPNavBar:not(.home.top) .content-body {
+  background: var(--ft-panel) !important;
+}
+
+.VPNavBar .divider-line {
+  background: var(--ft-line) !important;
+}
+
+/* the name, stencilled with a record LED */
+.VPNavBarTitle .title {
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ft-ink);
+}
+
+.VPNavBarTitle .title::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ft-record);
+  box-shadow: 0 0 5px 1px color-mix(in srgb, var(--ft-record) 45%, transparent);
+}
+
+/* nav links as panel labels */
+.VPNavBarMenuLink,
+.VPNavBarMenuGroup .text {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ft-ink-soft) !important;
+}
+
+.VPNavBarMenuLink:hover,
+.VPNavBarMenuLink.active {
+  color: var(--ft-accent-strong) !important;
+}
+
+/* the search box as an LCD readout */
+.DocSearch-Button {
+  border-radius: 3px !important;
+  background: var(--ft-display) !important;
+  box-shadow: inset 0 1px 1px rgb(var(--ft-shadow) / 0.06);
+}
+
+.DocSearch-Button .DocSearch-Button-Placeholder {
+  font-family: var(--ft-font-mono);
+  font-size: 12px;
+}
+
+/* ---------- Sidebar: the track sheet ---------- */
+
+.VPSidebar {
+  border-right: 1px solid var(--ft-line);
+}
+
+.VPSidebarItem.level-0 > .item > .text,
+.VPSidebarItem.level-0 > .item h2.text {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ft-ink-faint);
+}
+
+.VPSidebarItem.level-1 .text {
+  font-size: 13.5px;
+}
+
+/* the page you're on lights its LED */
+.VPSidebarItem.level-1 .link {
+  position: relative;
+}
+
+.VPSidebarItem.level-1.is-active > .item .indicator {
+  display: none;
+}
+
+.VPSidebarItem.level-1 > .item::before {
+  content: '';
+  position: absolute;
+  left: -14px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ft-accent) 25%, var(--ft-panel));
+  box-shadow: inset 0 0 0 1px rgb(var(--ft-shadow) / 0.08);
+}
+
+.VPSidebarItem.level-1 > .item {
+  position: relative;
+}
+
+.VPSidebarItem.level-1.is-active > .item::before {
+  background: var(--ft-accent);
+  box-shadow: 0 0 4px 1px color-mix(in srgb, var(--ft-accent) 45%, transparent);
+}
+
+/* "On this page" */
+.VPDocAsideOutline .outline-title {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ft-ink-faint);
+}
+
+/* ---------- Pages ---------- */
+
+/* chapter titles: plain and heavy, like the manual they're modelled on */
+.vp-doc h1 {
+  letter-spacing: -0.01em;
+  padding-bottom: 14px;
+  border-bottom: 2px solid var(--ft-ink-strong);
+}
+
+.vp-doc h2 {
+  border-top: 1px solid var(--ft-line-strong);
+}
+
+/* inline code and file names as LCD readouts */
+.vp-doc :not(pre) > code {
+  border-radius: 3px;
+  box-shadow: inset 0 1px 1px rgb(var(--ft-shadow) / 0.06);
+  font-variant-numeric: tabular-nums;
+}
+
+/* keys, for <kbd> where a page uses it */
+.vp-doc kbd {
+  display: inline-block;
+  min-width: 1.7em;
+  padding: 1px 6px;
+  margin: 0 1px 2px;
+  border-radius: 4px;
+  font-family: var(--vp-font-family-base);
+  font-size: 0.8em;
+  font-weight: 700;
+  text-align: center;
+  color: var(--ft-ink-soft);
+  background: linear-gradient(180deg, var(--ft-cap-top), var(--ft-cap-bottom));
+  box-shadow:
+    0 0 0 1px var(--ft-line-strong),
+    0 2px 0 var(--ft-line-strong);
+}
+
+/* tables as channel strips */
+.vp-doc table {
+  border-radius: 5px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--ft-line);
+  border-collapse: collapse;
+}
+
+.vp-doc th {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ft-ink-faint);
+  background: var(--ft-panel);
+}
+
+.vp-doc tr {
+  background: var(--ft-surface);
+}
+
+.vp-doc tr:nth-child(2n) {
+  background: color-mix(in srgb, var(--ft-surface) 50%, var(--ft-panel));
+}
+
+.vp-doc th,
+.vp-doc td {
+  border: 0;
+  border-bottom: 1px solid var(--ft-line);
+}
+
+/* NOTE and CAUTION, each with its LED */
+.custom-block {
+  border-radius: 5px;
+  border: 0;
+  box-shadow: 0 0 0 1px var(--ft-line);
+}
+
+.custom-block .custom-block-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.custom-block .custom-block-title::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--led, var(--ft-accent));
+  box-shadow: 0 0 4px 1px color-mix(in srgb, var(--led, var(--ft-accent)) 45%, transparent);
+}
+
+.custom-block.tip {
+  --led: var(--ft-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ft-accent) 30%, transparent);
+}
+
+.custom-block.warning {
+  --led: var(--ft-led);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ft-led) 40%, transparent);
+}
+
+.custom-block.danger {
+  --led: var(--ft-record);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ft-record) 35%, transparent);
+}
+
+/* screenshots sit in the panel like a display */
+.vp-doc img {
+  border-radius: 5px;
+  box-shadow: 0 0 0 1px var(--ft-line-strong);
+}
+
+/* ---------- Buttons: keycaps ---------- */
+
+.VPButton {
+  --ft-depth: 2px;
+  border: 0 !important;
+  border-radius: 6px !important;
+  margin-bottom: var(--ft-depth);
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transition: transform 0.06s ease, box-shadow 0.06s ease !important;
+}
+
+.VPButton.alt {
+  color: var(--ft-ink-soft) !important;
+  background: linear-gradient(180deg, var(--ft-cap-top), var(--ft-cap-bottom)) !important;
+  box-shadow:
+    0 0 0 1px var(--ft-line-strong),
+    0 var(--ft-depth) 0 var(--ft-line-strong),
+    0 calc(var(--ft-depth) + 1px) 3px rgb(var(--ft-shadow) / 0.08);
+}
+
+.VPButton.alt:hover {
+  color: var(--ft-ink) !important;
+}
+
+.VPButton.brand {
+  color: #fff !important;
+  background: linear-gradient(180deg, var(--ft-accent), var(--ft-accent-strong)) !important;
+  box-shadow:
+    0 0 0 1px var(--ft-accent-ink),
+    0 var(--ft-depth) 0 var(--ft-accent-ink),
+    0 calc(var(--ft-depth) + 1px) 3px rgb(var(--ft-shadow) / 0.12);
+}
+
+.dark .VPButton.brand {
+  color: #0b1120 !important;
+  box-shadow:
+    0 0 0 1px #0369a1,
+    0 var(--ft-depth) 0 #0369a1,
+    0 calc(var(--ft-depth) + 1px) 3px rgb(var(--ft-shadow) / 0.3);
+}
+
+.VPButton:active {
+  transform: translateY(var(--ft-depth));
+  box-shadow: 0 0 0 1px var(--ft-line-strong) !important;
+}
+
+/* ---------- Home ---------- */
+
+.VPHome {
+  background: var(--ft-panel);
+}
+
+/* the name as a label on the deck, the tagline as the counter's LCD */
+.VPHero .name {
+  font-size: 15px !important;
+  line-height: 1.4 !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  display: flex !important;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.VPHero .name::before {
+  content: '';
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ft-record);
+  box-shadow: 0 0 6px 2px color-mix(in srgb, var(--ft-record) 45%, transparent);
+}
+
+.VPHero .text {
+  color: var(--ft-ink-strong);
+  letter-spacing: -0.02em;
+}
+
+.VPHero .tagline {
+  display: inline-block;
+  margin-top: 18px !important;
+  padding: 6px 12px !important;
+  /* font-family: var(--ft-font-mono); */
+  font-size: 14px !important;
+  line-height: 1.5 !important;
+  border-radius: 4px;
+  color: var(--ft-ink-mid) !important;
+  /* background: var(--ft-display); */
+  /* box-shadow: inset 0 1px 1px rgb(var(--ft-shadow) / 0.06); */
+}
+
+/* the screenshot, set into the panel */
+.VPHero .image-bg {
+  display: none;
+}
+
+.VPHero .image-container {
+  height: auto !important;
+}
+
+.VPHero .VPImage.image-src {
+  position: static !important;
+  transform: none !important;
+  max-width: 100% !important;
+  max-height: none !important;
+  border-radius: 6px;
+  box-shadow:
+    0 0 0 1px var(--ft-line-strong),
+    0 8px 24px rgb(var(--ft-shadow) / 0.12);
+}
+
+@media (min-width: 960px) {
+  .VPHero.has-image .container {
+    align-items: center;
+  }
+
+  .VPHero.has-image .main {
+    max-width: 440px;
+  }
+
+  .VPHero .image {
+    flex-grow: 1;
+    order: 2;
+    margin: 0 0 0 48px !important;
+  }
+
+  .VPHero .image-container {
+    width: 100% !important;
+  }
+}
+
+/* features as channel strips: label up top, LED, scribble strip of text */
+.VPFeature {
+  border: 0 !important;
+  border-radius: 5px !important;
+  background: var(--ft-surface) !important;
+  box-shadow: 0 0 0 1px var(--ft-line);
+  transition: box-shadow 0.12s !important;
+}
+
+.VPFeature:hover {
+  box-shadow: 0 0 0 1px var(--ft-accent);
+}
+
+.VPFeature .title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ft-ink) !important;
+}
+
+.VPFeature .title::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ft-accent) 25%, var(--ft-panel));
+  transition: background 0.08s, box-shadow 0.08s;
+}
+
+.VPFeature:hover .title::before {
+  background: var(--ft-accent);
+  box-shadow: 0 0 4px 1px color-mix(in srgb, var(--ft-accent) 45%, transparent);
+}
+
+.VPFeature .details {
+  color: var(--ft-ink-soft) !important;
+}
+
+/* the panel runs to the bottom of the home page */
+.Layout:has(.VPHome) {
+  background: var(--ft-panel);
+}
