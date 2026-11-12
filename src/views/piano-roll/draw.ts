@@ -19,8 +19,8 @@ const lanes = painter('playlist')
 export const DEFAULT_STEP_WIDTH = 24
 export const MIN_STEP_WIDTH = 6
 export const MAX_STEP_WIDTH = 96
-// how tall a semitone is
-export const ROW_HEIGHT = 14
+// how tall piano key row is
+export const ROW_HEIGHT = 16
 // the keyboard's width, and the ruler's height
 export const KEYS_WIDTH = 56
 export const RULER_HEIGHT = 20
