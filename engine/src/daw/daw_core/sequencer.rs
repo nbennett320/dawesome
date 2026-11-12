@@ -285,6 +285,7 @@ fn folder_name(name: &str) -> Result<String, String> {
 
 impl Pattern {
   // whether a row's step is lit
+  #[cfg(test)]
   pub fn lit(&self, row_id: u64, step: u32) -> bool {
     self.steps.get(&row_id).map_or(false, |s| s.contains(&step))
   }
@@ -312,6 +313,7 @@ pub struct SequencerState {
 }
 
 impl SequencerState {
+  #[cfg(test)]
   pub fn pattern(&self, id: u64) -> Option<&PatternState> {
     self.patterns.iter().find(|p| p.id == id)
   }
@@ -410,6 +412,7 @@ impl Sequencer {
     &self.rows
   }
 
+  #[cfg(test)]
   pub fn patterns(&self) -> &[Pattern] {
     &self.patterns
   }
@@ -530,6 +533,7 @@ impl Sequencer {
   }
 
   // add a row playing the sample at `path`, at the bottom. returns its id
+  #[cfg(test)]
   pub fn add_row(&mut self, path: &str) -> Result<u64, String> {
     self.add_loaded_row(path, RowSample::load(path)?)
   }
@@ -858,6 +862,7 @@ impl Sequencer {
     Ok(split)
   }
 
+  #[cfg(test)]
   pub fn folders(&self) -> &[PatternFolder] {
     &self.folders
   }
@@ -1023,6 +1028,7 @@ impl Sequencer {
   // (path, reason). synths are kept whether their plugins load or not (see
   // effects.rs). patterns that don't make sense (no steps, or an id used
   // twice) are left out
+  #[cfg(test)]
   pub fn restore(&mut self, saved: SavedSequencer) -> Vec<(String, String)> {
     let samples = RowSample::load_rows(&saved);
     self.restore_loaded(saved, samples)

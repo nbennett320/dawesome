@@ -816,6 +816,7 @@ impl Effects {
   }
 
   // take every effect and synth out
+  #[cfg(test)]
   pub fn clear(&self) {
     if let Err(e) = main_thread::run(|| self.clear_here()) {
       println!("the effects weren't cleared: {}", e);

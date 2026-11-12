@@ -451,6 +451,7 @@ impl AudioNode {
   }
 
   // whether two clips play the very same decoded sound (not two copies)
+  #[cfg(test)]
   pub fn shares_sound_with(&self, other: &AudioNode) -> bool {
     Arc::ptr_eq(&self.pcm, &other.pcm)
   }
@@ -786,6 +787,7 @@ impl AudioGraph<'static> {
   // output, so the mixer doesn't change it
   // - resume: the run's first slice, so clips that started before it and are
   //   still sounding are played from where the playhead is in them
+  #[cfg(test)]
   pub fn run_sounds(&self, dur: Duration, metronome: bool, resume: bool) -> Vec<SliceSound> {
     self.run_sounds_at(Duration::ZERO, self.sample_rate, dur, metronome, resume)
   }
@@ -1025,6 +1027,7 @@ impl AudioGraph<'static> {
     self.tempo
   }
 
+  #[cfg(test)]
   pub fn set_max_beats(&mut self, max_beats: u64) {
     self.max_beats = max_beats;
   }
@@ -1071,6 +1074,7 @@ impl AudioGraph<'static> {
   // construct an audio node from a sample path and start offset,
   // and add it to the audio graph
   // returns the id of the constructed node
+  #[cfg(test)]
   pub fn construct_and_add_node(
     &mut self,
     sample_path: String,
@@ -1094,6 +1098,7 @@ impl AudioGraph<'static> {
   // construct an audio node from a sample path and start offset,
   // and add it to the audio graph
   // returns the id of the constructed node
+  #[cfg(test)]
   pub fn construct_and_add_node_with_snap<T: daw::timing::MusicalTiming>(
     &mut self,
     sample_path: String,
@@ -1343,6 +1348,7 @@ impl AudioGraph<'static> {
   // of the playlist to the last node in the graph, 
   // not including the length of node (but should in the future)
   // (does not include padding added by the playlist)
+  #[cfg(test)]
   pub fn duration(self) -> Duration {
     if self.nodes.len() == 0 { return Duration::from_millis(0); }
     let last: &AudioNode = self.nodes.last().unwrap();
@@ -1491,6 +1497,7 @@ impl AudioGraph<'static> {
   }
 
   // count number of nodes
+  #[cfg(test)]
   pub fn len(&self) -> usize {
     let res = self.nodes.len();
     res
@@ -1701,7 +1708,7 @@ mod tests {
     let sample_path = daw::METRONOME_TICK_PATH.to_string();
     let start_offset = Duration::from_millis(0);
     let track_number = 0;
-    let sample_rate = 44_100;
+    let _sample_rate = 44_100;
 
     let node = AudioNode::new(id, sample_path, start_offset, track_number).unwrap();
 
@@ -2238,7 +2245,7 @@ mod tests {
     let max_beats: u64 = 8;
 
     let mut audiograph = AudioGraph::new(sample_rate, tempo, max_beats);
-    let buf = daw::SampleBuffer::load(node.sample_path()).unwrap();
+    let _buf = daw::SampleBuffer::load(node.sample_path()).unwrap();
 
     audiograph.add_node(node);
     let id2 = audiograph.construct_and_add_node(

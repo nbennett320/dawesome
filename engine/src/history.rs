@@ -219,6 +219,7 @@ impl History {
     !self.redo.is_empty()
   }
 
+  #[cfg(test)]
   pub fn len(&self) -> usize {
     self.undo.len()
   }
