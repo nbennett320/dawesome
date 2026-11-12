@@ -19,7 +19,7 @@ import {
 } from '../../../types/playlist'
 import { CutItem, canCut, cutPoint, cutTargets } from '../../../editing/cut'
 import { onThemeChange } from '../../../theme/apply'
-import { paint, theme, trackPaint } from './theme'
+import { paint, patternColors, theme, trackPaint } from './theme'
 import { painter } from '../../../theme/canvas'
 import { LIP, LipLook, drawLip, fitName, inBox, lipBox, lipWidth, onLed } from './lip'
 import { trackColorKey, defaultTrackColor, trackLabel } from '../../../types/mixer'
@@ -1610,6 +1610,14 @@ export class Renderer extends RendererBase {
     return this.#lipBoxes().find(lip => onLed(lip.box, x, y))?.track ?? null
   }
 
+  // a track's color (see TRACK_COLORS), as [r, g, b, a]
+  trackRgba = (track: number) =>
+    trackPaint.rgba(trackColorKey(this.trackColors[track] ?? defaultTrackColor(track)))
+
+  // a pattern clip's colors on a track, in the track's color
+  patternRgba = (track: number) =>
+    patternColors(this.trackRgba(track), paint.rgba('clip'), paint.rgba('clipText'))
+
   // a track's state in the mixer, as its lip shows it
   #ring = (track: number): LipLook['ring'] => {
     const mix = this.trackMixes[track]
@@ -1658,7 +1666,7 @@ export class Renderer extends RendererBase {
     const lanes = [paint.rgba('background'), paint.rgba('laneAlt')]
 
     this.#lipBoxes().forEach(({ track, box, text }) => {
-      const led = trackPaint.rgba(trackColorKey(this.trackColors[track] ?? defaultTrackColor(track)))
+      const led = this.trackRgba(track)
       drawLip(ctx, box, text, { ...base, lane: lanes[track % 2], led }, { lit: sounding.has(track), ring: this.#ring(track) })
     })
   }

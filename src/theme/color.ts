@@ -15,3 +15,7 @@ export const channels = (hex: string): string => {
   const [r, g, b] = parseHex(hex)
   return `${r} ${g} ${b}`
 }
+
+// `amount` of a over b, per channel, alpha included
+export const mixRgba = (a: Readonly<RGBA>, b: Readonly<RGBA>, amount: number): RGBA =>
+  [0, 1, 2, 3].map(i => Math.round(a[i] * amount + b[i] * (1 - amount))) as RGBA

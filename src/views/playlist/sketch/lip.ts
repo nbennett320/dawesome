@@ -6,6 +6,8 @@
 // and place however the playlist is zoomed or panned (it scrolls with its
 // lane)
 
+import { mixRgba } from '../../../theme/color'
+
 export const LIP = {
   height: 18,
   // below the lane's top line, so it stays inside its own lane
@@ -86,9 +88,6 @@ type RGBA = readonly [number, number, number, number]
 
 const css = ([r, g, b, a]: RGBA, alpha = 1) => `rgba(${r}, ${g}, ${b}, ${+((a / 255) * alpha).toFixed(3)})`
 
-// `amount` of a over b
-const mix = (a: RGBA, b: RGBA, amount: number): RGBA =>
-  [0, 1, 2, 3].map(i => Math.round(a[i] * amount + b[i] * (1 - amount))) as unknown as RGBA
 
 export interface LipColors {
   // the lane under it, which the clips fade into behind the label
@@ -163,7 +162,7 @@ export const drawLip = (ctx: CanvasRenderingContext2D, box: Box, name: string, c
     ctx.shadowBlur = 6
     ctx.fillStyle = css(colors.led)
   } else {
-    ctx.fillStyle = css(mix(colors.led, colors.panel, UNLIT))
+    ctx.fillStyle = css(mixRgba(colors.led, colors.panel, UNLIT))
   }
   ctx.fill()
 
