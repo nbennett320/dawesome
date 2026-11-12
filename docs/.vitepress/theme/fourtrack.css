@@ -431,13 +431,13 @@
   display: inline-block;
   margin-top: 18px !important;
   padding: 6px 12px !important;
-  font-family: var(--ft-font-mono);
+  /* font-family: var(--ft-font-mono); */
   font-size: 14px !important;
   line-height: 1.5 !important;
   border-radius: 4px;
   color: var(--ft-ink-mid) !important;
-  background: var(--ft-display);
-  box-shadow: inset 0 1px 1px rgb(var(--ft-shadow) / 0.06);
+  /* background: var(--ft-display); */
+  /* box-shadow: inset 0 1px 1px rgb(var(--ft-shadow) / 0.06); */
 }
 
 /* the screenshot, set into the panel */
