@@ -48,9 +48,6 @@ fn debug(){
   println!("debug mode:");
   use mlua::prelude::*;
   let lua = Lua::new();
-  let globals = lua.globals();
-  // let state = Arc::new(Mutex::from(daw::InnerState::default()));
-
   let mut input = String::new();
 
   loop {
@@ -62,10 +59,7 @@ fn debug(){
       break;
     }
 
-    // println!("input: \"{}\"", input);
-
     bind_functions::bind_functions(&lua);
-
     lua.load(&input).exec().unwrap();
 
     input = "".to_string();

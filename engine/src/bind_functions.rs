@@ -1,11 +1,9 @@
 use std::sync::atomic::{Ordering};
-use std::sync::{Arc, Mutex};
 use std::process;
 use num_traits::ToPrimitive;
-use mlua::{self, Function, Table};
+use mlua::{self};
 
-use crate::daw::{beat_interval_from_tempo, InnerState};
-use crate::{app, daw, util, event_dispatch, STATE};
+use crate::{daw, event_dispatch};
 
 fn list_defined_globals(globals: mlua::Table) {
   for pair in globals.pairs() {
@@ -37,26 +35,6 @@ pub fn bind_functions(
   }).unwrap();
   
   // add_audiograph_node
-  // todo: refactor to use consistent state
-  let f_add_audiograph_node = 
-    lua.create_function(|_, (path, start_offset_ms, track_number): (String, u64, u32)| {
-    let start_offset = std::time::Duration::from_millis(start_offset_ms);
-
-    // add_audiograph_node(state, path, track_number, start_offset, false);
-
-    let id: u64;
-    // don't snap
-    id = crate::STATE
-      .playlist
-      .audiograph
-      .lock()
-      .unwrap()
-      .construct_and_add_node(path, start_offset, track_number)
-      .map_err(mlua::Error::RuntimeError)?;
-
-    Ok(id)
-  }).unwrap();
-
   let f_add_audiograph_node = 
     lua.create_function(|_, (path, beat_offset, track_number): (String, u64, u32)| {
     let start_offset = daw::n_beat_duration_from_tempo(crate::STATE.tempo(), beat_offset.to_u32().unwrap());
