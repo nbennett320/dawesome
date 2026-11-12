@@ -36,8 +36,8 @@ import { isPlaceable, onSampleDrag } from '../../state/sampleDrag'
 import { OWN_DRAG_PREVIEW } from '../../components/DragGhost'
 import { selectFocusedView } from '../../state/slices/windowSlice'
 import {
-  selectTrackColor, selectTrackColors, selectTrackMixes, selectTrackName, selectTrackNames, setTrackColor, setTrackMute,
-  setTrackSolo,
+  sameMuteSolo, selectMuteSolo, selectTrackColor, selectTrackColors, selectTrackName, selectTrackNames, setTrackColor,
+  setTrackMute, setTrackSolo,
 } from '../../state/slices/mixerSlice'
 import TrackColorMenu, { TrackMenuAt } from '../mixer/TrackColorMenu'
 import { View } from '../../types/ui'
@@ -254,7 +254,8 @@ const PlaylistCanvas = () => {
   const trackColors = useAppSelector(selectTrackColors)
   const trackNames = useAppSelector(selectTrackNames)
   // and its mute and solo, which its lip's LED shows and toggles
-  const trackMixes = useAppSelector(selectTrackMixes)
+  // (only mute and solo: a fader or pan moving doesn't redraw the playlist)
+  const trackMixes = useAppSelector(selectMuteSolo, sameMuteSolo)
   const handleTrackMute = React.useCallback((trackNumber: number, mute: boolean) => {
     dispatch(setTrackMute(trackNumber, mute))
   }, [dispatch])

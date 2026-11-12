@@ -95,8 +95,26 @@ export const selectTrackColors = (state: RootState) => state.mixer.colors
 export const selectTrackNames = (state: RootState) => state.mixer.names
 export const selectAnySolo = (state: RootState) =>
   Object.values(state.mixer.tracks).some(track => track.solo)
-// every track's mix, by track number (tracks not listed are the defaults)
-export const selectTrackMixes = (state: RootState) => state.mixer.tracks
+// the tracks that are muted or soloed, and which, by track number (tracks
+// not listed are neither)
+export type MuteSolo = Record<number, { mute: boolean, solo: boolean }>
+export const selectMuteSolo = (state: RootState): MuteSolo => {
+  const muteSolo: MuteSolo = {}
+  Object.entries(state.mixer.tracks).forEach(([trackNumber, { mute, solo }]) => {
+    if(mute || solo) muteSolo[Number(trackNumber)] = { mute, solo }
+  })
+  return muteSolo
+}
+// whether two are the same, for useAppSelector: selectMuteSolo makes a new
+// object each time, and a fader or pan moving shouldn't count as a change
+export const sameMuteSolo = (a: MuteSolo, b: MuteSolo): boolean => {
+  const keys = Object.keys(a)
+  return keys.length === Object.keys(b).length
+    && keys.every(k => {
+      const n = Number(k)
+      return b[n] !== undefined && a[n].mute === b[n].mute && a[n].solo === b[n].solo
+    })
+}
 
 // how often a fader's value is sent while it's being dragged
 const SEND_EVERY_MS = 30

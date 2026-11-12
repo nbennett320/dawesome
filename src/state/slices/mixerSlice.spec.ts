@@ -7,6 +7,8 @@ import mixerReducer, {
   fetchMixer,
   flushMixerSends,
   resetMixer,
+  sameMuteSolo,
+  selectMuteSolo,
   selectAnySolo,
   selectTrackColor,
   selectTrackMix,
@@ -247,5 +249,24 @@ describe('mixerSlice', () => {
 
     expect(mockInvoke).toHaveBeenLastCalledWith('reset_mixer', {})
     expect(selectAnySolo(state(store))).toBe(false)
+  })
+
+  it('picks out just mute and solo, unchanged by a fader or pan', async () => {
+    const store = makeStore()
+    const settings = flat(3)
+    settings.tracks[1] = { ...settings.tracks[1], mute: true }
+    settings.tracks[2] = { ...settings.tracks[2], solo: true }
+    mockInvoke.mockResolvedValue(settings)
+    await store.dispatch(fetchMixer())
+
+    const before = selectMuteSolo(state(store))
+    expect(before).toEqual({ 1: { mute: true, solo: false }, 2: { mute: false, solo: true } })
+
+    store.dispatch(setTrackVolume(1, -6))
+    store.dispatch(setTrackPan(2, 0.5))
+    expect(sameMuteSolo(before, selectMuteSolo(state(store)))).toBe(true)
+
+    store.dispatch(setTrackMute(0, true))
+    expect(sameMuteSolo(before, selectMuteSolo(state(store)))).toBe(false)
   })
 })
