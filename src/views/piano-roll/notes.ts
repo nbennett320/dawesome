@@ -82,6 +82,11 @@ export const snapStep = (step: number, snap: Snapping): number => snapPoint(step
 // step) at or before it
 export const snapStepDown = (step: number, snap: Snapping): number => snapDown(step, inSteps(snap))
 
+// where Play starts from, with the mouse at `step` on the ruler: the nearest
+// snap line (or step), on one inside the pattern
+export const markerStep = (step: number, patternLength: number, snap: Snapping): number =>
+  Math.max(0, Math.min(snapStep(step, snap), snapStepDown(patternLength - 1, snap)))
+
 // ---- the mouse ----
 
 // a note's box in the grid's own coordinates, which don't change as it's

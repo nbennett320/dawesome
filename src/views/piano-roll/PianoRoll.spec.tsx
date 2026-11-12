@@ -50,6 +50,8 @@ const makeSequencer = (notes: Note[] = []): SequencerState => ({
 })
 
 const stopped = { playing: false, patternId: null, startTimeMs: null, beatIntervalMs: 500, beatsPerBar: 4 }
+// what the engine says is playing
+let transport: object = stopped
 
 const makeStore = () => configureStore({
   reducer: {
@@ -133,13 +135,14 @@ afterAll(() => {
 })
 
 beforeEach(() => {
+  transport = stopped
   resetGestures()
   clearPendingNoteSends()
   clearNoteClipboard()
   sequencer = makeSequencer()
   mockInvoke.mockImplementation(async (command: string, args: Record<string, unknown>) => {
     if(command === 'get_sequencer') return sequencer
-    if(command === 'get_playlist_transport') return stopped
+    if(command === 'get_playlist_transport') return transport
     if(command === 'set_pattern_notes') {
       sequencer = {
         ...sequencer,
@@ -610,6 +613,52 @@ describe('the Piano Roll', () => {
       // over the keyboard too
       fireEvent.wheel(screen.getByTitle('Click a key to hear it'), { deltaX: 10 })
       expect(grid().scrollLeft).toBe(50)
+    })
+  })
+
+  describe('the ruler', () => {
+    const ruler = () => screen.getByTestId('piano-roll-ruler')
+    const playhead = () => screen.getByTestId('piano-roll-playhead')
+    const onRuler = (step: number, keys: { altKey?: boolean } = {}) => ({
+      clientX: step * stepWidth() - grid().scrollLeft, clientY: 5, button: 0, pointerId: 2, ...keys,
+    })
+    const playButton = () => screen.getByRole('button', { name: /the pattern/ })
+
+    it('moves the playhead where it’s clicked or dragged, snapped, and Play starts from there', async () => {
+      await open()
+      act(() => { store.dispatch(setPianoRollSnapNote('QuarterNote')) })
+
+      fireEvent.pointerDown(ruler(), onRuler(1))
+      fireEvent.pointerMove(ruler(), onRuler(6.3))
+      // dragged: under the mouse, on the nearest beat
+      expect(playhead().style.transform).toBe(`translateX(${8 * stepWidth()}px)`)
+      fireEvent.pointerUp(ruler(), onRuler(6.3))
+      expect(store.getState().pianoRoll.startSteps).toEqual({ 0: 8 })
+      // nothing was playing: nothing plays
+      expect(calls('seek_pattern')).toEqual([])
+
+      fireEvent.click(playButton())
+      await waitFor(() => expect(calls('toggle_pattern')).toEqual([{ patternId: 0, fromStep: 8 }]))
+
+      // Option: on the step, and never past the last one
+      fireEvent.pointerDown(ruler(), onRuler(5.6, { altKey: true }))
+      fireEvent.pointerUp(ruler(), onRuler(5.6, { altKey: true }))
+      expect(store.getState().pianoRoll.startSteps).toEqual({ 0: 6 })
+      fireEvent.pointerDown(ruler(), onRuler(30, { altKey: true }))
+      fireEvent.pointerUp(ruler(), onRuler(30, { altKey: true }))
+      expect(store.getState().pianoRoll.startSteps).toEqual({ 0: 15 })
+    })
+
+    it('carries on from where it’s let go while the pattern plays, and the Play key starts from the marker', async () => {
+      await open()
+      fireEvent.click(playButton())
+      transport = { ...stopped, playing: true, patternId: 0, startTimeMs: Date.now(), beatIntervalMs: 500 }
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Stop the pattern' })).toBeTruthy())
+
+      fireEvent.pointerDown(ruler(), onRuler(10.2))
+      fireEvent.pointerUp(ruler(), onRuler(10.2))
+      await waitFor(() => expect(calls('seek_pattern')).toEqual([{ patternId: 0, step: 10 }]))
+      expect(store.getState().pianoRoll.startSteps).toEqual({ 0: 10 })
     })
   })
 

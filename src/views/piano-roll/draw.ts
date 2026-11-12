@@ -7,7 +7,7 @@ import { Rect } from '../../editing/lasso'
 import { drawCutLine, drawEdgeBar, drawLasso } from '../../editing/look'
 import { zoomAround } from '../../editing/view'
 import { painter } from '../../theme/canvas'
-import { currentTheme } from '../../theme/apply'
+import { cssVar, currentTheme } from '../../theme/apply'
 import { STEPS_PER_BEAT, Note } from '../../types/sequencer'
 import { HIGHEST_PITCH, PITCHES, isBlackKey, pitchName } from './notes'
 
@@ -267,6 +267,14 @@ export const drawCarried = (ctx: CanvasRenderingContext2D, view: Viewport, notes
     ctx.strokeStyle = lanes.css('selectedClip')
     ctx.strokeRect(x + 1, y + 1.5, w - 1, ROW_HEIGHT - 3)
   })
+}
+
+// the playhead's colour: as the playlist's, bright while playing or being
+// dragged along the ruler, grey while stopped. (before a theme is applied,
+// the core colours the base theme gives them)
+export const playheadColour = (active: boolean): string => {
+  if(!currentTheme()) return cssVar(active ? 'accent' : 'inkFaint')
+  return lanes.css(active ? 'playhead' : 'playheadStopped')
 }
 
 // the time ruler: a number at each bar, a tick at each beat

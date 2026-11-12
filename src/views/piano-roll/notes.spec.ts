@@ -1,7 +1,7 @@
 import { Note, Pattern, clipNoteBars, stepsPerBar, synthNotes, withNotes } from '../../types/sequencer'
 import {
   DEFAULT_LENGTH, NEW_VELOCITY, allIndices, carriedNotes, centrePitch, clampNote, copyNotes, cutNotes, deleteNotes, drawnLength,
-  fitSelection, inSteps, isBlackKey, moveNotes, newNote, noteBoxes, noteCut, pasteNotes, pasteStep, pitchName,
+  fitSelection, inSteps, isBlackKey, markerStep, moveNotes, newNote, noteBoxes, noteCut, pasteNotes, pasteStep, pitchName,
   pressKind, repeatNotes, rollSnapping, sameNotes, snapStep, snapStepDown, trimNotes,
 } from './notes'
 import {
@@ -95,6 +95,19 @@ describe('the mouse', () => {
     // Cut leaves edges alone
     expect(pressKind({ ...at, tool: 'cut', onNote: true, onEdge: true })).toBe('cut')
     expect(pressKind({ ...at, tool: 'cut' })).toBe('empty')
+  })
+})
+
+describe('the start marker', () => {
+  it('goes on the nearest snap line inside the pattern', () => {
+    expect(markerStep(5.4, 16, sixteenths)).toBe(5)
+    expect(markerStep(5.6, 16, beats)).toBe(4)
+    expect(markerStep(6.1, 16, beats)).toBe(8)
+    expect(markerStep(5.6, 16, bypassed)).toBe(6)
+    // never past the last line before the pattern's end, nor before it
+    expect(markerStep(15.8, 16, sixteenths)).toBe(15)
+    expect(markerStep(15.8, 16, beats)).toBe(12)
+    expect(markerStep(-2, 16, beats)).toBe(0)
   })
 })
 
