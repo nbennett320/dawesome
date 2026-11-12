@@ -10,6 +10,7 @@ import {
   inspectClip,
   joinClips,
   moveNodeInPlaylist,
+  MovedNode,
   moveNodesInPlaylist,
   paintPatternClips,
   pasteClips,
@@ -543,6 +544,7 @@ const PlaylistCanvas = () => {
     item: PlaylistItem,
     dropBeat: number,
     trackNumber: number,
+    shownBeat: number,
   ) => {
     dispatch(moveNodeInPlaylist(
       item.id,
@@ -551,6 +553,7 @@ const PlaylistCanvas = () => {
       dropBeat,
       // keep the vertical offset the clip was first drawn with
       item.pixelOffset,
+      shownBeat,
     ))
   }, [dispatch])
 
@@ -561,8 +564,9 @@ const PlaylistCanvas = () => {
     anchorId: number,
     dropBeat: number,
     trackNumber: number,
+    shown: MovedNode[],
   ) => {
-    dispatch(moveNodesInPlaylist(ids, anchorId, dropBeat, trackNumber))
+    dispatch(moveNodesInPlaylist(ids, anchorId, dropBeat, trackNumber, shown))
   }, [dispatch])
 
   // clips' edges were dragged: trim them all, as one step to undo

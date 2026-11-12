@@ -623,34 +623,54 @@ export const addPatternToPlaylist = (
   await refreshTrackCount()(dispatch)
 }
 
+// a clip as it is now, to put back if a move fails
+const placedNow = (getState: () => RootState, ids: number[]): MovedNode[] =>
+  getState().playlist.playlistItems
+    .filter(item => ids.includes(item.id))
+    .map(({ id, startBeat, trackNumber }) => ({ id, startBeat, trackNumber }))
+
+// move a clip. it's moved at once to `shownBeat` (where the playlist showed
+// it landing), as the engine can take a moment to answer (a note pattern on
+// a new track waits for its synths' plugins), then to where the engine put it
 export const moveNodeInPlaylist = (
   id: number,
   path: string,
   trackNumber: number,
   dropBeat: number,
   pixelOffset: Omit<PlaylistItemPixelOffset, 'xOffset' | 'yOffset'>,
-) => async (dispatch: Dispatch) => {
+  shownBeat: number = dropBeat,
+) => async (dispatch: Dispatch, getState: () => RootState) => {
   // relative to the playlist's top-left, same as addToPlaylist
   const dropX = pixelOffset.x - pixelOffset.left
   const dropY = pixelOffset.y - pixelOffset.top
-  // where the engine actually placed the clip (after snapping), in beats
-  const startBeat = await invoke<number>('move_audiograph_node', {
-    id,
-    trackNumber,
-    dropBeat,
-  })
-
-  dispatch(movePlaylistItem({
+  const place = (startBeat: number, track: number) => dispatch(movePlaylistItem({
     id,
     path,
     startBeat,
-    trackNumber,
+    trackNumber: track,
     pixelOffset: {
       ...pixelOffset,
       xOffset: dropX,
       yOffset: dropY,
     },
   } as PlaylistItem))
+
+  const before = placedNow(getState, [id])
+  place(shownBeat, trackNumber)
+
+  try {
+    // where the engine actually placed the clip (after snapping), in beats
+    const startBeat = await invoke<number>('move_audiograph_node', {
+      id,
+      trackNumber,
+      dropBeat,
+    })
+    place(startBeat, trackNumber)
+  } catch(e) {
+    // it didn't move: back where it was
+    dispatch(movePlaylistItems(before))
+    throw e
+  }
 
   // moved below the last track (a new track), or off the last track
   await refreshTrackCount()(dispatch)
@@ -666,21 +686,30 @@ export interface MovedNode {
 
 // move selected clips together: the grabbed one (anchorId) to dropBeat on
 // trackNumber, and the rest by as much. the engine snaps and keeps them in
-// the playlist
+// the playlist. as moveNodeInPlaylist, they're moved at once to where the
+// playlist showed them landing (`shown`), then to where the engine put them
 export const moveNodesInPlaylist = (
   ids: number[],
   anchorId: number,
   dropBeat: number,
   trackNumber: number,
-) => async (dispatch: Dispatch) => {
-  const moved = await invoke<MovedNode[]>('move_audiograph_nodes', {
-    ids,
-    anchorId,
-    dropBeat,
-    trackNumber,
-  })
+  shown: MovedNode[] = [],
+) => async (dispatch: Dispatch, getState: () => RootState) => {
+  const before = placedNow(getState, ids)
+  dispatch(movePlaylistItems(shown))
 
-  dispatch(movePlaylistItems(moved))
+  try {
+    const moved = await invoke<MovedNode[]>('move_audiograph_nodes', {
+      ids,
+      anchorId,
+      dropBeat,
+      trackNumber,
+    })
+    dispatch(movePlaylistItems(moved))
+  } catch(e) {
+    dispatch(movePlaylistItems(before))
+    throw e
+  }
 
   // moved onto the new-track area, or off the last track
   await refreshTrackCount()(dispatch)

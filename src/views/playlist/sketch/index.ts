@@ -34,6 +34,7 @@ import { snapDown } from '../../../editing/snap'
 import { drawCutLine, drawLasso } from '../../../editing/look'
 import { Tool } from '../../../editing/tools'
 import { DRAG_THRESHOLD_PX, wheelIntent, zoomAround } from '../../../editing/view'
+import type { MovedNode as Landed } from '../../../state/slices/playlistSlice'
 import { PlaceableItem as DragItem, dragItemKey } from '../../../state/sampleDrag'
 import { Pattern, SequencerState, patternSeconds } from '../../../types/sequencer'
 import { decodeLevels } from '../../../util/waveform'
@@ -75,7 +76,7 @@ export interface CanvasProps extends SketchProps {
   onEmptyRightClick: (beat: number, track: number, clientX: number, clientY: number) => void
   onNodeMove: () => void
   // several selected clips were dragged together (see Renderer.onNodesMove)
-  onNodesMove: (ids: number[], anchorId: number, dropBeat: number, trackNumber: number) => void
+  onNodesMove: (ids: number[], anchorId: number, dropBeat: number, trackNumber: number, shown: Landed[]) => void
   onNodeDoubleClick: (id: number) => void
   // see PlaylistState.transportRevision
   transportRevision: number
@@ -441,14 +442,19 @@ export class Renderer extends RendererBase {
   onNodeRightClick!: (id: number, clientX: number, clientY: number) => void
   onEmptyRightClick!: (beat: number, track: number, clientX: number, clientY: number) => void
   onNodeDoubleClick!: (id: number) => void
+  // a clip was dropped at dropBeat (unsnapped) on trackNumber. `shownBeat`
+  // is where its phantom showed it landing, which it's drawn at until the
+  // engine says where it went
   onNodeMove!: (
     item: PlaylistItem,
     dropBeat: number,
     trackNumber: number,
+    shownBeat: number,
   ) => void
   // the grabbed clip (anchorId) was dropped at dropBeat (unsnapped) on
-  // trackNumber, and every clip in ids moves by as much
-  onNodesMove!: (ids: number[], anchorId: number, dropBeat: number, trackNumber: number) => void
+  // trackNumber, and every clip in ids moves by as much. `shown` is where
+  // their phantoms showed them landing (as onNodeMove's shownBeat)
+  onNodesMove!: (ids: number[], anchorId: number, dropBeat: number, trackNumber: number, shown: Landed[]) => void
   // clips' edges were dragged: each clip in `edits` is to play that part of
   // its sample or pattern. resolves to what the engine changed, or nothing
   // if it refused
@@ -1957,12 +1963,15 @@ export class Renderer extends RendererBase {
         const target = this.dropTarget(p.mouseX, p.mouseY, drag?.grabX)
 
         if(drag?.active && target.trackNumber >= 0) {
-          // send the unsnapped beat, the engine owns snapping
+          // send the unsnapped beat, the engine owns snapping. the clips are
+          // drawn where their phantoms were until it answers
           if(drag.group.length) {
             const ids = [drag.item, ...drag.group].map(clip => clip.playlistItem.id)
-            this.onNodesMove(ids, drag.item.playlistItem.id, target.beat, target.trackNumber)
+            const shown = this.landings({ ...drag, mouseX: p.mouseX, mouseY: p.mouseY })
+              .map(({ item, beat, track }) => ({ id: item.playlistItem.id, startBeat: beat, trackNumber: track }))
+            this.onNodesMove(ids, drag.item.playlistItem.id, target.beat, target.trackNumber, shown)
           } else {
-            this.onNodeMove(drag.item.playlistItem, target.beat, target.trackNumber)
+            this.onNodeMove(drag.item.playlistItem, target.beat, target.trackNumber, target.snappedBeat)
           }
         }
 
