@@ -1,22 +1,23 @@
 import type { Mock } from 'vitest'
 import { configureStore } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api/core'
-import { ask, open, save } from '@tauri-apps/plugin-dialog'
+import { ask, message, open, save } from '@tauri-apps/plugin-dialog'
 import { readDir } from '@tauri-apps/plugin-fs'
 import { dirname, documentDir, join } from '@tauri-apps/api/path'
 import playlistReducer, { playlistSlice } from './playlistSlice'
 import projectReducer, {
-  cleanProjectName, nameProject, openRecentProject, projectName, runProjectCommand, setProjectPath,
+  cleanProjectName, confirmQuit, nameProject, openRecentProject, projectName, runProjectCommand, setProjectPath,
 } from './projectSlice'
 import { LoadedProject, SavedProject } from '../../types/project'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
-vi.mock('@tauri-apps/plugin-dialog', () => ({ ask: vi.fn(), open: vi.fn(), save: vi.fn() }))
+vi.mock('@tauri-apps/plugin-dialog', () => ({ ask: vi.fn(), message: vi.fn(), open: vi.fn(), save: vi.fn() }))
 vi.mock('@tauri-apps/api/path', () => ({ dirname: vi.fn(), documentDir: vi.fn(), join: vi.fn() }))
 vi.mock('@tauri-apps/plugin-fs', () => ({ readDir: vi.fn() }))
 
 const mockInvoke = invoke as Mock
 const mockAsk = ask as Mock
+const mockMessage = message as Mock
 const mockOpen = open as Mock
 const mockSave = save as Mock
 const mockDocumentDir = documentDir as Mock
@@ -414,5 +415,67 @@ describe('nameProject', () => {
     await name(store, 'old.dawesome')
     expect(mockAsk).not.toHaveBeenCalled()
     expect(mockSave).not.toHaveBeenCalled()
+  })
+})
+
+describe('confirmQuit', () => {
+  const quit = (store: ReturnType<typeof makeStore>) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    confirmQuit()(store.dispatch, store.getState as any)
+
+  it('names the project, and offers to save', async () => {
+    const store = makeStore()
+    store.dispatch(setProjectPath('/songs/song/song.dawesome'))
+    mockMessage.mockResolvedValue('Cancel')
+
+    await quit(store)
+    expect(mockMessage).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      title: 'Save changes to "song" before quitting?',
+      buttons: { yes: 'Save', no: "Don't Save", cancel: 'Cancel' },
+    }))
+  })
+
+  it('saves, then quits', async () => {
+    const store = makeStore()
+    store.dispatch(setProjectPath('/songs/song/song.dawesome'))
+    mockMessage.mockResolvedValue('Save')
+
+    await quit(store)
+    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/song/song.dawesome', somewhereNew: false })
+    expect(mockInvoke).toHaveBeenLastCalledWith('quit')
+  })
+
+  it("asks where to save an untitled project, and doesn't quit if that's cancelled", async () => {
+    const store = makeStore()
+    mockMessage.mockResolvedValue('Save')
+    mockSave.mockResolvedValue(null)
+
+    await quit(store)
+    expect(mockSave).toHaveBeenCalled()
+    expect(mockInvoke).not.toHaveBeenCalledWith('quit')
+  })
+
+  it("doesn't quit when saving fails", async () => {
+    const store = makeStore()
+    store.dispatch(setProjectPath('/songs/song/song.dawesome'))
+    engine({ save_project: new Error('disk full') })
+    mockMessage.mockResolvedValue('Save')
+
+    await quit(store)
+    expect(mockInvoke).not.toHaveBeenCalledWith('quit')
+    expect(store.getState().project.notice).toEqual(expect.objectContaining({ kind: 'error' }))
+  })
+
+  it("quits without saving on Don't Save, and stays on Cancel", async () => {
+    const store = makeStore()
+    mockMessage.mockResolvedValue("Don't Save")
+    await quit(store)
+    expect(mockInvoke).not.toHaveBeenCalledWith('save_project', expect.anything())
+    expect(mockInvoke).toHaveBeenCalledWith('quit')
+
+    mockInvoke.mockClear()
+    mockMessage.mockResolvedValue('Cancel')
+    await quit(store)
+    expect(mockInvoke).not.toHaveBeenCalled()
   })
 })

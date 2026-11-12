@@ -24,7 +24,7 @@ mod test_support;
 
 use std::env;
 use std::sync::Arc;
-use tauri;
+use tauri::{self, Manager};
 
 #[macro_use(lazy_static)]
 extern crate lazy_static;
@@ -33,7 +33,8 @@ fn init_tauri() {
   use commands::transport::*;
   use commands::sample::*;
   use commands::playlist::*;
-  use project::{save_project, load_project, new_project, project_file_for};
+  use project::{save_project, load_project, new_project, project_file_for, project_has_unsaved_changes};
+  use app::window::quit;
   use recent::{add_recent_project, remove_recent_project};
   use commands::mixer::*;
   use commands::audio::*;
@@ -82,7 +83,18 @@ fn init_tauri() {
       effects::follow_output(&racks);
       effect_windows::init(&racks);
       commands::synth::keep_following(following.clone());
+      // the empty project the app starts with is unchanged (see
+      // project::has_unsaved_changes)
+      project::mark_unchanged(&following);
       app::window::setup(app)
+    })
+    // closing the main window quits, so it asks about unsaved changes first
+    .on_window_event(|window, event| {
+      if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+        if window.label() == "main" && !app::window::may_quit(window.app_handle()) {
+          api.prevent_close();
+        }
+      }
     })
     .manage(state)
     .manage(recent_projects)
@@ -216,10 +228,21 @@ fn init_tauri() {
       set_synth_muted,
       add_synth_on_track,
       play_note,
-      stop_note
+      stop_note,
+      project_has_unsaved_changes,
+      quit
     ])
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application")
+    // the system quitting the app (the Dock's Quit, logging out) asks about
+    // unsaved changes too
+    .run(|app, event| {
+      if let tauri::RunEvent::ExitRequested { api, .. } = event {
+        if !app::window::may_quit(app) {
+          api.prevent_exit();
+        }
+      }
+    });
 }
 
 /**

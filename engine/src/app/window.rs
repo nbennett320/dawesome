@@ -1,6 +1,8 @@
 use std;
 use std::error::{Error};
 use serde::{Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tauri::{
   self,
   menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu},
@@ -12,6 +14,7 @@ use tauri::{
   WebviewWindow,
   WebviewWindowBuilder,
 };
+use crate::{daw, project};
 use crate::preferences::{AppearanceSetting, AppPreferences, Preferences};
 use crate::recent::{self, RecentProjects};
 use crate::theme::{self, Appearance, ResolvedTheme, Rgba};
@@ -19,6 +22,46 @@ use crate::theme::{self, Appearance, ResolvedTheme, Rgba};
 #[derive(Clone, Serialize)]
 struct EventPayload {
   data: String,
+}
+
+// set once the app may quit: there was nothing unsaved, or the frontend has
+// asked about it (saved, or chosen not to). until then, quitting or closing
+// the window asks first
+static QUIT_ALLOWED: AtomicBool = AtomicBool::new(false);
+
+// whether the app may quit now: nothing would be lost (and from then on it
+// may), or it's already been allowed. otherwise the frontend is asked
+// whether to save, and calls `quit` when it's done. for Quit, the window's
+// close button, and the system's quit (the Dock, logging out)
+//
+// (on the main thread, where window and menu events arrive: the check reads
+// the plugins' settings, which happens there)
+pub fn may_quit(app: &AppHandle) -> bool {
+  if QUIT_ALLOWED.load(Ordering::SeqCst) { return true; }
+
+  let state = app.state::<Arc<daw::InnerState>>();
+  if project::has_unsaved_changes(&state) {
+    if let Err(e) = app.emit("quit-requested", ()) {
+      // with no one to ask, quitting would lose the changes
+      println!("could not ask about unsaved changes: {}", e);
+    }
+    return false;
+  }
+  QUIT_ALLOWED.store(true, Ordering::SeqCst);
+  true
+}
+
+// the Quit menu item: quit, unless the frontend has to ask first
+fn request_quit(app: &AppHandle) {
+  if may_quit(app) { app.exit(0); }
+}
+
+// quit, whatever's unsaved: the frontend has asked, and the project's been
+// saved or its changes let go
+#[tauri::command]
+pub fn quit(app: AppHandle) {
+  QUIT_ALLOWED.store(true, Ordering::SeqCst);
+  app.exit(0);
 }
 
 // initialize the application
@@ -116,9 +159,7 @@ fn paint(window: &WebviewWindow, prefs: &Preferences, themes: &[ResolvedTheme]) 
 
 fn on_menu_event(app: &AppHandle, event: MenuEvent) {
   match event.id().as_ref() {
-    "quit" => {
-      std::process::exit(0);
-    }
+    "quit" => request_quit(app),
     // the frontend asks where to open or save, then calls the engine's
     // project commands
     id @ ("new" | "open" | "save" | "save-as") => {

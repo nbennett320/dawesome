@@ -1,6 +1,6 @@
 import { createSlice, Dispatch } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api/core'
-import { ask, open, save } from '@tauri-apps/plugin-dialog'
+import { ask, message, open, save } from '@tauri-apps/plugin-dialog'
 import { readDir } from '@tauri-apps/plugin-fs'
 import { dirname, documentDir, join } from '@tauri-apps/api/path'
 import type { RootState } from 'state/store'
@@ -159,7 +159,8 @@ const openFrom = async (dispatch: Dispatch, path: string): Promise<boolean> => {
   }
 }
 
-// save the project, and carry on in the file it was saved to
+// save the project, and carry on in the file it was saved to. returns
+// whether it saved
 // - somewhereNew: a first save or Save As, which gets a folder of its own
 //   (the engine says where that put it). otherwise saved right at `path`
 const saveProjectTo = async (
@@ -167,13 +168,13 @@ const saveProjectTo = async (
   getState: () => RootState,
   path: string,
   somewhereNew: boolean,
-) => {
+): Promise<boolean> => {
   let saved
   try {
     saved = await saveProject(path, somewhereNew)(dispatch, getState)
   } catch(e) {
     dispatch(setProjectNotice({ kind: 'error', message: errorMessage("Couldn't save the project", e) }))
-    return
+    return false
   }
 
   dispatch(setProjectPath(saved.path))
@@ -182,6 +183,26 @@ const saveProjectTo = async (
     ? { kind: 'error', message: `Saved, but some takes are still outside the project's folder: ${saved.problems.join('; ')}` }
     : null))
   await noteRecent(saved.path)
+  return true
+}
+
+// File › Save As: ask where, then save there. returns whether it saved (not
+// if the dialog was cancelled)
+const saveAs = async (dispatch: Dispatch, getState: () => RootState): Promise<boolean> => {
+  const chosen = chosenPath(await save({
+    title: 'Save project',
+    filters: dialogFilters,
+    defaultPath: await saveDialogStart(getState().project.path),
+  }))
+
+  return chosen ? saveProjectTo(dispatch, getState, withExtension(chosen), true) : false
+}
+
+// File › Save: where it was saved last, or (never saved) where the user
+// chooses. returns whether it saved
+const saveCurrent = (dispatch: Dispatch, getState: () => RootState): Promise<boolean> => {
+  const current = getState().project.path
+  return current ? saveProjectTo(dispatch, getState, current, false) : saveAs(dispatch, getState)
 }
 
 // a typed project name, kept to what's fine in a file name: no extension,
@@ -246,17 +267,6 @@ export const runProjectCommand = (command: ProjectCommand) => (
   dispatch: Dispatch,
   getState: () => RootState,
 ): Promise<void> => exclusive(async () => {
-
-  const saveAs = async () => {
-    const chosen = chosenPath(await save({
-      title: 'Save project',
-      filters: dialogFilters,
-      defaultPath: await saveDialogStart(getState().project.path),
-    }))
-
-    if(chosen) await saveProjectTo(dispatch, getState, withExtension(chosen), true)
-  }
-
   switch(command) {
     case 'new': {
       if(!(await okToReplace(getState))) break
@@ -282,14 +292,11 @@ export const runProjectCommand = (command: ProjectCommand) => (
       if(chosen) await openFrom(dispatch, chosen)
       break
     }
-    case 'save': {
-      const current = getState().project.path
-      if(current) await saveProjectTo(dispatch, getState, current, false)
-      else await saveAs()
+    case 'save':
+      await saveCurrent(dispatch, getState)
       break
-    }
     case 'save-as':
-      await saveAs()
+      await saveAs(dispatch, getState)
       break
     default:
       break
@@ -305,6 +312,34 @@ export const openRecentProject = (path: string) => (
   if(!(await okToReplace(getState))) return
 
   if(!(await openFrom(dispatch, path))) await forgetRecent(path)
+})
+
+// the engine was asked to quit (Quit, the window's close button, the
+// system) with changes that aren't saved: ask whether to save them first.
+// the engine quits when it's told to (see may_quit in
+// engine/src/app/window.rs)
+export const confirmQuit = () => (
+  dispatch: Dispatch,
+  getState: () => RootState,
+): Promise<void> => exclusive(async () => {
+  const name = projectName(getState().project.path) ?? 'Untitled'
+  const choice = await message(
+    "Your changes will be lost if you don't save them.",
+    {
+      title: `Save changes to "${name}" before quitting?`,
+      kind: 'warning',
+      buttons: { yes: 'Save', no: "Don't Save", cancel: 'Cancel' },
+    },
+  )
+
+  if(choice === 'Save' || choice === 'Yes') {
+    // not saved (the dialog cancelled, or it failed): carry on, with the
+    // notice saying why
+    if(!(await saveCurrent(dispatch, getState))) return
+  } else if(choice !== "Don't Save" && choice !== 'No') {
+    return
+  }
+  await invoke('quit')
 })
 
 export default projectSlice.reducer

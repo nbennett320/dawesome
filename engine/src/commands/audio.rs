@@ -311,6 +311,7 @@ fn moved_path(path: &str, from: &Path, to: &Path) -> Option<String> {
 // from where it is now, and so does the saved project file
 fn moved(state: &daw::InnerState, from: &Path, to: &Path, path: String) -> MovedRecording {
   let (moved_clips, sequencer) = repoint(state, from, to);
+  crate::project::follow_moved_in_baseline(state, from, to);
   let project = state.project.lock().unwrap().path.clone();
   let problem = project
     .and_then(|file| crate::project::follow_moved_recording(&file, from, to).err())

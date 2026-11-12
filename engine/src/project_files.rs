@@ -32,6 +32,9 @@ pub struct ProjectLocation {
   pub path: Option<PathBuf>,
   // this unsaved project's folder of takes, once something's been recorded
   pub session: Option<PathBuf>,
+  // the project as it was last started, opened or saved, to tell whether
+  // it's changed since (see project::has_unsaved_changes)
+  pub baseline: Option<crate::project::Project>,
 }
 
 impl ProjectLocation {

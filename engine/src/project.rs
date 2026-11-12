@@ -362,13 +362,18 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
       0.
     };
 
-    let clips: Vec<ProjectClip> = audiograph.nodes.iter().map(|node| ProjectClip {
+    let mut clips: Vec<ProjectClip> = audiograph.nodes.iter().map(|node| ProjectClip {
       path: stored_path(node.sample_path(), project_dir),
       track_number: node.track_number,
       start_beat: beat_of(node.start_offset, node.window().is_some()),
       settings: node.settings(),
       window: node.window().map(ClipWindow::of_sample),
     }).collect();
+    // in the order they start, as the pattern clips are: undoing puts a clip
+    // back at the end of the graph's list, and that isn't a change
+    clips.sort_by(|a, b| a.start_beat.total_cmp(&b.start_beat)
+      .then(a.track_number.cmp(&b.track_number))
+      .then_with(|| a.path.cmp(&b.path)));
 
     // in the order they start, so saving twice gives the same file
     let mut pattern_clips: Vec<ProjectPatternClip> = audiograph.pattern_nodes.iter().map(|node| ProjectPatternClip {
@@ -606,10 +611,36 @@ pub fn apply(
 
 // write the current playlist to a project file. the file is written next to
 // it first and then moved into place, so a failed save never leaves a
-// half-written project
-pub fn save_to(state: &daw::InnerState, project_path: &Path) -> Result<(), String> {
+// half-written project. returns what was written
+pub fn save_to(state: &daw::InnerState, project_path: &Path) -> Result<Project, String> {
   let dir = project_dir(project_path)?;
-  write_project(&capture(state, Some(&dir)), project_path)
+  let project = capture(state, Some(&dir));
+  write_project(&project, project_path)?;
+  Ok(project)
+}
+
+// the folder the current project's samples are saved relative to: its
+// file's, or none for a project that's never been saved
+fn current_dir(state: &daw::InnerState) -> Option<PathBuf> {
+  let path = state.project.lock().unwrap().path.clone();
+  path.and_then(|path| project_dir(&path).ok())
+}
+
+// remember the project as it is now as unchanged: it's just been started,
+// opened or saved. (captured before the project's lock is taken, as
+// capturing takes the other locks)
+pub fn mark_unchanged(state: &daw::InnerState) {
+  let project = capture(state, current_dir(state).as_deref());
+  state.project.lock().unwrap().baseline = Some(project);
+}
+
+// whether the project differs from how it was last started, opened or
+// saved: anything a save would write differently. undoing back to how it
+// was is no change
+pub fn has_unsaved_changes(state: &daw::InnerState) -> bool {
+  let now = capture(state, current_dir(state).as_deref());
+  // (no baseline only before the app has started: say changed, to be safe)
+  state.project.lock().unwrap().baseline.as_ref().map_or(true, |was| *was != now)
 }
 
 // write a project file, all at once: a file that's half written is never
@@ -649,22 +680,41 @@ pub fn follow_moved_recording(project_path: &Path, from: &Path, to: &Path) -> Re
     .map_err(|e| format!("could not open '{}': {}", project_path.display(), e))?;
   let mut project = Project::from_json(&json)?;
   let dir = project_dir(project_path)?;
+
+  if follow_moved(&mut project, Some(&dir), from, to) {
+    write_project(&project, project_path)
+  } else {
+    Ok(())
+  }
+}
+
+// the same for the project as it was last saved (see mark_unchanged), whose
+// clips now play from where the take is: moving it isn't a change
+pub fn follow_moved_in_baseline(state: &daw::InnerState, from: &Path, to: &Path) {
+  let dir = current_dir(state);
+  if let Some(baseline) = state.project.lock().unwrap().baseline.as_mut() {
+    follow_moved(baseline, dir.as_deref(), from, to);
+  }
+}
+
+// a project's clips and sequencer rows playing `from` (a take, or anything
+// in a folder) play from `to` instead. whether any did
+fn follow_moved(project: &mut Project, dir: Option<&Path>, from: &Path, to: &Path) -> bool {
   let from = resolved_parent(from);
   let to = resolved_parent(to);
 
   let mut changed = false;
   let mut follow = |stored: &mut String| {
-    let resolved = resolved_parent(&resolved_path(stored, Some(&dir)));
+    let resolved = resolved_parent(&resolved_path(stored, dir));
     if let Ok(rest) = resolved.strip_prefix(&from) {
       let moved = if rest.as_os_str().is_empty() { to.clone() } else { to.join(rest) };
-      *stored = stored_path(&moved.to_string_lossy(), Some(&dir));
+      *stored = stored_path(&moved.to_string_lossy(), dir);
       changed = true;
     }
   };
   project.clips.iter_mut().for_each(|clip| follow(&mut clip.path));
   project.sequencer.rows.iter_mut().for_each(|row| follow(&mut row.path));
-
-  if changed { write_project(&project, project_path) } else { Ok(()) }
+  changed
 }
 
 // replace the playlist with a project file. nothing changes if the file
@@ -677,6 +727,8 @@ pub fn load_from(state: &daw::InnerState, project_path: &Path) -> Result<LoadedP
 
   let loaded = apply(state, &project, Some(&dir));
   state.project.lock().unwrap().reset(Some(project_path.to_path_buf()));
+  // as it loaded: samples left out for being missing aren't a change
+  mark_unchanged(state);
   Ok(loaded)
 }
 
@@ -777,8 +829,12 @@ pub fn save_project_to(
     state.history.lock().unwrap().move_paths(&moved);
   }
 
-  save_to(state, &target)?;
-  state.project.lock().unwrap().reset(Some(target.clone()));
+  let saved = save_to(state, &target)?;
+  {
+    let mut location = state.project.lock().unwrap();
+    location.reset(Some(target.clone()));
+    location.baseline = Some(saved);
+  }
 
   for problem in &problems { println!("saving the project: {}", problem); }
   Ok(SavedProject {
@@ -813,7 +869,14 @@ pub fn load_project(state: daw::TState<'_>, path: String) -> Result<LoadedProjec
 pub fn new_project(state: daw::TState<'_>) -> LoadedProject {
   let loaded = apply(&state, &Project::default(), None);
   state.project.lock().unwrap().reset(None);
+  mark_unchanged(&state);
   loaded
+}
+
+// whether quitting, or replacing the project, would lose changes
+#[tauri::command]
+pub fn project_has_unsaved_changes(state: daw::TState<'_>) -> bool {
+  has_unsaved_changes(&state)
 }
 
 #[cfg(test)]

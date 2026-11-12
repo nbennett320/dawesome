@@ -20,6 +20,7 @@ const App = () => {
     const listening = [
       listeners.projectMenu(dispatch),
       listeners.recentProjectMenu(dispatch),
+      listeners.quitRequested(dispatch),
       listeners.viewMenu(dispatch),
     ]
     return () => { listening.forEach(l => l.then(stop => stop())) }
