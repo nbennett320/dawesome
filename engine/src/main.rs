@@ -21,7 +21,6 @@ mod join;
 mod mixdown;
 mod mixdown_file;
 mod mixdown_commands;
-mod bind_functions;
 mod plugin;
 mod plugin_catalog;
 mod main_thread;
@@ -32,39 +31,10 @@ mod synth_commands;
 
 use std::env;
 use std::sync::Arc;
-use std::io::{self, Write};
 use tauri;
-use mlua;
 
 #[macro_use(lazy_static)]
 extern crate lazy_static;
-
-lazy_static! {
-  pub static ref STATE: Arc<daw::InnerState> = Arc::new(daw::InnerState::default());
-  // pub static ref STATE: Arc<Mutex<daw::InnerState>> = Arc::new(Mutex::from(daw::InnerState::default()));
-}
-
-fn debug(){
-  println!("debug mode:");
-  use mlua::prelude::*;
-  let lua = Lua::new();
-  let mut input = String::new();
-
-  loop {
-    print!("> ");
-    io::stdout().flush().ok();
-    io::stdin().read_line(&mut input).ok();
-
-    if input == "exit\n" {
-      break;
-    }
-
-    bind_functions::bind_functions(&lua);
-    lua.load(&input).exec().unwrap();
-
-    input = "".to_string();
-  }
-}
 
 fn init_tauri() {
   use event_dispatch::*;
@@ -258,8 +228,7 @@ fn init_tauri() {
 }
 
 /**
- * args: 
- *   -d | --debug => debug mode
+ * args:
  *   --scan-plugin <path> => scan one plugin bundle and print what's in it
  */
 fn main() {
@@ -271,18 +240,5 @@ fn main() {
     std::process::exit(code)
   }
 
-  if args.is_empty() {
-    init_tauri();
-  }
-
-  for arg in args {
-    match &arg[..] {
-      "-d" | "--debug" => debug(),
-      _ => {
-        if arg.starts_with('-') {
-          println!("Unkown argument: {}", arg);
-        }
-      }
-    }
-  }
+  init_tauri();
 }

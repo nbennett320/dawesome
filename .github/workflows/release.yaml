@@ -51,7 +51,7 @@ jobs:
           fi
 
       # Tauri 2's Linux prerequisites and the audio libraries, plus what
-      # bundling an AppImage needs (Lua is built into the app)
+      # bundling an AppImage needs
       - name: Install system dependencies
         if: runner.os == 'Linux'
         run: |

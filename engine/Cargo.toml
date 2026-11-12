@@ -32,7 +32,6 @@ dirs = "6"
 num-traits = "0.2.15"
 lazy_static = "1.4.0"
 hound = "3.5.0"
-mlua = { version = "*", features = [ "lua54", "vendored" ] }
 rtrb = "0.3"
 trash = "~5.2.3"  # 5.3 needs rustc 1.87
 # MP3s for mixdowns (builds its own LAME, which is LGPL)
