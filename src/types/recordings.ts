@@ -19,7 +19,7 @@ export interface RecordingFile {
 }
 
 // which of the project's folders of audio a sidebar page shows. mirrors
-// Library in engine/src/audio_commands.rs
+// Library in engine/src/commands/audio.rs
 export type Library = 'recordings' | 'clips'
 
 // what's in the recordings folder (see list_recordings)
@@ -103,7 +103,7 @@ export const searchTakes = (takes: RecordingFile[], query: string): RecordingFil
 }
 
 // a take or folder after it's moved or renamed (see MovedRecording in
-// engine/src/audio_commands.rs), and the clips and rows that now play from
+// engine/src/commands/audio.rs), and the clips and rows that now play from
 // its new place
 export interface MovedRecording {
   // a take's full path, or a folder's path relative to the recordings folder

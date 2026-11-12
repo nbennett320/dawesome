@@ -1,35 +1,24 @@
 mod app;
+mod commands;
 mod daw;
 mod util;
-mod transport_commands;
-mod sample_commands;
-mod playlist_commands;
 mod project;
 mod project_files;
 mod recording;
 mod recent;
 mod theme;
 mod preferences;
-mod appearance_commands;
 mod history;
-mod history_commands;
-mod mixer_commands;
-mod audio_commands;
-mod sequencer_commands;
-mod clip_commands;
 mod clipboard;
 mod bounce;
 mod join;
 mod mixdown;
 mod mixdown_file;
-mod mixdown_commands;
 mod plugin;
 mod plugin_catalog;
 mod main_thread;
 mod effects;
-mod effect_commands;
 mod effect_windows;
-mod synth_commands;
 
 use std::env;
 use std::sync::Arc;
@@ -39,24 +28,24 @@ use tauri;
 extern crate lazy_static;
 
 fn init_tauri() {
-  use transport_commands::*;
-  use sample_commands::*;
-  use playlist_commands::*;
+  use commands::transport::*;
+  use commands::sample::*;
+  use commands::playlist::*;
   use project::{save_project, load_project, new_project, project_file_for};
   use recent::{add_recent_project, remove_recent_project};
-  use mixer_commands::*;
-  use audio_commands::*;
-  use sequencer_commands::*;
-  use clip_commands::*;
+  use commands::mixer::*;
+  use commands::audio::*;
+  use commands::sequencer::*;
+  use commands::clip::*;
   use clipboard::*;
   use bounce::*;
   use join::*;
-  use mixdown_commands::*;
-  use appearance_commands::{themes, preferences, set_preferences, set_window_background};
-  use history_commands::{undo, redo};
-  use effect_commands::*;
+  use commands::mixdown::*;
+  use commands::appearance::{themes, preferences, set_preferences, set_window_background};
+  use commands::history::{undo, redo};
+  use commands::effect::*;
   use effect_windows::*;
-  use synth_commands::*;
+  use commands::synth::*;
 
   // read before the menu is built, which lists them
   let recent_projects = recent::RecentProjects::load();
@@ -90,13 +79,13 @@ fn init_tauri() {
       effects::keep_idling(racks.clone());
       effects::follow_output(&racks);
       effect_windows::init(&racks);
-      synth_commands::keep_following(following.clone());
+      commands::synth::keep_following(following.clone());
       app::window::setup(app)
     })
     .manage(state)
     .manage(recent_projects)
     .manage(preferences::AppPreferences::load())
-    .manage(Arc::new(mixdown_commands::Mixdowns::default()))
+    .manage(Arc::new(commands::mixdown::Mixdowns::default()))
     .invoke_handler(tauri::generate_handler![
       get_playlist_playing,
       toggle_playlist,

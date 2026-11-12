@@ -5,7 +5,7 @@
 // every change returns all of the racks, which the frontend replaces its
 // copy with, and is recorded so it can be undone. knob turns inside a
 // plugin's own window aren't undoable. instruments aren't effects: they're
-// the Note Sequencer's synths (see synth_commands.rs)
+// the Note Sequencer's synths (see commands/synth.rs)
 use serde::Serialize;
 
 use crate::daw::{self, Channel};
@@ -281,9 +281,9 @@ mod tests {
     let state = rig.state.clone();
     add(&state, None, &gain().id, None).unwrap();
     undo(&state);
-    assert!(crate::history_commands::project_view(&state).effects.is_empty());
+    assert!(crate::commands::history::project_view(&state).effects.is_empty());
     redo(&state);
-    assert_eq!(crate::history_commands::project_view(&state).effects, state.playlist.effects.racks());
-    assert_eq!(crate::history_commands::project_view(&state).effects.len(), 1);
+    assert_eq!(crate::commands::history::project_view(&state).effects, state.playlist.effects.racks());
+    assert_eq!(crate::commands::history::project_view(&state).effects.len(), 1);
   }
 }

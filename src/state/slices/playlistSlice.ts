@@ -133,7 +133,7 @@ const patternItem = (clip: LoadedPatternClip): PlaylistItem => ({
 
 // pattern clips painted with the Draw tool, as the engine's
 // paint_pattern_clips returns them (Painted in
-// engine/src/sequencer_commands.rs): the clips made, in order, the pattern
+// engine/src/commands/sequencer.rs): the clips made, in order, the pattern
 // they play (made by the paint when none was given), the sequencer, the
 // mixer, and how many tracks there are now
 export interface PaintedClips {

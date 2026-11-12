@@ -540,7 +540,7 @@ fn start_run(state: &Arc<state::InnerState>, count_in: Duration) {
   // every synth's copies there, and in step with it, before anything plays
   // (here, as the run's thread can't reach the main thread: this one may be
   // it, waiting below)
-  crate::synth_commands::before_playing(state);
+  crate::commands::synth::before_playing(state);
   let (ready_tx, ready_rx) = mpsc::channel();
   run_playlist(state, ready_tx, count_in);
 

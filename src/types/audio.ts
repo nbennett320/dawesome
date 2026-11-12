@@ -1,6 +1,6 @@
 import { clamp } from '../util/helpers'
 
-// the engine's audio devices and buffer size (see engine/src/audio_commands.rs)
+// the engine's audio devices and buffer size (see engine/src/commands/audio.rs)
 
 export interface AudioSettings {
   // device names, or null for the system's default
@@ -59,7 +59,7 @@ export interface ArmedTrack {
   input: InputChoice
 }
 
-// see get_record_setup in engine/src/audio_commands.rs
+// see get_record_setup in engine/src/commands/audio.rs
 export interface RecordSetup {
   armed: ArmedTrack[]
   // null when there's no input to record from

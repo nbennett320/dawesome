@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use crate::daw;
 use crate::history;
-use crate::mixer_commands::mixer_settings;
+use crate::commands::mixer::mixer_settings;
 use crate::project::{LoadedClip, LoadedPatternClip};
 
 // the project as it is now, in the shapes the frontend already takes from a
@@ -38,7 +38,7 @@ pub fn project_view(state: &daw::InnerState) -> ProjectView {
     clips,
     pattern_clips,
     mixer: mixer_settings(state),
-    sequencer: crate::synth_commands::sequencer_state(state),
+    sequencer: crate::commands::synth::sequencer_state(state),
     effects: state.playlist.effects.racks(),
   }
 }

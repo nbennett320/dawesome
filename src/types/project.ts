@@ -49,7 +49,7 @@ export interface LoadedPatternClip {
   window: ClipWindow | null
 }
 
-// clips as they are after a trim or a cut (see engine/src/clip_commands.rs)
+// clips as they are after a trim or a cut (see engine/src/commands/clip.rs)
 export interface ChangedClips {
   clips: LoadedClip[]
   patternClips: LoadedPatternClip[]
@@ -144,7 +144,7 @@ export const splitMissing = (
 }
 
 // the clips recorded since the engine was last asked (see collect_recording
-// in engine/src/audio_commands.rs)
+// in engine/src/commands/audio.rs)
 export interface Recorded {
   recording: boolean
   clips: LoadedClip[]
@@ -152,7 +152,7 @@ export interface Recorded {
 }
 
 // the project as it is now, after an undo or redo (see project_view in
-// engine/src/history_commands.rs)
+// engine/src/commands/history.rs)
 export interface ProjectView {
   tempo: number
   clips: LoadedClip[]

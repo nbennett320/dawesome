@@ -12,9 +12,9 @@ use std::time::Duration;
 use serde::Serialize;
 
 use crate::daw;
-use crate::playlist_commands::beat_to_offset;
+use crate::commands::playlist::beat_to_offset;
 use crate::history;
-use crate::history_commands::{project_view, ProjectView};
+use crate::commands::history::{project_view, ProjectView};
 
 // how often the synths are brought in line with the playlist, whatever
 // changed it, and the settings of those showing passed on to their copies

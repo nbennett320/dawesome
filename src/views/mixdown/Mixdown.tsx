@@ -11,7 +11,7 @@ import { AnalogButton } from '../../components/fourtrack'
 import { Bar, Choice, Field, Notice } from '../../components/common'
 import { fileName } from '../../util/helpers'
 
-// how a mixdown is going (see Status in engine/src/mixdown_commands.rs)
+// how a mixdown is going (see Status in engine/src/commands/mixdown.rs)
 type Status =
   | { state: 'idle' }
   | { state: 'rendering', progress: number }

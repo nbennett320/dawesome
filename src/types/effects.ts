@@ -1,5 +1,5 @@
 // effect plugins (VST3): what the engine found, and each channel's chain of
-// them. mirrors engine/src/effect_commands.rs (see
+// them. mirrors engine/src/commands/effect.rs (see
 // context/vst-project/04-api.md, the contract both sides keep to)
 import { trackLabel } from './mixer'
 import { clamp } from '../util/helpers'

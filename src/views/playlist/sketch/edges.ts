@@ -103,7 +103,7 @@ export const stretchAll = (
 }
 
 // the part of its source a clip plays once it's trimmed to `span`, as the
-// engine takes it (see set_clip_windows in engine/src/clip_commands.rs)
+// engine takes it (see set_clip_windows in engine/src/commands/clip.rs)
 export const windowOf = (clip: TrimClip, span: Span): ClipWindow => {
   // (a beat's billionth: less than a nanosecond of sound)
   const close = 1e-9

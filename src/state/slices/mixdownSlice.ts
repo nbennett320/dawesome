@@ -1,7 +1,7 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
 import type { RootState } from '../store'
 
-// the Mixdown tab's choices (see engine/src/mixdown_commands.rs), kept while
+// the Mixdown tab's choices (see engine/src/commands/mixdown.rs), kept while
 // the app is open so closing the tab doesn't lose them. not saved with the
 // project
 export type FileType = 'wav' | 'mp3'
