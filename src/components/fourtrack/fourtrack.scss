@@ -86,6 +86,21 @@ input.ft-readout {
   border-radius: 2px;
   color: var(--ft-ink);
   border-bottom: 1px solid var(--ft-line);
+
+  // a channel's name, lettered as its label in the playlist (lip.ts): bold
+  // capitals, spaced out, lighter grey while it can't be heard
+  &--name {
+    font-family: var(--ft-font-label);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ft-ink-soft);
+  }
+
+  &--quiet {
+    color: var(--ft-ink-faint);
+  }
 }
 
 // ---------- AnalogButton ----------

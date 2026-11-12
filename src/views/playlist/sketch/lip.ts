@@ -93,8 +93,9 @@ const mix = (a: RGBA, b: RGBA, amount: number): RGBA =>
 export interface LipColors {
   // the lane under it, which the clips fade into behind the label
   lane: RGBA
-  // the lettering
+  // the lettering, and its lighter grey while the track can't be heard
   ink: RGBA
+  inkQuiet: RGBA
   // the recess the LED sits in
   well: RGBA
   // the panel the unlit LED is tinted towards
@@ -139,8 +140,8 @@ export const drawLip = (ctx: CanvasRenderingContext2D, box: Box, name: string, c
   ctx.letterSpacing = LIP.letterSpacing
   ctx.textAlign = 'left'
   ctx.textBaseline = 'middle'
-  // fainter while the track can't be heard, as the mixer's name is
-  ctx.fillStyle = css(colors.ink, ring === 'mute' || ring === 'silenced' ? 0.5 : 1)
+  // lighter while the track can't be heard, as the mixer's name is
+  ctx.fillStyle = css(ring === 'mute' || ring === 'silenced' ? colors.inkQuiet : colors.ink)
   ctx.fillText(name, x + LIP.padLeft, cy + 0.5)
 
   // the recess

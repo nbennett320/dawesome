@@ -40,8 +40,9 @@ const DbField = ({ label, value, onChange }: {
 )
 
 // the strip's name. double-click to rename it, if it can be renamed
-const NameLabel = ({ label, silenced, onRename }: {
+const NameLabel = ({ label, muted, silenced, onRename }: {
   label: string
+  muted: boolean
   silenced: boolean
   onRename?: (name: string) => void
 }) => {
@@ -64,12 +65,14 @@ const NameLabel = ({ label, silenced, onRename }: {
   }
 
   let title = label
-  if(silenced) title += ' (silenced by solo)'
+  if(muted) title += ' (muted)'
+  else if(silenced) title += ' (silenced by solo)'
   if(onRename) title += '. Double-click to rename'
 
   return (
     <div
-      className={`ft-scribble h-full leading-5 px-1 text-xs font-medium truncate text-center ${silenced ? 'text-ink-faint italic' : ''}`}
+      className={`ft-scribble ft-scribble--name h-full leading-5 px-1 truncate text-center ${
+        muted || silenced ? 'ft-scribble--quiet' : ''} ${silenced ? 'italic' : ''}`}
       title={title}
       onDoubleClick={() => { if(onRename) setRenaming(true) }}
     >
@@ -192,7 +195,7 @@ const ChannelStrip = ({
   wide = false,
 }: Props) => (
   <div
-    className={`ft-strip flex flex-col items-stretch gap-2 h-full p-2 ${wide ? 'w-28' : 'w-24'} ${
+    className={`ft-strip flex flex-col items-stretch gap-2 h-full p-2 ${wide ? 'w-32' : 'w-28'} ${
       dropping ? 'ring-2 ring-inset ring-accent-focus bg-accent-tint' : ''}`}
     aria-label={label}
     role='group'
@@ -212,7 +215,7 @@ const ChannelStrip = ({
         />
       )}
       <div className='flex-1 min-w-0 h-full'>
-        <NameLabel label={label} silenced={silenced} onRename={onRename} />
+        <NameLabel label={label} muted={!!mute?.on} silenced={silenced} onRename={onRename} />
       </div>
     </div>
 

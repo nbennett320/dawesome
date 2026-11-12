@@ -1648,6 +1648,7 @@ export class Renderer extends RendererBase {
     const sounding = this.#soundingTracks()
     const base = {
       ink: fourtrackPaint.rgba('inkSoft'),
+      inkQuiet: fourtrackPaint.rgba('inkFaint'),
       well: fourtrackPaint.rgba('tray'),
       panel: fourtrackPaint.rgba('panel'),
       mute: fourtrackPaint.rgba('ledAmberOn'),
