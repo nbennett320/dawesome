@@ -6,7 +6,7 @@ import { readDir } from '@tauri-apps/plugin-fs'
 import { dirname, documentDir, join } from '@tauri-apps/api/path'
 import playlistReducer, { playlistSlice } from './playlistSlice'
 import projectReducer, {
-  cleanProjectName, confirmQuit, nameProject, openRecentProject, projectName, runProjectCommand, setProjectPath,
+  cleanProjectName, confirmQuit, nameProject, setUnsaved, windowTitle, openRecentProject, projectName, runProjectCommand, setProjectPath,
 } from './projectSlice'
 import { LoadedProject, SavedProject } from '../../types/project'
 
@@ -95,6 +95,14 @@ describe('projectName', () => {
   })
 })
 
+describe('windowTitle', () => {
+  it('is the project\'s name, with a * while it has unsaved changes', () => {
+    expect(windowTitle('/songs/song/song.dawesome', false)).toBe('song — Dawesome')
+    expect(windowTitle('/songs/song/song.dawesome', true)).toBe('song* — Dawesome')
+    expect(windowTitle(null, true)).toBe('Untitled* — Dawesome')
+  })
+})
+
 describe('runProjectCommand', () => {
   it('only ever starts the save dialog at a full path', async () => {
     const store = makeStore()
@@ -133,6 +141,28 @@ describe('runProjectCommand', () => {
     await run(store, 'save')
     expect(mockSave).toHaveBeenCalledTimes(1)
     expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/song/song.dawesome', somewhereNew: false })
+  })
+
+  it('has nothing unsaved after saving, opening or starting a project', async () => {
+    const store = makeStore()
+    store.dispatch(setProjectPath('/songs/song/song.dawesome'))
+
+    for(const command of ['save', 'open', 'new'] as const) {
+      store.dispatch(setUnsaved(true))
+      mockOpen.mockResolvedValue('/songs/other.dawesome')
+      await run(store, command)
+      expect(store.getState().project.unsaved).toBe(false)
+    }
+  })
+
+  it('still has unsaved changes when saving fails', async () => {
+    const store = makeStore()
+    store.dispatch(setProjectPath('/songs/song/song.dawesome'))
+    store.dispatch(setUnsaved(true))
+    engine({ save_project: new Error('disk full') })
+
+    await run(store, 'save')
+    expect(store.getState().project.unsaved).toBe(true)
   })
 
   it('saves a project from before folders right where it is', async () => {

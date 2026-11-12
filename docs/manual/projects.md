@@ -197,6 +197,10 @@ has, Dawesome asks **Save changes to "*name*" before quitting?**:
 - **Don't Save** — Quits, losing the changes.
 - **Cancel** — Stays open.
 
+While the project has unsaved changes, the window's title shows a **\*** after
+its name (**my_song\* — Dawesome**). It goes away when you save, or undo
+back to how the project was saved.
+
 A change is anything that would be saved differently (see
 [4-6](#_4-6-what-is-saved)), including effect settings and plugin window
 positions. Undoing back to how the project was saved counts as no change. A

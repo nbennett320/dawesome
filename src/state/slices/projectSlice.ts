@@ -28,11 +28,19 @@ export interface ProjectState {
   // the project file being worked on, or null before it's first saved
   path: string | null
   notice: ProjectNotice | null
+  // whether the project has changes that aren't saved, as the engine last
+  // said (see src/state/unsaved.ts). shown as a * in the window's title
+  unsaved: boolean
+  // counts the times the project was saved, opened or started, which leave
+  // it with nothing unsaved: a check that began before one is out of date
+  settled: number
 }
 
 const initialState: ProjectState = {
   path: null,
   notice: null,
+  unsaved: false,
+  settled: 0,
 }
 
 export const projectSlice = createSlice({
@@ -45,13 +53,22 @@ export const projectSlice = createSlice({
     setProjectNotice: (state, action: { type: string, payload: ProjectNotice | null }) => {
       state.notice = action.payload
     },
+    setUnsaved: (state, action: { type: string, payload: boolean }) => {
+      state.unsaved = action.payload
+    },
+    // the project was just saved, opened or started: nothing's unsaved
+    settleProject: state => {
+      state.unsaved = false
+      state.settled += 1
+    },
   },
 })
 
-export const { setProjectPath, setProjectNotice } = projectSlice.actions
+export const { setProjectPath, setProjectNotice, setUnsaved, settleProject } = projectSlice.actions
 
 export const selectProjectPath = (state: RootState) => state.project.path
 export const selectProjectNotice = (state: RootState) => state.project.notice
+export const selectProjectUnsaved = (state: RootState) => state.project.unsaved
 
 // the project's name, from its file name, or null before it's saved
 export const projectName = (path: string | null): string | null => {
@@ -60,6 +77,11 @@ export const projectName = (path: string | null): string | null => {
   const file = path.split(/[\\/]/).pop() ?? path
   return file.replace(new RegExp(`\\.${PROJECT_EXTENSION}$`, 'i'), '')
 }
+
+// the window's title: the project's name, with a * while it has unsaved
+// changes
+export const windowTitle = (path: string | null, unsaved: boolean): string =>
+  `${projectName(path) ?? 'Untitled'}${unsaved ? '*' : ''} — Dawesome`
 
 const dialogFilters = [{ name: 'Dawesome project', extensions: [PROJECT_EXTENSION] }]
 
@@ -150,6 +172,7 @@ const openFrom = async (dispatch: Dispatch, path: string): Promise<boolean> => {
     const missing = await openProject(path)(dispatch)
     const { samples, effects, synths, dropped } = missing
     dispatch(setProjectPath(path))
+    dispatch(settleProject())
     dispatch(setProjectNotice(
       [samples, effects, synths, dropped].some(list => list.length > 0) ? { kind: 'missing', ...missing } : null,
     ))
@@ -180,6 +203,7 @@ const saveProjectTo = async (
   }
 
   dispatch(setProjectPath(saved.path))
+  dispatch(settleProject())
   if(saved.sequencer) dispatch(setSequencer(saved.sequencer))
   dispatch(setProjectNotice(saved.problems.length > 0
     ? { kind: 'error', message: `Saved, but some takes are still outside the project's folder: ${saved.problems.join('; ')}` }
@@ -277,6 +301,7 @@ export const runProjectCommand = (command: ProjectCommand) => (
         clearPendingMixerSends()
         await newProject()(dispatch)
         dispatch(setProjectPath(null))
+        dispatch(settleProject())
         dispatch(setProjectNotice(null))
       } catch(e) {
         dispatch(setProjectNotice({ kind: 'error', message: errorMessage("Couldn't start a new project", e) }))
