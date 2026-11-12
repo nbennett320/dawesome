@@ -31,9 +31,8 @@ mod effect_windows;
 mod synth_commands;
 
 use std::env;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::io::{self, Write};
-use daw::InnerState;
 use tauri;
 use mlua;
 

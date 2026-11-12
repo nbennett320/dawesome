@@ -862,6 +862,7 @@ impl Engine {
 
   // how many buses' chains were resting in the last block rendered: silent
   // for long enough that their plugins aren't being run (see Bus::rests)
+  #[cfg(test)]
   pub fn resting_chains(&self) -> u64 {
     self.shared.resting.load(Ordering::Relaxed)
   }

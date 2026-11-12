@@ -311,6 +311,7 @@ pub struct PlacedNode {
   pub(crate) start_beat: f32,
 }
 
+#[cfg(test)]
 fn add_audiograph_node(
   state: &daw::InnerState,
   sample_path: String,

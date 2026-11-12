@@ -194,10 +194,6 @@ impl Step {
     }
   }
 
-  // the clips this step changes, for the frontend to select
-  fn clip_ids(&self) -> Vec<u64> {
-    self.clips.keys().copied().collect()
-  }
 }
 
 #[derive(Default)]

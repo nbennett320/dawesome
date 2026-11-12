@@ -15,11 +15,11 @@ use std::sync::atomic::{Ordering};
 use std::thread;
 use std::time::{Duration};
 use rodio::{Decoder, Source};
-use tauri;
 
 
+// (the click's file, for tests that put it in the playlist)
+#[cfg(test)]
 pub const METRONOME_TICK_PATH: &str = "assets/assets_66-hh-01-or.wav";
-pub const METRONOME_TICK_ACCENTED_PATH: &str = "assets/assets_66-hh-01-or-2.wav";
 
 lazy_static! {
   pub static ref METRONOME_TICK_SOURCE: SampleBuffer = {
@@ -657,23 +657,6 @@ pub fn set_playlist_tempo(state: &Arc<state::InnerState>, tempo: f32) -> Result<
   }
 
   Ok(tempo)
-}
-
-pub fn get_playlist_track_count(
-  state: &tauri::State<'_, Arc<state::InnerState>>,
-) -> u32 {
-  let audiograph = state
-    .playlist
-    .audiograph
-    .lock()
-    .unwrap();
-  let count: u32 = audiograph
-    .track_numbers()
-    .len()
-    .try_into()
-    .unwrap();
-  
-  if count > 1 { count } else { state::defaults::NUM_OF_TRACKS }
 }
 
 #[cfg(test)]

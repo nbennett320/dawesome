@@ -542,30 +542,6 @@ impl std::fmt::Display for AudioNode {
   }
 }
 
-pub struct Track {
-  pub name: String,
-  pub idx: usize,
-  pub nodes: Vec<AudioNode>,
-}
-
-impl Track {
-  pub fn new(name: String, idx: usize) -> Self {
-    Track {
-      name,
-      idx,
-      nodes: Vec::<AudioNode>::new(),
-    }
-  }
-
-  pub fn sort(&mut self) {
-    self.nodes.sort_by(|a, b| a.start_offset.cmp(&b.start_offset));
-  }
-
-  pub fn buffer_from(&self, start_offset: Duration) {
-
-  }
-}
-
 // a pattern placed in the playlist. it stays linked to its pattern, so it
 // plays whatever the pattern holds now, and is as long as the pattern is
 // (or as the part of it that it plays). its hits go to its track's bus, and

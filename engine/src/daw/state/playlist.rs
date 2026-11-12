@@ -33,14 +33,6 @@ impl UI for PlaylistUI {
       snap_subdivision: daw::state::defaults::SNAP_SUBDIVISION,
     }
   }
-
-  fn vp_width(&self) -> Option<f32> {
-    self.viewport.width
-  }
-
-  fn vp_height(&self) -> Option<f32> {
-    self.viewport.height
-  }
 }
 
 impl PlaylistUI {

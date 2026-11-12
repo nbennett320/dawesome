@@ -56,6 +56,7 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+  #[cfg(test)]
   pub fn end(&self) -> Duration {
     self.end
   }

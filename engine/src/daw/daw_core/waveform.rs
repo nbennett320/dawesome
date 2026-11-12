@@ -1,34 +1,6 @@
 use std::vec::{Vec};
-use std::fs::{File};
-use std::io::{BufReader};
-use rodio::{Decoder, Source};
 
 use crate::util;
-
-#[derive(Clone, PartialEq, Eq)]
-pub struct WaveformData {
-  pub pathd: Option<String>,
-  pub viewbox: Option<String>,
-}
-
-impl WaveformData {
-  pub fn new() -> Self {
-    WaveformData { 
-      pathd: None,
-      viewbox: None
-    }
-  }
-
-  pub fn from(
-    pathd: String, 
-    viewbox: String,
-  ) -> Self {
-    WaveformData {
-      pathd: Some(pathd),
-      viewbox: Some(viewbox),
-    }
-  }
-}
 
 // a sample's waveform: its level at evenly spaced points, from 0 (the lowest)
 // to 1 (the highest), about 2 points to each millisecond of sound
@@ -68,22 +40,6 @@ pub fn encode_levels(levels: &[f32]) -> String {
     .collect();
 
   base64::encode(bytes)
-}
-
-// get a path of a node's normalized audio waveform, given
-// the path to a sound sample
-pub fn calc_waveform_from_file_path(sample_path: &str) -> Option<Vec<f32>> {
-  let file = BufReader::new(File::open(sample_path).ok()?);
-  let source = Decoder::new(file).ok()?;
-  let channels = source.channels();
-  let sample_rate = source.sample_rate();
-  let mut samples = Vec::<i16>::new();
-
-  for sample in source {
-    samples.push(sample);
-  }
-
-  calc_waveform_from_samples(&samples, channels, sample_rate)
 }
 
 #[cfg(test)]
