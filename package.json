@@ -12,6 +12,8 @@
     "ui:start": "vite dev --port 4431 --strictPort",
     "ui:build": "vite build",
     "ui:test": "vitest run",
+    "engine:test": "cargo test --manifest-path engine/Cargo.toml",
+    "engine:test:ignored": "cargo test --manifest-path engine/Cargo.toml -- --ignored --test-threads=1",
     "info": "tauri info",
     "build": "tauri build",
     "build:assets:link": "ln -s engine/assets/ engine/target/assets",

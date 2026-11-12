@@ -151,23 +151,33 @@ fn test_a_tempo_change_carries_a_pattern_on_from_its_step() {
   assert!(close(step, 12.), "step {}", step);
 }
 
-#[test]
-fn test_a_tempo_change_carries_on_playing_a_pattern() {
+fn change_tempo_mid_pattern() -> (Arc<daw::InnerState>, u64) {
   let state = Arc::new(daw::InnerState::default());
   let pattern = add_pattern_of(&state, 1, daw::PatternKind::Drum).unwrap().id;
-  // from step 4, 1s ago: step 12
   fake_pattern_run(&state, pattern, 4., Duration::from_secs(1));
 
-  // (on another thread: it hung, the marker's lock held while restarting)
   let (done_tx, done_rx) = std::sync::mpsc::channel();
   let changing = state.clone();
   std::thread::spawn(move || done_tx.send(daw::set_playlist_tempo(&changing, 90.)));
   let changed = done_rx.recv_timeout(Duration::from_secs(5)).expect("the tempo change hung");
-
   assert_eq!(changed, Ok(90.));
-  assert_eq!(state.playlist.playing_pattern(), Some(pattern));
+  (state, pattern)
+}
+
+#[test]
+fn test_a_tempo_change_carries_a_playing_pattern_on_from_its_step() {
+  let (state, _) = change_tempo_mid_pattern();
   let step = *state.playlist.pattern_start.lock().unwrap();
   assert!((step - 12.).abs() < 0.5, "step {}", step);
+  daw::stop_playlist(&state);
+}
+
+// plays through the real output: run with `cargo test -- --ignored`
+#[test]
+#[ignore = "needs an audio output device"]
+fn test_a_tempo_change_carries_on_playing_a_pattern() {
+  let (state, pattern) = change_tempo_mid_pattern();
+  assert_eq!(state.playlist.playing_pattern(), Some(pattern));
   daw::stop_playlist(&state);
 }
 
