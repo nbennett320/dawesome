@@ -47,7 +47,6 @@
     "@testing-library/dom": "10.4.2",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.3.3",
-    "@testing-library/user-event": "13.5.0",
     "@types/node": "22.20.5",
     "@types/p5": "^1.4.3",
     "@types/react": "18.3.31",

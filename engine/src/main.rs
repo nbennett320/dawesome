@@ -1,7 +1,6 @@
 mod app;
 mod daw;
 mod util;
-// mod lang;
 mod event_dispatch;
 mod project;
 mod project_files;
