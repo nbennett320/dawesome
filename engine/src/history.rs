@@ -881,7 +881,7 @@ mod tests {
 
   #[test]
   fn test_tempo_changes() {
-    use crate::event_dispatch::change_tempo;
+    use crate::transport_commands::change_tempo;
     let state = state();
     let id = clip(&state, 0, 8.);
     let ms = |id: u64| {
@@ -920,7 +920,7 @@ mod tests {
 
   #[test]
   fn test_a_visit_to_the_tempo_field_is_one_step() {
-    use crate::event_dispatch::change_tempo;
+    use crate::transport_commands::change_tempo;
     let state = state();
     let before = saved(&state);
     // 100 typed, then changed to 140, without leaving the field

@@ -510,7 +510,7 @@ mod tests {
     let state = state();
     let (a, b) = (sample(&state, 0, 2.), sample(&state, 1, 5.));
     for tempo in [97., 133.3, 61.7] {
-      crate::event_dispatch::change_tempo(&state, tempo, None).unwrap();
+      crate::transport_commands::change_tempo(&state, tempo, None).unwrap();
       copy(&state, &[a, b]);
       // the second clip lands on beat 256, the last
       assert!(paste(&state, 253., None).is_ok(), "at {}bpm", tempo);
@@ -619,7 +619,7 @@ mod tests {
     let state = state();
     let (a, b) = (sample(&state, 0, 2.), sample(&state, 1, 6.));
     copy(&state, &[a, b]);
-    crate::event_dispatch::change_tempo(&state, 90., None).unwrap();
+    crate::transport_commands::change_tempo(&state, 90., None).unwrap();
 
     let pasted = paste(&state, 16., None).unwrap();
     let beats: Vec<f32> = pasted.clips.clips.iter().map(|clip| clip.start_beat).collect();

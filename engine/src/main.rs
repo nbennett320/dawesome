@@ -2,6 +2,7 @@ mod app;
 mod daw;
 mod util;
 mod event_dispatch;
+mod transport_commands;
 mod project;
 mod project_files;
 mod recording;
@@ -38,6 +39,7 @@ extern crate lazy_static;
 
 fn init_tauri() {
   use event_dispatch::*;
+  use transport_commands::*;
   use project::{save_project, load_project, new_project, project_file_for};
   use recent::{add_recent_project, remove_recent_project};
   use mixer_commands::*;
