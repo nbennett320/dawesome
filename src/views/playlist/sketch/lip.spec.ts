@@ -1,4 +1,4 @@
-import { LIP, fitName, inBox, lipBox, lipWidth } from './lip'
+import { LIP, fitName, inBox, ledCentre, lipBox, lipWidth, onLed } from './lip'
 
 describe('a lane’s lip', () => {
   it('is pinned to the top right, inside its own lane', () => {
@@ -34,5 +34,16 @@ describe('a lane’s lip', () => {
     expect(inBox(box, box.x + box.w / 2, box.y + box.h / 2)).toBe(true)
     expect(inBox(box, box.x - 1, box.y + 1)).toBe(false)
     expect(inBox(box, box.x + 1, box.y + box.h + 1)).toBe(false)
+  })
+
+  it('has its LED at its right end, which takes clicks a little round it', () => {
+    const box = lipBox(124, 100, 800, 60, 24)
+    const led = ledCentre(box)
+    expect(led.x).toBe(800 - LIP.margin - LIP.padRight - LIP.wellRadius)
+    expect(led.y).toBe(box.y + box.h / 2)
+    expect(onLed(box, led.x, led.y)).toBe(true)
+    expect(onLed(box, led.x + LIP.wellRadius + 2, led.y)).toBe(true)
+    // the name isn't the LED
+    expect(onLed(box, box.x + LIP.padLeft, led.y)).toBe(false)
   })
 })

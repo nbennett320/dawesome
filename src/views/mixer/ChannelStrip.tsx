@@ -11,7 +11,7 @@ import { DROP_CHANNEL } from './useChannelDrop'
 import { RegisterMeter } from './useMixerMeters'
 import { clamp } from '../../util/helpers'
 import { NameInput, ReadoutInput } from '../../components/common'
-import TrackColorPicker from './TrackColorPicker'
+import ChannelJewel from './ChannelJewel'
 
 // the volume in dB, typed in. "-inf" or "-∞" is silent
 const parseDb = (typed: string): number | null => {
@@ -170,7 +170,7 @@ interface Props {
 
 // one column of the mixer: name, pan, fader and meter, volume, mute and
 // solo, and the effects' jack at the foot. a track's strip has its color as
-// an LED jewel left of the name
+// an LED jewel left of the name, which mutes and solos it too
 const ChannelStrip = ({
   label,
   volumeDb,
@@ -199,7 +199,18 @@ const ChannelStrip = ({
     {...(dropKey === undefined ? {} : { [DROP_CHANNEL]: dropKey })}
   >
     <div className='h-5 flex flex-row items-center gap-1 min-w-0'>
-      {color && <TrackColorPicker label={label} color={color.value} onChange={color.onChange} ledRef={color.ledRef} />}
+      {color && mute && solo && (
+        <ChannelJewel
+          label={label}
+          color={color.value}
+          onChange={color.onChange}
+          muted={mute.on}
+          soloed={solo.on}
+          onMute={mute.onChange}
+          onSolo={solo.onChange}
+          ledRef={color.ledRef}
+        />
+      )}
       <div className='flex-1 min-w-0 h-full'>
         <NameLabel label={label} silenced={silenced} onRename={onRename} />
       </div>

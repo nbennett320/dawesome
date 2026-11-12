@@ -21,7 +21,7 @@ import { CutItem, canCut, cutPoint, cutTargets } from '../../../editing/cut'
 import { onThemeChange } from '../../../theme/apply'
 import { paint, theme, trackPaint } from './theme'
 import { painter } from '../../../theme/canvas'
-import { LIP, drawLip, fitName, inBox, lipBox, lipWidth } from './lip'
+import { LIP, LipLook, drawLip, fitName, inBox, lipBox, lipWidth, onLed } from './lip'
 import { trackColorKey, defaultTrackColor, trackLabel } from '../../../types/mixer'
 import { PlaylistTransport } from '../../../types/transport'
 import { positionAt } from '../../transport/tape'
@@ -59,9 +59,14 @@ export interface CanvasProps extends SketchProps {
   // names given to tracks, by track number (see mixerSlice). tracks not
   // listed are "Track n"
   trackNames: Record<number, string>
-  // tracks the mixer silences (muted, or not soloed while another is): their
-  // lips' LEDs stay unlit
-  silentTracks: number[]
+  // each track's mute and solo in the mixer (tracks not listed are neither),
+  // shown on its lip
+  trackMixes: Record<number, { mute: boolean, solo: boolean }>
+  // a lip's LED was clicked (mute) or shift+clicked (solo): set it to this
+  onTrackMute: (trackNumber: number, mute: boolean) => void
+  onTrackSolo: (trackNumber: number, solo: boolean) => void
+  // a lip was right-clicked, at clientX, clientY in the window
+  onLipRightClick: (trackNumber: number, clientX: number, clientY: number) => void
   playlistObjects: PlaylistItem[]
   onItemDrop: (pw: PlaylistWindow) => void
   // a clip was right-clicked, at clientX, clientY in the window
@@ -303,7 +308,10 @@ export class Renderer extends RendererBase {
   maxPlaylistBeats: number = staticDefaults.maxPlaylistBeats
   trackCount: number = staticDefaults.trackCount
   trackColors: Record<number, number> = {}
-  silentTracks: Set<number> = new Set()
+  trackMixes: Record<number, { mute: boolean, solo: boolean }> = {}
+  onTrackMute!: (trackNumber: number, mute: boolean) => void
+  onTrackSolo!: (trackNumber: number, solo: boolean) => void
+  onLipRightClick!: (trackNumber: number, clientX: number, clientY: number) => void
   trackNames: Record<number, string> = {}
   // each name as its lip shows it, and the lip's width, by name: measured
   // once per name, not every frame
@@ -1596,6 +1604,25 @@ export class Renderer extends RendererBase {
     return this.#lipBoxes().find(lip => inBox(lip.box, x, y))?.track ?? null
   }
 
+  // the track whose lip's LED is at a point on the canvas, if any
+  ledAt = (x: number, y: number): number | null => {
+    if(y < staticDefaults.timelineHeight) return null
+    return this.#lipBoxes().find(lip => onLed(lip.box, x, y))?.track ?? null
+  }
+
+  // a track's state in the mixer, as its lip shows it
+  #ring = (track: number): LipLook['ring'] => {
+    const mix = this.trackMixes[track]
+    if(mix?.mute) return 'mute'
+    if(mix?.solo) return 'solo'
+    const anySolo = Object.values(this.trackMixes).some(m => m.solo)
+    return anySolo ? 'silenced' : null
+  }
+
+  // a lip's LED toggles its track's mute (a click) or solo (a shift+click)
+  #toggleMute = (track: number) => this.onTrackMute?.(track, !this.trackMixes[track]?.mute)
+  #toggleSolo = (track: number) => this.onTrackSolo?.(track, !this.trackMixes[track]?.solo)
+
   // the tracks the playhead is playing a clip on, unless the mixer silences
   // them. lights their lips' LEDs
   #soundingTracks = (): Set<number> => {
@@ -1606,7 +1633,8 @@ export class Renderer extends RendererBase {
     const x = this.beatToX(beat)
     this.playlistObjects.forEach(clip => {
       const track = clip.playlistItem.trackNumber
-      if(this.silentTracks.has(track)) return
+      const ring = this.#ring(track)
+      if(ring === 'mute' || ring === 'silenced') return
       const { left, right } = clip.boundingBox()
       if(x >= left && x < right) sounding.add(track)
     })
@@ -1622,13 +1650,15 @@ export class Renderer extends RendererBase {
       ink: fourtrackPaint.rgba('inkSoft'),
       well: fourtrackPaint.rgba('tray'),
       panel: fourtrackPaint.rgba('panel'),
+      mute: fourtrackPaint.rgba('ledAmberOn'),
+      solo: fourtrackPaint.rgba('ledLimeOn'),
     }
     // every other lane is shaded (see draw)
     const lanes = [paint.rgba('background'), paint.rgba('laneAlt')]
 
     this.#lipBoxes().forEach(({ track, box, text }) => {
       const led = trackPaint.rgba(trackColorKey(this.trackColors[track] ?? defaultTrackColor(track)))
-      drawLip(ctx, box, text, { ...base, lane: lanes[track % 2], led }, sounding.has(track))
+      drawLip(ctx, box, text, { ...base, lane: lanes[track % 2], led }, { lit: sounding.has(track), ring: this.#ring(track) })
     })
   }
 
@@ -1694,7 +1724,12 @@ export class Renderer extends RendererBase {
     }
 
     if(overRuler(p.mouseY) || this.overScrollbar(p.mouseX, p.mouseY)) return
-    if(this.lipAt(p.mouseX, p.mouseY) !== null) return
+    // a lip has its own menu
+    const lip = this.lipAt(p.mouseX, p.mouseY)
+    if(lip !== null) {
+      this.onLipRightClick?.(lip, ev.clientX, ev.clientY)
+      return
+    }
     const track = this.trackAt(this.screenToPlaylistY(p.mouseY))
     if(track < 0) return
     this.onEmptyRightClick(this.snapBeat(this.screenXToBeat(p.mouseX)), track, ev.clientX, ev.clientY)
@@ -1770,8 +1805,17 @@ export class Renderer extends RendererBase {
           }
 
           // a lane's lip is its own control: the press doesn't reach the
-          // clips or the lane under it
-          if(this.lipAt(p.mouseX, p.mouseY) !== null) return
+          // clips or the lane under it. its LED mutes the track, or with
+          // shift held, solos it
+          // (from the event: p5 hasn't caught its own mouse position up
+          // with this press yet)
+          const led = this.ledAt(ev.offsetX, ev.offsetY)
+          if(led !== null) {
+            if(ev.shiftKey) this.#toggleSolo(led)
+            else this.#toggleMute(led)
+            return
+          }
+          if(this.lipAt(ev.offsetX, ev.offsetY) !== null) return
 
           const item = this.clipUnderMouse()
 
@@ -2038,7 +2082,10 @@ export class Renderer extends RendererBase {
       const tracksChanged = props.trackCount !== this.trackCount
       this.trackCount = props.trackCount
       this.trackColors = props.trackColors ?? {}
-      this.silentTracks = new Set(props.silentTracks ?? [])
+      this.trackMixes = props.trackMixes ?? {}
+      this.onTrackMute = props.onTrackMute
+      this.onTrackSolo = props.onTrackSolo
+      this.onLipRightClick = props.onLipRightClick
       this.trackNames = props.trackNames ?? {}
       // clips' lengths in beats change with the tempo, so where the loop ends
       if(props.tempo !== this.tempo) this.syncTransport()
@@ -2302,7 +2349,8 @@ export class Renderer extends RendererBase {
       } else if(this.scrollbarGrab !== null || this.overScrollbar(p.mouseX, p.mouseY)) {
         p.cursor(p.ARROW)
       } else if(!this.clipDrag?.active && !this.sampleDrag && this.lipAt(p.mouseX, p.mouseY) !== null) {
-        p.cursor(p.ARROW)
+        // the LED can be clicked
+        p.cursor(this.ledAt(p.mouseX, p.mouseY) === null ? p.ARROW : p.HAND)
       } else if(this.seekDragging || (overRuler(p.mouseY) && !this.clipDrag?.active && !this.sampleDrag)) {
         p.cursor(p.HAND)
       } else if(this.#hoverEdge) {

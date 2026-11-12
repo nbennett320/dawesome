@@ -67,6 +67,21 @@ export const lipBox = (laneTop: number, laneHeight: number, right: number, width
 export const inBox = (box: Box, x: number, y: number): boolean =>
   x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h
 
+// the middle of a label's LED
+export const ledCentre = ({ x, y, w, h }: Box) => ({
+  x: x + w - LIP.padRight - LIP.wellRadius,
+  y: y + h / 2,
+})
+
+// how far around the LED a click still lands on it
+const LED_SLOP = 3
+
+// whether a point is on a label's LED (which mutes and solos its track)
+export const onLed = (box: Box, x: number, y: number): boolean => {
+  const c = ledCentre(box)
+  return Math.hypot(x - c.x, y - c.y) <= LIP.wellRadius + LED_SLOP
+}
+
 type RGBA = readonly [number, number, number, number]
 
 const css = ([r, g, b, a]: RGBA, alpha = 1) => `rgba(${r}, ${g}, ${b}, ${+((a / 255) * alpha).toFixed(3)})`
@@ -84,8 +99,20 @@ export interface LipColors {
   well: RGBA
   // the panel the unlit LED is tinted towards
   panel: RGBA
+  // the ring round the LED when the track is muted or soloed, in the
+  // mixer's mute and solo LED colors
+  mute: RGBA
+  solo: RGBA
   // the track's color
   led: RGBA
+}
+
+// how a label is drawn: its LED lit (playing a clip), and the track's state
+// in the mixer
+export interface LipLook {
+  lit: boolean
+  // muted, silenced by another track's solo (a dim mute ring), or soloed
+  ring: 'mute' | 'silenced' | 'solo' | null
 }
 
 // an unlit LED's tint: stronger than the fixed LEDs', as on the mixer's
@@ -93,10 +120,10 @@ export interface LipColors {
 const UNLIT = 0.45
 
 // `name` is already fitted (fitName), in capitals
-export const drawLip = (ctx: CanvasRenderingContext2D, box: Box, name: string, colors: LipColors, lit: boolean) => {
+export const drawLip = (ctx: CanvasRenderingContext2D, box: Box, name: string, colors: LipColors, look: LipLook) => {
   const { x, y, w, h } = box
-  const cx = x + w - LIP.padRight - LIP.wellRadius
-  const cy = y + h / 2
+  const { x: cx, y: cy } = ledCentre(box)
+  const { lit, ring } = look
 
   ctx.save()
 
@@ -112,7 +139,8 @@ export const drawLip = (ctx: CanvasRenderingContext2D, box: Box, name: string, c
   ctx.letterSpacing = LIP.letterSpacing
   ctx.textAlign = 'left'
   ctx.textBaseline = 'middle'
-  ctx.fillStyle = css(colors.ink)
+  // fainter while the track can't be heard, as the mixer's name is
+  ctx.fillStyle = css(colors.ink, ring === 'mute' || ring === 'silenced' ? 0.5 : 1)
   ctx.fillText(name, x + LIP.padLeft, cy + 0.5)
 
   // the recess
@@ -120,6 +148,11 @@ export const drawLip = (ctx: CanvasRenderingContext2D, box: Box, name: string, c
   ctx.arc(cx, cy, LIP.wellRadius, 0, Math.PI * 2)
   ctx.fillStyle = css(colors.well)
   ctx.fill()
+  if(ring) {
+    ctx.lineWidth = 1.5
+    ctx.strokeStyle = ring === 'solo' ? css(colors.solo) : css(colors.mute, ring === 'silenced' ? 0.45 : 1)
+    ctx.stroke()
+  }
 
   // the LED, glowing when lit
   ctx.beginPath()

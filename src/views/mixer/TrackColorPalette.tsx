@@ -1,8 +1,7 @@
-// a track's color, shown as an LED jewel beside its name: unlit in the
-// track's color while it's quiet, lit while it's sounding (useMixerMeters
-// lights it). clicking it opens a tray of lit LEDs to pick another from.
-// the colors are the theme's `track` palette, so they're painted inline (with
-// the painter) and repainted when the theme changes
+// a track's colors as LEDs: the tray of lit LEDs a color is picked from,
+// and the CSS for an LED in a track's color. the colors are the theme's
+// `track` palette, so they're painted inline (with the painter) and
+// repainted when the theme changes
 import React from 'react'
 import { painter, useThemeChange } from '../../theme'
 import { Led } from '../../components/fourtrack'
@@ -22,13 +21,12 @@ export const ledTint = (css: string) => ({
 } as React.CSSProperties)
 
 // the palette as a tray of lit LEDs. closes on a pick, Escape, or a press
-// outside it (`within`, if given, also counts as inside: its trigger)
-export const TrackColorPalette = ({ label, color, onChange, onClose, within, className, style }: {
+// outside it
+export const TrackColorPalette = ({ label, color, onChange, onClose, className, style }: {
   label: string
   color: number
   onChange: (color: number) => void
   onClose: () => void
-  within?: React.RefObject<HTMLElement | null>
   className?: string
   style?: React.CSSProperties
 }) => {
@@ -39,7 +37,7 @@ export const TrackColorPalette = ({ label, color, onChange, onClose, within, cla
   React.useEffect(() => {
     const onDown = (e: PointerEvent) => {
       const target = e.target as Node
-      if(!ref.current?.contains(target) && !within?.current?.contains(target)) onClose()
+      if(!ref.current?.contains(target)) onClose()
     }
     const onKey = (e: KeyboardEvent) => {
       if(e.key === 'Escape') onClose()
@@ -50,7 +48,7 @@ export const TrackColorPalette = ({ label, color, onChange, onClose, within, cla
       window.removeEventListener('pointerdown', onDown)
       window.removeEventListener('keydown', onKey)
     }
-  }, [onClose, within])
+  }, [onClose])
 
   // focus the current color, so the arrow-less grid can be tabbed from there
   React.useEffect(() => {
@@ -85,47 +83,3 @@ export const TrackColorPalette = ({ label, color, onChange, onClose, within, cla
     </div>
   )
 }
-
-const TrackColorPicker = ({ label, color, onChange, ledRef }: {
-  // the track's name, for screen readers and tooltips
-  label: string
-  // its color (see TRACK_COLORS)
-  color: number
-  onChange: (color: number) => void
-  // the LED, for useMixerMeters to light while the track sounds
-  ledRef?: (led: HTMLElement | null) => void
-}) => {
-  useThemeChange()
-  const [open, setOpen] = React.useState(false)
-  const button = React.useRef<HTMLButtonElement>(null)
-  const close = React.useCallback(() => setOpen(false), [])
-
-  return (
-    <div className='relative flex-none flex items-center'>
-      <button
-        ref={button}
-        type='button'
-        className='ft-jewel'
-        aria-label={`${label} color`}
-        aria-haspopup='menu'
-        aria-expanded={open}
-        title='Track color. Click to change it'
-        onClick={() => setOpen(o => !o)}
-      >
-        <Led ref={ledRef} style={ledTint(trackColorCss(color))} />
-      </button>
-      {open && (
-        <TrackColorPalette
-          label={label}
-          color={color}
-          onChange={onChange}
-          onClose={close}
-          within={button}
-          className='absolute left-0 top-full mt-1 z-20'
-        />
-      )}
-    </div>
-  )
-}
-
-export default TrackColorPicker
