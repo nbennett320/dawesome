@@ -16,7 +16,8 @@ import { beginSampleDrag } from '../../state/sampleDrag'
 import {
   BAR_CHOICES, MAX_NOTE_BARS, Pattern, PatternKind, patternBars, patternLabel,
 } from '../../types/sequencer'
-import { AnalogButton, Led, PlayIcon, StopIcon } from '../../components/fourtrack'
+import { AnalogButton, Led } from '../../components/fourtrack'
+import { PlayIcon, StopIcon } from '../../components/icons'
 
 const MAX_NAME_CHARS = 24
 

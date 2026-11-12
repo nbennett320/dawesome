@@ -23,9 +23,9 @@ import BrowserSearch from '../browser/BrowserSearch'
 import BrowserRow, { RowHint } from '../browser/BrowserRow'
 import FolderTree from '../browser/FolderTree'
 import RenameField from '../browser/RenameField'
-import { NewFolderIcon, WaveIcon } from '../browser/icons'
 import { useFolderDrop } from '../browser/useFolderDrop'
 import { useSessionSet } from '../browser/useSessionSet'
+import { NewFolderIcon, WaveIcon } from '../../icons'
 
 const logError = (what: string) => (e: unknown) =>
   // eslint-disable-next-line no-console

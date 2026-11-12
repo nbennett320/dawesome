@@ -21,10 +21,11 @@ import { TOOLS } from '../../editing/tools'
 import ToolTray from '../../components/editing/ToolTray'
 import { Note, Pattern, Synth, patternHint, patternLabel, stepsPerBar } from '../../types/sequencer'
 import { View } from '../../types/ui'
-import { AnalogButton, Led, PlayIcon, StopIcon } from '../../components/fourtrack'
+import { AnalogButton, Led } from '../../components/fourtrack'
 import { useTransport } from '../transport/useTransport'
 import { useStopWhenUnfocused } from '../sequencer/useStopWhenUnfocused'
 import NoteGrid from './NoteGrid'
+import { PlayIcon, StopIcon } from '../../components/icons'
 
 const logError = (what: string) => (e: unknown) =>
   // eslint-disable-next-line no-console

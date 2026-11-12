@@ -12,8 +12,9 @@ import {
   msLabel,
   rateLabel,
 } from '../../types/audio'
-import { AnalogButton, ResetIcon } from '../../components/fourtrack'
+import { AnalogButton } from '../../components/fourtrack'
 import { Bar, Choice, Field, Notice } from '../../components/common'
+import { ResetIcon } from '../../components/icons'
 
 // how often the input meter is read, and how fast it falls
 const METER_EVERY_MS = 50

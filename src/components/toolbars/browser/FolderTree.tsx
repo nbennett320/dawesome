@@ -2,9 +2,9 @@ import React from 'react'
 import { FolderNode, TreeRow, visibleRows } from '../../../types/folderTree'
 import BrowserRow, { RowHint } from './BrowserRow'
 import RenameField from './RenameField'
-import { Chevron, FolderIcon } from './icons'
 import { DROP_FOLDER } from './useFolderDrop'
 import { useClickWithoutDrag } from './useClickWithoutDrag'
+import { ChevronIcon, FolderIcon } from '../../icons'
 
 interface FolderRowProps<T> {
   node: FolderNode<T>
@@ -47,7 +47,7 @@ const FolderRow = <T, >({
         onMenu(node, ev)
       }}
     >
-      <Chevron open={open} />
+      <ChevronIcon open={open} />
       <FolderIcon />
       <span className='truncate font-medium'>{node.name}</span>
       {hint && <RowHint className='ml-auto pl-2'>{hint}</RowHint>}

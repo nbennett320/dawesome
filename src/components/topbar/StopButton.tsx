@@ -1,7 +1,8 @@
 import React from 'react'
 import { stopPlaylist } from '../../state/slices/playlistSlice'
 import { useAppDispatch } from '../../hooks/redux'
-import { AnalogButton, StopIcon } from '../fourtrack'
+import { AnalogButton } from '../fourtrack'
+import { StopIcon } from '../icons'
 
 // stops, and goes back to the start
 const StopButton = () => {

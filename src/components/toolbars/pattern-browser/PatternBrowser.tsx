@@ -33,10 +33,10 @@ import { AnalogButton, Led } from '../../fourtrack'
 import BrowserSearch from '../browser/BrowserSearch'
 import BrowserRow, { RowHint } from '../browser/BrowserRow'
 import FolderTree from '../browser/FolderTree'
-import { NewFolderIcon } from '../browser/icons'
 import { useClickWithoutDrag } from '../browser/useClickWithoutDrag'
 import { useFolderDrop } from '../browser/useFolderDrop'
 import { useSessionSet } from '../browser/useSessionSet'
+import { NewFolderIcon } from '../../icons'
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 

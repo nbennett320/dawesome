@@ -14,19 +14,7 @@ import {
   setTapePathVisible,
 } from '../../state/slices/windowSlice'
 import { nameProject, projectName, selectProjectPath } from '../../state/slices/projectSlice'
-import {
-  AnalogButton,
-  Cassette,
-  cassetteAspect,
-  FastForwardIcon,
-  Led,
-  LedState,
-  PauseIcon,
-  PlayIcon,
-  RecordIcon,
-  RewindIcon,
-  StopIcon,
-} from '../../components/fourtrack'
+import { AnalogButton, Cassette, cassetteAspect, Led, LedState } from '../../components/fourtrack'
 import LatchKey from '../../components/topbar/LatchKey'
 import {
   fitCassetteWidth,
@@ -39,6 +27,7 @@ import {
 } from './tape'
 import { usePlayhead } from './usePlayhead'
 import { useElementSize } from './useElementSize'
+import { FastForwardIcon, HeadIcon, PauseIcon, PlayIcon, RecordIcon, RewindIcon, StopIcon, TapeIcon } from '../../components/icons'
 
 // holding a wind key this long winds the tape; a shorter press moves a bar
 const HOLD_MS = 250
@@ -55,22 +44,6 @@ const DeckKey = ({ label, led, children }: { label: string, led?: React.ReactNod
     {children}
     <span className='ft-label text-[9px]'>{label}</span>
   </div>
-)
-
-const TapeIcon = () => (
-  <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='1.75' aria-hidden>
-    <rect x='3' y='6' width='18' height='12' rx='2' />
-    <circle cx='9' cy='12' r='1.75' />
-    <circle cx='15' cy='12' r='1.75' />
-  </svg>
-)
-
-// the tape running over a play head
-const HeadIcon = () => (
-  <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='1.75' aria-hidden>
-    <path d='M3 9h18' />
-    <rect x='8' y='9' width='8' height='7' rx='1.5' />
-  </svg>
 )
 
 // a cassette and the keys of a tape deck: record, rewind, fast forward, play,

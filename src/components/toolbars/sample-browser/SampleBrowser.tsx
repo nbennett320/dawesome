@@ -8,9 +8,10 @@ import {
 } from '../../../state/slices/envSlice'
 import { useAppSelector, useAppDispatch } from '../../../hooks/redux'
 import { BrowserItemTypes, BrowserSampleItem } from '../../../types/sampleBrowser'
-import { AnalogButton, ResetIcon } from '../../fourtrack'
+import { AnalogButton } from '../../fourtrack'
 import SampleItem from './SampleItem'
 import BrowserSearch from '../browser/BrowserSearch'
+import { ResetIcon } from '../../icons'
 
 const logError = (what: string) => (e: unknown) =>
   // eslint-disable-next-line no-console
