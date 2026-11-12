@@ -1,5 +1,5 @@
 import React from 'react'
-import { cx } from './util'
+import { cx } from '../../util/helpers'
 
 export type AnalogButtonSize = 'xs' | 'sm' | 'md' | 'lg'
 

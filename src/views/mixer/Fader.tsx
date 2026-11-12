@@ -1,5 +1,6 @@
 import React from 'react'
 import { dbToPosition, formatDb, MAX_DB, MIN_DB, positionToDb, SCALE_MARKS } from '../../types/mixer'
+import { clamp } from '../../util/helpers'
 
 interface Props {
   label: string
@@ -19,7 +20,6 @@ const STEP = 0.5
 const FINE_STEP = 0.1
 const PAGE_STEP = 3
 
-const clampDb = (db: number) => Math.min(MAX_DB, Math.max(MIN_DB, db))
 
 // a vertical volume fader. drag the handle (hold shift for fine moves), click
 // the track to jump there, use the arrow keys, or double-click to reset
@@ -39,7 +39,7 @@ const Fader = ({ label, value, onChange, onReset, children }: Props) => {
   }
 
   const setPosition = (position: number) => {
-    onChange(clampDb(positionToDb(Math.min(1, Math.max(0, position)))))
+    onChange(clamp(positionToDb(clamp(position, 0, 1)), MIN_DB, MAX_DB))
   }
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -87,7 +87,7 @@ const Fader = ({ label, value, onChange, onReset, children }: Props) => {
 
     if(next === undefined) return
     e.preventDefault()
-    onChange(clampDb(Math.round(next * 10) / 10))
+    onChange(clamp(Math.round(next * 10) / 10, MIN_DB, MAX_DB))
   }
 
   const position = dbToPosition(value)

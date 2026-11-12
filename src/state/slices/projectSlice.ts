@@ -9,6 +9,7 @@ import { Synth } from '../../types/sequencer'
 import { newProject, openProject, saveProject } from './playlistSlice'
 import { clearPendingMixerSends } from './mixerSlice'
 import { setSequencer } from './sequencerSlice'
+import { fileName } from '../../util/helpers'
 
 // the File menu's project commands (ids of the engine's menu items, see
 // engine/src/app/window.rs)
@@ -75,7 +76,6 @@ const chosenPath = (chosen: string | string[] | null | undefined): string | null
 // in the folder "", which crashes the app on macOS (Tauri 1.0-rc.6, rfd 0.8)
 const isAbsolute = (path: string) => path.startsWith('/') || /^[a-z]:[\\/]/i.test(path)
 
-const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path
 
 // the folder a project is in. a project in a folder of its own (named after
 // it) counts as being in the folder around that, so saving next to it

@@ -118,7 +118,6 @@ export const patternLabel = (pattern: Pick<Pattern, 'id' | 'name'>): string =>
   pattern.name ?? String(pattern.id + 1)
 
 // a sample's file name, without its folders
-export const fileName = (path: string): string => path.split(/[\\/]/).pop() ?? path
 
 export const isLit = (pattern: Pattern, rowId: number, step: number): boolean =>
   !!pattern.steps[rowId]?.includes(step)

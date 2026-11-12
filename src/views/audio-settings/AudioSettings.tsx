@@ -15,6 +15,7 @@ import {
 import { AnalogButton } from '../../components/fourtrack'
 import { Bar, Choice, Field, Notice } from '../../components/common'
 import { ResetIcon } from '../../components/icons'
+import { clamp } from '../../util/helpers'
 
 // how often the input meter is read, and how fast it falls
 const METER_EVERY_MS = 50
@@ -78,7 +79,7 @@ const OffsetField = ({ value, disabled, onChange }: {
   const commit = () => {
     if(draft === null) return
     const ms = parseFloat(draft)
-    if(Number.isFinite(ms) && ms !== value) onChange(Math.max(-1000, Math.min(1000, ms)))
+    if(Number.isFinite(ms) && ms !== value) onChange(clamp(ms, -1000, 1000))
     setDraft(null)
   }
 

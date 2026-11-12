@@ -1,5 +1,5 @@
 import React from 'react'
-import { cx } from './util'
+import { cx } from '../../util/helpers'
 
 // how long a wheel takes to roll to its next digit, in ms
 export const ROLL_MS = 180

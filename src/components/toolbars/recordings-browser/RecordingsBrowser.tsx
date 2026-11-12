@@ -26,6 +26,7 @@ import RenameField from '../browser/RenameField'
 import { useFolderDrop } from '../browser/useFolderDrop'
 import { useSessionSet } from '../browser/useSessionSet'
 import { NewFolderIcon, WaveIcon } from '../../icons'
+import { plural } from '../../../util/helpers'
 
 const logError = (what: string) => (e: unknown) =>
   // eslint-disable-next-line no-console
@@ -47,7 +48,6 @@ const words = {
   },
 }
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 interface RowProps {
   take: RecordingFile

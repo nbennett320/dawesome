@@ -116,10 +116,9 @@ export interface MovedRecording {
 
 // a recordings folder's path (relative to the recordings folder, / between
 // folders) as a folder in the browser's tree: the path is its key
-export const recordingFolders = (paths: string[]): FolderInfo[] => paths.map(path => {
-  const cut = path.lastIndexOf('/')
-  return { key: path, name: path.slice(cut + 1), parent: cut < 0 ? ROOT : path.slice(0, cut) }
-})
+export const recordingFolders = (paths: string[]): FolderInfo[] => paths.map(path => (
+  { key: path, name: path.slice(path.lastIndexOf('/') + 1), parent: parentFolder(path) }
+))
 
 // the folder a folder is in
 export const parentFolder = (path: string): string => {

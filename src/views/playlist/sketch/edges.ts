@@ -4,6 +4,7 @@
 import { ClipWindow } from '../../../types/clip'
 import { STEPS_PER_BEAT } from '../../../types/sequencer'
 import { Edge, Span, TrimItem } from '../../../editing/edges'
+import { clampLowWins } from '../../../util/helpers'
 
 export { EDGE_ZONE_PX, edgeAt, trimAll, trimmed } from '../../../editing/edges'
 export type { Edge, Span } from '../../../editing/edges'
@@ -23,7 +24,6 @@ export interface TrimClip extends TrimItem {
   perBeat: number
 }
 
-const clamp = (n: number, low: number, high: number) => Math.min(Math.max(n, low), Math.max(low, high))
 
 // ---- stretching: Shift+dragging an edge ----
 
@@ -60,7 +60,7 @@ export const stretched = (clip: StretchClip, edge: Edge, ratio: number): Span & 
   const shortest = Math.max(plain / MAX_RATE, clip.minLength)
   // (dragged from the left, no further than the playlist's start)
   const longest = Math.min(plain * MAX_RATE, edge === 'left' ? clip.end : Infinity)
-  const next = clamp(length * ratio, shortest, longest)
+  const next = clampLowWins(length * ratio, shortest, longest)
 
   return {
     start: edge === 'left' ? clip.end - next : clip.start,

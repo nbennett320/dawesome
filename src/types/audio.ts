@@ -1,3 +1,5 @@
+import { clamp } from '../util/helpers'
+
 // the engine's audio devices and buffer size (see engine/src/audio_commands.rs)
 
 export interface AudioSettings {
@@ -99,7 +101,7 @@ export const parseInputKey = (key: string): InputChoice | null => {
 export const meterPosition = (level: number): number => {
   if(!(level > 0)) return 0
   const db = 20 * Math.log10(level)
-  return Math.min(1, Math.max(0, (db + 60) / 60))
+  return clamp((db + 60) / 60, 0, 1)
 }
 
 // how long a buffer of `frames` lasts

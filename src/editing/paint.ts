@@ -1,6 +1,7 @@
 // the Draw tool in the playlist: what a drag along a lane paints. plain
 // functions, with no canvas. places are in beats
 import { Span } from './edges'
+import { clampLowWins } from '../util/helpers'
 
 // the clips a drag from `from` to `to` (either way round, already snapped)
 // paints, of a pattern `length` long: end to end from where the drag
@@ -27,5 +28,5 @@ export const paintSpans = (from: number, to: number, length: number, minLength: 
 export const paintBars = (from: number, to: number, beatsPerBar: number, maxBars: number): number => {
   if(!(beatsPerBar > 0)) return 1
   const bars = Math.ceil((Math.abs(to - from) - 1e-9) / beatsPerBar)
-  return Math.min(Math.max(bars, 1), Math.max(1, maxBars))
+  return clampLowWins(bars, 1, maxBars)
 }

@@ -9,6 +9,7 @@ import Meter from './Meter'
 import FxJack from './FxJack'
 import { DROP_CHANNEL } from './useChannelDrop'
 import { RegisterMeter } from './useMixerMeters'
+import { clamp } from '../../util/helpers'
 
 // the volume in dB, typed in. "-inf" or "-∞" is silent
 const parseDb = (typed: string): number | null => {
@@ -16,7 +17,7 @@ const parseDb = (typed: string): number | null => {
   if(text === '-inf' || text === '-∞' || text === 'inf') return MIN_DB
 
   const db = parseFloat(text)
-  return Number.isFinite(db) ? Math.min(MAX_DB, Math.max(MIN_DB, db)) : null
+  return Number.isFinite(db) ? clamp(db, MIN_DB, MAX_DB) : null
 }
 
 // the volume's readout, which can be typed into

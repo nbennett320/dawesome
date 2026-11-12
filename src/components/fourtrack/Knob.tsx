@@ -1,5 +1,6 @@
 import React from 'react'
-import { clamp, cx, useControllable } from './util'
+import { useControllable } from './util'
+import { clamp, cx } from '../../util/helpers'
 
 export interface KnobProps {
   value?: number

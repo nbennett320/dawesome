@@ -1,3 +1,5 @@
+import { clampLowWins } from '../util/helpers'
+
 // trimming items by their edges, the same in the playlist (clips) and the
 // Piano Roll (notes). plain functions, with no canvas. places and lengths
 // are in the view's own unit along time: beats in the playlist, steps in
@@ -41,7 +43,6 @@ export interface TrimItem extends Span {
   minLength: number
 }
 
-const clamp = (n: number, low: number, high: number) => Math.min(Math.max(n, low), Math.max(low, high))
 
 // an item with one edge moved by `delta`, stopped where it can go no
 // further: the source's ends, 0, and the other edge (less the shortest an
@@ -50,7 +51,7 @@ export const trimmed = (item: TrimItem, edge: Edge, delta: number): Span => {
   if(edge === 'left') {
     const earliest = Math.max(item.sourceStart, 0)
     return {
-      start: clamp(item.start + delta, earliest, item.end - item.minLength),
+      start: clampLowWins(item.start + delta, earliest, item.end - item.minLength),
       end: item.end,
     }
   }
@@ -62,7 +63,7 @@ export const trimmed = (item: TrimItem, edge: Edge, delta: number): Span => {
   const earliest = Math.min(item.start + item.minLength, item.sourceEnd)
   return {
     start: item.start,
-    end: clamp(item.end + delta, earliest, item.sourceEnd),
+    end: clampLowWins(item.end + delta, earliest, item.sourceEnd),
   }
 }
 

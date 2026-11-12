@@ -1,3 +1,5 @@
+import { clamp, clampLowWins } from '../util/helpers'
+
 // scrolling and zooming a view along time, the same in the playlist and the
 // Piano Roll: what the wheel, a two-finger swipe and a pinch do. plain
 // functions, with no canvas
@@ -39,7 +41,7 @@ export const wheelIntent = (ev: Wheel, pageHeight: number): WheelIntent => {
 
   if(ev.metaKey || ev.ctrlKey) {
     const factor = Math.exp(-dy * WHEEL_ZOOM_PER_PIXEL)
-    return { kind: 'zoom', factor: Math.min(1 + ZOOM_SENSITIVITY, Math.max(1 - ZOOM_SENSITIVITY, factor)) }
+    return { kind: 'zoom', factor: clamp(factor, 1 - ZOOM_SENSITIVITY, 1 + ZOOM_SENSITIVITY) }
   }
 
   // a mouse wheel with shift held (some systems already swap these)
@@ -70,7 +72,7 @@ export const zoomAround = (
 ): Zoom => {
   if(!Number.isFinite(factor) || factor <= 0 || !(scale > 0)) return { scale, pan }
 
-  const next = Math.min(Math.max(scale * factor, minScale), Math.max(minScale, maxScale))
+  const next = clampLowWins(scale * factor, minScale, maxScale)
   const applied = next / scale
   return { scale: next, pan: aroundX - (aroundX - pan) * applied }
 }

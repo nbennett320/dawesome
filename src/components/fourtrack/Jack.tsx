@@ -1,5 +1,5 @@
 import React from 'react'
-import { cx } from './util'
+import { cx } from '../../util/helpers'
 
 export interface JackProps {
   // a plug sits in it, its cable leaving down and to the right

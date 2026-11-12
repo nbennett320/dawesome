@@ -1,5 +1,6 @@
 import React from 'react'
 import { Knob } from '../../components/fourtrack'
+import { clamp } from '../../util/helpers'
 
 interface Props {
   label: string
@@ -26,7 +27,6 @@ interface Props {
 // round away floating point noise for display
 const tidy = (n: number) => Number(n.toFixed(4))
 
-const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n))
 
 // one setting as a strip: its label, a knob, and a number field to type into.
 // double-click the label or knob to reset it

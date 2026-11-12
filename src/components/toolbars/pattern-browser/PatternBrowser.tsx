@@ -37,10 +37,10 @@ import { useClickWithoutDrag } from '../browser/useClickWithoutDrag'
 import { useFolderDrop } from '../browser/useFolderDrop'
 import { useSessionSet } from '../browser/useSessionSet'
 import { NewFolderIcon } from '../../icons'
+import { plural } from '../../../util/helpers'
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 // each kind's page: its folders' drag scope, and what it's called
 const PAGES: Record<PatternKind, { scope: FolderScope, label: string }> = {

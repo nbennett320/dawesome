@@ -8,6 +8,7 @@ import {
 } from '../../types/clip'
 import { painter, useThemeChange } from '../../theme/canvas'
 import { Region, playedRegion, timeAtX } from './region'
+import { clamp, clampLowWins } from '../../util/helpers'
 
 export interface WaveformData {
   // the engine's levels at evenly spaced points (see
@@ -152,7 +153,7 @@ const draw = (
     const gain = gainFactor(settings.gainDb) * UNITY_HEIGHT
     const xAt = (i: number) => i / (levels.length - 1) * width
     // boosts past the top or bottom are drawn flat, like clipping
-    const heightAt = (level: number) => mid - Math.max(-1, Math.min(1, level)) * halfHeight
+    const heightAt = (level: number) => mid - clamp(level, -1, 1) * halfHeight
     const yAt = (i: number) => {
       const t = timeAtX(region, played, xAt(i))
       return heightAt(levels[i] * gain * envelopeAt(settings, t, played))
@@ -238,7 +239,7 @@ const draw = (
       // kept inside the played part (in the middle of one too narrow)
       region.width < HANDLE_RADIUS * 2
         ? region.left + region.width / 2
-        : Math.max(region.left + HANDLE_RADIUS, Math.min(region.left + region.width - HANDLE_RADIUS, x)),
+        : clampLowWins(x, region.left + HANDLE_RADIUS, region.left + region.width - HANDLE_RADIUS),
       eTop,
       HANDLE_RADIUS,
       0,

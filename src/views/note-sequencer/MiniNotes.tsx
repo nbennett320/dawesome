@@ -1,5 +1,6 @@
 import React from 'react'
 import { Note, noteBars, stepsPerBar } from '../../types/sequencer'
+import { clamp } from '../../util/helpers'
 
 // how wide the picture is: a few pixels a step, within limits, so a long
 // pattern is squeezed rather than scrolled
@@ -21,7 +22,7 @@ interface Props {
 // steps: click it to edit them in the Piano Roll
 const MiniNotes = ({ name, notes, length, beatsPerBar, muted, onOpen }: Props) => {
   const { rows, bars } = React.useMemo(() => noteBars(notes, length, 0, length), [notes, length])
-  const width = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, length * PX_PER_STEP))
+  const width = clamp(length * PX_PER_STEP, MIN_WIDTH, MAX_WIDTH)
   const bar = stepsPerBar(beatsPerBar)
   const lines = Array.from({ length: Math.max(0, Math.ceil(length / bar) - 1) }, (_, i) => (i + 1) * bar)
 
