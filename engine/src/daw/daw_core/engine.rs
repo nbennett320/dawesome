@@ -168,10 +168,6 @@ impl Slot {
     self.id
   }
 
-  pub fn instrument(&self) -> bool {
-    self.playing.is_some()
-  }
-
   pub fn bypassed(&self) -> bool {
     self.bypassed.load(Ordering::Relaxed)
   }

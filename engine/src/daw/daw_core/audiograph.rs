@@ -1496,55 +1496,12 @@ impl AudioGraph<'static> {
     res
   }
 
-  pub fn count_nodes(&self) -> usize {
-    let res = self.nodes.len();
-    res
-  }
-  
   pub fn get_mut_node_by_id(&mut self, id: u64) -> Option<&mut AudioNode> {
     self.nodes.iter_mut().find(|e| { e.id == id })
   }
 
   pub fn get_node_by_id(&self, id: u64) -> Option<&AudioNode> {
     self.nodes.iter().find(|e| { e.id == id })
-  }
-
-  // get the id of all nodes in a given playlist track
-  pub fn get_node_ids_in_playlist_track(
-    &mut self, 
-    track_number: u32
-  ) -> Vec<u64> {
-    let mut nodes = Vec::<u64>::new();
-
-    for node in self.nodes.as_mut_slice() {
-      if node.track_number == track_number {
-        let id = node.id;
-        nodes.push(id);
-      }
-    }
-
-    nodes
-  }
-
-  pub fn get_nth_beat_offset(&self, n: u64) -> Duration {
-    let interval = self.beat_interval();
-    
-    if n <= 1 {
-      return Duration::ZERO;
-    }
-    
-    let n_offset = n - 1;
-    interval * n_offset as u32
-  }
-
-  pub fn get_beat_offsets(&self) -> Vec<Duration> {
-    let mut offsets = Vec::<Duration>::new();
-
-    for i in 0..self.max_beats {
-      offsets.push(self.get_nth_beat_offset(i));
-    }
-
-    offsets
   }
 
   pub fn find_nearest_offset_subdivision<T: daw::timing::MusicalTiming>(
@@ -1566,21 +1523,6 @@ impl AudioGraph<'static> {
     Duration::from_nanos(nearest_offset_nanos.try_into().unwrap())
   }
   
-  // return the unique audio tracks numbers in the graph
-  pub fn track_numbers(&self) -> Vec<u32> {
-    let mut counted: Vec<u32> = Vec::new();
-
-    let tracks = self.nodes.iter().map(|n| n.track_number)
-      .chain(self.pattern_nodes.iter().map(|n| n.track_number));
-    for track_number in tracks {
-      if !counted.contains(&track_number) {
-        counted.push(track_number);
-      }
-    }
-    
-    counted
-  }
-
   // how many tracks the playlist shows: the default number, or enough to
   // reach the highest track a clip is on. (counting only the tracks that
   // have clips would hide a clip on track 4 when just two tracks are used)
@@ -1594,31 +1536,6 @@ impl AudioGraph<'static> {
     needed.max(daw::defaults::NUM_OF_TRACKS)
   }
 
-  // get a vector of AudioNodes with the specified track number
-  pub fn get_track_by_track_number(&self, track_number: u32) -> Vec<&AudioNode> {
-    let mut track_nodes: Vec<&AudioNode> = Vec::new();
-
-    for node in &self.nodes {
-      if node.track_number == track_number {
-        track_nodes.push(node);
-      }
-    }
-
-    track_nodes
-  }
-
-  // get a vector of all tracks in the audiograph
-  pub fn tracks(&self) -> Vec<Vec<&AudioNode>> {
-    let mut tracks: Vec<Vec<&AudioNode>> = Vec::new();
-
-    for track_num in self.track_numbers() {
-      let track = self.get_track_by_track_number(track_num);
-
-      tracks.push(track)
-    }
-
-    tracks
-  }
 }
 
 // which track each sample of an exploded pattern goes on, so every sample

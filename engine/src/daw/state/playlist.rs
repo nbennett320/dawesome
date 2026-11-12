@@ -17,7 +17,6 @@ use std::time::{Duration, Instant};
 #[derive(Clone, Copy)]
 pub struct PlaylistUI {
   pub viewport: app::workspaces::WorkspaceViewport,
-  pub max_beats: u64,
   pub max_beats_displayed: u64,
   pub snap_enabled: bool,
   pub snap_subdivision: daw::timing::Note,
@@ -27,7 +26,6 @@ impl UI for PlaylistUI {
   fn new() -> Self {
     PlaylistUI {
       viewport: app::workspaces::WorkspaceViewport::new(),
-      max_beats: daw::state::defaults::MAX_BEATS,
       max_beats_displayed: daw::state::defaults::MAX_BEATS_DISPLAYED,
       snap_enabled: daw::state::defaults::SNAP_ENABLED,
       snap_subdivision: daw::state::defaults::SNAP_SUBDIVISION,
@@ -143,14 +141,6 @@ impl Playlist {
   // whether the playlist itself is playing (not a pattern on its own)
   pub fn playing_playlist(&self) -> bool {
     self.playing() && self.mode() == PlayMode::Playlist
-  }
-
-  pub fn len_in_beats(&self) -> u64 {
-    self.total_beats.load(atomic::Ordering::SeqCst)
-  }
-
-  pub fn duration(&self) -> u64 {
-    self.total_beats.load(atomic::Ordering::SeqCst)
   }
 
 }
