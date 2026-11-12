@@ -11,6 +11,8 @@ import { DROP_CHANNEL } from './useChannelDrop'
 import { RegisterMeter } from './useMixerMeters'
 import { clamp } from '../../util/helpers'
 import { NameInput, ReadoutInput } from '../../components/common'
+import TrackColorPicker, { trackColorCss } from './TrackColorPicker'
+import { useThemeChange } from '../../theme'
 
 // the volume in dB, typed in. "-inf" or "-∞" is silent
 const parseDb = (typed: string): number | null => {
@@ -151,6 +153,8 @@ interface Props {
   silenced?: boolean
   // renaming (track strips). an empty name goes back to the default
   onRename?: (name: string) => void
+  // the track's color, and picking another (track strips)
+  color?: { value: number, onChange: (color: number) => void }
   // the channel's effects: how many, whether any is on, and opening the rack
   fx?: { count: number, lit: boolean, onOpen: () => void }
   // the channel as dropped effects see it (see useChannelDrop)
@@ -165,7 +169,8 @@ interface Props {
 }
 
 // one column of the mixer: name, pan, fader and meter, volume, mute and
-// solo, and the effects' jack at the foot
+// solo, and the effects' jack at the foot. a track's strip has its color
+// beside the name, and on its pan knob's pointer and fader cap
 const ChannelStrip = ({
   label,
   volumeDb,
@@ -178,22 +183,32 @@ const ChannelStrip = ({
   record,
   silenced = false,
   onRename,
+  color,
   fx,
   dropKey,
   dropping = false,
   footer,
   header,
   wide = false,
-}: Props) => (
+}: Props) => {
+  // the color is painted inline, so follows the theme by re-rendering
+  useThemeChange()
+  const accent = color ? { '--ft-control-accent': trackColorCss(color.value) } as React.CSSProperties : undefined
+
+  return (
   <div
     className={`ft-strip flex flex-col items-stretch gap-2 h-full p-2 ${wide ? 'w-28' : 'w-24'} ${
       dropping ? 'ring-2 ring-inset ring-accent-focus bg-accent-tint' : ''}`}
+    style={accent}
     aria-label={label}
     role='group'
     {...(dropKey === undefined ? {} : { [DROP_CHANNEL]: dropKey })}
   >
-    <div className='h-5'>
-      <NameLabel label={label} silenced={silenced} onRename={onRename} />
+    <div className='h-5 flex flex-row items-center gap-1 min-w-0'>
+      {color && <TrackColorPicker label={label} color={color.value} onChange={color.onChange} />}
+      <div className='flex-1 min-w-0 h-full'>
+        <NameLabel label={label} silenced={silenced} onRename={onRename} />
+      </div>
     </div>
 
     <div className='flex flex-col items-center h-16'>
@@ -252,6 +267,7 @@ const ChannelStrip = ({
 
     {fx && <FxJack channel={label} count={fx.count} lit={fx.lit} onOpen={fx.onOpen} />}
   </div>
-)
+  )
+}
 
 export default ChannelStrip

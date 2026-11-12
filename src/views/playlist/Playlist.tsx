@@ -1,6 +1,7 @@
 import React from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { initPlaylist } from '../../state/slices/playlistSlice'
+import { fetchMixer } from '../../state/slices/mixerSlice'
 import { useAppDispatch } from '../../hooks/redux'
 import PlaylistCanvas from './PlaylistCanvas'
 import PlaylistTray from './PlaylistTray'
@@ -27,6 +28,11 @@ const Playlist = () => {
 
     initPlaylistWorkspace().then(() => {
       dispatch(initPlaylist())
+    })
+    // the lanes are marked with their tracks' colors, which the mixer keeps
+    dispatch(fetchMixer()).catch(e => {
+      // eslint-disable-next-line no-console
+      console.error('could not read the mixer:', e)
     })
   }, [])
 

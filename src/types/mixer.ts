@@ -26,6 +26,8 @@ export interface TrackMix extends ChannelSettings {
   trackNumber: number
   // the name it was given, if any
   name?: string
+  // the color it was given, if any (see TRACK_COLORS)
+  color?: number
 }
 
 // what the engine's get_mixer returns (and load_project, as `mixer`)
@@ -100,3 +102,17 @@ export const MAX_NAME_CHARS = 40
 
 // what an unnamed track is called. tracks are numbered from 0 in the playlist
 export const trackLabel = (trackNumber: number) => `Track ${trackNumber + 1}`
+
+// the colors a track can be, as the engine stores them: a track's color is
+// its place in this list, and each is a key of the theme's `track` palette
+// (engine/themes/base.json). mirrors TRACK_COLORS in mixer.rs
+export const TRACK_COLORS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'violet', 'pink'] as const
+export type TrackColor = typeof TRACK_COLORS[number]
+
+// the color a track is until it's given one: the palette in turn, so
+// neighbouring tracks differ (default_track_color in mixer.rs)
+export const defaultTrackColor = (trackNumber: number): number => trackNumber % TRACK_COLORS.length
+
+// a track's color as a theme key. anything out of range wraps into the palette
+export const trackColorKey = (color: number): TrackColor =>
+  TRACK_COLORS[((Math.trunc(color) % TRACK_COLORS.length) + TRACK_COLORS.length) % TRACK_COLORS.length]

@@ -35,6 +35,7 @@ import { Renderer, StretchEdit, WindowEdit } from './sketch'
 import { isPlaceable, onSampleDrag } from '../../state/sampleDrag'
 import { OWN_DRAG_PREVIEW } from '../../components/DragGhost'
 import { selectFocusedView } from '../../state/slices/windowSlice'
+import { selectTrackColors } from '../../state/slices/mixerSlice'
 import { View } from '../../types/ui'
 import { isDeleteKey, isExplodeKey, isJoinKey, isTextTarget, isTypingTarget } from '../../util/keys'
 import { editShortcutHandler } from '../../util/shortcuts'
@@ -208,6 +209,8 @@ const PlaylistCanvas = () => {
     maxPlaylistDuration: duration,
     trackCount,
   } = useAppSelector(selectPlaylistUI)
+  // each lane is marked with its track's color
+  const trackColors = useAppSelector(selectTrackColors)
 
   // samples dragged in from the sidebar, and patterns from the Sequencer:
   // show the clip under the mouse while it's over the playlist, and add it
@@ -554,6 +557,7 @@ const PlaylistCanvas = () => {
           maxPlaylistBeats={limit}
           duration={duration}
           trackCount={trackCount}
+          trackColors={trackColors}
           playlistObjects={items}
           onItemDrop={handleItemDrop}
           onNodeRightClick={handleNodeRightClick}

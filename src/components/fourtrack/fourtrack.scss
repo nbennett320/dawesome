@@ -376,7 +376,8 @@ $led-colors: 'red', 'amber', 'lime', 'blue';
     width: 2px;
     height: 34%;
     border-radius: 1px;
-    background: var(--ft-accent);
+    // a mixer strip sets --ft-control-accent to its track's color
+    background: var(--ft-control-accent, var(--ft-accent));
   }
 }
 
@@ -397,7 +398,7 @@ $led-colors: 'red', 'amber', 'lime', 'blue';
     position: absolute;
     height: 2px;
     border-radius: 1px;
-    background: var(--ft-accent);
+    background: var(--ft-control-accent, var(--ft-accent));
   }
 }
 

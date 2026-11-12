@@ -177,6 +177,40 @@ fn test_track_names() {
 }
 
 #[test]
+fn test_track_colors() {
+  let mixer = Mixer::default();
+  // until it's given one, a track takes the palette in turn
+  assert_eq!(mixer.color(1), 1);
+  assert_eq!(mixer.color(TRACK_COLORS as u32 + 2), 2);
+
+  assert_eq!(mixer.set_color(6, Some(3)), 3);
+  assert_eq!(mixer.color(6), 3);
+  // past the palette wraps into it
+  assert_eq!(mixer.set_color(0, Some(TRACK_COLORS + 5)), 5);
+
+  // a colored track is listed even before it's used, and is a change
+  let settings = mixer.settings(2);
+  assert_eq!(settings.tracks.len(), 3);
+  assert_eq!(settings.tracks[2].color, Some(3));
+  assert_eq!(mixer.changed().tracks.iter().map(|t| t.track_number).collect::<Vec<_>>(), vec![0, 6]);
+
+  // its default color is no color, so it isn't a change
+  assert_eq!(mixer.set_color(6, Some(6)), 6);
+  assert_eq!(mixer.set_color(0, None), 0);
+  assert!(mixer.changed().tracks.is_empty());
+
+  // resetting the mix keeps colors, a project replaces them
+  mixer.set_color(2, Some(7));
+  mixer.reset();
+  assert_eq!(mixer.color(2), 7);
+  let other = Mixer::default();
+  other.set_color(4, Some(0));
+  mixer.apply(&other.changed());
+  assert_eq!(mixer.color(2), 2);
+  assert_eq!(mixer.color(4), 0);
+}
+
+#[test]
 fn test_values_kept_in_range() {
   let mixer = Mixer::default();
   assert_eq!(mixer.set_volume_db(0, 40.), MAX_DB);
@@ -189,15 +223,15 @@ fn test_values_kept_in_range() {
 fn test_serde_names_match_the_frontend() {
   let settings = MixerSettings {
     tracks: vec![
-      TrackMix { track_number: 0, name: None, settings: ChannelSettings::default() },
-      TrackMix { track_number: 1, name: Some("Drums".into()), settings: ChannelSettings::default() },
+      TrackMix { track_number: 0, name: None, color: None, settings: ChannelSettings::default() },
+      TrackMix { track_number: 1, name: Some("Drums".into()), color: Some(3), settings: ChannelSettings::default() },
     ],
     master: ChannelSettings::default(),
   };
   assert_eq!(serde_json::to_value(&settings).unwrap(), serde_json::json!({
     "tracks": [
       { "trackNumber": 0, "volumeDb": 0., "pan": 0., "mute": false, "solo": false },
-      { "trackNumber": 1, "name": "Drums", "volumeDb": 0., "pan": 0., "mute": false, "solo": false },
+      { "trackNumber": 1, "name": "Drums", "color": 3, "volumeDb": 0., "pan": 0., "mute": false, "solo": false },
     ],
     "master": { "volumeDb": 0., "pan": 0., "mute": false, "solo": false },
   }));

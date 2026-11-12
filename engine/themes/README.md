@@ -86,6 +86,9 @@ commit.
 - **`playlist`**: the playlist canvas.
 - **`waveform`**: the clip page's waveform.
 - **`meter`**: the mixer meters.
+- **`track`**: the palette tracks are colored from. A track's color is stored
+  as its place in this list (`red` is 0, `pink` is 7), so a theme can change
+  the shades but not the order.
 - **`fourtrack`**: the four-track controls and cassette. `fourtrack.someKey`
   becomes the CSS variable `--ft-some-key`.
 

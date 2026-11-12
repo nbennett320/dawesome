@@ -51,6 +51,10 @@ pub fn change_track_name(state: &daw::InnerState, track_number: u32, name: &str)
   edit(state, None, |mixer| mixer.set_name(track_number, name))
 }
 
+pub fn change_track_color(state: &daw::InnerState, track_number: u32, color: Option<u8>) -> u8 {
+  edit(state, None, |mixer| mixer.set_color(track_number, color))
+}
+
 pub fn reset(state: &daw::InnerState) -> daw::MixerSettings {
   edit(state, None, |mixer| mixer.reset());
   mixer_settings(state)
@@ -87,7 +91,14 @@ pub fn set_track_name(state: daw::TState<'_>, track_number: u32, name: String) -
   change_track_name(&state, track_number, &name)
 }
 
-// every strip back to its defaults (names are kept)
+// give a track a color from the theme's track palette, or none to go back to
+// its default. returns the color it's drawn in
+#[tauri::command]
+pub fn set_track_color(state: daw::TState<'_>, track_number: u32, color: Option<u8>) -> u8 {
+  change_track_color(&state, track_number, color)
+}
+
+// every strip back to its defaults (names and colors are kept)
 #[tauri::command]
 pub fn reset_mixer(state: daw::TState<'_>) -> daw::MixerSettings {
   reset(&state)

@@ -6,6 +6,7 @@ import {
   defaultChannelSettings,
   MAX_NAME_CHARS,
   MixerSettings,
+  defaultTrackColor,
   trackLabel,
 } from '../../types/mixer'
 import { LoadedProject } from '../../types/project'
@@ -21,20 +22,26 @@ export interface MixerState {
   master: ChannelSettings
   // names given to tracks, by track number
   names: Record<number, string>
+  // colors given to tracks, by track number (see TRACK_COLORS)
+  colors: Record<number, number>
 }
 
 const initialState: MixerState = {
   tracks: {},
   master: defaultChannelSettings,
   names: {},
+  colors: {},
 }
 
 const fromSettings = (settings: MixerSettings): MixerState => ({
-  tracks: Object.fromEntries(settings.tracks.map(({ trackNumber, name: _, ...channel }) => [trackNumber, channel])),
+  tracks: Object.fromEntries(settings.tracks.map(({ trackNumber, name: _, color: __, ...channel }) => [trackNumber, channel])),
   master: settings.master,
   names: Object.fromEntries(settings.tracks
     .filter(track => track.name)
     .map(track => [track.trackNumber, track.name as string])),
+  colors: Object.fromEntries(settings.tracks
+    .filter(track => track.color !== undefined && track.color !== null)
+    .map(track => [track.trackNumber, track.color as number])),
 })
 
 export const mixerSlice = createSlice({
@@ -54,6 +61,12 @@ export const mixerSlice = createSlice({
       if(name) state.names[trackNumber] = name
       else delete state.names[trackNumber]
     },
+    setColor: (state, action: PayloadAction<{ trackNumber: number, color: number | null }>) => {
+      const { trackNumber, color } = action.payload
+      // its default is kept as no color, as the engine keeps it
+      if(color === null || color === defaultTrackColor(trackNumber)) delete state.colors[trackNumber]
+      else state.colors[trackNumber] = color
+    },
   },
   extraReducers: builder => {
     // a project brings its own mix
@@ -66,7 +79,7 @@ export const mixerSlice = createSlice({
   },
 })
 
-export const { setMixer, setTrack, setMaster, setName } = mixerSlice.actions
+export const { setMixer, setTrack, setMaster, setName, setColor } = mixerSlice.actions
 
 export const selectTrackMix = (trackNumber: number) => (state: RootState): ChannelSettings =>
   state.mixer.tracks[trackNumber] ?? defaultChannelSettings
@@ -74,6 +87,10 @@ export const selectMasterMix = (state: RootState) => state.mixer.master
 // a track's name, or "Track n" if it hasn't been given one
 export const selectTrackName = (trackNumber: number) => (state: RootState): string =>
   state.mixer.names[trackNumber] ?? trackLabel(trackNumber)
+// a track's color (see TRACK_COLORS): the one it was given, or its default
+export const selectTrackColor = (trackNumber: number) => (state: RootState): number =>
+  state.mixer.colors[trackNumber] ?? defaultTrackColor(trackNumber)
+export const selectTrackColors = (state: RootState) => state.mixer.colors
 export const selectAnySolo = (state: RootState) =>
   Object.values(state.mixer.tracks).some(track => track.solo)
 
@@ -182,7 +199,19 @@ export const setTrackName = (trackNumber: number, name: string) => async (dispat
   }
 }
 
-// every strip back to its defaults (names are kept)
+// give a track a color (see TRACK_COLORS), or null for its default
+export const setTrackColor = (trackNumber: number, color: number | null) => async (dispatch: Dispatch) => {
+  dispatch(setColor({ trackNumber, color }))
+
+  try {
+    const kept = await invoke<number>('set_track_color', { trackNumber, color })
+    dispatch(setColor({ trackNumber, color: kept }))
+  } catch(e) {
+    logError(`color track ${trackNumber + 1}`)(e)
+  }
+}
+
+// every strip back to its defaults (names and colors are kept)
 export const resetMixer = () => async (dispatch: Dispatch) => {
   clearPendingMixerSends()
   const settings = await invoke<MixerSettings>('reset_mixer', {})

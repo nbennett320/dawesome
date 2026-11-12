@@ -19,7 +19,8 @@ import {
 } from '../../../types/playlist'
 import { CutItem, canCut, cutPoint, cutTargets } from '../../../editing/cut'
 import { onThemeChange } from '../../../theme/apply'
-import { paint, theme } from './theme'
+import { paint, theme, trackPaint } from './theme'
+import { trackColorKey, defaultTrackColor } from '../../../types/mixer'
 import { PlaylistTransport } from '../../../types/transport'
 import { positionAt } from '../../transport/tape'
 import {
@@ -50,6 +51,9 @@ export interface CanvasProps extends SketchProps {
   beatsDisplayed: number
   maxPlaylistBeats: number
   trackCount: number
+  // colors given to tracks, by track number (see mixerSlice). tracks not
+  // listed are their default color
+  trackColors: Record<number, number>
   playlistObjects: PlaylistItem[]
   onItemDrop: (pw: PlaylistWindow) => void
   // a clip was right-clicked, at clientX, clientY in the window
@@ -143,6 +147,10 @@ const SCROLLBAR = {
   margin: 3,
   minThumbHeight: 24,
 }
+
+// the bar of a track's color down each lane's right edge. it stays at the
+// edge however the playlist is zoomed or panned
+const TRACK_BAR_WIDTH = 4
 
 // dragging a clip near the top or bottom of the tracks scrolls them
 const AUTO_SCROLL = {
@@ -287,6 +295,7 @@ export class Renderer extends RendererBase {
   width: number = staticDefaults.width
   maxPlaylistBeats: number = staticDefaults.maxPlaylistBeats
   trackCount: number = staticDefaults.trackCount
+  trackColors: Record<number, number> = {}
   tempo: number = staticDefaults.tempo
   // the playlist's length in beats: the full canvas width (at scale 1)
   // spans this many
@@ -1533,6 +1542,26 @@ export class Renderer extends RendererBase {
     p.pop()
   }
 
+  // every lane's color, as a bar down its right edge in canvas pixels, so
+  // it stays put while the playlist pans and zooms (it scrolls with the
+  // lane). left of the scrollbar when that's shown
+  #drawTrackBars = (p: P5CanvasInstance<CanvasProps>) => {
+    const left = this.width - (this.scrollbar() ? SCROLLBAR.hitWidth : 0) - TRACK_BAR_WIDTH
+    const laneHeight = staticDefaults.trackHeight
+
+    p.push()
+    p.noStroke()
+    for(let n = 0; n < this.trackCount; n++) {
+      // matching the tracks' translate in draw
+      const laneTop = trackTop(n) - this.scrollY + 1
+      if(laneTop > this.height || laneTop + laneHeight < staticDefaults.timelineHeight) continue
+
+      trackPaint.fill(p, trackColorKey(this.trackColors[n] ?? defaultTrackColor(n)))
+      p.rect(left, laneTop, TRACK_BAR_WIDTH, laneHeight)
+    }
+    p.pop()
+  }
+
   #drawScrollbar = (p: P5CanvasInstance<CanvasProps>) => {
     const bar = this.scrollbar()
     if(!bar) return
@@ -1933,6 +1962,7 @@ export class Renderer extends RendererBase {
       this.maxPlaylistBeats = props.maxPlaylistBeats
       const tracksChanged = props.trackCount !== this.trackCount
       this.trackCount = props.trackCount
+      this.trackColors = props.trackColors ?? {}
       // clips' lengths in beats change with the tempo, so where the loop ends
       if(props.tempo !== this.tempo) this.syncTransport()
       this.tempo = props.tempo
@@ -2167,6 +2197,9 @@ export class Renderer extends RendererBase {
       
       p.pop()
 
+      // over the clips, and under the ruler, which covers a lane's bar as it
+      // scrolls up under it
+      this.#drawTrackBars(p)
       this.#drawNewTrackArea(p, canvas)
       // under the ruler, which covers it when it reaches past the top
       this.#drawLasso(p)
