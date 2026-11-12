@@ -31,7 +31,9 @@ import { ChannelId, channelKey } from '../../types/effects'
 import ChannelStrip from './ChannelStrip'
 import { useChannelDrop } from './useChannelDrop'
 import { AnalogButton, Led } from '../../components/fourtrack'
-import { MASTER_METER_KEY, RegisterMeter, trackMeterKey, useMixerMeters } from './useMixerMeters'
+import {
+  MASTER_METER_KEY, RegisterLed, RegisterMeter, trackMeterKey, useMixerMeters,
+} from './useMixerMeters'
 
 // a channel's effects, for its strip's FX jack
 const useFx = (channel: ChannelId) => {
@@ -42,9 +44,10 @@ const useFx = (channel: ChannelId) => {
   return { count, lit, onOpen: () => dispatch(showRack(channel)) }
 }
 
-const TrackStrip = ({ trackNumber, register, dropping }: {
+const TrackStrip = ({ trackNumber, register, registerLed, dropping }: {
   trackNumber: number
   register: RegisterMeter
+  registerLed: RegisterLed
   // an effect or instrument dragged over it would go on it
   dropping: boolean
 }) => {
@@ -57,15 +60,17 @@ const TrackStrip = ({ trackNumber, register, dropping }: {
   const armed = useAppSelector(selectArmed(trackNumber))
   const channels = useAppSelector(selectInputChannels)
   const recording = useAppSelector(selectRecording)
+  const meterKey = trackMeterKey(trackNumber)
+  const ledRef = React.useCallback((led: HTMLElement | null) => registerLed(meterKey, led), [registerLed, meterKey])
 
   return (
     <ChannelStrip
       label={name}
       onRename={newName => dispatch(setTrackName(trackNumber, newName))}
-      color={{ value: color, onChange: c => dispatch(setTrackColor(trackNumber, c)) }}
+      color={{ value: color, onChange: c => dispatch(setTrackColor(trackNumber, c)), ledRef }}
       volumeDb={mix.volumeDb}
       onVolume={db => dispatch(setTrackVolume(trackNumber, db))}
-      meterKey={trackMeterKey(trackNumber)}
+      meterKey={meterKey}
       register={register}
       pan={{ value: mix.pan, onChange: pan => dispatch(setTrackPan(trackNumber, pan)) }}
       mute={{ on: mix.mute, onChange: on => dispatch(setTrackMute(trackNumber, on)) }}
@@ -130,7 +135,7 @@ const Mixer = () => {
   const { trackCount } = useAppSelector(selectPlaylistUI)
   const playing = useAppSelector(selectPlaylistPlaying)
   const master = useAppSelector(selectMasterMix)
-  const { register, clipped, clearClip } = useMixerMeters(playing)
+  const { register, registerLed, clipped, clearClip } = useMixerMeters(playing)
   const masterFx = useFx('master')
   // effects and instruments dragged onto the strips
   const boxRef = React.useRef<HTMLDivElement>(null)
@@ -166,6 +171,7 @@ const Mixer = () => {
               key={trackNumber}
               trackNumber={trackNumber}
               register={register}
+              registerLed={registerLed}
               dropping={dropTarget === trackNumber}
             />
           ))}

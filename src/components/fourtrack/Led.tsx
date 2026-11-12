@@ -9,11 +9,16 @@ export interface LedProps extends React.HTMLAttributes<HTMLSpanElement> {
   state?: LedState
 }
 
-export const Led = ({ color = 'red', state = 'off', className, ...rest }: LedProps) => (
-  <span
-    aria-hidden
-    data-state={state}
-    className={cx('ft-led', `ft-led--${color}`, className)}
-    {...rest}
-  />
+// forwards its ref, for an LED lit straight from a loop (see useMixerMeters)
+export const Led = React.forwardRef<HTMLSpanElement, LedProps>(
+  ({ color = 'red', state = 'off', className, ...rest }, ref) => (
+    <span
+      ref={ref}
+      aria-hidden
+      data-state={state}
+      className={cx('ft-led', `ft-led--${color}`, className)}
+      {...rest}
+    />
+  ),
 )
+Led.displayName = 'Led'

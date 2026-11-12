@@ -20,7 +20,9 @@ import {
 import { CutItem, canCut, cutPoint, cutTargets } from '../../../editing/cut'
 import { onThemeChange } from '../../../theme/apply'
 import { paint, theme, trackPaint } from './theme'
-import { trackColorKey, defaultTrackColor } from '../../../types/mixer'
+import { painter } from '../../../theme/canvas'
+import { LIP, drawLip, fitName, inBox, lipBox, lipWidth } from './lip'
+import { trackColorKey, defaultTrackColor, trackLabel } from '../../../types/mixer'
 import { PlaylistTransport } from '../../../types/transport'
 import { positionAt } from '../../transport/tape'
 import {
@@ -54,6 +56,12 @@ export interface CanvasProps extends SketchProps {
   // colors given to tracks, by track number (see mixerSlice). tracks not
   // listed are their default color
   trackColors: Record<number, number>
+  // names given to tracks, by track number (see mixerSlice). tracks not
+  // listed are "Track n"
+  trackNames: Record<number, string>
+  // tracks the mixer silences (muted, or not soloed while another is): their
+  // lips' LEDs stay unlit
+  silentTracks: number[]
   playlistObjects: PlaylistItem[]
   onItemDrop: (pw: PlaylistWindow) => void
   // a clip was right-clicked, at clientX, clientY in the window
@@ -148,9 +156,8 @@ const SCROLLBAR = {
   minThumbHeight: 24,
 }
 
-// the bar of a track's color down each lane's right edge. it stays at the
-// edge however the playlist is zoomed or panned
-const TRACK_BAR_WIDTH = 4
+// a lane's label is printed in the four-track controls' colors (see lip.ts)
+const fourtrackPaint = painter('fourtrack')
 
 // dragging a clip near the top or bottom of the tracks scrolls them
 const AUTO_SCROLL = {
@@ -296,6 +303,11 @@ export class Renderer extends RendererBase {
   maxPlaylistBeats: number = staticDefaults.maxPlaylistBeats
   trackCount: number = staticDefaults.trackCount
   trackColors: Record<number, number> = {}
+  silentTracks: Set<number> = new Set()
+  trackNames: Record<number, string> = {}
+  // each name as its lip shows it, and the lip's width, by name: measured
+  // once per name, not every frame
+  #lipLabels = new Map<string, { text: string, width: number }>()
   tempo: number = staticDefaults.tempo
   // the playlist's length in beats: the full canvas width (at scale 1)
   // spans this many
@@ -1131,7 +1143,9 @@ export class Renderer extends RendererBase {
   clipUnderMouse = (): PlaylistObject | null => {
     // clips scrolled up under the timeline, or under the scrollbar, are hidden
     const p = this.#p
-    if(p && (p.mouseY < staticDefaults.timelineHeight || this.overScrollbar(p.mouseX, p.mouseY))) {
+    // and under a lane's lip
+    if(p && (p.mouseY < staticDefaults.timelineHeight || this.overScrollbar(p.mouseX, p.mouseY)
+      || this.lipAt(p.mouseX, p.mouseY) !== null)) {
       return null
     }
 
@@ -1542,24 +1556,80 @@ export class Renderer extends RendererBase {
     p.pop()
   }
 
-  // every lane's color, as a bar down its right edge in canvas pixels, so
-  // it stays put while the playlist pans and zooms (it scrolls with the
-  // lane). left of the scrollbar when that's shown
-  #drawTrackBars = (p: P5CanvasInstance<CanvasProps>) => {
-    const left = this.width - (this.scrollbar() ? SCROLLBAR.hitWidth : 0) - TRACK_BAR_WIDTH
-    const laneHeight = staticDefaults.trackHeight
-
-    p.push()
-    p.noStroke()
+  // each lane's lip, pinned to the right edge (left of the scrollbar when
+  // that's shown), for lanes at least partly below the ruler. in canvas
+  // pixels, matching the tracks' translate in draw
+  #lipBoxes = () => {
+    const ctx = this.#p?.drawingContext as CanvasRenderingContext2D | undefined
+    if(!ctx) return []
+    const right = this.width - (this.scrollbar() ? SCROLLBAR.hitWidth : 0)
+    const lips = []
     for(let n = 0; n < this.trackCount; n++) {
-      // matching the tracks' translate in draw
-      const laneTop = trackTop(n) - this.scrollY + 1
-      if(laneTop > this.height || laneTop + laneHeight < staticDefaults.timelineHeight) continue
-
-      trackPaint.fill(p, trackColorKey(this.trackColors[n] ?? defaultTrackColor(n)))
-      p.rect(left, laneTop, TRACK_BAR_WIDTH, laneHeight)
+      const label = this.#lipLabel(ctx, this.trackNames[n] ?? trackLabel(n))
+      const box = lipBox(
+        trackTop(n) - this.scrollY + 1, staticDefaults.trackHeight, right, label.width, staticDefaults.timelineHeight,
+      )
+      if(box.y > this.height || box.y + box.h < staticDefaults.timelineHeight) continue
+      lips.push({ track: n, box, text: label.text })
     }
-    p.pop()
+    return lips
+  }
+
+  #lipLabel = (ctx: CanvasRenderingContext2D, name: string) => {
+    let label = this.#lipLabels.get(name)
+    if(!label) {
+      ctx.save()
+      ctx.font = LIP.font
+      ctx.letterSpacing = LIP.letterSpacing
+      const text = fitName(ctx, name.toUpperCase())
+      label = { text, width: lipWidth(ctx.measureText(text).width) }
+      ctx.restore()
+      this.#lipLabels.set(name, label)
+    }
+    return label
+  }
+
+  // the track whose lip is at a point on the canvas, if any. the ruler
+  // covers the lips that scroll up under it
+  lipAt = (x: number, y: number): number | null => {
+    if(y < staticDefaults.timelineHeight) return null
+    return this.#lipBoxes().find(lip => inBox(lip.box, x, y))?.track ?? null
+  }
+
+  // the tracks the playhead is playing a clip on, unless the mixer silences
+  // them. lights their lips' LEDs
+  #soundingTracks = (): Set<number> => {
+    const sounding = new Set<number>()
+    const beat = this.playing ? this.playheadBeat() : null
+    if(beat === null) return sounding
+
+    const x = this.beatToX(beat)
+    this.playlistObjects.forEach(clip => {
+      const track = clip.playlistItem.trackNumber
+      if(this.silentTracks.has(track)) return
+      const { left, right } = clip.boundingBox()
+      if(x >= left && x < right) sounding.add(track)
+    })
+    return sounding
+  }
+
+  // over the clips, and under the ruler, which covers a lip as its lane
+  // scrolls up under it
+  #drawTrackLips = (p: P5CanvasInstance<CanvasProps>) => {
+    const ctx = p.drawingContext as CanvasRenderingContext2D
+    const sounding = this.#soundingTracks()
+    const base = {
+      ink: fourtrackPaint.rgba('inkSoft'),
+      well: fourtrackPaint.rgba('tray'),
+      panel: fourtrackPaint.rgba('panel'),
+    }
+    // every other lane is shaded (see draw)
+    const lanes = [paint.rgba('background'), paint.rgba('laneAlt')]
+
+    this.#lipBoxes().forEach(({ track, box, text }) => {
+      const led = trackPaint.rgba(trackColorKey(this.trackColors[track] ?? defaultTrackColor(track)))
+      drawLip(ctx, box, text, { ...base, lane: lanes[track % 2], led }, sounding.has(track))
+    })
   }
 
   #drawScrollbar = (p: P5CanvasInstance<CanvasProps>) => {
@@ -1624,6 +1694,7 @@ export class Renderer extends RendererBase {
     }
 
     if(overRuler(p.mouseY) || this.overScrollbar(p.mouseX, p.mouseY)) return
+    if(this.lipAt(p.mouseX, p.mouseY) !== null) return
     const track = this.trackAt(this.screenToPlaylistY(p.mouseY))
     if(track < 0) return
     this.onEmptyRightClick(this.snapBeat(this.screenXToBeat(p.mouseX)), track, ev.clientX, ev.clientY)
@@ -1697,6 +1768,10 @@ export class Renderer extends RendererBase {
             this.#startSeek(p.mouseX)
             return
           }
+
+          // a lane's lip is its own control: the press doesn't reach the
+          // clips or the lane under it
+          if(this.lipAt(p.mouseX, p.mouseY) !== null) return
 
           const item = this.clipUnderMouse()
 
@@ -1963,6 +2038,8 @@ export class Renderer extends RendererBase {
       const tracksChanged = props.trackCount !== this.trackCount
       this.trackCount = props.trackCount
       this.trackColors = props.trackColors ?? {}
+      this.silentTracks = new Set(props.silentTracks ?? [])
+      this.trackNames = props.trackNames ?? {}
       // clips' lengths in beats change with the tempo, so where the loop ends
       if(props.tempo !== this.tempo) this.syncTransport()
       this.tempo = props.tempo
@@ -2152,6 +2229,7 @@ export class Renderer extends RendererBase {
       const idle = !this.edgeDrag && !this.clipDrag && !this.sampleDrag && !this.lasso && !this.#paint
         && !this.isMouseDown && !this.seekDragging && this.scrollbarGrab === null
       const overTracks = idle && !overRuler(p.mouseY) && !this.overScrollbar(p.mouseX, p.mouseY)
+        && this.lipAt(p.mouseX, p.mouseY) === null
       // (Draw is Select on a clip)
       const hover = overTracks && this.tool !== 'cut' ? this.edgeUnderMouse() : null
       this.#hoverEdge = hover ? { id: hover.item.playlistItem.id, edge: hover.edge } : null
@@ -2197,9 +2275,7 @@ export class Renderer extends RendererBase {
       
       p.pop()
 
-      // over the clips, and under the ruler, which covers a lane's bar as it
-      // scrolls up under it
-      this.#drawTrackBars(p)
+      this.#drawTrackLips(p)
       this.#drawNewTrackArea(p, canvas)
       // under the ruler, which covers it when it reaches past the top
       this.#drawLasso(p)
@@ -2224,6 +2300,8 @@ export class Renderer extends RendererBase {
       } else if(this.lasso || this.#paint) {
         p.cursor(p.CROSS)
       } else if(this.scrollbarGrab !== null || this.overScrollbar(p.mouseX, p.mouseY)) {
+        p.cursor(p.ARROW)
+      } else if(!this.clipDrag?.active && !this.sampleDrag && this.lipAt(p.mouseX, p.mouseY) !== null) {
         p.cursor(p.ARROW)
       } else if(this.seekDragging || (overRuler(p.mouseY) && !this.clipDrag?.active && !this.sampleDrag)) {
         p.cursor(p.HAND)

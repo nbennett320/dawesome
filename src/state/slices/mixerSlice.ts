@@ -1,4 +1,4 @@
-import { createSlice, Dispatch, PayloadAction } from '@reduxjs/toolkit'
+import { createSelector, createSlice, Dispatch, PayloadAction } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api/core'
 import type { RootState } from 'state/store'
 import {
@@ -91,8 +91,18 @@ export const selectTrackName = (trackNumber: number) => (state: RootState): stri
 export const selectTrackColor = (trackNumber: number) => (state: RootState): number =>
   state.mixer.colors[trackNumber] ?? defaultTrackColor(trackNumber)
 export const selectTrackColors = (state: RootState) => state.mixer.colors
+// the names given to tracks (tracks not listed are "Track n")
+export const selectTrackNames = (state: RootState) => state.mixer.names
 export const selectAnySolo = (state: RootState) =>
   Object.values(state.mixer.tracks).some(track => track.solo)
+// the tracks the mixer silences: muted, or not soloed while another track is
+export const selectSilentTracks = createSelector([(state: RootState) => state.mixer.tracks], tracks => {
+  const entries = Object.entries(tracks)
+  const anySolo = entries.some(([, track]) => track.solo)
+  return entries
+    .filter(([, track]) => track.mute || (anySolo && !track.solo))
+    .map(([trackNumber]) => Number(trackNumber))
+})
 
 // how often a fader's value is sent while it's being dragged
 const SEND_EVERY_MS = 30

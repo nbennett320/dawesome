@@ -35,7 +35,7 @@ import { Renderer, StretchEdit, WindowEdit } from './sketch'
 import { isPlaceable, onSampleDrag } from '../../state/sampleDrag'
 import { OWN_DRAG_PREVIEW } from '../../components/DragGhost'
 import { selectFocusedView } from '../../state/slices/windowSlice'
-import { selectTrackColors } from '../../state/slices/mixerSlice'
+import { selectSilentTracks, selectTrackColors, selectTrackNames } from '../../state/slices/mixerSlice'
 import { View } from '../../types/ui'
 import { isDeleteKey, isExplodeKey, isJoinKey, isTextTarget, isTypingTarget } from '../../util/keys'
 import { editShortcutHandler } from '../../util/shortcuts'
@@ -209,8 +209,11 @@ const PlaylistCanvas = () => {
     maxPlaylistDuration: duration,
     trackCount,
   } = useAppSelector(selectPlaylistUI)
-  // each lane is marked with its track's color
+  // each lane is labelled with its track's name and color
   const trackColors = useAppSelector(selectTrackColors)
+  const trackNames = useAppSelector(selectTrackNames)
+  // and its lip's LED stays unlit while the mixer silences the track
+  const silentTracks = useAppSelector(selectSilentTracks)
 
   // samples dragged in from the sidebar, and patterns from the Sequencer:
   // show the clip under the mouse while it's over the playlist, and add it
@@ -558,6 +561,8 @@ const PlaylistCanvas = () => {
           duration={duration}
           trackCount={trackCount}
           trackColors={trackColors}
+          silentTracks={silentTracks}
+          trackNames={trackNames}
           playlistObjects={items}
           onItemDrop={handleItemDrop}
           onNodeRightClick={handleNodeRightClick}
