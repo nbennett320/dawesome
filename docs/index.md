@@ -5,6 +5,9 @@ hero:
   name: Dawesome
   text: A libre, cross-platform DAW
   tagline: Early work in progress. Built with Rust, Tauri and React.
+  image:
+    src: /screenshot.png
+    alt: The Dawesome window, with the playlist and mixer
   actions:
     - theme: brand
       text: Read the manual
