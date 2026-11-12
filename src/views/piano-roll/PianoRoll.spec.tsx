@@ -302,6 +302,25 @@ describe('the Piano Roll', () => {
       expect(calls('play_note').map(args => args.pitch)).toEqual([60, 60, 62])
     })
 
+    it('carries a note with the mouse, landing on the key nearest where it has it', async () => {
+      await open([note(60, 2, 2)], 'select')
+      // pressed near the bottom of its key
+      const from = { ...at(3, 60), clientY: rowTop(60) - grid().scrollTop + ROW_HEIGHT - 2 }
+      const by = (steps: number, px: number) => ({ ...from, clientX: from.clientX + steps * stepWidth(), clientY: from.clientY + px })
+
+      fireEvent.pointerDown(grid(), from)
+      // the mouse just over into the key below: the note's still mostly on
+      // its own, and lands there
+      fireEvent.pointerMove(grid(), by(1.2, 4))
+      await waitFor(() => expect(lastNotes()).toEqual([note(60, 3, 2)]))
+      // most of the way down: it lands on the key below, and is heard there
+      fireEvent.pointerMove(grid(), by(1.2, 9))
+      await waitFor(() => expect(lastNotes()).toEqual([note(59, 3, 2)]))
+      expect(calls('play_note').at(-1)?.pitch).toBe(59)
+      fireEvent.pointerUp(grid(), by(1.2, 9))
+      await waitFor(() => expect(lastNotes()).toEqual([note(59, 3, 2)]))
+    })
+
     it('moves the whole selection, and deletes it with Delete', async () => {
       await open([note(60, 0, 2), note(64, 4, 2), note(67, 8, 2)], 'select')
 

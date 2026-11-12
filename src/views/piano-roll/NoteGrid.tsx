@@ -25,10 +25,10 @@ import { editShortcutHandler } from '../../util/shortcuts'
 import { createAuditioner } from './audition'
 import {
   DEFAULT_STEP_WIDTH, GridScene, KEYS_WIDTH, ROW_HEIGHT, RULER_HEIGHT,
-  contentHeight, contentWidth, drawGrid, drawKeys, drawRuler, fitCanvas, pitchAtY, rowAtY, rowTop, stepAtX, zoomGrid,
+  contentHeight, contentWidth, drawCarried, drawGrid, drawKeys, drawRuler, fitCanvas, pitchAtY, rowAtY, rowTop, stepAtX, zoomGrid,
 } from './draw'
 import {
-  DEFAULT_LENGTH, centrePitch, clampPitch, cutNotes, drawnLength, fitSelection, moveNotes, newNote, noteBoxes,
+  DEFAULT_LENGTH, carriedNotes, centrePitch, clampPitch, cutNotes, drawnLength, fitSelection, moveNotes, newNote, noteBoxes,
   noteCut, pasteStep, pressKind, rollSnapping, sameNotes, snapStep, trimNotes,
 } from './notes'
 import { clamp } from '../../util/helpers'
@@ -58,11 +58,11 @@ type Press =
   | { kind: 'cut', from: Point, index: number }
   // drawing a new note (at `index`): dragging right sets its length
   | { kind: 'draw', origin: Note[], last: Note[], index: number, from: Point, drawn: boolean }
-  // moving the selection by the note grabbed (`index`), the mouse `grab`
-  // steps into it
+  // moving the selection by the note grabbed (`index`), carried by the
+  // mouse from the step and row it went down on
   | {
     kind: 'move', origin: Note[], last: Note[], index: number, indices: number[],
-    grab: number, from: Point, active: boolean
+    fromStep: number, fromRow: number, from: Point, active: boolean
   }
   // trimming the selection by an edge of the note grabbed, the mouse `grab`
   // steps before the edge
@@ -125,6 +125,8 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
   const [selection, setSelection] = React.useState<ReadonlySet<number>>(NO_SELECTION)
   const [overlay, setOverlayState] = React.useState<Overlay>(NO_OVERLAY)
   const [pressedKey, setPressedKey] = React.useState<number | null>(null)
+  // the notes being carried by the mouse, shown as ghosts where they'll land
+  const [landing, setLanding] = React.useState<ReadonlySet<number> | null>(null)
   const [size, setSize] = React.useState({ width: 0, height: 0 })
   const [scroll, setScroll] = React.useState({ x: 0, y: 0 })
   const [stepWidth, setStepWidth] = React.useState(DEFAULT_STEP_WIDTH)
@@ -138,6 +140,7 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
   const rulerRef = React.useRef<HTMLCanvasElement>(null)
   const keysRef = React.useRef<HTMLCanvasElement>(null)
   const playheadRef = React.useRef<HTMLDivElement>(null)
+  const carryRef = React.useRef<HTMLCanvasElement>(null)
   const press = React.useRef<Press | null>(null)
   // a plain click draws a note as long as the last one drawn or trimmed
   const lastLength = React.useRef(DEFAULT_LENGTH)
@@ -152,6 +155,12 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
   // the scroll the last zoom asked for, to the fraction of a pixel
   const exactScroll = React.useRef<number | null>(null)
   const audition = React.useMemo(createAuditioner, [])
+  // the notes being carried, where the mouse has them (unsnapped), drawn on
+  // their own canvas once a frame
+  const carried = React.useRef<Note[] | null>(null)
+  const carryFrame = React.useRef(0)
+  const sizeNow = React.useRef(size)
+  sizeNow.current = size
 
   // the latest of these, for listeners on the window. the notes and the
   // selection are brought up to date as soon as a command changes them, so
@@ -173,8 +182,13 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
     setDraft(null)
     setOverlayState(NO_OVERLAY)
     press.current = null
+    carried.current = null
+    setLanding(null)
+    const canvas = carryRef.current
+    canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height)
   }, [pattern.id, synthId])
   React.useEffect(() => () => audition.stop(), [audition])
+  React.useEffect(() => () => cancelAnimationFrame(carryFrame.current), [])
 
   // another tool: what the last one showed under the mouse goes
   React.useEffect(() => {
@@ -226,10 +240,11 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
   React.useEffect(() => {
     const view = { width: size.width, height: size.height, scrollX: scroll.x, scrollY: scroll.y, stepWidth }
     const grid = fitCanvas(gridRef.current, size.width, size.height)
-    if(grid) drawGrid(grid, view, { length, stepsPerBar, notes: shown, ghosts, selected, ...overlay })
+    if(grid) drawGrid(grid, view, { length, stepsPerBar, notes: shown, ghosts, selected, landing, ...overlay })
     const ruler = fitCanvas(rulerRef.current, size.width, RULER_HEIGHT)
     if(ruler) drawRuler(ruler, view, length, stepsPerBar)
-  }, [size, scroll, stepWidth, length, stepsPerBar, shown, ghosts, selected, overlay, themeChange])
+    if(carried.current) paintCarried()
+  }, [size, scroll, stepWidth, length, stepsPerBar, shown, ghosts, selected, landing, overlay, themeChange])
 
   React.useEffect(() => {
     const keys = fitCanvas(keysRef.current, KEYS_WIDTH, size.height)
@@ -279,6 +294,39 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
 
   const sound = (pitch: number) => {
     audition.play(synthId, pitch, true)
+  }
+
+  // the carried notes drawn again, at the next frame (once, however many
+  // times the mouse moved since)
+  const paintCarried = () => {
+    if(carryFrame.current) return
+    carryFrame.current = requestAnimationFrame(() => {
+      carryFrame.current = 0
+      const scroller = scrollerRef.current
+      const { width, height } = sizeNow.current
+      const ctx = fitCanvas(carryRef.current, width, height)
+      if(!ctx) return
+      const view = {
+        width, height, scrollX: scroller?.scrollLeft ?? 0, scrollY: scroller?.scrollTop ?? 0, stepWidth: stepWidthNow.current,
+      }
+      drawCarried(ctx, view, carried.current ?? [])
+    })
+  }
+
+  // notes `indices` carried to where the mouse has them, ghosts left where
+  // they'll land
+  const carry = (notesNow: Note[], indices: number[]) => {
+    carried.current = notesNow
+    setLanding(prev => prev ?? new Set(indices))
+    paintCarried()
+  }
+
+  // nothing carried: the notes are drawn where they landed
+  const stopCarrying = () => {
+    if(!carried.current) return
+    carried.current = null
+    setLanding(null)
+    paintCarried()
   }
 
   // where the mouse is on the grid
@@ -390,8 +438,14 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
 
       if(d.kind === 'move') {
         setCursor('grabbing')
-        const start = snapStep(point.step - d.grab, snapping())
-        next = moveNotes(d.origin, d.indices, d.index, start, point.pitch, length)
+        // the notes follow the mouse exactly, and land on the snap line
+        // and the key nearest where it has them
+        const steps = point.step - d.fromStep
+        const pitches = d.fromRow - point.row
+        const grabbed = d.origin[d.index]
+        const start = snapStep(grabbed.start + steps, snapping())
+        next = moveNotes(d.origin, d.indices, d.index, start, grabbed.pitch + Math.round(pitches), length)
+        carry(carriedNotes(d.origin, d.indices, steps, pitches, length), d.indices)
         // heard again on its new pitch
         if(next[d.index].pitch !== d.last[d.index].pitch) sound(next[d.index].pitch)
       } else {
@@ -424,6 +478,7 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
     if(!d) return
     audition.stop()
     setOverlay(NO_OVERLAY)
+    stopCarrying()
 
     if(d.kind === 'shift') {
       if(cancelled) return
@@ -478,6 +533,7 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
     press.current = null
     audition.stop()
     setOverlay(NO_OVERLAY)
+    stopCarrying()
 
     if(isNoteDrag(d)) {
       if(!sameNotes(d.last, d.origin)) commit(d.origin)
@@ -730,7 +786,7 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
       }
 
       press.current = {
-        kind: 'move', origin: notes, last: notes, index: hit, indices, grab: point.step - note.start, from: point.screen, active: false,
+        kind: 'move', origin: notes, last: notes, index: hit, indices, fromStep: point.step, fromRow: point.row, from: point.screen, active: false,
       }
       sound(note.pitch)
       return
@@ -831,6 +887,12 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
       <canvas
         ref={gridRef}
         className='absolute'
+        style={{ left: KEYS_WIDTH, top: RULER_HEIGHT, width: size.width, height: size.height }}
+      />
+      {/* the notes being carried by the mouse */}
+      <canvas
+        ref={carryRef}
+        className='absolute pointer-events-none'
         style={{ left: KEYS_WIDTH, top: RULER_HEIGHT, width: size.width, height: size.height }}
       />
       {/* the playhead, over the ruler and the grid */}
