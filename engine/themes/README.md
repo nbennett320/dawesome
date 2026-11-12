@@ -84,6 +84,7 @@ commit.
 ## Sections
 
 - **`playlist`**: the playlist canvas.
+- **`pianoRoll`**: the piano roll's notes, and its selected notes.
 - **`waveform`**: the clip page's waveform.
 - **`meter`**: the mixer meters.
 - **`track`**: the palette tracks are colored from. A track's color is stored
