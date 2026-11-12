@@ -1,5 +1,4 @@
 import React from 'react'
-import { ask } from '@tauri-apps/plugin-dialog'
 import { useAppDispatch, useAppSelector } from '../../../hooks/redux'
 import {
   addPatternFolder,
@@ -16,31 +15,20 @@ import {
   sequencerView,
 } from '../../../state/slices/sequencerSlice'
 import { selectPlaylistItems } from '../../../state/slices/playlistSlice'
-import { setProjectNotice } from '../../../state/slices/projectSlice'
 import { openTab } from '../../../state/slices/windowSlice'
-import { DragItem, FolderScope, beginSampleDrag } from '../../../state/sampleDrag'
-import {
-  FolderNode, ROOT, allItems, buildTree, findFolder, freeName, isWithin,
-} from '../../../types/folderTree'
+import { FolderScope, beginSampleDrag } from '../../../state/sampleDrag'
+import { FolderNode, allItems, buildTree } from '../../../types/folderTree'
 import {
   Pattern, PatternKind, folderIdOf, folderKey, folderPathLabel, patternFolderInfos, patternHint, patternLabel,
   searchPatterns,
 } from '../../../types/sequencer'
 import { viewLabels } from '../../../types/ui'
-import { useTransport } from '../../../views/transport/useTransport'
-import ClipMenu, { ClipMenuItem } from '../../../views/playlist/ClipMenu'
-import { AnalogButton, Led } from '../../fourtrack'
-import BrowserSearch from '../browser/BrowserSearch'
-import BrowserRow, { RowHint } from '../browser/BrowserRow'
-import FolderTree from '../browser/FolderTree'
-import { useClickWithoutDrag } from '../browser/useClickWithoutDrag'
-import { useFolderDrop } from '../browser/useFolderDrop'
-import { useSessionSet } from '../browser/useSessionSet'
-import { NewFolderIcon } from '../../icons'
 import { plural } from '../../../util/helpers'
-
-const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
-
+import { useTransport } from '../../../views/transport/useTransport'
+import { Led } from '../../fourtrack'
+import BrowserRow, { RowHint } from '../browser/BrowserRow'
+import FolderBrowser, { ItemContext } from '../browser/FolderBrowser'
+import { useClickWithoutDrag } from '../browser/useClickWithoutDrag'
 
 // each kind's page: its folders' drag scope, and what it's called
 const PAGES: Record<PatternKind, { scope: FolderScope, label: string }> = {
@@ -91,10 +79,6 @@ const PatternRow = ({ pattern, shownIn, hint, used, selected, playing, depth, on
   )
 }
 
-type Menu =
-  | { kind: 'folder', node: FolderNode<Pattern>, x: number, y: number }
-  | { kind: 'top', x: number, y: number }
-
 // a kind's patterns (the Drum Sequencer's, or the Note Sequencer's), in
 // folders of that kind: find them by name, drag them into the playlist, and
 // file them away
@@ -109,14 +93,6 @@ const PatternBrowser = ({ kind }: { kind: PatternKind }) => {
   const beatsPerBar = transport?.beatsPerBar ?? 4
   const { scope, label } = PAGES[kind]
   const shownIn = viewLabels[sequencerView(kind)]
-  const [expanded, setExpanded] = useSessionSet(scope)
-  // the folder clicked last: new folders go in it
-  const [selectedFolder, setSelectedFolder] = React.useState<string | null>(null)
-  const [renamingFolder, setRenamingFolder] = React.useState<string | null>(null)
-  const [menu, setMenu] = React.useState<Menu | null>(null)
-  const [query, setQuery] = React.useState('')
-  const boxRef = React.useRef<HTMLDivElement>(null)
-  const listRef = React.useRef<HTMLDivElement>(null)
 
   // the engine owns the sequencer: catch up with it, in case its tab hasn't
   // been opened yet
@@ -133,133 +109,16 @@ const PatternBrowser = ({ kind }: { kind: PatternKind }) => {
   const infos = React.useMemo(() => patternFolderInfos(folders), [folders])
   const tree = React.useMemo(() => buildTree(infos, patterns, p => folderKey(p.folder)), [infos, patterns])
 
-  const fail = (what: string) => (e: unknown) => {
-    dispatch(setProjectNotice({ kind: 'error', message: `Couldn't ${what}: ${message(e)}` }))
-  }
-
-  const open = (key: string) => {
-    if(key === ROOT) return
-    setExpanded(prev => {
-      const next = new Set(prev)
-      // its parents too, so it shows
-      infos.forEach(f => { if(isWithin(infos, key, f.key)) next.add(f.key) })
-      return next
-    })
-  }
-
-  const toggle = (key: string) => {
-    setSelectedFolder(key)
-    setExpanded(prev => {
-      const next = new Set(prev)
-      if(next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
-
-  const show = (pattern: Pattern) => {
-    setSelectedFolder(null)
-    dispatch(selectPattern(pattern.id))
-    dispatch(openTab(sequencerView(kind)))
-  }
-
-  // folders
-
-  const newFolder = (parent: string) => {
-    const siblings = (findFolder(tree, parent) ?? tree).folders.map(f => f.name)
-    dispatch(addPatternFolder(freeName('New folder', siblings), folderIdOf(parent), kind))
-      .then(id => {
-        open(parent)
-        setSelectedFolder(folderKey(id))
-        setRenamingFolder(folderKey(id))
-      })
-      .catch(fail('make a folder'))
-  }
-
-  const renameFolder = (key: string, name: string | null) => {
-    setRenamingFolder(null)
-    const id = folderIdOf(key)
-    if(name === null || id === null) return
-    dispatch(renamePatternFolder(id, name)).catch(fail('rename the folder'))
-  }
-
   const placedIn = (node: FolderNode<Pattern>) =>
     allItems(node).filter(p => (clipCounts.get(p.id) ?? 0) > 0).length
 
-  const deleteFolder = async (node: FolderNode<Pattern>) => {
-    const id = folderIdOf(node.key)
-    if(id === null) return
-    const count = allItems(node).length
-    const what = count ? ` and the ${plural(count, 'pattern')} in it` : ''
-    const sure = await ask(`Delete "${node.name}"${what}? This can't be undone.`, 'Delete folder')
-    if(!sure) return
-    await dispatch(removePatternFolder(id))
+  // an item row (and the folders') ids, as the engine knows them
+  const withId = async (key: string, then: (id: number) => unknown) => {
+    const id = folderIdOf(key)
+    if(id !== null) await then(id)
   }
 
-  // dragging into folders
-
-  const canDrop = (item: DragItem, key: string): boolean => {
-    if(item.kind === 'pattern') {
-      const pattern = patterns.find(p => p.id === item.patternId)
-      return !!pattern && folderKey(pattern.folder) !== key
-    }
-    if(item.kind === 'folder' && item.scope === scope) {
-      const parent = infos.find(f => f.key === item.key)?.parent ?? ROOT
-      // not where it is already, and not inside itself
-      return parent !== key && !isWithin(infos, key, item.key)
-    }
-    return false
-  }
-
-  const onDrop = (item: DragItem, key: string) => {
-    const to = folderIdOf(key)
-    if(item.kind === 'pattern') {
-      dispatch(movePatternToFolder(item.patternId, to))
-        .then(() => open(key))
-        .catch(fail('move the pattern'))
-    } else if(item.kind === 'folder') {
-      const id = folderIdOf(item.key)
-      if(id === null) return
-      dispatch(movePatternFolder(id, to))
-        .then(() => open(key))
-        .catch(fail('move the folder'))
-    }
-  }
-
-  const dropTarget = useFolderDrop(listRef, { canDrop, onDrop, onHold: open })
-
-  // menus
-
-  const at = (ev: React.MouseEvent) => {
-    const box = boxRef.current?.getBoundingClientRect()
-    return box ? { x: ev.clientX - box.left, y: ev.clientY - box.top } : { x: 0, y: 0 }
-  }
-
-  const closeMenu = React.useCallback(() => setMenu(null), [])
-
-  const menuItems = (shown: Menu): ClipMenuItem[] => {
-    if(shown.kind === 'top') return [{ label: 'New folder', onSelect: () => newFolder(ROOT) }]
-
-    const { node } = shown
-    const placed = placedIn(node)
-    return [
-      { label: 'New folder', onSelect: () => newFolder(node.key) },
-      { label: 'Rename', onSelect: () => setRenamingFolder(node.key) },
-      {
-        label: 'Delete',
-        danger: true,
-        disabled: placed > 0,
-        title: placed
-          ? `${plural(placed, 'pattern')} in it ${placed === 1 ? 'is' : 'are'} in the playlist. Remove those clips first`
-          : undefined,
-        onSelect: () => { deleteFolder(node).catch(fail(`delete ${node.name}`)) },
-      },
-    ]
-  }
-
-  // what's listed
-
-  const renderPattern = (pattern: Pattern, depth: number, where?: string) => {
+  const renderPattern = (pattern: Pattern, depth: number, { where, deselectFolder }: ItemContext) => {
     const clips = clipCounts.get(pattern.id) ?? 0
     const hint = patternHint(pattern, beatsPerBar, clips)
     return (
@@ -271,81 +130,51 @@ const PatternBrowser = ({ kind }: { kind: PatternKind }) => {
         selected={pattern.id === selectedId}
         playing={pattern.id === run?.patternId}
         depth={depth}
-        onSelect={show}
+        onSelect={() => {
+          deselectFolder()
+          dispatch(selectPattern(pattern.id))
+          dispatch(openTab(sequencerView(kind)))
+        }}
       />
     )
   }
 
-  const search = query.trim()
-  let list: React.ReactNode
-  if(search) {
-    const found = searchPatterns(patterns, search)
-    list = (
-      <div className='pb-2'>
-        {found.map(pattern => (
-          <React.Fragment key={pattern.id}>
-            {renderPattern(pattern, 0, folderPathLabel(folders, pattern.folder))}
-          </React.Fragment>
-        ))}
-        {!found.length && <div className='px-3 py-2 text-xs text-ink-faint'>No patterns match.</div>}
-      </div>
-    )
-  } else {
-    list = (
-      <FolderTree
-        root={tree}
-        expanded={expanded}
-        onToggle={toggle}
-        selectedFolder={selectedFolder}
-        renaming={renamingFolder}
-        onRenamed={renameFolder}
-        dropTarget={dropTarget}
-        onFolderMenu={(node, ev) => setMenu({ kind: 'folder', node, ...at(ev) })}
-        onFolderDragStart={(node, ev) => beginSampleDrag(
-          { kind: 'folder', scope, key: node.key, label: node.name }, ev)}
-        folderHint={node => {
-          const count = allItems(node).length
-          return count ? String(count) : undefined
-        }}
-        itemKey={pattern => String(pattern.id)}
-        renderItem={(pattern, depth) => renderPattern(pattern, depth)}
-      >
-        {!patterns.length && !folders.length && (
-          <div className='px-3 py-2 text-xs text-ink-faint'>No patterns yet. Make one in the {shownIn}.</div>
-        )}
-      </FolderTree>
-    )
-  }
-
   return (
-    <div ref={boxRef} className='relative flex flex-col h-full min-h-0'>
-      <BrowserSearch value={query} onChange={setQuery} label='Search patterns'>
-        <AnalogButton
-          size='xs'
-          aria-label='New folder'
-          title={selectedFolder ? 'A new folder, in the folder selected' : 'A new folder'}
-          onPress={() => newFolder(selectedFolder ?? ROOT)}
-        >
-          <NewFolderIcon />
-        </AnalogButton>
-      </BrowserSearch>
-
-      <div
-        ref={listRef}
-        className='flex-1 min-h-0 overflow-y-auto overflow-x-hidden'
-        role='tree'
-        aria-label={label}
-        tabIndex={-1}
-        onContextMenu={ev => {
-          ev.preventDefault()
-          if(!search) setMenu({ kind: 'top', ...at(ev) })
-        }}
-      >
-        {list}
-      </div>
-
-      {menu && <ClipMenu x={menu.x} y={menu.y} items={menuItems(menu)} onClose={closeMenu} />}
-    </div>
+    <FolderBrowser
+      scope={scope}
+      label={label}
+      searchLabel='Search patterns'
+      noun='pattern'
+      folders={infos}
+      tree={tree}
+      itemKey={pattern => String(pattern.id)}
+      renderItem={renderPattern}
+      search={query => searchPatterns(patterns, query)
+        .map(pattern => ({ item: pattern, where: folderPathLabel(folders, pattern.folder) }))}
+      noMatch='No patterns match.'
+      emptyMessage={!patterns.length && !folders.length ? `No patterns yet. Make one in the ${shownIn}.` : null}
+      createFolder={(parent, name) => dispatch(addPatternFolder(name, folderIdOf(parent), kind)).then(folderKey)}
+      renameFolder={(key, name) => withId(key, id => dispatch(renamePatternFolder(id, name)))}
+      moveFolder={(key, into) => withId(key, id => dispatch(movePatternFolder(id, folderIdOf(into))))}
+      deleteFolder={node => withId(node.key, id => dispatch(removePatternFolder(id)))}
+      deleteLabel='Delete'
+      deletePrompt={(name, what) => `Delete "${name}"${what}? This can't be undone.`}
+      blockDelete={node => {
+        const placed = placedIn(node)
+        return placed
+          ? `${plural(placed, 'pattern')} in it ${placed === 1 ? 'is' : 'are'} in the playlist. Remove those clips first`
+          : undefined
+      }}
+      canDropItem={(item, key) => {
+        if(item.kind !== 'pattern') return false
+        const pattern = patterns.find(p => p.id === item.patternId)
+        return !!pattern && folderKey(pattern.folder) !== key
+      }}
+      dropItem={async (item, key) => {
+        if(item.kind === 'pattern') await dispatch(movePatternToFolder(item.patternId, folderIdOf(key)))
+      }}
+      dropFailure='move the pattern'
+    />
   )
 }
 

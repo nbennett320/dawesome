@@ -1,5 +1,5 @@
 import {
-  FolderInfo, ROOT, allItems, buildTree, findFolder, freeName, isWithin, visibleRows,
+  FolderInfo, ROOT, allItems, buildTree, findFolder, freeName, isWithin, movedFolderPath, visibleRows,
 } from './folderTree'
 
 const folders: FolderInfo[] = [
@@ -71,5 +71,13 @@ describe('freeName', () => {
   it('numbers a name that is taken', () => {
     expect(freeName('New folder', ['Drums'])).toBe('New folder')
     expect(freeName('New folder', ['new folder', 'New folder 2'])).toBe('New folder 3')
+  })
+})
+
+describe('movedFolderPath', () => {
+  it('moves the folder and what is in it, nothing else', () => {
+    expect(movedFolderPath('Vocals', 'Vocals', 'Old/Vocals')).toBe('Old/Vocals')
+    expect(movedFolderPath('Vocals/Verse', 'Vocals', 'Old/Vocals')).toBe('Old/Vocals/Verse')
+    expect(movedFolderPath('Vocals 2', 'Vocals', 'Old/Vocals')).toBe('Vocals 2')
   })
 })

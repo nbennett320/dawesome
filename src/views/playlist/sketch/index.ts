@@ -127,9 +127,9 @@ export const staticDefaults = {
   },
 }
 
-// the top of a track, in playlist y. matches PlaylistTrack's layout
-const trackTop = (trackNumber: number): number =>
-  staticDefaults.trackHeight * trackNumber + trackNumber * .3 + staticDefaults.timelineHeight
+// the top of a track, in playlist y
+export const trackTop = (trackNumber: number, trackHeight: number = staticDefaults.trackHeight): number =>
+  trackHeight * trackNumber + trackNumber * .3 + staticDefaults.timelineHeight
 
 // room below the last track: dropping a clip there puts it on a new track
 const NEW_TRACK_AREA_HEIGHT = staticDefaults.trackHeight / 2

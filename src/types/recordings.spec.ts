@@ -1,5 +1,5 @@
 import {
-  RecordingFile, describeUse, movedFolderPath, parentFolder, recordingFolders, formatTakeDate, formatTakeDuration, searchTakes, takeUses,
+  RecordingFile, describeUse, parentFolder, recordingFolders, formatTakeDate, formatTakeDuration, searchTakes, takeUses,
 } from './recordings'
 
 describe('formatTakeDuration', () => {
@@ -69,13 +69,5 @@ describe('recordingFolders', () => {
     ])
     expect(parentFolder('a/b/c')).toBe('a/b')
     expect(parentFolder('a')).toBe('')
-  })
-})
-
-describe('movedFolderPath', () => {
-  it('moves the folder and what is in it, nothing else', () => {
-    expect(movedFolderPath('Vocals', 'Vocals', 'Old/Vocals')).toBe('Old/Vocals')
-    expect(movedFolderPath('Vocals/Verse', 'Vocals', 'Old/Vocals')).toBe('Old/Vocals/Verse')
-    expect(movedFolderPath('Vocals 2', 'Vocals', 'Old/Vocals')).toBe('Vocals 2')
   })
 })

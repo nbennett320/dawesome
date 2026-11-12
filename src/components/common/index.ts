@@ -1,4 +1,6 @@
 export { default as Bar } from './Bar'
 export { default as Choice } from './Choice'
 export { default as Field } from './Field'
+export { default as NameInput } from './NameInput'
 export { default as Notice } from './Notice'
+export { default as ReadoutInput } from './ReadoutInput'

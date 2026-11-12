@@ -126,10 +126,3 @@ export const parentFolder = (path: string): string => {
   return cut < 0 ? ROOT : path.slice(0, cut)
 }
 
-// a folder path after the folder `from` moved to `to` (it, or one inside
-// it), or the path as it was
-export const movedFolderPath = (path: string, from: string, to: string): string => {
-  if(path === from) return to
-  if(path.startsWith(`${from}/`)) return to + path.slice(from.length)
-  return path
-}

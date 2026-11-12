@@ -1,6 +1,7 @@
 import React from 'react'
 import { Knob } from '../../components/fourtrack'
 import { clamp } from '../../util/helpers'
+import { ReadoutInput } from '../../components/common'
 
 interface Props {
   label: string
@@ -43,17 +44,6 @@ const SettingControl = ({
   onChange,
   onReset,
 }: Props) => {
-  // what's typed in the number field, applied on enter or blur
-  const [draft, setDraft] = React.useState<string | null>(null)
-
-  const commit = () => {
-    if(draft === null) return
-
-    const typed = parseFloat(draft)
-    if(Number.isFinite(typed)) onChange(clamp(typed / fieldScale, min, max))
-    setDraft(null)
-  }
-
   // the knob turns through 0..1, mapped onto the range through the taper
   const range = max - min || 1
   const toPosition = (v: number) => (clamp(v, min, max) - min) / range
@@ -97,18 +87,13 @@ const SettingControl = ({
       </div>
 
       <div className='w-full flex flex-row items-center gap-1'>
-        <input
-          type='text'
-          inputMode='decimal'
-          className='ft-readout flex-1 min-w-0'
-          value={draft ?? tidy(value * fieldScale)}
+        <ReadoutInput
+          className='flex-1 min-w-0'
+          value={String(tidy(value * fieldScale))}
           aria-label={`${label} value`}
-          onFocus={e => e.currentTarget.select()}
-          onChange={e => setDraft(e.currentTarget.value)}
-          onBlur={commit}
-          onKeyDown={e => {
-            if(e.key === 'Enter') e.currentTarget.blur()
-            if(e.key === 'Escape') setDraft(null)
+          onCommit={text => {
+            const typed = parseFloat(text)
+            if(Number.isFinite(typed)) onChange(clamp(typed / fieldScale, min, max))
           }}
         />
         {unit && <span className='ft-label normal-case tracking-normal w-5'>{unit}</span>}

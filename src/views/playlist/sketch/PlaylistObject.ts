@@ -2,7 +2,7 @@ import p5 from 'p5'
 import { P5CanvasInstance } from 'react-p5-wrapper'
 import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import Waveform from './Waveform'
-import { ClipView, CanvasProps, Renderer, staticDefaults } from './index'
+import { ClipView, CanvasProps, Renderer, staticDefaults, trackTop } from './index'
 import { PlaylistItem } from '../../../types/playlist'
 import { P5BoundingBox, State as ComponentState } from '../../../render/P5Component'
 import { paint, theme } from './theme'
@@ -56,7 +56,7 @@ class PlaylistObject extends PlaylistComponent<State> {
     this.duration = props.duration
     this.trackNumber = props.trackNumber
     this.trackHeight = props?.trackHeight ?? staticDefaults.trackHeight
-    this.minHeight = this.trackHeight * this.trackNumber + (this.trackNumber * .3) + staticDefaults.timelineHeight
+    this.minHeight = trackTop(this.trackNumber, this.trackHeight)
     this.maxHeight = this.minHeight + this.trackHeight
     this.waveform = new Waveform(
       this.p,

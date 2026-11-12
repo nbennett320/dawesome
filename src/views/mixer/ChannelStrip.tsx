@@ -10,6 +10,7 @@ import FxJack from './FxJack'
 import { DROP_CHANNEL } from './useChannelDrop'
 import { RegisterMeter } from './useMixerMeters'
 import { clamp } from '../../util/helpers'
+import { NameInput, ReadoutInput } from '../../components/common'
 
 // the volume in dB, typed in. "-inf" or "-∞" is silent
 const parseDb = (typed: string): number | null => {
@@ -25,34 +26,17 @@ const DbField = ({ label, value, onChange }: {
   label: string
   value: number
   onChange: (db: number) => void
-}) => {
-  const [draft, setDraft] = React.useState<string | null>(null)
-
-  const commit = () => {
-    if(draft === null) return
-    const db = parseDb(draft)
-    if(db !== null) onChange(db)
-    setDraft(null)
-  }
-
-  return (
-    <input
-      type='text'
-      inputMode='decimal'
-      aria-label={`${label} volume in dB`}
-      title='Volume in dB'
-      className='ft-readout'
-      value={draft ?? formatDb(value)}
-      onFocus={e => e.currentTarget.select()}
-      onChange={e => setDraft(e.currentTarget.value)}
-      onBlur={commit}
-      onKeyDown={e => {
-        if(e.key === 'Enter') e.currentTarget.blur()
-        if(e.key === 'Escape') setDraft(null)
-      }}
-    />
-  )
-}
+}) => (
+  <ReadoutInput
+    aria-label={`${label} volume in dB`}
+    title='Volume in dB'
+    value={formatDb(value)}
+    onCommit={typed => {
+      const db = parseDb(typed)
+      if(db !== null) onChange(db)
+    }}
+  />
+)
 
 // the strip's name. double-click to rename it, if it can be renamed
 const NameLabel = ({ label, silenced, onRename }: {
@@ -60,30 +44,19 @@ const NameLabel = ({ label, silenced, onRename }: {
   silenced: boolean
   onRename?: (name: string) => void
 }) => {
-  const [draft, setDraft] = React.useState<string | null>(null)
+  const [renaming, setRenaming] = React.useState(false)
 
-  if(draft !== null && onRename) {
-    const commit = () => {
-      onRename(draft)
-      setDraft(null)
-    }
-
+  if(renaming && onRename) {
     return (
-      <input
-        type='text'
-        // eslint-disable-next-line jsx-a11y/no-autofocus
-        autoFocus
+      <NameInput
+        initial={label}
         aria-label='Track name'
         placeholder='Track name'
         maxLength={MAX_NAME_CHARS}
-        className='ft-scribble w-full h-full text-xs text-center px-1 outline-none ring-2 ring-accent-focus'
-        value={draft}
-        onFocus={e => e.currentTarget.select()}
-        onChange={e => setDraft(e.currentTarget.value)}
-        onBlur={commit}
-        onKeyDown={e => {
-          if(e.key === 'Enter') commit()
-          if(e.key === 'Escape') setDraft(null)
+        className='w-full h-full text-center'
+        onDone={name => {
+          if(name !== null) onRename(name)
+          setRenaming(false)
         }}
       />
     )
@@ -97,7 +70,7 @@ const NameLabel = ({ label, silenced, onRename }: {
     <div
       className={`ft-scribble h-full leading-5 px-1 text-xs font-medium truncate text-center ${silenced ? 'text-ink-faint italic' : ''}`}
       title={title}
-      onDoubleClick={() => { if(onRename) setDraft(label) }}
+      onDoubleClick={() => { if(onRename) setRenaming(true) }}
     >
       {label}
     </div>
