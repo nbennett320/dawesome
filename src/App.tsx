@@ -4,7 +4,7 @@ import Topbar from './components/topbar/Topbar'
 import Sidebar from './components/sidebar/Sidebar'
 import TabWindow from './views/TabWindow'
 import { listeners } from './events/window'
-import { projectName, selectProjectPath } from './state/slices/projectSlice'
+import { selectProjectPath, selectProjectUnsaved, windowTitle } from './state/slices/projectSlice'
 import ProjectNotice from './components/ProjectNotice'
 import DragGhost from './components/DragGhost'
 import { togglePlayHere } from './state/slices/sequencerSlice'
@@ -14,6 +14,7 @@ import { useEditCommands } from './state/useEditCommands'
 const App = () => {
   const dispatch = useAppDispatch()
   const projectPath = useAppSelector(selectProjectPath)
+  const unsaved = useAppSelector(selectProjectUnsaved)
 
   // File menu: new, open, open recent, save, save as. Window menu: open tabs
   React.useEffect(() => {
@@ -36,15 +37,16 @@ const App = () => {
     [dispatch],
   )
 
-  // show the project's name in the window's title bar
+  // show the project's name in the window's title bar, with a * while it
+  // has unsaved changes
   React.useEffect(() => {
-    const title = `${projectName(projectPath) ?? 'Untitled'} — Dawesome`
+    const title = windowTitle(projectPath, unsaved)
     // loaded when needed, since it expects to run inside the app's window
     import('@tauri-apps/api/window')
       .then(({ getCurrentWindow }) => getCurrentWindow().setTitle(title))
       // eslint-disable-next-line no-console
       .catch(e => console.error('could not set the window title:', e))
-  }, [projectPath])
+  }, [projectPath, unsaved])
 
   return (
     <div className="AppRoot min-h-screen text-ink-strong">
