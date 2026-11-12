@@ -672,11 +672,14 @@ pub fn set_playlist_tempo(state: &Arc<state::InnerState>, tempo: f32) -> Result<
   match retime(state, tempo)? {
     Retimed::Playlist => start_playlist(state),
     // (the tempo's changed even if the pattern has gone meanwhile). from the
-    // step it was started from
-    Retimed::Pattern(id) => if let Err(e) = start_pattern(state, id, *state.playlist.pattern_start.lock().unwrap()) {
-
-      println!("could not carry on with pattern {}: {}", id, e);
-    },
+    // step it was started from (read first: an `if let` holds its lock until
+    // its end, and start_pattern takes it again)
+    Retimed::Pattern(id) => {
+      let from = *state.playlist.pattern_start.lock().unwrap();
+      if let Err(e) = start_pattern(state, id, from) {
+        println!("could not carry on with pattern {}: {}", id, e);
+      }
+    }
     Retimed::Stopped => {}
   }
 

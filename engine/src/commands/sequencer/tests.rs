@@ -121,6 +121,25 @@ fn test_a_seek_moves_only_the_pattern_playing() {
 }
 
 #[test]
+fn test_a_tempo_change_restarts_a_pattern_from_its_marker() {
+  let state = Arc::new(daw::InnerState::default());
+  let pattern = add_pattern_of(&state, 1, daw::PatternKind::Drum).unwrap().id;
+  *state.playlist.mode.lock().unwrap() = daw::PlayMode::Pattern(pattern);
+  *state.playlist.pattern_start.lock().unwrap() = 4.;
+  state.playlist.set_playing(true);
+
+  // (on another thread: it hung, the marker's lock held while restarting)
+  let (done_tx, done_rx) = std::sync::mpsc::channel();
+  let changing = state.clone();
+  std::thread::spawn(move || done_tx.send(daw::set_playlist_tempo(&changing, 90.)));
+  let changed = done_rx.recv_timeout(Duration::from_secs(5)).expect("the tempo change hung");
+
+  assert_eq!(changed, Ok(90.));
+  assert_eq!(*state.playlist.pattern_start.lock().unwrap(), 4.);
+  daw::stop_playlist(&state);
+}
+
+#[test]
 fn test_pattern_length_in_the_transport_math() {
   let state = daw::InnerState::default();
   let pattern = add_pattern_of(&state, 2, daw::PatternKind::Drum).unwrap().id;
