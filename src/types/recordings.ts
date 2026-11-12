@@ -22,7 +22,7 @@ export interface RecordingFile {
 // Library in engine/src/audio_commands.rs
 export type Library = 'recordings' | 'clips'
 
-// what's in the recordings folder (see t_list_recordings)
+// what's in the recordings folder (see list_recordings)
 export interface RecordingsListing {
   // newest first
   takes: RecordingFile[]

@@ -122,7 +122,7 @@ const RecordingsBrowser = ({ library = 'recordings' }: BrowserProps) => {
 
   React.useEffect(() => {
     let current = true
-    invoke<RecordingsListing>('t_list_recordings', { library })
+    invoke<RecordingsListing>('list_recordings', { library })
       .then(next => { if(current) setListing(next) })
       .catch(logError(`list the ${w.nouns}`))
     return () => { current = false }
@@ -159,14 +159,14 @@ const RecordingsBrowser = ({ library = 'recordings' }: BrowserProps) => {
   const preview = (take: RecordingFile, { deselectFolder }: ItemContext) => {
     setSelected(take.path)
     deselectFolder()
-    invoke('t_preview_sample', { path: take.path }).catch(logError(`preview ${take.name}`))
+    invoke('preview_sample', { path: take.path }).catch(logError(`preview ${take.name}`))
   }
 
   const renameTake = (take: RecordingFile, name: string | null) => {
     setRenamingTake(null)
     if(name === null) return
 
-    moved('t_rename_recording', { path: take.path, name })
+    moved('rename_recording', { path: take.path, name })
       .then(result => { if(selected === take.path) setSelected(result.path) })
       .catch(fail(`rename ${take.name}`))
   }
@@ -175,7 +175,7 @@ const RecordingsBrowser = ({ library = 'recordings' }: BrowserProps) => {
     const sure = await ask(`Move "${take.name}" to the Trash?`, `Delete ${w.noun}`)
     if(!sure) return
 
-    invoke('t_delete_recording', { path: take.path, library })
+    invoke('delete_recording', { path: take.path, library })
       .then(() => dispatch(takesChanged()))
       .catch(fail(`delete ${take.name}`))
   }
@@ -239,14 +239,14 @@ const RecordingsBrowser = ({ library = 'recordings' }: BrowserProps) => {
       emptyMessage={empty}
       busy={busy}
       createFolder={async (parent, name) => {
-        const made = await invoke<string>('t_create_recording_folder', { parent, name, library })
+        const made = await invoke<string>('create_recording_folder', { parent, name, library })
         dispatch(takesChanged())
         return made
       }}
-      renameFolder={async (key, name) => (await moved('t_rename_recording_folder', { folder: key, name })).path}
-      moveFolder={async (key, into) => (await moved('t_move_recording_folder', { folder: key, toFolder: into })).path}
+      renameFolder={async (key, name) => (await moved('rename_recording_folder', { folder: key, name })).path}
+      moveFolder={async (key, into) => (await moved('move_recording_folder', { folder: key, toFolder: into })).path}
       deleteFolder={async node => {
-        await invoke('t_delete_recording_folder', { folder: node.key, library })
+        await invoke('delete_recording_folder', { folder: node.key, library })
         dispatch(takesChanged())
       }}
       deleteLabel='Move to Trash'
@@ -262,7 +262,7 @@ const RecordingsBrowser = ({ library = 'recordings' }: BrowserProps) => {
       }}
       dropItem={async (item, key) => {
         if(item.kind !== 'sample') return
-        const result = await moved('t_move_recording', { path: item.path, toFolder: key })
+        const result = await moved('move_recording', { path: item.path, toFolder: key })
         if(selected === item.path) setSelected(result.path)
       }}
       dropFailure={`move the ${w.noun}`}

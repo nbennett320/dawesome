@@ -52,15 +52,15 @@ beforeEach(() => vi.resetAllMocks())
 test('recording starts, then stops with its takes on their tracks', async () => {
   const store = makeStore()
 
-  engine({ t_start_recording: recorded({ recording: true }), get_playlist_playing: true })
+  engine({ start_recording: recorded({ recording: true }), get_playlist_playing: true })
   await toggleRecording()(store.dispatch, getState(store))
-  expect(mockInvoke).toHaveBeenCalledWith('t_start_recording', {})
+  expect(mockInvoke).toHaveBeenCalledWith('start_recording', {})
   expect(store.getState().recording.recording).toBe(true)
   expect(store.getState().playlist.playing).toBe(true)
 
-  engine({ t_stop_recording: recorded({ clips: [clip] }), get_playlist_playing: false })
+  engine({ stop_recording: recorded({ clips: [clip] }), get_playlist_playing: false })
   await toggleRecording()(store.dispatch, getState(store))
-  expect(mockInvoke).toHaveBeenCalledWith('t_stop_recording', {})
+  expect(mockInvoke).toHaveBeenCalledWith('stop_recording', {})
   expect(store.getState().recording.recording).toBe(false)
   expect(store.getState().playlist.playing).toBe(false)
 
@@ -72,7 +72,7 @@ test('recording starts, then stops with its takes on their tracks', async () => 
 
 test('a recording that ended some other way is caught', async () => {
   const store = makeStore()
-  engine({ t_start_recording: recorded({ recording: true }) })
+  engine({ start_recording: recorded({ recording: true }) })
   await toggleRecording()(store.dispatch, getState(store))
 
   engine({ collect_recording: recorded({ recording: true }) })
@@ -89,7 +89,7 @@ test('a recording that ended some other way is caught', async () => {
 test('what went wrong is said', async () => {
   const store = makeStore()
 
-  engine({ t_start_recording: new Error('Arm a track first') })
+  engine({ start_recording: new Error('Arm a track first') })
   await toggleRecording()(store.dispatch, getState(store))
   expect(store.getState().recording.recording).toBe(false)
   expect(store.getState().project.notice).toEqual({ kind: 'error', message: "Couldn't record: Arm a track first" })
@@ -118,12 +118,12 @@ test('arming tracks', async () => {
 test('counting in', async () => {
   const store = makeStore()
 
-  engine({ t_toggle_count_in: true })
+  engine({ toggle_count_in: true })
   await toggleCountIn()(store.dispatch)
-  expect(mockInvoke).toHaveBeenCalledWith('t_toggle_count_in', {})
+  expect(mockInvoke).toHaveBeenCalledWith('toggle_count_in', {})
   expect(store.getState().recording.countIn).toBe(true)
 
-  engine({ t_toggle_count_in: false })
+  engine({ toggle_count_in: false })
   await toggleCountIn()(store.dispatch)
   expect(store.getState().recording.countIn).toBe(false)
 })

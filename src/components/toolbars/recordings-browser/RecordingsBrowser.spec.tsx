@@ -47,8 +47,8 @@ beforeEach(() => {
   mockInvoke.mockReset()
   mockAsk.mockReset()
   mockInvoke.mockImplementation(async (command: string) => {
-    if(command === 't_list_recordings') return listing
-    if(command === 't_create_recording_folder') return 'New folder'
+    if(command === 'list_recordings') return listing
+    if(command === 'create_recording_folder') return 'New folder'
     return undefined
   })
 })
@@ -56,7 +56,7 @@ beforeEach(() => {
 describe('the recordings pages', () => {
   it('lists the folders and takes of its library', async () => {
     await setup('clips')
-    expect(mockInvoke).toHaveBeenCalledWith('t_list_recordings', { library: 'clips' })
+    expect(mockInvoke).toHaveBeenCalledWith('list_recordings', { library: 'clips' })
     expect(screen.getByRole('tree', { name: 'Clips' })).toBeTruthy()
     expect(names().some(row => row.startsWith('Vocals'))).toBe(true)
     expect(names().some(row => row.startsWith('Guitar'))).toBe(true)
@@ -86,7 +86,7 @@ describe('the recordings pages', () => {
     await setup()
     fireEvent.click(screen.getByRole('button', { name: 'New folder' }))
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith(
-      't_create_recording_folder', { parent: '', name: 'New folder', library: 'recordings' }))
+      'create_recording_folder', { parent: '', name: 'New folder', library: 'recordings' }))
   })
 
   it('makes a folder inside the folder last clicked', async () => {
@@ -94,7 +94,7 @@ describe('the recordings pages', () => {
     fireEvent.click(screen.getByText('Vocals'))
     fireEvent.click(screen.getByRole('button', { name: 'New folder' }))
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith(
-      't_create_recording_folder', { parent: 'Vocals', name: 'New folder', library: 'recordings' }))
+      'create_recording_folder', { parent: 'Vocals', name: 'New folder', library: 'recordings' }))
   })
 
   it('leaves the folders alone while recording', async () => {
@@ -110,7 +110,7 @@ describe('the recordings pages', () => {
     fireEvent.click(screen.getByText('Move to Trash'))
     await waitFor(() => expect(mockAsk).toHaveBeenCalledWith(
       'Move "Vocals" and the 1 recording in it to the Trash?', 'Delete folder'))
-    expect(mockInvoke).not.toHaveBeenCalledWith('t_delete_recording_folder', expect.anything())
+    expect(mockInvoke).not.toHaveBeenCalledWith('delete_recording_folder', expect.anything())
   })
 
   it('moves a folder to the Trash once the user agrees', async () => {
@@ -119,6 +119,6 @@ describe('the recordings pages', () => {
     mockAsk.mockResolvedValue(true)
     fireEvent.click(screen.getByText('Move to Trash'))
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith(
-      't_delete_recording_folder', { folder: 'Vocals', library: 'recordings' }))
+      'delete_recording_folder', { folder: 'Vocals', library: 'recordings' }))
   })
 })

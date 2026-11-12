@@ -22,7 +22,7 @@ const stopped = {
 // the commands the engine was sent, in order, without the ones that only ask
 const sent = () => mockInvoke.mock.calls
   .map(([command, args]) => [command, args])
-  .filter(([command]) => (command as string).startsWith('t_'))
+  .filter(([command]) => !(command as string).startsWith('get_'))
 
 // drum patterns, and note patterns 13 and 15
 const patterns = (ids: number[], noteIds: number[] = []) => ({
@@ -51,19 +51,19 @@ describe('the Play key and Space', () => {
   it('plays the playlist when the playlist has the focus', async () => {
     store.dispatch(openTab(View.Playlist))
     await pressPlay()
-    expect(sent()).toEqual([['t_toggle_playlist', {}]])
+    expect(sent()).toEqual([['toggle_playlist', {}]])
   })
 
   it('plays the playlist from any other view', async () => {
     store.dispatch(openTab(View.Mixer))
     await pressPlay()
-    expect(sent()).toEqual([['t_toggle_playlist', {}]])
+    expect(sent()).toEqual([['toggle_playlist', {}]])
   })
 
   it('loops the selected drum pattern when the Drum Sequencer has the focus', async () => {
     store.dispatch(openTab(View.Sequencer))
     await pressPlay()
-    expect(sent()).toEqual([['t_toggle_pattern', { patternId: 5 }]])
+    expect(sent()).toEqual([['toggle_pattern', { patternId: 5 }]])
   })
 
   it('loops the selected note pattern from the Note Sequencer and the Piano Roll', async () => {
@@ -71,19 +71,19 @@ describe('the Play key and Space', () => {
     await pressPlay()
     store.dispatch(openTab(View.PianoRoll))
     await pressPlay()
-    expect(sent()).toEqual([['t_toggle_pattern', { patternId: 15 }], ['t_toggle_pattern', { patternId: 15 }]])
+    expect(sent()).toEqual([['toggle_pattern', { patternId: 15 }], ['toggle_pattern', { patternId: 15 }]])
   })
 
   it('loops a pattern from its start, by its id alone', async () => {
     await store.dispatch(playPattern(3))
-    expect(sent()).toEqual([['t_play_pattern', { patternId: 3 }]])
+    expect(sent()).toEqual([['play_pattern', { patternId: 3 }]])
   })
 
   it('plays the playlist from the Sequencer when there is no pattern', async () => {
     store.dispatch(openTab(View.Sequencer))
     store.dispatch(setSequencer(patterns([])))
     await pressPlay()
-    expect(sent()).toEqual([['t_toggle_playlist', {}]])
+    expect(sent()).toEqual([['toggle_playlist', {}]])
   })
 })
 

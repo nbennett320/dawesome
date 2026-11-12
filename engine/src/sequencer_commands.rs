@@ -294,17 +294,17 @@ pub(crate) fn set_notes(
 // loop a pattern on its own, from its start, stopping whatever was playing.
 // a note pattern's notes play on its synths' master copies
 #[tauri::command]
-pub fn t_play_pattern(state: daw::TState<'_>, pattern_id: u64) -> Result<(), String> {
+pub fn play_pattern(state: daw::TState<'_>, pattern_id: u64) -> Result<(), String> {
   daw::start_pattern(state.inner(), pattern_id)
 }
 
 // pause whatever is playing, or loop the pattern if nothing is
 #[tauri::command]
-pub fn t_toggle_pattern(state: daw::TState<'_>, pattern_id: u64) -> Result<(), String> {
-  toggle_pattern(state.inner(), pattern_id)
+pub fn toggle_pattern(state: daw::TState<'_>, pattern_id: u64) -> Result<(), String> {
+  toggle_pattern_in(state.inner(), pattern_id)
 }
 
-fn toggle_pattern(state: &Arc<daw::InnerState>, pattern_id: u64) -> Result<(), String> {
+fn toggle_pattern_in(state: &Arc<daw::InnerState>, pattern_id: u64) -> Result<(), String> {
   if state.playlist.playing() {
     daw::pause_playlist(state);
     Ok(())

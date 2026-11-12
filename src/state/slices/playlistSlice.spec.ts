@@ -61,7 +61,7 @@ describe('addToPlaylist', () => {
   it('asks for a dropped clip\'s length, which trimming it needs', async () => {
     mockInvoke.mockReset()
     mockInvoke.mockImplementation(async (command: string) => {
-      if(command === 't_add_audiograph_node') return { id: 31, startBeat: 2 }
+      if(command === 'add_audiograph_node') return { id: 31, startBeat: 2 }
       if(command === 'get_clip') {
         return { settings: defaultClipSettings, sampleDuration: 1.5, playedDuration: 1.5, window: null }
       }

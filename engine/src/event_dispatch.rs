@@ -4,26 +4,21 @@ use std::thread;
 use std::time::{Instant, SystemTime};
 use tauri;
 
-use crate::daw::{InnerState};
 use crate::{app, daw, history};
 
-pub fn toggle_playlist(state: &Arc<daw::InnerState>) {
+#[tauri::command]
+pub fn toggle_playlist(state: daw::TState<'_>) {
   if state.playlist.playing() {
-    daw::pause_playlist(state);
+    daw::pause_playlist(state.inner());
   } else {
     // start playlist
-    daw::start_playlist(state);
+    daw::start_playlist(state.inner());
   }
-}
-
-#[tauri::command]
-pub fn t_toggle_playlist(state: daw::TState<'_>) {
-  toggle_playlist(state.inner());
 }
 
 // play from the playhead (nothing if already playing)
 #[tauri::command]
-pub fn t_play_playlist(state: daw::TState<'_>) {
+pub fn play_playlist(state: daw::TState<'_>) {
   // a pattern playing on its own is replaced by the playlist
   if !state.playlist.playing_playlist() {
     daw::start_playlist(state.inner());
@@ -32,7 +27,7 @@ pub fn t_play_playlist(state: daw::TState<'_>) {
 
 // stop where it is, so play carries on from there
 #[tauri::command]
-pub fn t_pause_playlist(state: daw::TState<'_>) {
+pub fn pause_playlist(state: daw::TState<'_>) {
   if state.playlist.playing() {
     daw::pause_playlist(state.inner());
   }
@@ -40,14 +35,14 @@ pub fn t_pause_playlist(state: daw::TState<'_>) {
 
 // stop and go back to the start
 #[tauri::command]
-pub fn t_stop_playlist(state: daw::TState<'_>) {
+pub fn stop_playlist(state: daw::TState<'_>) {
   daw::stop_playlist(state.inner());
 }
 
 // move the playhead to a beat (kept within the playlist), carrying on playing
 // from there if playing. returns the beat it moved to
 #[tauri::command]
-pub fn t_seek_playlist(state: daw::TState<'_>, beat: f64) -> f64 {
+pub fn seek_playlist(state: daw::TState<'_>, beat: f64) -> f64 {
   daw::seek_playlist(state.inner(), beat)
 }
 
@@ -164,23 +159,17 @@ pub fn set_playlist_tempo(
   change_tempo(state.inner(), val, gesture)
 }
 
+#[tauri::command]
 pub fn toggle_metronome_enabled(
-  state: &Arc<daw::InnerState>
+  state: daw::TState<'_>
 ) {
   let val = !state.metronome_enabled.load(Ordering::SeqCst);
   state.metronome_enabled.store(val, Ordering::SeqCst);
 }
 
-#[tauri::command]
-pub fn t_toggle_metronome_enabled(
-  state: daw::TState<'_>
-) {
-  toggle_metronome_enabled(state.inner());
-}
-
 // whether recording counts in a bar first. returns the new setting
 #[tauri::command]
-pub fn t_toggle_count_in(state: daw::TState<'_>) -> bool {
+pub fn toggle_count_in(state: daw::TState<'_>) -> bool {
   !state.playlist.count_in.fetch_xor(true, Ordering::SeqCst)
 }
 
@@ -229,6 +218,7 @@ pub fn enumerate_directory(dir_path: String) -> Result<(
   Ok((samples, samples_paths, dirs, dirs_paths))
 }
 
+#[tauri::command]
 pub fn preview_sample(path: String) {
   // the first sound opens the output, which takes a moment
   thread::spawn(move || {
@@ -236,14 +226,6 @@ pub fn preview_sample(path: String) {
       println!("could not preview sample: {}", e);
     }
   });
-}
-
-#[tauri::command]
-pub fn t_preview_sample(
-  _state: daw::TState<'_>,
-  path: String,
-) {
-  preview_sample(path)
 }
 
 #[tauri::command]
@@ -312,7 +294,7 @@ pub struct PlacedNode {
 }
 
 #[cfg(test)]
-fn add_audiograph_node(
+fn add_node_at_offset(
   state: &daw::InnerState,
   sample_path: String,
   track_number: u32,
@@ -349,7 +331,7 @@ fn add_audiograph_node_at(
 
 // runs off the main thread (async): decoding the sample takes a while
 #[tauri::command(async)]
-pub fn t_add_audiograph_node(
+pub fn add_audiograph_node(
   state: daw::TState<'_>,
   sample_path: String,
   track_number: u32,
@@ -670,7 +652,7 @@ pub(crate) fn change_clip_settings(
 
 // play a clip on its own, with its settings
 #[tauri::command]
-pub fn t_preview_node(
+pub fn preview_node(
   state: daw::TState<'_>,
   id: u64,
 ) -> Result<(), String> {
@@ -735,8 +717,9 @@ pub fn get_playlist_data(
   ))
 }
 
+#[tauri::command]
 pub fn toggle_loop_enabled(
-  state: &Arc<InnerState>
+  state: daw::TState<'_>
 ) {
   let val = !state
     .playlist
@@ -747,13 +730,6 @@ pub fn toggle_loop_enabled(
     .playlist
     .loop_enabled
     .store(val, Ordering::SeqCst);
-}
-
-#[tauri::command]
-pub fn t_toggle_loop_enabled(
-  state: daw::TState<'_>
-) {
-  toggle_loop_enabled(state.inner());
 }
 
 #[tauri::command]
@@ -1029,7 +1005,7 @@ mod tests {
   fn test_clips_and_the_playhead_keep_their_beat_when_the_tempo_changes() {
     let state = Arc::new(daw::InnerState::default());
     let sample = daw::METRONOME_TICK_PATH.to_string();
-    let id = add_audiograph_node(&state, sample, 0, beat_to_offset(&state, Some(8.)), true).unwrap();
+    let id = add_node_at_offset(&state, sample, 0, beat_to_offset(&state, Some(8.)), true).unwrap();
     let ms = |id: u64| state.playlist.audiograph.lock().unwrap()
       .get_node_by_id(id).unwrap().start_offset.as_secs_f64() * 1000.;
     let length = |id: u64| state.playlist.audiograph.lock().unwrap()
@@ -1065,7 +1041,7 @@ mod tests {
   fn test_playback_carries_on_from_its_beat_at_the_new_tempo() {
     let state = daw::InnerState::default();
     // a clip far enough along that the loop is long
-    add_audiograph_node(&state, daw::METRONOME_TICK_PATH.to_string(), 0, beat_to_offset(&state, Some(60.)), true).unwrap();
+    add_node_at_offset(&state, daw::METRONOME_TICK_PATH.to_string(), 0, beat_to_offset(&state, Some(60.)), true).unwrap();
 
     // playing from beat 4 (2s), 1.25s ago: beat 6.5
     fake_run(&state, 2_000, 1_250);
@@ -1111,7 +1087,7 @@ mod tests {
     assert_eq!(daw::loop_len(&state).map(ms), Some(8_000));
 
     // a short clip at beat 9 (the start of bar 3) ends in bar 3
-    let id = add_audiograph_node(&state, sample.clone(), 0, beat_to_offset(&state, Some(8.)), true).unwrap();
+    let id = add_node_at_offset(&state, sample.clone(), 0, beat_to_offset(&state, Some(8.)), true).unwrap();
     assert_eq!(ms(daw::loop_end(&state)), 6_000);
     assert_eq!(playlist_transport(&state).loop_beats, 12);
 
@@ -1130,7 +1106,7 @@ mod tests {
   fn test_the_playhead_wraps_at_the_last_clip() {
     let state = daw::InnerState::default();
     // a clip in bar 2: the loop is two bars (4s)
-    add_audiograph_node(&state, daw::METRONOME_TICK_PATH.to_string(), 0, beat_to_offset(&state, Some(5.)), true).unwrap();
+    add_node_at_offset(&state, daw::METRONOME_TICK_PATH.to_string(), 0, beat_to_offset(&state, Some(5.)), true).unwrap();
     assert_eq!(playlist_transport(&state).loop_beats, 8);
 
     // 5s into a run from the start: 1s into the second pass
@@ -1161,18 +1137,18 @@ mod tests {
       .get_node_by_id(id).unwrap().start_offset.as_millis();
 
     // default snap is one beat (500ms at 120bpm)
-    let id = add_audiograph_node(&state, sample.clone(), 0, Duration::from_millis(700), true).unwrap();
+    let id = add_node_at_offset(&state, sample.clone(), 0, Duration::from_millis(700), true).unwrap();
     assert_eq!(ms(id), 500);
-    let id2 = add_audiograph_node(&state, sample.clone(), 0, Duration::from_millis(800), true).unwrap();
+    let id2 = add_node_at_offset(&state, sample.clone(), 0, Duration::from_millis(800), true).unwrap();
     assert_eq!(ms(id2), 1_000);
 
     // snap disabled keeps the exact position
-    let id3 = add_audiograph_node(&state, sample.clone(), 0, Duration::from_millis(700), false).unwrap();
+    let id3 = add_node_at_offset(&state, sample.clone(), 0, Duration::from_millis(700), false).unwrap();
     assert_eq!(ms(id3), 700);
 
     // a different snap setting is respected (sixteenth notes = 125ms)
     state.playlist.ui.lock().unwrap().snap_subdivision = daw::timing::Note::SixteenthNote;
-    let id4 = add_audiograph_node(&state, sample, 0, Duration::from_millis(700), true).unwrap();
+    let id4 = add_node_at_offset(&state, sample, 0, Duration::from_millis(700), true).unwrap();
     assert_eq!(ms(id4), 750);
   }
 
@@ -1180,7 +1156,7 @@ mod tests {
   fn test_clip_settings() {
     let state = daw::InnerState::default();
     let sample = daw::METRONOME_TICK_PATH.to_string();
-    let id = add_audiograph_node(&state, sample, 0, Duration::ZERO, false).unwrap();
+    let id = add_node_at_offset(&state, sample, 0, Duration::ZERO, false).unwrap();
 
     let info = get_clip_of(&state, id).unwrap();
     assert_eq!(info.settings, daw::ClipSettings::default());
@@ -1234,7 +1210,7 @@ mod tests {
     let sample = daw::METRONOME_TICK_PATH.to_string();
 
     // dropped at beat 1.4 snaps to beat 1 (default snap is one beat)
-    let id = add_audiograph_node(&state, sample, 0, beat_to_offset(&state, Some(1.4)), true).unwrap();
+    let id = add_node_at_offset(&state, sample, 0, beat_to_offset(&state, Some(1.4)), true).unwrap();
     assert_eq!(node_beat(&state, id).unwrap(), 1.);
 
     // moved to beat 3.6 snaps to beat 4
@@ -1253,9 +1229,9 @@ mod tests {
     let state = daw::InnerState::default();
     let sample = daw::METRONOME_TICK_PATH.to_string();
     // 120bpm, one-beat snap. b is off the grid, a quarter beat after a
-    let a = add_audiograph_node(&state, sample.clone(), 0, beat_to_offset(&state, Some(2.)), true).unwrap();
-    let b = add_audiograph_node(&state, sample.clone(), 1, beat_to_offset(&state, Some(2.25)), false).unwrap();
-    let c = add_audiograph_node(&state, sample, 3, beat_to_offset(&state, Some(9.)), true).unwrap();
+    let a = add_node_at_offset(&state, sample.clone(), 0, beat_to_offset(&state, Some(2.)), true).unwrap();
+    let b = add_node_at_offset(&state, sample.clone(), 1, beat_to_offset(&state, Some(2.25)), false).unwrap();
+    let c = add_node_at_offset(&state, sample, 3, beat_to_offset(&state, Some(9.)), true).unwrap();
     let beat = |id: u64| node_beat(&state, id).unwrap();
 
     // a dropped at beat 4.4 on track 1: snaps to 4, b keeps its quarter

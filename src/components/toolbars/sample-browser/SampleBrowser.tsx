@@ -55,7 +55,7 @@ const SampleBrowser = () => {
 
   const preview = (sample: BrowserSampleItem) => {
     setSelected(sample.index)
-    invoke('t_preview_sample', { path: sample.path }).catch(logError(`preview ${sample.label}`))
+    invoke('preview_sample', { path: sample.path }).catch(logError(`preview ${sample.label}`))
   }
 
   const rows: React.ReactNode[] = []

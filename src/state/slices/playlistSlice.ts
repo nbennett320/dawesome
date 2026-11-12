@@ -429,7 +429,7 @@ export const syncPlayingFrom = (dispatch: Dispatch) =>
     })
 
 export const togglePlay = () => async (dispatch: Dispatch) => {
-  await invoke<void>('t_toggle_playlist', {})
+  await invoke<void>('toggle_playlist', {})
   await syncPlayingFrom(dispatch)
 }
 
@@ -440,17 +440,17 @@ const transportError = (what: string) => (e: unknown) =>
 // the transport's keys: play from the playhead, pause there, stop and go back
 // to the start
 export const playPlaylist = () => (dispatch: Dispatch) =>
-  invoke<void>('t_play_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('play'))
+  invoke<void>('play_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('play'))
 
 export const pausePlaylist = () => (dispatch: Dispatch) =>
-  invoke<void>('t_pause_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('pause'))
+  invoke<void>('pause_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('pause'))
 
 export const stopPlaylist = () => (dispatch: Dispatch) =>
-  invoke<void>('t_stop_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('stop'))
+  invoke<void>('stop_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('stop'))
 
 // move the playhead to a beat (playing carries on from there)
 export const seekPlaylist = (beat: number) => (dispatch: Dispatch) =>
-  invoke<number>('t_seek_playlist', { beat })
+  invoke<number>('seek_playlist', { beat })
     .then(() => syncPlayingFrom(dispatch))
     .catch(transportError(`move to beat ${beat}`))
 
@@ -512,7 +512,7 @@ export const selectPlaylistTempo = (state: RootState) => state.playlist.tempo
 export const { setMetronomeEnabled } = playlistSlice.actions
 
 export const toggleMetronome = () => async (dispatch: Dispatch) => {
-  await invoke<void>('t_toggle_metronome_enabled', {})
+  await invoke<void>('toggle_metronome_enabled', {})
   const enabled = await invoke<boolean>('get_metronome_enabled', {})
   dispatch(setMetronomeEnabled(enabled))
 }
@@ -525,7 +525,7 @@ export const selectMetronomeEnabled = (state: RootState) =>
 export const { setLoopEnabled } = playlistSlice.actions
 
 export const toggleLoop = () => async (dispatch: Dispatch) => {
-  await invoke<void>('t_toggle_loop_enabled', {})
+  await invoke<void>('toggle_loop_enabled', {})
   const enabled = await invoke<boolean>('get_loop_enabled', {})
   dispatch(setLoopEnabled(enabled))
 }
@@ -566,7 +566,7 @@ export const addToPlaylist = (
   const dropX = pixelOffset.x - pixelOffset.left
   const dropY = pixelOffset.y - pixelOffset.top
   // startBeat is where the engine actually placed the clip (after snapping)
-  const { id, startBeat } = await invoke<{ id: number, startBeat: number }>('t_add_audiograph_node', {
+  const { id, startBeat } = await invoke<{ id: number, startBeat: number }>('add_audiograph_node', {
     samplePath: path,
     trackNumber,
     dropBeat,
@@ -1101,7 +1101,7 @@ export const repeatClips = (ids: number[]) => async (
 export const auditionClip = (id: number) => async (_: Dispatch, getState: () => RootState) => {
   // make sure the engine has the latest settings first
   await sendSettingsNow(id, selectClipSettings(id)(getState()))
-  await invoke('t_preview_node', { id })
+  await invoke('preview_node', { id })
 }
 // end clip settings methods
 

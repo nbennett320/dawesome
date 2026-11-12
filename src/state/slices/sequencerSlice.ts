@@ -432,7 +432,7 @@ export const showNotes = (patternId: number, synthId: number) => (dispatch: Disp
 // to the master), or stop it (or pause what's playing)
 export const togglePattern = (patternId: number) => async (dispatch: Dispatch) => {
   try {
-    await invoke('t_toggle_pattern', { patternId })
+    await invoke('toggle_pattern', { patternId })
   } catch(e) {
     sequencerError('play the pattern')(e)
   }
@@ -460,7 +460,7 @@ export const togglePlayHere = () => async (dispatch: Dispatch, getState: () => R
 // loop a pattern from its start, stopping whatever was playing
 export const playPattern = (patternId: number) => async (dispatch: Dispatch) => {
   try {
-    await invoke('t_play_pattern', { patternId })
+    await invoke('play_pattern', { patternId })
   } catch(e) {
     sequencerError('play the pattern')(e)
   }
@@ -471,7 +471,7 @@ export const playPattern = (patternId: number) => async (dispatch: Dispatch) => 
 // Piano Roll). the playlist's playhead stays where it was
 export const stopPattern = () => async (dispatch: Dispatch) => {
   try {
-    await invoke('t_pause_playlist', {})
+    await invoke('pause_playlist', {})
   } catch(e) {
     sequencerError('stop the pattern')(e)
   }

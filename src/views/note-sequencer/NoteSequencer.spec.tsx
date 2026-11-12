@@ -186,7 +186,7 @@ describe('the Note Sequencer', () => {
   it('plays and stops the pattern from its strip', async () => {
     await setup()
     fireEvent.click(screen.getByRole('button', { name: 'Play the pattern' }))
-    await waitFor(() => expect(calls('t_toggle_pattern')).toEqual([{ patternId: 1 }]))
+    await waitFor(() => expect(calls('toggle_pattern')).toEqual([{ patternId: 1 }]))
   })
 })
 
