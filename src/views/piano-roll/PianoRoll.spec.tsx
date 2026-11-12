@@ -50,6 +50,8 @@ const makeSequencer = (notes: Note[] = []): SequencerState => ({
 })
 
 const stopped = { playing: false, patternId: null, startTimeMs: null, beatIntervalMs: 500, beatsPerBar: 4 }
+// what the engine says is playing
+let transport: object = stopped
 
 const makeStore = () => configureStore({
   reducer: {
@@ -133,13 +135,14 @@ afterAll(() => {
 })
 
 beforeEach(() => {
+  transport = stopped
   resetGestures()
   clearPendingNoteSends()
   clearNoteClipboard()
   sequencer = makeSequencer()
   mockInvoke.mockImplementation(async (command: string, args: Record<string, unknown>) => {
     if(command === 'get_sequencer') return sequencer
-    if(command === 'get_playlist_transport') return stopped
+    if(command === 'get_playlist_transport') return transport
     if(command === 'set_pattern_notes') {
       sequencer = {
         ...sequencer,
@@ -263,6 +266,25 @@ describe('the Piano Roll', () => {
       await waitFor(() => expect(lastNotes().at(-1)).toEqual(note(64, 13, 3)))
     })
 
+    it('takes the note being drawn to the key under the mouse, hearing it there', async () => {
+      await open()
+
+      // straight down a key: same start and length, on the new key
+      fireEvent.pointerDown(grid(), at(4.5, 64))
+      fireEvent.pointerMove(grid(), at(4.5, 63))
+      await waitFor(() => expect(lastNotes()).toEqual([note(63, 4, 4)]))
+      expect(calls('play_note').map(args => args.pitch)).toEqual([64, 63])
+      // still on that key: not heard again
+      fireEvent.pointerMove(grid(), at(4.6, 63))
+      expect(calls('play_note')).toHaveLength(2)
+      fireEvent.pointerUp(grid(), at(4.6, 63))
+      await waitFor(() => expect(lastNotes()).toEqual([note(63, 4, 4)]))
+
+      // diagonally: the key and the length together
+      drag(at(8.5, 60), at(10.6, 62))
+      await waitFor(() => expect(lastNotes().at(-1)).toEqual(note(62, 8, 3)))
+    })
+
     it('moves and trims notes as Select does', async () => {
       await open([note(60, 2, 4)])
       drag(at(4, 60), at(6.2, 62))
@@ -281,6 +303,25 @@ describe('the Piano Roll', () => {
       drag(at(3, 60), at(4.2, 62))
       await waitFor(() => expect(lastNotes()).toEqual([note(62, 3, 2), note(64, 8, 2)]))
       expect(calls('play_note').map(args => args.pitch)).toEqual([60, 60, 62])
+    })
+
+    it('carries a note with the mouse, landing on the key nearest where it has it', async () => {
+      await open([note(60, 2, 2)], 'select')
+      // pressed near the bottom of its key
+      const from = { ...at(3, 60), clientY: rowTop(60) - grid().scrollTop + ROW_HEIGHT - 2 }
+      const by = (steps: number, px: number) => ({ ...from, clientX: from.clientX + steps * stepWidth(), clientY: from.clientY + px })
+
+      fireEvent.pointerDown(grid(), from)
+      // the mouse just over into the key below: the note's still mostly on
+      // its own, and lands there
+      fireEvent.pointerMove(grid(), by(1.2, 4))
+      await waitFor(() => expect(lastNotes()).toEqual([note(60, 3, 2)]))
+      // most of the way down: it lands on the key below, and is heard there
+      fireEvent.pointerMove(grid(), by(1.2, 9))
+      await waitFor(() => expect(lastNotes()).toEqual([note(59, 3, 2)]))
+      expect(calls('play_note').at(-1)?.pitch).toBe(59)
+      fireEvent.pointerUp(grid(), by(1.2, 9))
+      await waitFor(() => expect(lastNotes()).toEqual([note(59, 3, 2)]))
     })
 
     it('moves the whole selection, and deletes it with Delete', async () => {
@@ -572,6 +613,73 @@ describe('the Piano Roll', () => {
       // over the keyboard too
       fireEvent.wheel(screen.getByTitle('Click a key to hear it'), { deltaX: 10 })
       expect(grid().scrollLeft).toBe(50)
+    })
+  })
+
+  describe('the ruler', () => {
+    const ruler = () => screen.getByTestId('piano-roll-ruler')
+    const playhead = () => screen.getByTestId('piano-roll-playhead')
+    const onRuler = (step: number, keys: { altKey?: boolean } = {}) => ({
+      clientX: step * stepWidth() - grid().scrollLeft, clientY: 5, button: 0, buttons: 1, pointerId: 2, ...keys,
+    })
+    const playButton = () => screen.getByRole('button', { name: /the pattern/ })
+
+    it('moves the playhead where it’s clicked or dragged, snapped, and Play starts from there', async () => {
+      await open()
+      act(() => { store.dispatch(setPianoRollSnapNote('QuarterNote')) })
+
+      fireEvent.pointerDown(ruler(), onRuler(1))
+      fireEvent.pointerMove(ruler(), onRuler(6.3))
+      // dragged: under the mouse, on the nearest beat
+      expect(playhead().style.transform).toBe(`translateX(${8 * stepWidth()}px)`)
+      fireEvent.pointerUp(ruler(), onRuler(6.3))
+      expect(store.getState().pianoRoll.startSteps).toEqual({ 0: 8 })
+      // nothing was playing: nothing plays
+      expect(calls('seek_pattern')).toEqual([])
+
+      fireEvent.click(playButton())
+      await waitFor(() => expect(calls('toggle_pattern')).toEqual([{ patternId: 0, fromStep: 8 }]))
+
+      // Option: on the step, and never past the last one
+      fireEvent.pointerDown(ruler(), onRuler(5.6, { altKey: true }))
+      fireEvent.pointerUp(ruler(), onRuler(5.6, { altKey: true }))
+      expect(store.getState().pianoRoll.startSteps).toEqual({ 0: 6 })
+      fireEvent.pointerDown(ruler(), onRuler(30, { altKey: true }))
+      fireEvent.pointerUp(ruler(), onRuler(30, { altKey: true }))
+      expect(store.getState().pianoRoll.startSteps).toEqual({ 0: 15 })
+    })
+
+    it('drops a drag whose release went astray, the playhead back where it was', async () => {
+      await open()
+      fireEvent.pointerDown(ruler(), onRuler(4))
+      fireEvent.pointerMove(ruler(), onRuler(6))
+      expect(playhead().style.transform).toBe(`translateX(${6 * stepWidth()}px)`)
+      // back over the ruler with the button up: the drag's gone
+      fireEvent.pointerMove(ruler(), { ...onRuler(9), buttons: 0 })
+      expect(playhead().style.transform).toBe('translateX(0px)')
+      fireEvent.pointerMove(ruler(), { ...onRuler(11), buttons: 0 })
+      expect(playhead().style.transform).toBe('translateX(0px)')
+      fireEvent.pointerUp(ruler(), onRuler(11))
+      expect(store.getState().pianoRoll.startSteps).toEqual({})
+
+      // or the press was lost to the system
+      fireEvent.pointerDown(ruler(), onRuler(4))
+      fireEvent(ruler(), new Event('lostpointercapture', { bubbles: true }))
+      expect(playhead().style.transform).toBe('translateX(0px)')
+      fireEvent.pointerUp(ruler(), onRuler(4))
+      expect(store.getState().pianoRoll.startSteps).toEqual({})
+    })
+
+    it('carries on from where it’s let go while the pattern plays', async () => {
+      await open()
+      fireEvent.click(playButton())
+      transport = { ...stopped, playing: true, patternId: 0, startTimeMs: Date.now(), beatIntervalMs: 500 }
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Stop the pattern' })).toBeTruthy())
+
+      fireEvent.pointerDown(ruler(), onRuler(10.2))
+      fireEvent.pointerUp(ruler(), onRuler(10.2))
+      await waitFor(() => expect(calls('seek_pattern')).toEqual([{ patternId: 0, step: 10 }]))
+      expect(store.getState().pianoRoll.startSteps).toEqual({ 0: 10 })
     })
   })
 

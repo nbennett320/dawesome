@@ -13,7 +13,7 @@ import {
   togglePattern,
 } from '../../state/slices/sequencerSlice'
 import {
-  selectPianoRollSnapEnabled, selectPianoRollSnapNote, selectPianoRollTool,
+  selectPianoRollSnapEnabled, selectPianoRollSnapNote, selectPianoRollStart, selectPianoRollTool,
   setPianoRollSnapNote, setPianoRollTool, togglePianoRollSnap,
 } from '../../state/slices/pianoRollSlice'
 import { openTab } from '../../state/slices/windowSlice'
@@ -85,6 +85,7 @@ const Toolbar = ({ pattern, synth, beatsPerBar }: { pattern: Pattern, synth: Syn
   const synths = useAppSelector(selectSynths)
   const run = useAppSelector(selectPatternRun)
   const playing = run?.patternId === pattern.id
+  const startStep = useAppSelector(selectPianoRollStart(pattern.id))
 
   return (
     <div className='ft-tray rounded-lg m-2 mb-0 p-2 flex flex-row flex-wrap items-end gap-x-4 gap-y-2'>
@@ -116,8 +117,8 @@ const Toolbar = ({ pattern, synth, beatsPerBar }: { pattern: Pattern, synth: Syn
             size='sm'
             latched={playing}
             aria-label={playing ? 'Stop the pattern' : 'Play the pattern'}
-            title={playing ? 'Stop' : 'Loop this pattern on its own, every synth’s notes'}
-            onPress={() => { dispatch(togglePattern(pattern.id)).catch(logError('play the pattern')) }}
+            title={playing ? 'Stop' : 'Loop this pattern on its own, every synth’s notes, from the playhead'}
+            onPress={() => { dispatch(togglePattern(pattern.id, startStep)).catch(logError('play the pattern')) }}
           >
             {playing ? <StopIcon /> : <PlayIcon />}
           </AnalogButton>

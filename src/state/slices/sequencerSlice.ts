@@ -429,12 +429,24 @@ export const showNotes = (patternId: number, synthId: number) => (dispatch: Disp
 }
 
 // loop a pattern on its own (a note pattern's notes on its synths, straight
-// to the master), or stop it (or pause what's playing)
-export const togglePattern = (patternId: number) => async (dispatch: Dispatch) => {
+// to the master), or stop it (or pause what's playing). `fromStep`: the
+// first time through, from there (the Piano Roll's start marker)
+export const togglePattern = (patternId: number, fromStep?: number) => async (dispatch: Dispatch) => {
   try {
-    await invoke('toggle_pattern', { patternId })
+    await invoke('toggle_pattern', fromStep ? { patternId, fromStep } : { patternId })
   } catch(e) {
     sequencerError('play the pattern')(e)
+  }
+  await syncRun(dispatch)
+}
+
+// while a pattern plays on its own, carry on from `step` (the Piano Roll's
+// ruler was clicked)
+export const seekPattern = (patternId: number, step: number) => async (dispatch: Dispatch) => {
+  try {
+    await invoke('seek_pattern', { patternId, step })
+  } catch(e) {
+    sequencerError('move the playhead')(e)
   }
   await syncRun(dispatch)
 }
@@ -454,7 +466,9 @@ export const togglePlayHere = () => async (dispatch: Dispatch, getState: () => R
     return
   }
 
-  await togglePattern(patternId)(dispatch)
+  // the Piano Roll's from its start marker
+  const fromStep = view === View.PianoRoll ? state.pianoRoll.startSteps[patternId] : undefined
+  await togglePattern(patternId, fromStep)(dispatch)
 }
 
 // loop a pattern from its start, stopping whatever was playing

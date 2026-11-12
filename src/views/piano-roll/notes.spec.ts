@@ -1,7 +1,7 @@
 import { Note, Pattern, clipNoteBars, stepsPerBar, synthNotes, withNotes } from '../../types/sequencer'
 import {
-  DEFAULT_LENGTH, NEW_VELOCITY, allIndices, centrePitch, clampNote, copyNotes, cutNotes, deleteNotes, drawnLength,
-  fitSelection, inSteps, isBlackKey, moveNotes, newNote, noteBoxes, noteCut, pasteNotes, pasteStep, pitchName,
+  DEFAULT_LENGTH, NEW_VELOCITY, allIndices, carriedNotes, centrePitch, clampNote, copyNotes, cutNotes, deleteNotes, drawnLength,
+  fitSelection, inSteps, isBlackKey, markerStep, moveNotes, newNote, noteBoxes, noteCut, pasteNotes, pasteStep, pitchName,
   pressKind, repeatNotes, rollSnapping, sameNotes, snapStep, snapStepDown, trimNotes,
 } from './notes'
 import {
@@ -98,6 +98,19 @@ describe('the mouse', () => {
   })
 })
 
+describe('the start marker', () => {
+  it('goes on the nearest snap line inside the pattern', () => {
+    expect(markerStep(5.4, 16, sixteenths)).toBe(5)
+    expect(markerStep(5.6, 16, beats)).toBe(4)
+    expect(markerStep(6.1, 16, beats)).toBe(8)
+    expect(markerStep(5.6, 16, bypassed)).toBe(6)
+    // never past the last line before the pattern's end, nor before it
+    expect(markerStep(15.8, 16, sixteenths)).toBe(15)
+    expect(markerStep(15.8, 16, beats)).toBe(12)
+    expect(markerStep(-2, 16, beats)).toBe(0)
+  })
+})
+
 describe('moving notes', () => {
   const notes = [note(60, 2, 2), note(64, 6, 2), note(70, 0, 1)]
 
@@ -116,6 +129,21 @@ describe('moving notes', () => {
   it('gives back the same list when nothing moves', () => {
     expect(moveNotes(notes, [0], 0, 2, 60, 16)).toBe(notes)
     expect(moveNotes(notes, [], 0, 3, 63, 16)).toBe(notes)
+  })
+
+  it('carries the chosen ones with the mouse, unsnapped, held back where they’d land', () => {
+    const carried = carriedNotes(notes, [0, 1], 1.3, -0.4, 16)
+    expect(carried.map(n => n.length)).toEqual([2, 2])
+    ;[[3.3, 59.6], [7.3, 63.6]].forEach(([start, pitch], i) => {
+      expect(carried[i].start).toBeCloseTo(start)
+      expect(carried[i].pitch).toBeCloseTo(pitch)
+    })
+    // past the pattern's end and the top of the piano: stopped where
+    // moveNotes stops them
+    const far = carriedNotes(notes, [0, 1], 20, 100, 16)
+    expect(far.map(n => [n.start, n.pitch])).toEqual([[10, 123], [14, 127]])
+    expect(far.map(n => n.start)).toEqual(moveNotes(notes, [0, 1], 0, 20, 160, 16).slice(0, 2).map(n => n.start))
+    expect(carriedNotes(notes, [], 1, 1, 16)).toEqual([])
   })
 })
 

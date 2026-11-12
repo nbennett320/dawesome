@@ -191,6 +191,7 @@ fn init_tauri() {
       set_pattern_step,
       play_pattern,
       toggle_pattern,
+      seek_pattern,
       add_pattern_clip,
       explode_pattern_clips,
       paint_pattern_clips,

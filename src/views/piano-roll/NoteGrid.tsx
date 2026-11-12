@@ -2,9 +2,9 @@ import React from 'react'
 import { useStore } from 'react-redux'
 import { useAppDispatch, useAppSelector } from '../../hooks/redux'
 import type { RootState } from '../../state/store'
-import { PatternRun, flushNoteSends, setPatternNotes } from '../../state/slices/sequencerSlice'
+import { PatternRun, flushNoteSends, seekPattern, setPatternNotes } from '../../state/slices/sequencerSlice'
 import {
-  selectPianoRollSnapEnabled, selectPianoRollSnapNote, selectPianoRollTool,
+  selectPianoRollSnapEnabled, selectPianoRollSnapNote, selectPianoRollStart, selectPianoRollTool, setPianoRollStart,
 } from '../../state/slices/pianoRollSlice'
 import { selectFocusedView } from '../../state/slices/windowSlice'
 import { ClipSource, sameCommand } from '../../state/clipCommands'
@@ -25,10 +25,11 @@ import { editShortcutHandler } from '../../util/shortcuts'
 import { createAuditioner } from './audition'
 import {
   DEFAULT_STEP_WIDTH, GridScene, KEYS_WIDTH, ROW_HEIGHT, RULER_HEIGHT,
-  contentHeight, contentWidth, drawGrid, drawKeys, drawRuler, fitCanvas, pitchAtY, rowAtY, rowTop, stepAtX, zoomGrid,
+  contentHeight, contentWidth, drawCarried, drawGrid, drawKeys, drawRuler, fitCanvas, pitchAtY, playheadColour, rowAtY, rowTop, stepAtX, zoomGrid,
 } from './draw'
 import {
-  DEFAULT_LENGTH, centrePitch, clampPitch, cutNotes, drawnLength, fitSelection, moveNotes, newNote, noteBoxes,
+  DEFAULT_LENGTH, carriedNotes, centrePitch, clampPitch, cutNotes, drawnLength, fitSelection, markerStep, moveNotes, newNote,
+  noteBoxes,
   noteCut, pasteStep, pressKind, rollSnapping, sameNotes, snapStep, trimNotes,
 } from './notes'
 import { clamp } from '../../util/helpers'
@@ -58,11 +59,11 @@ type Press =
   | { kind: 'cut', from: Point, index: number }
   // drawing a new note (at `index`): dragging right sets its length
   | { kind: 'draw', origin: Note[], last: Note[], index: number, from: Point, drawn: boolean }
-  // moving the selection by the note grabbed (`index`), the mouse `grab`
-  // steps into it
+  // moving the selection by the note grabbed (`index`), carried by the
+  // mouse from the step and row it went down on
   | {
     kind: 'move', origin: Note[], last: Note[], index: number, indices: number[],
-    grab: number, from: Point, active: boolean
+    fromStep: number, fromRow: number, from: Point, active: boolean
   }
   // trimming the selection by an edge of the note grabbed, the mouse `grab`
   // steps before the edge
@@ -85,6 +86,17 @@ const NO_SELECTION: ReadonlySet<number> = new Set()
 
 // how far the mouse moves before a press on empty grid draws by length
 const DRAW_THRESHOLD_PX = 3
+
+// the playhead dragged along the ruler (`dragging`), or let go there and
+// held until the run started from it (`run` is the one playing when let go,
+// or null) is seen, or SEEK_HOLD_MS has passed
+interface Scrub {
+  step: number
+  dragging: boolean
+  run: PatternRun | null
+  at: number
+}
+const SEEK_HOLD_MS = 1500
 
 // WebKit (the macOS webview) reports trackpad pinches as gesture events,
 // not ⌘+wheel. not in the DOM typings
@@ -125,6 +137,8 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
   const [selection, setSelection] = React.useState<ReadonlySet<number>>(NO_SELECTION)
   const [overlay, setOverlayState] = React.useState<Overlay>(NO_OVERLAY)
   const [pressedKey, setPressedKey] = React.useState<number | null>(null)
+  // the notes being carried by the mouse, shown as ghosts where they'll land
+  const [landing, setLanding] = React.useState<ReadonlySet<number> | null>(null)
   const [size, setSize] = React.useState({ width: 0, height: 0 })
   const [scroll, setScroll] = React.useState({ x: 0, y: 0 })
   const [stepWidth, setStepWidth] = React.useState(DEFAULT_STEP_WIDTH)
@@ -138,6 +152,7 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
   const rulerRef = React.useRef<HTMLCanvasElement>(null)
   const keysRef = React.useRef<HTMLCanvasElement>(null)
   const playheadRef = React.useRef<HTMLDivElement>(null)
+  const carryRef = React.useRef<HTMLCanvasElement>(null)
   const press = React.useRef<Press | null>(null)
   // a plain click draws a note as long as the last one drawn or trimmed
   const lastLength = React.useRef(DEFAULT_LENGTH)
@@ -152,6 +167,12 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
   // the scroll the last zoom asked for, to the fraction of a pixel
   const exactScroll = React.useRef<number | null>(null)
   const audition = React.useMemo(createAuditioner, [])
+  // the notes being carried, where the mouse has them (unsnapped), drawn on
+  // their own canvas once a frame
+  const carried = React.useRef<Note[] | null>(null)
+  const carryFrame = React.useRef(0)
+  const sizeNow = React.useRef(size)
+  sizeNow.current = size
 
   // the latest of these, for listeners on the window. the notes and the
   // selection are brought up to date as soon as a command changes them, so
@@ -173,8 +194,14 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
     setDraft(null)
     setOverlayState(NO_OVERLAY)
     press.current = null
+    carried.current = null
+    setLanding(null)
+    const canvas = carryRef.current
+    canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height)
+    scrub.current = null
   }, [pattern.id, synthId])
   React.useEffect(() => () => audition.stop(), [audition])
+  React.useEffect(() => () => cancelAnimationFrame(carryFrame.current), [])
 
   // another tool: what the last one showed under the mouse goes
   React.useEffect(() => {
@@ -226,39 +253,68 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
   React.useEffect(() => {
     const view = { width: size.width, height: size.height, scrollX: scroll.x, scrollY: scroll.y, stepWidth }
     const grid = fitCanvas(gridRef.current, size.width, size.height)
-    if(grid) drawGrid(grid, view, { length, stepsPerBar, notes: shown, ghosts, selected, ...overlay })
+    if(grid) drawGrid(grid, view, { length, stepsPerBar, notes: shown, ghosts, selected, landing, ...overlay })
     const ruler = fitCanvas(rulerRef.current, size.width, RULER_HEIGHT)
     if(ruler) drawRuler(ruler, view, length, stepsPerBar)
-  }, [size, scroll, stepWidth, length, stepsPerBar, shown, ghosts, selected, overlay, themeChange])
+    if(carried.current) paintCarried()
+  }, [size, scroll, stepWidth, length, stepsPerBar, shown, ghosts, selected, landing, overlay, themeChange])
 
   React.useEffect(() => {
     const keys = fitCanvas(keysRef.current, KEYS_WIDTH, size.height)
     if(keys) drawKeys(keys, { height: size.height, scrollY: scroll.y }, pressedKey)
   }, [size.height, scroll.y, pressedKey, themeChange])
 
-  // the playhead, while this pattern plays on its own: moved every frame,
-  // without drawing the grid again
+  // the playhead, as the playlist's: while this pattern plays on its own,
+  // where it's got to, moved every frame without drawing the grid again.
+  // stopped, on the start marker Play starts from. dragged along the ruler,
+  // under the mouse
   const scrollX = React.useRef(0)
   scrollX.current = scroll.x
-  React.useEffect(() => {
-    const line = playheadRef.current
-    if(!line) return undefined
-    if(!run || run.patternId !== pattern.id || length <= 0 || run.beatIntervalMs <= 0) {
-      line.style.display = 'none'
-      return undefined
-    }
+  const marker = useAppSelector(selectPianoRollStart(pattern.id))
+  // (a marker past the end of a pattern made shorter: from its start, as
+  // the engine plays it)
+  const startStep = marker < length ? marker : 0
+  const playing = !!run && run.patternId === pattern.id && length > 0 && run.beatIntervalMs > 0
+  const scrub = React.useRef<Scrub | null>(null)
+  const transportNow = React.useRef({ run: playing ? run : null, startStep, length })
+  transportNow.current = { run: playing ? run : null, startStep, length }
+  const lastColour = React.useRef('')
 
+  const placePlayhead = React.useCallback(() => {
+    const line = playheadRef.current
+    if(!line) return
+    const { run: now, startStep: from, length: steps } = transportNow.current
+    const s = scrub.current
+    const held = !!s && (s.dragging || (s.run === now && Date.now() - s.at < SEEK_HOLD_MS))
+
+    let step = from
+    if(s && held) step = s.step
+    else if(now) {
+      // (the run's start time is when its step 0 was heard, even when it
+      // started part way in)
+      const at = (Date.now() - now.startTimeMs) / (now.beatIntervalMs / STEPS_PER_BEAT)
+      step = ((at % steps) + steps) % steps
+    }
+    line.style.transform = `translateX(${Math.round(step * stepWidthNow.current - scrollX.current)}px)`
+
+    const colour = playheadColour(held || !!now)
+    if(colour !== lastColour.current) {
+      lastColour.current = colour
+      line.style.color = colour
+    }
+  }, [])
+
+  React.useEffect(() => {
+    placePlayhead()
+    if(!playing) return undefined
     let frame = 0
     const follow = () => {
-      const stepMs = run.beatIntervalMs / STEPS_PER_BEAT
-      const step = (Math.max(0, Date.now() - run.startTimeMs) / stepMs) % length
-      line.style.display = ''
-      line.style.transform = `translateX(${Math.round(step * stepWidthNow.current - scrollX.current)}px)`
+      placePlayhead()
       frame = requestAnimationFrame(follow)
     }
-    follow()
+    frame = requestAnimationFrame(follow)
     return () => cancelAnimationFrame(frame)
-  }, [run, pattern.id, length, stepWidth])
+  }, [placePlayhead, playing, run, startStep, length, stepWidth, scroll.x, themeChange])
 
   // what a drag, a cut or something drawn snaps to just now
   const snapping = (bypass = altHeld.current) => rollSnapping(snapEnabled, snapNote, bypass)
@@ -279,6 +335,39 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
 
   const sound = (pitch: number) => {
     audition.play(synthId, pitch, true)
+  }
+
+  // the carried notes drawn again, at the next frame (once, however many
+  // times the mouse moved since)
+  const paintCarried = () => {
+    if(carryFrame.current) return
+    carryFrame.current = requestAnimationFrame(() => {
+      carryFrame.current = 0
+      const scroller = scrollerRef.current
+      const { width, height } = sizeNow.current
+      const ctx = fitCanvas(carryRef.current, width, height)
+      if(!ctx) return
+      const view = {
+        width, height, scrollX: scroller?.scrollLeft ?? 0, scrollY: scroller?.scrollTop ?? 0, stepWidth: stepWidthNow.current,
+      }
+      drawCarried(ctx, view, carried.current ?? [])
+    })
+  }
+
+  // notes `indices` carried to where the mouse has them, ghosts left where
+  // they'll land
+  const carry = (notesNow: Note[], indices: number[]) => {
+    carried.current = notesNow
+    setLanding(prev => prev ?? new Set(indices))
+    paintCarried()
+  }
+
+  // nothing carried: the notes are drawn where they landed
+  const stopCarrying = () => {
+    if(!carried.current) return
+    carried.current = null
+    setLanding(null)
+    paintCarried()
   }
 
   // where the mouse is on the grid
@@ -376,18 +465,28 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
 
     let next = d.last
     if(d.kind === 'draw') {
-      if(!d.drawn && Math.abs(point.screen.x - d.from.x) < DRAW_THRESHOLD_PX) return
-      d.drawn = true
+      // up or down onto another key: the note goes there, and is heard.
+      // dragging right (past a few pixels) sets its length
       const note = d.last[d.index]
-      next = [...d.origin, { ...note, length: drawnLength(note.start, point.step, length, snapping()) }]
+      if(!d.drawn && Math.abs(point.screen.x - d.from.x) >= DRAW_THRESHOLD_PX) d.drawn = true
+      const drawnTo = d.drawn ? drawnLength(note.start, point.step, length, snapping()) : note.length
+      if(point.pitch === note.pitch && drawnTo === note.length) return
+      next = [...d.origin, { ...note, pitch: point.pitch, length: drawnTo }]
+      if(point.pitch !== note.pitch) sound(point.pitch)
     } else {
       if(!d.active && distance(d.from, point.screen) <= DRAG_THRESHOLD_PX) return
       d.active = true
 
       if(d.kind === 'move') {
         setCursor('grabbing')
-        const start = snapStep(point.step - d.grab, snapping())
-        next = moveNotes(d.origin, d.indices, d.index, start, point.pitch, length)
+        // the notes follow the mouse exactly, and land on the snap line
+        // and the key nearest where it has them
+        const steps = point.step - d.fromStep
+        const pitches = d.fromRow - point.row
+        const grabbed = d.origin[d.index]
+        const start = snapStep(grabbed.start + steps, snapping())
+        next = moveNotes(d.origin, d.indices, d.index, start, grabbed.pitch + Math.round(pitches), length)
+        carry(carriedNotes(d.origin, d.indices, steps, pitches, length), d.indices)
         // heard again on its new pitch
         if(next[d.index].pitch !== d.last[d.index].pitch) sound(next[d.index].pitch)
       } else {
@@ -420,6 +519,7 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
     if(!d) return
     audition.stop()
     setOverlay(NO_OVERLAY)
+    stopCarrying()
 
     if(d.kind === 'shift') {
       if(cancelled) return
@@ -474,6 +574,7 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
     press.current = null
     audition.stop()
     setOverlay(NO_OVERLAY)
+    stopCarrying()
 
     if(isNoteDrag(d)) {
       if(!sameNotes(d.last, d.origin)) commit(d.origin)
@@ -726,7 +827,7 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
       }
 
       press.current = {
-        kind: 'move', origin: notes, last: notes, index: hit, indices, grab: point.step - note.start, from: point.screen, active: false,
+        kind: 'move', origin: notes, last: notes, index: hit, indices, fromStep: point.step, fromRow: point.row, from: point.screen, active: false,
       }
       sound(note.pitch)
       return
@@ -782,6 +883,50 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
     commit(notes.filter((_, i) => i !== hit))
   }
 
+  // the ruler: pressed or dragged along, the playhead goes under the mouse
+  // (snapped as notes are). let go, Play starts from there, and a pattern
+  // playing carries on from there
+  const rulerStep = (ev: { clientX: number, altKey: boolean }) => {
+    const rect = rulerRef.current?.getBoundingClientRect()
+    const x = ev.clientX - (rect?.left ?? 0) + scrollX.current
+    return markerStep(stepAtX(x, stepWidthNow.current), length, snapping(ev.altKey))
+  }
+  const onRulerDown = (ev: React.PointerEvent<HTMLCanvasElement>) => {
+    if(ev.button !== 0 || length <= 0) return
+    ev.currentTarget.setPointerCapture?.(ev.pointerId)
+    scrub.current = { step: rulerStep(ev), dragging: true, run: null, at: 0 }
+    placePlayhead()
+  }
+  const onRulerMove = (ev: React.PointerEvent<HTMLCanvasElement>) => {
+    const s = scrub.current
+    if(!s?.dragging) return
+    // the release went astray (outside the window): the drag's dropped
+    if(!(ev.buttons & 1)) {
+      onRulerCancel()
+      return
+    }
+    s.step = rulerStep(ev)
+    placePlayhead()
+  }
+  const onRulerUp = (ev: React.PointerEvent<HTMLCanvasElement>) => {
+    if(ev.button !== 0 || !scrub.current?.dragging) return
+    const step = rulerStep(ev)
+    const now = transportNow.current.run
+    // held there until the marker, or the run started from it, is seen
+    scrub.current = { step, dragging: false, run: now, at: Date.now() }
+    dispatch(setPianoRollStart({ patternId: pattern.id, step }))
+    // eslint-disable-next-line no-console
+    if(now) dispatch(seekPattern(pattern.id, step)).catch(e => console.error('could not move the playhead:', e))
+    placePlayhead()
+  }
+  // a drag that ends without a release (the press lost to the system):
+  // the playhead goes back to where it was
+  function onRulerCancel() {
+    if(!scrub.current?.dragging) return
+    scrub.current = null
+    placePlayhead()
+  }
+
   // the keyboard: a key sounds while it's held
   const keyAt = (ev: { clientY: number }) => {
     const rect = keysRef.current?.getBoundingClientRect()
@@ -805,8 +950,15 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
       />
       <canvas
         ref={rulerRef}
-        className='absolute top-0'
+        className='absolute top-0 cursor-pointer touch-none'
         style={{ left: KEYS_WIDTH, width: size.width, height: RULER_HEIGHT }}
+        title='Click or drag to move the playhead: Play starts from there'
+        data-testid='piano-roll-ruler'
+        onPointerDown={onRulerDown}
+        onPointerMove={onRulerMove}
+        onPointerUp={onRulerUp}
+        onPointerCancel={onRulerCancel}
+        onLostPointerCapture={onRulerCancel}
       />
       <canvas
         ref={keysRef}
@@ -829,9 +981,24 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
         className='absolute'
         style={{ left: KEYS_WIDTH, top: RULER_HEIGHT, width: size.width, height: size.height }}
       />
+      {/* the notes being carried by the mouse */}
+      <canvas
+        ref={carryRef}
+        className='absolute pointer-events-none'
+        style={{ left: KEYS_WIDTH, top: RULER_HEIGHT, width: size.width, height: size.height }}
+      />
       {/* the playhead, over the ruler and the grid */}
       <div className='absolute top-0 bottom-0 right-0 overflow-hidden pointer-events-none' style={{ left: KEYS_WIDTH }}>
-        <div ref={playheadRef} className='absolute top-0 bottom-0 left-0 w-px bg-accent' style={{ display: 'none' }} />
+        <div ref={playheadRef} className='absolute top-0 bottom-0 left-0' data-testid='piano-roll-playhead'>
+          <div className='absolute top-0 bottom-0 left-0 w-px' style={{ background: 'currentColor' }} />
+          {/* its head, in the ruler */}
+          <div
+            className='absolute top-0'
+            style={{
+              left: -4.5, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: '8px solid currentColor',
+            }}
+          />
+        </div>
       </div>
       <div
         ref={scrollerRef}

@@ -7,7 +7,7 @@ import { Rect } from '../../editing/lasso'
 import { drawCutLine, drawEdgeBar, drawLasso } from '../../editing/look'
 import { zoomAround } from '../../editing/view'
 import { painter } from '../../theme/canvas'
-import { currentTheme } from '../../theme/apply'
+import { cssVar, currentTheme } from '../../theme/apply'
 import { STEPS_PER_BEAT, Note } from '../../types/sequencer'
 import { HIGHEST_PITCH, PITCHES, isBlackKey, pitchName } from './notes'
 
@@ -19,8 +19,8 @@ const lanes = painter('playlist')
 export const DEFAULT_STEP_WIDTH = 24
 export const MIN_STEP_WIDTH = 6
 export const MAX_STEP_WIDTH = 96
-// how tall a semitone is
-export const ROW_HEIGHT = 14
+// how tall piano key row is
+export const ROW_HEIGHT = 16
 // the keyboard's width, and the ruler's height
 export const KEYS_WIDTH = 56
 export const RULER_HEIGHT = 20
@@ -111,6 +111,9 @@ export interface GridScene {
   // other synths' notes in the pattern, drawn faintly behind
   ghosts: Note[]
   selected: ReadonlySet<number>
+  // notes being carried by the mouse (see drawCarried): drawn here as
+  // ghosts, where they'll land
+  landing: ReadonlySet<number> | null
   // a selection box being dragged, in the grid's own coordinates (steps
   // across, rows down)
   lasso: Rect | null
@@ -123,7 +126,7 @@ export interface GridScene {
 
 export const drawGrid = (ctx: CanvasRenderingContext2D, view: Viewport, scene: GridScene) => {
   const { width, height, scrollX, scrollY, stepWidth } = view
-  const { length, stepsPerBar, notes, ghosts, selected, lasso, cut, edgeBar } = scene
+  const { length, stepsPerBar, notes, ghosts, selected, landing, lasso, cut, edgeBar } = scene
   const right = Math.min(width, contentWidth(length, stepWidth) - scrollX)
 
   ctx.clearRect(0, 0, width, height)
@@ -196,6 +199,16 @@ export const drawGrid = (ctx: CanvasRenderingContext2D, view: Viewport, scene: G
   notes.forEach((note, i) => {
     if(!inView(note)) return
     const { x, y, w } = place(note)
+
+    // where a carried note will land: an outline, faintly filled
+    if(landing?.has(i)) {
+      ctx.fillStyle = lanes.css('selectedBorder', 0.25)
+      ctx.fillRect(x + 0.5, y + 1, w, ROW_HEIGHT - 2)
+      ctx.strokeStyle = lanes.css('selectedClip')
+      ctx.strokeRect(x + 1, y + 1.5, w - 1, ROW_HEIGHT - 3)
+      return
+    }
+
     const on = selected.has(i)
 
     ctx.fillStyle = on ? lanes.css('selectedBorder') : lanes.css('patternHit')
@@ -234,6 +247,34 @@ export const drawGrid = (ctx: CanvasRenderingContext2D, view: Viewport, scene: G
       Math.round(lasso.height * ROW_HEIGHT),
     )
   }
+}
+
+// the notes being carried by the mouse, on their own canvas over the grid,
+// at the fractional places it has them (see carriedNotes). drawn every frame
+// of a drag, so the grid under them is only drawn again when where they'd
+// land changes
+export const drawCarried = (ctx: CanvasRenderingContext2D, view: Viewport, notes: Note[]) => {
+  const { width, height, scrollX, scrollY, stepWidth } = view
+  ctx.clearRect(0, 0, width, height)
+  ctx.lineWidth = 1
+  notes.forEach(note => {
+    const x = note.start * stepWidth - scrollX
+    const y = rowTop(note.pitch) - scrollY
+    const w = Math.max(3, note.length * stepWidth - 1)
+    if(x > width || x + w < 0 || y > height || y + ROW_HEIGHT < 0) return
+    ctx.fillStyle = lanes.css('selectedBorder')
+    ctx.fillRect(x + 0.5, y + 1, w, ROW_HEIGHT - 2)
+    ctx.strokeStyle = lanes.css('selectedClip')
+    ctx.strokeRect(x + 1, y + 1.5, w - 1, ROW_HEIGHT - 3)
+  })
+}
+
+// the playhead's colour: as the playlist's, bright while playing or being
+// dragged along the ruler, grey while stopped. (before a theme is applied,
+// the core colours the base theme gives them)
+export const playheadColour = (active: boolean): string => {
+  if(!currentTheme()) return cssVar(active ? 'accent' : 'inkFaint')
+  return lanes.css(active ? 'playhead' : 'playheadStopped')
 }
 
 // the time ruler: a number at each bar, a tick at each beat
