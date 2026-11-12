@@ -1,8 +1,3 @@
-export enum PlaylistTypes {
-  PlaylistTrackItem = 'playlist-track-item',
-  SidebarSampleItem = 'sidebar-sample-item',
-}
-
 export type PlaylistItemPixelOffset = {
   x: number,
   y: number,
@@ -25,11 +20,6 @@ export type PlaylistItem = {
   // set on a pattern clip: the pattern it plays (it has no sample, so its
   // path is empty)
   patternId?: number,
-}
-
-export type PlaylistItemWaveformData = {
-  pathd: string,
-  viewBox: string,
 }
 
 export type PlaylistWindow = {

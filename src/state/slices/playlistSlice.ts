@@ -44,8 +44,6 @@ export interface PlaylistState {
   // follows the tape while it winds
   wind: Wind | null
   tempo: number
-  runtime?: string | null
-  currentBeat?: number | null
   metronomeEnabled: boolean,
   loopEnabled: boolean,
   snapEnabled: boolean,
@@ -86,8 +84,6 @@ const initialState = {
   transportRevision: 0,
   wind: null,
   tempo: 120,
-  runtime: null,
-  currentBeat: null,
   metronomeEnabled: true,
   loopEnabled: true,
   snapEnabled: true,
@@ -170,12 +166,6 @@ export const playlistSlice = createSlice({
     },
     reduceTempo: (state, action) => {
       state.tempo = action.payload
-    },
-    setRuntime: (state, action) => {
-      state.runtime = action.payload
-    },
-    setBeatCount: (state, action) => {
-      state.currentBeat = action.payload
     },
     setMetronomeEnabled: (state, action) => {
       state.metronomeEnabled = action.payload
@@ -382,8 +372,6 @@ export const playlistSlice = createSlice({
       const project = action.payload
 
       state.playing = false
-      state.runtime = null
-      state.currentBeat = null
       state.tempo = project.tempo
       state.metronomeEnabled = project.metronomeEnabled
       state.loopEnabled = project.loopEnabled
@@ -516,39 +504,9 @@ export const setPlaylistTempo = (val: number, gesture: number | null = null) => 
   }
 }
 
-// retrieve tempo from internal (rust) state
-export const getPlaylistTempo = () => async (): Promise<boolean> => {
-  const playing = await invoke<boolean>('get_playlist_playing', {})
-  return playing
-}
-
 // retrieve tempo from redux state
 export const selectPlaylistTempo = (state: RootState) => state.playlist.tempo
 // end tempo methods
-
-// start runtime methods
-export const { setRuntime } = playlistSlice.actions
-
-export const fetchPlaylistRuntime = () => async (dispatch: Dispatch) => {
-  const runtime = await invoke<string>('get_playlist_runtime_formatted', {})
-  dispatch(setRuntime(runtime))
-}
-
-export const selectPlaylistRuntime = (state: RootState) =>
-  state.playlist.runtime
-// end rutime methods
-
-// start beat count methods
-export const { setBeatCount } = playlistSlice.actions
-
-export const fetchPlaylistBeatCount = () => async (dispatch: Dispatch) => {
-  const count = await invoke<string>('get_playlist_beat_count', {})
-  dispatch(setBeatCount(count))
-}
-
-export const selectPlaylistBeatCount = (state: RootState) =>
-  state.playlist.currentBeat
-// end rutime methods
 
 // start metronome enable/disable methods
 export const { setMetronomeEnabled } = playlistSlice.actions
@@ -735,19 +693,6 @@ export const removeManyFromPlaylist = (ids: number[]) => async (dispatch: Dispat
   await invoke('remove_audiograph_nodes', { ids })
   ids.forEach(id => dispatch(removePlaylistItem({ id })))
   // the last clips on the bottom tracks may have gone
-  await refreshTrackCount()(dispatch)
-}
-
-export const removeFromPlaylist = (id: number) => async (dispatch: Dispatch) => {
-  await invoke('remove_audiograph_node', {
-    id
-  })
-
-  dispatch(removePlaylistItem({
-    id
-  }))
-
-  // the last track's only clip was removed
   await refreshTrackCount()(dispatch)
 }
 
