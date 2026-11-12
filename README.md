@@ -16,6 +16,10 @@ _Early screenshot of Dawesome running on Mac_
 
 <br />
 
+- [Doc site](https://nbennett320.github.io/dawesome/)
+  - [User manual](https://nbennett320.github.io/dawesome/manual/)
+  - [Keyboard shortcut handbook](https://nbennett320.github.io/dawesome/shortcuts)
+
 ## About
 
 ### Project design
