@@ -1,6 +1,6 @@
 import { listen } from '@tauri-apps/api/event'
 import { openTab } from '../state/slices/windowSlice'
-import { ProjectCommand, openRecentProject, runProjectCommand } from '../state/slices/projectSlice'
+import { ProjectCommand, confirmQuit, openRecentProject, runProjectCommand } from '../state/slices/projectSlice'
 import type { AppDispatch } from '../state/store'
 import { View } from '../types/ui'
 
@@ -14,6 +14,14 @@ const projectMenu = (dispatch: AppDispatch) =>
 const recentProjectMenu = (dispatch: AppDispatch) =>
   listen<{ data: string }>('menu-open-recent', ev => {
     dispatch(openRecentProject(ev.payload.data))
+  })
+
+// quitting (or closing the window) with unsaved changes: the engine waits
+// for the frontend to ask about them. resolves to a function that stops
+// listening
+const quitRequested = (dispatch: AppDispatch) =>
+  listen('quit-requested', () => {
+    dispatch(confirmQuit())
   })
 
 // the Window menu's items, by the names the engine sends
@@ -54,6 +62,7 @@ const editMenu = (run: (command: EditCommand) => void) =>
 const listeners = { 
   projectMenu,
   recentProjectMenu,
+  quitRequested,
   viewMenu,
   editMenu,
 }

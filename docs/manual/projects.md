@@ -188,9 +188,19 @@ still opens. **Save** writes it back where it is, with its recordings in a
 
 ## 4-7 Closing Dawesome
 
-::: warning CAUTION
-Dawesome does not warn about unsaved changes when you quit or close its
-window. Save before you quit.
-:::
+Quitting Dawesome (**Dawesome ▸ Quit**, the Dock's **Quit**) or closing its
+window quits straight away if the project has no unsaved changes. If it
+has, Dawesome asks **Save changes to "*name*" before quitting?**:
 
-<!-- VERIFY: no close-request handler exists at c2295cb; confirm closing the window quits the app and nothing prompts. -->
+- **Save** — Saves the project, then quits. A project that has never been
+  saved opens the **Save project** dialog first; if you cancel it, or the
+  save fails, Dawesome stays open.
+- **Don't Save** — Quits, losing the changes.
+- **Cancel** — Stays open.
+
+A change is anything that would be saved differently (see
+[4-6](#_4-6-what-is-saved)), including effect settings and plugin window
+positions. Undoing back to how the project was saved counts as no change. A
+new project you haven't touched quits without asking.
+
+<!-- VERIFY: a plugin whose saved settings differ every time they're read would always count as changed. -->

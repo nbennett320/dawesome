@@ -944,3 +944,84 @@ fn test_a_stage_one_project_loads_without_its_instruments_and_notes() {
   // nothing dropped: nothing said
   assert!(Project::from_json(r#"{"tempo": 100}"#).unwrap().dropped.is_empty());
 }
+
+// unsaved changes: the project against how it was last started, opened or
+// saved
+
+fn tick_clip(state: &daw::InnerState, track: u32, beat: f32) -> u64 {
+  crate::commands::clip::add_clip(state, daw::METRONOME_TICK_PATH.to_string(), track, Some(beat))
+    .unwrap()
+    .id
+}
+
+#[test]
+fn test_a_new_project_has_no_unsaved_changes() {
+  let state = daw::InnerState::default();
+  mark_unchanged(&state);
+  assert!(!has_unsaved_changes(&state));
+}
+
+#[test]
+fn test_unsaved_until_marked() {
+  // (only before the app has started)
+  assert!(has_unsaved_changes(&daw::InnerState::default()));
+}
+
+#[test]
+fn test_a_clip_is_a_change_until_undone() {
+  let state = std::sync::Arc::new(daw::InnerState::default());
+  mark_unchanged(&state);
+
+  tick_clip(&state, 0, 4.);
+  assert!(has_unsaved_changes(&state));
+  crate::history::undo(&state).unwrap();
+  assert!(!has_unsaved_changes(&state));
+  crate::history::redo(&state).unwrap();
+  assert!(has_unsaved_changes(&state));
+}
+
+#[test]
+fn test_settings_outside_the_history_are_changes() {
+  let state = daw::InnerState::default();
+  mark_unchanged(&state);
+  state.playlist.loop_enabled.store(!state.playlist.loop_enabled.load(Ordering::SeqCst), Ordering::SeqCst);
+  assert!(has_unsaved_changes(&state));
+
+  let state = daw::InnerState::default();
+  mark_unchanged(&state);
+  state.set_tempo(daw::defaults::TEMPO + 10.);
+  assert!(has_unsaved_changes(&state));
+}
+
+#[test]
+fn test_saved_and_opened_projects_have_no_unsaved_changes() {
+  let dir = test_dir("unsaved-changes");
+  let state = daw::InnerState::default();
+  mark_unchanged(&state);
+  tick_clip(&state, 0, 0.);
+  tick_clip(&state, 1, 2.);
+  let saved = save_project_to(&state, &dir.join("song.dawesome"), true).unwrap();
+  assert!(!has_unsaved_changes(&state));
+
+  let opened = daw::InnerState::default();
+  load_from(&opened, Path::new(&saved.path)).unwrap();
+  assert!(!has_unsaved_changes(&opened));
+  tick_clip(&opened, 2, 1.);
+  assert!(has_unsaved_changes(&opened));
+
+  let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_clips_in_another_order_are_no_change() {
+  let state = std::sync::Arc::new(daw::InnerState::default());
+  let early = tick_clip(&state, 0, 0.);
+  tick_clip(&state, 0, 4.);
+  mark_unchanged(&state);
+
+  // undoing a move puts the clip back at the end of the graph's list
+  crate::commands::clip::move_clip(&state, early, 0, Some(8.)).unwrap();
+  assert!(has_unsaved_changes(&state));
+  crate::history::undo(&state).unwrap();
+  assert!(!has_unsaved_changes(&state));
+}
