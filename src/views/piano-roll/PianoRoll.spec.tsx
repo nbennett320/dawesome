@@ -620,7 +620,7 @@ describe('the Piano Roll', () => {
     const ruler = () => screen.getByTestId('piano-roll-ruler')
     const playhead = () => screen.getByTestId('piano-roll-playhead')
     const onRuler = (step: number, keys: { altKey?: boolean } = {}) => ({
-      clientX: step * stepWidth() - grid().scrollLeft, clientY: 5, button: 0, pointerId: 2, ...keys,
+      clientX: step * stepWidth() - grid().scrollLeft, clientY: 5, button: 0, buttons: 1, pointerId: 2, ...keys,
     })
     const playButton = () => screen.getByRole('button', { name: /the pattern/ })
 
@@ -649,7 +649,28 @@ describe('the Piano Roll', () => {
       expect(store.getState().pianoRoll.startSteps).toEqual({ 0: 15 })
     })
 
-    it('carries on from where it’s let go while the pattern plays, and the Play key starts from the marker', async () => {
+    it('drops a drag whose release went astray, the playhead back where it was', async () => {
+      await open()
+      fireEvent.pointerDown(ruler(), onRuler(4))
+      fireEvent.pointerMove(ruler(), onRuler(6))
+      expect(playhead().style.transform).toBe(`translateX(${6 * stepWidth()}px)`)
+      // back over the ruler with the button up: the drag's gone
+      fireEvent.pointerMove(ruler(), { ...onRuler(9), buttons: 0 })
+      expect(playhead().style.transform).toBe('translateX(0px)')
+      fireEvent.pointerMove(ruler(), { ...onRuler(11), buttons: 0 })
+      expect(playhead().style.transform).toBe('translateX(0px)')
+      fireEvent.pointerUp(ruler(), onRuler(11))
+      expect(store.getState().pianoRoll.startSteps).toEqual({})
+
+      // or the press was lost to the system
+      fireEvent.pointerDown(ruler(), onRuler(4))
+      fireEvent(ruler(), new Event('lostpointercapture', { bubbles: true }))
+      expect(playhead().style.transform).toBe('translateX(0px)')
+      fireEvent.pointerUp(ruler(), onRuler(4))
+      expect(store.getState().pianoRoll.startSteps).toEqual({})
+    })
+
+    it('carries on from where it’s let go while the pattern plays', async () => {
       await open()
       fireEvent.click(playButton())
       transport = { ...stopped, playing: true, patternId: 0, startTimeMs: Date.now(), beatIntervalMs: 500 }

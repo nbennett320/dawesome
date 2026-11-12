@@ -5,6 +5,7 @@ import {
   playPattern, selectPattern, setSequencer, togglePlayHere,
 } from './slices/sequencerSlice'
 import { openTab } from './slices/windowSlice'
+import { setPianoRollStart } from './slices/pianoRollSlice'
 import { listenForTransportKey } from '../util/keys'
 import { View } from '../types/ui'
 
@@ -72,6 +73,16 @@ describe('the Play key and Space', () => {
     store.dispatch(openTab(View.PianoRoll))
     await pressPlay()
     expect(sent()).toEqual([['toggle_pattern', { patternId: 15 }], ['toggle_pattern', { patternId: 15 }]])
+  })
+
+  it('loops from the Piano Roll’s start marker, set on its ruler, and only from the Piano Roll', async () => {
+    store.dispatch(setPianoRollStart({ patternId: 15, step: 10 }))
+    store.dispatch(openTab(View.PianoRoll))
+    await pressPlay()
+    store.dispatch(openTab(View.NoteSequencer))
+    await pressPlay()
+    expect(sent()).toEqual([['toggle_pattern', { patternId: 15, fromStep: 10 }], ['toggle_pattern', { patternId: 15 }]])
+    store.dispatch(setPianoRollStart({ patternId: 15, step: 0 }))
   })
 
   it('loops a pattern from its start, by its id alone', async () => {

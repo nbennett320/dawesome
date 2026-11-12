@@ -900,6 +900,11 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
   const onRulerMove = (ev: React.PointerEvent<HTMLCanvasElement>) => {
     const s = scrub.current
     if(!s?.dragging) return
+    // the release went astray (outside the window): the drag's dropped
+    if(!(ev.buttons & 1)) {
+      onRulerCancel()
+      return
+    }
     s.step = rulerStep(ev)
     placePlayhead()
   }
@@ -914,7 +919,10 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
     if(now) dispatch(seekPattern(pattern.id, step)).catch(e => console.error('could not move the playhead:', e))
     placePlayhead()
   }
-  const onRulerCancel = () => {
+  // a drag that ends without a release (the press lost to the system):
+  // the playhead goes back to where it was
+  function onRulerCancel() {
+    if(!scrub.current?.dragging) return
     scrub.current = null
     placePlayhead()
   }
@@ -950,6 +958,7 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
         onPointerMove={onRulerMove}
         onPointerUp={onRulerUp}
         onPointerCancel={onRulerCancel}
+        onLostPointerCapture={onRulerCancel}
       />
       <canvas
         ref={keysRef}
