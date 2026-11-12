@@ -13,6 +13,7 @@ import { HIGHEST_PITCH, PITCHES, isBlackKey, pitchName } from './notes'
 
 const colors = painter('colors')
 const lanes = painter('playlist')
+const noteColors = painter('pianoRoll')
 
 // how wide a step is on the grid, in CSS pixels: to start with, and as far
 // as zooming goes either way. (the zoom isn't saved)
@@ -26,6 +27,21 @@ export const KEYS_WIDTH = 56
 export const RULER_HEIGHT = 20
 // narrower steps than this have no line between them, only beats and bars
 const STEP_LINES_FROM = 8
+
+// a note's corners are rounded like the playlist's clips, less on a note
+// too short to take the whole curve
+const NOTE_RADIUS = 3
+const noteRadius = (w: number) => Math.max(0, Math.min(NOTE_RADIUS, w / 2 - 0.5))
+const fillNote = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number) => {
+  ctx.beginPath()
+  ctx.roundRect(x + 0.5, y + 1, w, ROW_HEIGHT - 2, noteRadius(w))
+  ctx.fill()
+}
+const strokeNote = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number) => {
+  ctx.beginPath()
+  ctx.roundRect(x + 1, y + 1.5, w - 1, ROW_HEIGHT - 3, noteRadius(w - 1))
+  ctx.stroke()
+}
 
 // the grid's whole size, of which a part is in view
 export const contentHeight = (): number => PITCHES * ROW_HEIGHT
@@ -189,11 +205,11 @@ export const drawGrid = (ctx: CanvasRenderingContext2D, view: Viewport, scene: G
     w: Math.max(3, note.length * stepWidth - 1),
   })
 
-  ctx.fillStyle = lanes.css('patternHit', 0.25)
+  ctx.fillStyle = noteColors.css('note', 0.35)
   ghosts.forEach(note => {
     if(!inView(note)) return
     const { x, y, w } = place(note)
-    ctx.fillRect(x + 0.5, y + 1, w, ROW_HEIGHT - 2)
+    fillNote(ctx, x, y, w)
   })
 
   notes.forEach((note, i) => {
@@ -202,19 +218,19 @@ export const drawGrid = (ctx: CanvasRenderingContext2D, view: Viewport, scene: G
 
     // where a carried note will land: an outline, faintly filled
     if(landing?.has(i)) {
-      ctx.fillStyle = lanes.css('selectedBorder', 0.25)
-      ctx.fillRect(x + 0.5, y + 1, w, ROW_HEIGHT - 2)
-      ctx.strokeStyle = lanes.css('selectedClip')
-      ctx.strokeRect(x + 1, y + 1.5, w - 1, ROW_HEIGHT - 3)
+      ctx.fillStyle = noteColors.css('selected', 0.35)
+      fillNote(ctx, x, y, w)
+      ctx.strokeStyle = noteColors.css('selectedBorder')
+      strokeNote(ctx, x, y, w)
       return
     }
 
     const on = selected.has(i)
 
-    ctx.fillStyle = on ? lanes.css('selectedBorder') : lanes.css('patternHit')
-    ctx.fillRect(x + 0.5, y + 1, w, ROW_HEIGHT - 2)
-    ctx.strokeStyle = on ? lanes.css('selectedClip') : lanes.css('patternBorder')
-    ctx.strokeRect(x + 1, y + 1.5, w - 1, ROW_HEIGHT - 3)
+    ctx.fillStyle = on ? noteColors.css('selected') : noteColors.css('note')
+    fillNote(ctx, x, y, w)
+    ctx.strokeStyle = on ? noteColors.css('selectedBorder') : noteColors.css('noteBorder')
+    strokeNote(ctx, x, y, w)
   })
 
   // the bar on an edge a press would grab, or that's being dragged
@@ -262,10 +278,10 @@ export const drawCarried = (ctx: CanvasRenderingContext2D, view: Viewport, notes
     const y = rowTop(note.pitch) - scrollY
     const w = Math.max(3, note.length * stepWidth - 1)
     if(x > width || x + w < 0 || y > height || y + ROW_HEIGHT < 0) return
-    ctx.fillStyle = lanes.css('selectedBorder')
-    ctx.fillRect(x + 0.5, y + 1, w, ROW_HEIGHT - 2)
-    ctx.strokeStyle = lanes.css('selectedClip')
-    ctx.strokeRect(x + 1, y + 1.5, w - 1, ROW_HEIGHT - 3)
+    ctx.fillStyle = noteColors.css('selected')
+    fillNote(ctx, x, y, w)
+    ctx.strokeStyle = noteColors.css('selectedBorder')
+    strokeNote(ctx, x, y, w)
   })
 }
 

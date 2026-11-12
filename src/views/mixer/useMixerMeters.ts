@@ -9,6 +9,9 @@ export interface MeterElements {
 }
 
 export type RegisterMeter = (key: string, elements: MeterElements | null) => void
+// a track's color LED, lit while the track is sounding. registered under its
+// meter's key
+export type RegisterLed = (key: string, led: HTMLElement | null) => void
 
 // the key a track's meter is registered under
 export const trackMeterKey = (trackNumber: number) => `track-${trackNumber}`
@@ -20,11 +23,17 @@ const POLL_MS = 33
 const FALL_DB_PER_SECOND = 24
 // how long the peak line stays put before it falls
 const HOLD_MS = 1000
+// a track's LED lights above this, and stays lit a little after it drops
+// below, so it doesn't flicker between readings
+const LED_DB = -48
+const LED_HANG_MS = 150
 
 interface Reading {
   db: number
   holdDb: number
   holdUntil: number
+  // its LED is lit until then
+  litUntil: number
 }
 
 // reads the engine's levels while playing and draws them into the meters
@@ -35,6 +44,7 @@ interface Reading {
 export const useMixerMeters = (playing: boolean) => {
   const meters = React.useRef(new Map<string, MeterElements>())
   const readings = React.useRef(new Map<string, Reading>())
+  const leds = React.useRef(new Map<string, HTMLElement>())
   // whether the master went over 0 dBFS since the light was cleared
   const [clipped, setClipped] = React.useState(false)
 
@@ -43,16 +53,22 @@ export const useMixerMeters = (playing: boolean) => {
     else meters.current.delete(key)
   }, [])
 
+  const registerLed = React.useCallback<RegisterLed>((key, led) => {
+    if(led) leds.current.set(key, led)
+    else leds.current.delete(key)
+  }, [])
+
   // a new reading jumps the meter up. it falls back on its own
   const feed = (key: string, peak: number, now: number) => {
     const db = gainToDb(peak)
-    const reading = readings.current.get(key) ?? { db: MIN_DB, holdDb: MIN_DB, holdUntil: 0 }
+    const reading = readings.current.get(key) ?? { db: MIN_DB, holdDb: MIN_DB, holdUntil: 0, litUntil: 0 }
 
     if(db >= reading.db) reading.db = db
     if(db >= reading.holdDb) {
       reading.holdDb = db
       reading.holdUntil = now + HOLD_MS
     }
+    if(db > LED_DB) reading.litUntil = now + LED_HANG_MS
     readings.current.set(key, reading)
   }
 
@@ -122,6 +138,13 @@ export const useMixerMeters = (playing: boolean) => {
         elements.hold.style.opacity = hold > 0 ? '1' : '0'
       })
 
+      // straight onto the LEDs too, like the meters
+      leds.current.forEach((led, key) => {
+        const lit = playing && now < (readings.current.get(key)?.litUntil ?? 0)
+        const state = lit ? 'on' : 'off'
+        if(led.dataset.state !== state) led.dataset.state = state
+      })
+
       // (this frame drew them at rest, so they stay that way)
       frame = playing || moving ? requestAnimationFrame(draw) : 0
     }
@@ -132,5 +155,5 @@ export const useMixerMeters = (playing: boolean) => {
 
   const clearClip = React.useCallback(() => setClipped(false), [])
 
-  return { register, clipped, clearClip }
+  return { register, registerLed, clipped, clearClip }
 }

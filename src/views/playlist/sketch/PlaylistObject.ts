@@ -6,6 +6,7 @@ import { ClipView, CanvasProps, Renderer, staticDefaults, trackTop } from './ind
 import { PlaylistItem } from '../../../types/playlist'
 import { P5BoundingBox, State as ComponentState } from '../../../render/P5Component'
 import { paint, theme } from './theme'
+import { mixRgba } from '../../../theme/color'
 import type { SectionKey } from '../../../theme/keys'
 import { STEPS_PER_BEAT, clipNoteBars, kindOf, litRows, patternLabel } from '../../../types/sequencer'
 import { hiddenBeyond } from './edges'
@@ -22,6 +23,11 @@ interface Props extends PlaylistComponentProps {
 
 type ClipColor = SectionKey<'playlist'>
 type State = ComponentState<Record<string, never>>
+
+// how much of its track's color a sample clip's label band takes, like a
+// colored label on a cassette. a pattern clip is in its track's color all
+// over (see patternColors). a selected clip is sky, so the selection shows
+const TRACK_TINT = 0.35
 
 // room at the end of the label for the modified dot, in screen pixels
 const MODIFIED_DOT_SPACE = 12
@@ -187,13 +193,18 @@ class PlaylistObject extends PlaylistComponent<State> {
     const cardTop = top + inset
     const cardHeight = height - inset * 2
     // selected (shift+click, or a shift+drag box): sky instead of slate (or
-    // a pattern clip's amber)
-    const selected = (this.renderer as Renderer)?.selectedIds.has(this.playlistItem.id)
+    // a pattern clip's track color)
+    const renderer = this.renderer as Renderer | undefined
+    const selected = renderer?.selectedIds.has(this.playlistItem.id)
     const isPattern = this.playlistItem.patternId !== undefined
-    let colors: { border: ClipColor, card: ClipColor, label: ClipColor } =
-      { border: 'clipBorder', card: 'clip', label: 'clipLabel' }
-    if(isPattern) colors = { border: 'patternBorder', card: 'patternClip', label: 'patternLabel' }
-    if(selected) colors = { border: 'selectedBorder', card: 'selectedClip', label: 'selectedLabel' }
+    const key = (k: ClipColor) => paint.rgba(k)
+    let colors = { border: key('clipBorder'), card: key('clip'), label: key('clipLabel') }
+    if(renderer) {
+      const track = this.playlistItem.trackNumber
+      if(isPattern) colors = renderer.patternRgba(track)
+      else colors.label = mixRgba(renderer.trackRgba(track), colors.label, TRACK_TINT)
+    }
+    if(selected) colors = { border: key('selectedBorder'), card: key('selectedClip'), label: key('selectedLabel') }
     const { border } = colors
     // drawn in screen pixels across (like the label's text), so zoom doesn't
     // stretch the card's border or its corners
@@ -201,14 +212,14 @@ class PlaylistObject extends PlaylistComponent<State> {
     this.p.push()
     this.p.scale(1 / scale, 1)
     this.p.strokeWeight(selected ? 1.5 : 1)
-    paint.stroke(this.p, border)
-    paint.fill(this.p, colors.card)
+    this.p.stroke(...border)
+    this.p.fill(...colors.card)
     this.p.rect(left * scale, cardTop, width * scale, cardHeight, 3)
     this.p.noStroke()
-    paint.fill(this.p, colors.label)
+    this.p.fill(...colors.label)
     this.p.rect(left * scale + .5, cardTop + .5, width * scale - 1, this.labelHeight - inset - .5, 3, 3, 0, 0)
     this.p.strokeWeight(1)
-    paint.stroke(this.p, border)
+    this.p.stroke(...border)
     this.p.line(left * scale, top + this.labelHeight, right * scale, top + this.labelHeight)
 
     // a small triangle in the label, pointing into the clip, at each edge
@@ -216,7 +227,7 @@ class PlaylistObject extends PlaylistComponent<State> {
     const hidden = width * scale >= TRIANGLES_FROM_WIDTH ? this.#hidden() : { left: false, right: false }
     const labelMiddle = cardTop + (this.labelHeight - inset) / 2
     this.p.noStroke()
-    paint.fill(this.p, border)
+    this.p.fill(...border)
     if(hidden.left) {
       const x = left * scale + 3
       this.p.triangle(x, labelMiddle - 4, x, labelMiddle + 4, x + 5, labelMiddle)
@@ -295,8 +306,10 @@ class PlaylistObject extends PlaylistComponent<State> {
     const stepX = (step: number) => left + (step - from) * stepWidth
     const last = Math.min(to, pattern.length)
 
+    // in the track's color (see patternColors)
+    const ink = (this.renderer as Renderer).patternRgba(this.playlistItem.trackNumber)
     this.p.strokeWeight(1 / this.currentScale)
-    paint.stroke(this.p, 'patternBeat')
+    this.p.stroke(...ink.beat)
     const firstBeat = (Math.floor(from / STEPS_PER_BEAT) + 1) * STEPS_PER_BEAT
     for(let step = firstBeat; step < last; step += STEPS_PER_BEAT) {
       const x = stepX(step)
@@ -312,7 +325,7 @@ class PlaylistObject extends PlaylistComponent<State> {
       const notesTop = hits ? bodyTop + bodyHeight / 2 : bodyTop
       const rowHeight = (hits ? bodyHeight / 2 : bodyHeight) / rows
       this.p.noStroke()
-      paint.fill(this.p, 'patternHit')
+      this.p.fill(...ink.hit)
       bars.forEach(({ start, end, row }) => {
         const x = stepX(start)
         const w = Math.min(stepX(end), right) - x
@@ -327,7 +340,7 @@ class PlaylistObject extends PlaylistComponent<State> {
     const gapY = Math.min(laneHeight * .15, 1)
 
     this.p.noStroke()
-    paint.fill(this.p, 'patternHit')
+    this.p.fill(...ink.hit)
     lanes.forEach((steps, lane) => {
       const y = bodyTop + lane * laneHeight
       // only the hits that start inside the clip, as it plays them

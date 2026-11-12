@@ -1,6 +1,6 @@
 {
   "name": "@dawsome/ui",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "license": "GPL-3.0-or-later",
   "packageManager": "pnpm@8.15.4",
@@ -14,6 +14,7 @@
     "ui:test": "vitest run",
     "engine:test": "cargo test --manifest-path engine/Cargo.toml",
     "engine:test:ignored": "cargo test --manifest-path engine/Cargo.toml -- --ignored --test-threads=1",
+    "engine:clean": "cargo clean --manifest-path engine/Cargo.toml -p app",
     "info": "tauri info",
     "build": "tauri build",
     "build:assets:link": "ln -s engine/assets/ engine/target/assets",

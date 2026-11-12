@@ -86,6 +86,21 @@ input.ft-readout {
   border-radius: 2px;
   color: var(--ft-ink);
   border-bottom: 1px solid var(--ft-line);
+
+  // a channel's name, lettered as its label in the playlist (lip.ts): bold
+  // capitals, spaced out, lighter grey while it can't be heard
+  &--name {
+    font-family: var(--ft-font-label);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ft-ink-soft);
+  }
+
+  &--quiet {
+    color: var(--ft-ink-faint);
+  }
 }
 
 // ---------- AnalogButton ----------
@@ -276,6 +291,62 @@ $led-colors: 'red', 'amber', 'lime', 'blue';
   }
 }
 
+// an LED set in a small round bezel, as a button: a mixer strip's track
+// color (views/mixer/ChannelJewel)
+.ft-jewel {
+  appearance: none;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ft-tray);
+  box-shadow:
+    inset 0 1px 1.5px rgb(var(--c-shadow) / .18),
+    0 0 0 1px var(--ft-line);
+  cursor: pointer;
+  transition: box-shadow .08s;
+
+  .ft-led {
+    width: 7px;
+    height: 7px;
+  }
+
+  &:hover {
+    box-shadow:
+      inset 0 1px 1.5px rgb(var(--c-shadow) / .18),
+      0 0 0 1px var(--ft-line-strong);
+  }
+
+  &:focus-visible {
+    @include focus-ring(2px);
+  }
+
+  // the picked one, in the tray
+  &[aria-checked="true"] {
+    box-shadow:
+      inset 0 1px 1.5px rgb(var(--c-shadow) / .18),
+      0 0 0 1.5px var(--ft-ink);
+  }
+}
+
+// the tray of LEDs a track's color is picked from: a recess in a raised panel
+.ft-color-tray {
+  display: grid;
+  grid-template-columns: repeat(4, 16px);
+  gap: 6px;
+  padding: 7px;
+  border-radius: 5px;
+  background: var(--ft-tray);
+  box-shadow:
+    inset 0 1px 2px rgb(var(--c-shadow) / .1),
+    0 0 0 1px var(--ft-line-strong),
+    0 4px 10px rgb(var(--c-shadow) / .18);
+}
+
 @keyframes ft-blink {
   50% { opacity: .2; }
 }
@@ -376,8 +447,7 @@ $led-colors: 'red', 'amber', 'lime', 'blue';
     width: 2px;
     height: 34%;
     border-radius: 1px;
-    // a mixer strip sets --ft-control-accent to its track's color
-    background: var(--ft-control-accent, var(--ft-accent));
+    background: var(--ft-accent);
   }
 }
 
@@ -398,7 +468,7 @@ $led-colors: 'red', 'amber', 'lime', 'blue';
     position: absolute;
     height: 2px;
     border-radius: 1px;
-    background: var(--ft-control-accent, var(--ft-accent));
+    background: var(--ft-accent);
   }
 }
 

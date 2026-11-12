@@ -19,8 +19,10 @@ import {
 } from '../../../types/playlist'
 import { CutItem, canCut, cutPoint, cutTargets } from '../../../editing/cut'
 import { onThemeChange } from '../../../theme/apply'
-import { paint, theme, trackPaint } from './theme'
-import { trackColorKey, defaultTrackColor } from '../../../types/mixer'
+import { paint, patternColors, theme, trackPaint } from './theme'
+import { painter } from '../../../theme/canvas'
+import { LIP, LipLook, drawLip, fitName, inBox, lipBox, lipWidth, onLed } from './lip'
+import { trackColorKey, defaultTrackColor, trackLabel } from '../../../types/mixer'
 import { PlaylistTransport } from '../../../types/transport'
 import { positionAt } from '../../transport/tape'
 import {
@@ -32,6 +34,7 @@ import { snapDown } from '../../../editing/snap'
 import { drawCutLine, drawLasso } from '../../../editing/look'
 import { Tool } from '../../../editing/tools'
 import { DRAG_THRESHOLD_PX, wheelIntent, zoomAround } from '../../../editing/view'
+import type { MovedNode as Landed } from '../../../state/slices/playlistSlice'
 import { PlaceableItem as DragItem, dragItemKey } from '../../../state/sampleDrag'
 import { Pattern, SequencerState, patternSeconds } from '../../../types/sequencer'
 import { decodeLevels } from '../../../util/waveform'
@@ -54,6 +57,17 @@ export interface CanvasProps extends SketchProps {
   // colors given to tracks, by track number (see mixerSlice). tracks not
   // listed are their default color
   trackColors: Record<number, number>
+  // names given to tracks, by track number (see mixerSlice). tracks not
+  // listed are "Track n"
+  trackNames: Record<number, string>
+  // each track's mute and solo in the mixer (tracks not listed are neither),
+  // shown on its lip
+  trackMixes: Record<number, { mute: boolean, solo: boolean }>
+  // a lip's LED was clicked (mute) or shift+clicked (solo): set it to this
+  onTrackMute: (trackNumber: number, mute: boolean) => void
+  onTrackSolo: (trackNumber: number, solo: boolean) => void
+  // a lip was right-clicked, at clientX, clientY in the window
+  onLipRightClick: (trackNumber: number, clientX: number, clientY: number) => void
   playlistObjects: PlaylistItem[]
   onItemDrop: (pw: PlaylistWindow) => void
   // a clip was right-clicked, at clientX, clientY in the window
@@ -62,7 +76,7 @@ export interface CanvasProps extends SketchProps {
   onEmptyRightClick: (beat: number, track: number, clientX: number, clientY: number) => void
   onNodeMove: () => void
   // several selected clips were dragged together (see Renderer.onNodesMove)
-  onNodesMove: (ids: number[], anchorId: number, dropBeat: number, trackNumber: number) => void
+  onNodesMove: (ids: number[], anchorId: number, dropBeat: number, trackNumber: number, shown: Landed[]) => void
   onNodeDoubleClick: (id: number) => void
   // see PlaylistState.transportRevision
   transportRevision: number
@@ -148,9 +162,8 @@ const SCROLLBAR = {
   minThumbHeight: 24,
 }
 
-// the bar of a track's color down each lane's right edge. it stays at the
-// edge however the playlist is zoomed or panned
-const TRACK_BAR_WIDTH = 4
+// a lane's label is printed in the four-track controls' colors (see lip.ts)
+const fourtrackPaint = painter('fourtrack')
 
 // dragging a clip near the top or bottom of the tracks scrolls them
 const AUTO_SCROLL = {
@@ -296,6 +309,14 @@ export class Renderer extends RendererBase {
   maxPlaylistBeats: number = staticDefaults.maxPlaylistBeats
   trackCount: number = staticDefaults.trackCount
   trackColors: Record<number, number> = {}
+  trackMixes: Record<number, { mute: boolean, solo: boolean }> = {}
+  onTrackMute!: (trackNumber: number, mute: boolean) => void
+  onTrackSolo!: (trackNumber: number, solo: boolean) => void
+  onLipRightClick!: (trackNumber: number, clientX: number, clientY: number) => void
+  trackNames: Record<number, string> = {}
+  // each name as its lip shows it, and the lip's width, by name: measured
+  // once per name, not every frame
+  #lipLabels = new Map<string, { text: string, width: number }>()
   tempo: number = staticDefaults.tempo
   // the playlist's length in beats: the full canvas width (at scale 1)
   // spans this many
@@ -421,14 +442,19 @@ export class Renderer extends RendererBase {
   onNodeRightClick!: (id: number, clientX: number, clientY: number) => void
   onEmptyRightClick!: (beat: number, track: number, clientX: number, clientY: number) => void
   onNodeDoubleClick!: (id: number) => void
+  // a clip was dropped at dropBeat (unsnapped) on trackNumber. `shownBeat`
+  // is where its phantom showed it landing, which it's drawn at until the
+  // engine says where it went
   onNodeMove!: (
     item: PlaylistItem,
     dropBeat: number,
     trackNumber: number,
+    shownBeat: number,
   ) => void
   // the grabbed clip (anchorId) was dropped at dropBeat (unsnapped) on
-  // trackNumber, and every clip in ids moves by as much
-  onNodesMove!: (ids: number[], anchorId: number, dropBeat: number, trackNumber: number) => void
+  // trackNumber, and every clip in ids moves by as much. `shown` is where
+  // their phantoms showed them landing (as onNodeMove's shownBeat)
+  onNodesMove!: (ids: number[], anchorId: number, dropBeat: number, trackNumber: number, shown: Landed[]) => void
   // clips' edges were dragged: each clip in `edits` is to play that part of
   // its sample or pattern. resolves to what the engine changed, or nothing
   // if it refused
@@ -1131,7 +1157,9 @@ export class Renderer extends RendererBase {
   clipUnderMouse = (): PlaylistObject | null => {
     // clips scrolled up under the timeline, or under the scrollbar, are hidden
     const p = this.#p
-    if(p && (p.mouseY < staticDefaults.timelineHeight || this.overScrollbar(p.mouseX, p.mouseY))) {
+    // and under a lane's lip
+    if(p && (p.mouseY < staticDefaults.timelineHeight || this.overScrollbar(p.mouseX, p.mouseY)
+      || this.lipAt(p.mouseX, p.mouseY) !== null)) {
       return null
     }
 
@@ -1542,24 +1570,111 @@ export class Renderer extends RendererBase {
     p.pop()
   }
 
-  // every lane's color, as a bar down its right edge in canvas pixels, so
-  // it stays put while the playlist pans and zooms (it scrolls with the
-  // lane). left of the scrollbar when that's shown
-  #drawTrackBars = (p: P5CanvasInstance<CanvasProps>) => {
-    const left = this.width - (this.scrollbar() ? SCROLLBAR.hitWidth : 0) - TRACK_BAR_WIDTH
-    const laneHeight = staticDefaults.trackHeight
-
-    p.push()
-    p.noStroke()
+  // each lane's lip, pinned to the right edge (left of the scrollbar when
+  // that's shown), for lanes at least partly below the ruler. in canvas
+  // pixels, matching the tracks' translate in draw
+  #lipBoxes = () => {
+    const ctx = this.#p?.drawingContext as CanvasRenderingContext2D | undefined
+    if(!ctx) return []
+    const right = this.width - (this.scrollbar() ? SCROLLBAR.hitWidth : 0)
+    const lips = []
     for(let n = 0; n < this.trackCount; n++) {
-      // matching the tracks' translate in draw
-      const laneTop = trackTop(n) - this.scrollY + 1
-      if(laneTop > this.height || laneTop + laneHeight < staticDefaults.timelineHeight) continue
-
-      trackPaint.fill(p, trackColorKey(this.trackColors[n] ?? defaultTrackColor(n)))
-      p.rect(left, laneTop, TRACK_BAR_WIDTH, laneHeight)
+      const label = this.#lipLabel(ctx, this.trackNames[n] ?? trackLabel(n))
+      const box = lipBox(
+        trackTop(n) - this.scrollY + 1, staticDefaults.trackHeight, right, label.width, staticDefaults.timelineHeight,
+      )
+      if(box.y > this.height || box.y + box.h < staticDefaults.timelineHeight) continue
+      lips.push({ track: n, box, text: label.text })
     }
-    p.pop()
+    return lips
+  }
+
+  #lipLabel = (ctx: CanvasRenderingContext2D, name: string) => {
+    let label = this.#lipLabels.get(name)
+    if(!label) {
+      ctx.save()
+      ctx.font = LIP.font
+      ctx.letterSpacing = LIP.letterSpacing
+      const text = fitName(ctx, name.toUpperCase())
+      label = { text, width: lipWidth(ctx.measureText(text).width) }
+      ctx.restore()
+      this.#lipLabels.set(name, label)
+    }
+    return label
+  }
+
+  // the track whose lip is at a point on the canvas, if any. the ruler
+  // covers the lips that scroll up under it
+  lipAt = (x: number, y: number): number | null => {
+    if(y < staticDefaults.timelineHeight) return null
+    return this.#lipBoxes().find(lip => inBox(lip.box, x, y))?.track ?? null
+  }
+
+  // the track whose lip's LED is at a point on the canvas, if any
+  ledAt = (x: number, y: number): number | null => {
+    if(y < staticDefaults.timelineHeight) return null
+    return this.#lipBoxes().find(lip => onLed(lip.box, x, y))?.track ?? null
+  }
+
+  // a track's color (see TRACK_COLORS), as [r, g, b, a]
+  trackRgba = (track: number) =>
+    trackPaint.rgba(trackColorKey(this.trackColors[track] ?? defaultTrackColor(track)))
+
+  // a pattern clip's colors on a track, in the track's color
+  patternRgba = (track: number) =>
+    patternColors(this.trackRgba(track), paint.rgba('clip'), paint.rgba('clipText'))
+
+  // a track's state in the mixer, as its lip shows it
+  #ring = (track: number): LipLook['ring'] => {
+    const mix = this.trackMixes[track]
+    if(mix?.mute) return 'mute'
+    if(mix?.solo) return 'solo'
+    const anySolo = Object.values(this.trackMixes).some(m => m.solo)
+    return anySolo ? 'silenced' : null
+  }
+
+  // a lip's LED toggles its track's mute (a click) or solo (a shift+click)
+  #toggleMute = (track: number) => this.onTrackMute?.(track, !this.trackMixes[track]?.mute)
+  #toggleSolo = (track: number) => this.onTrackSolo?.(track, !this.trackMixes[track]?.solo)
+
+  // the tracks the playhead is playing a clip on, unless the mixer silences
+  // them. lights their lips' LEDs
+  #soundingTracks = (): Set<number> => {
+    const sounding = new Set<number>()
+    const beat = this.playing ? this.playheadBeat() : null
+    if(beat === null) return sounding
+
+    const x = this.beatToX(beat)
+    this.playlistObjects.forEach(clip => {
+      const track = clip.playlistItem.trackNumber
+      const ring = this.#ring(track)
+      if(ring === 'mute' || ring === 'silenced') return
+      const { left, right } = clip.boundingBox()
+      if(x >= left && x < right) sounding.add(track)
+    })
+    return sounding
+  }
+
+  // over the clips, and under the ruler, which covers a lip as its lane
+  // scrolls up under it
+  #drawTrackLips = (p: P5CanvasInstance<CanvasProps>) => {
+    const ctx = p.drawingContext as CanvasRenderingContext2D
+    const sounding = this.#soundingTracks()
+    const base = {
+      ink: fourtrackPaint.rgba('inkSoft'),
+      inkQuiet: fourtrackPaint.rgba('inkFaint'),
+      well: fourtrackPaint.rgba('tray'),
+      panel: fourtrackPaint.rgba('panel'),
+      mute: fourtrackPaint.rgba('ledAmberOn'),
+      solo: fourtrackPaint.rgba('ledLimeOn'),
+    }
+    // every other lane is shaded (see draw)
+    const lanes = [paint.rgba('background'), paint.rgba('laneAlt')]
+
+    this.#lipBoxes().forEach(({ track, box, text }) => {
+      const led = this.trackRgba(track)
+      drawLip(ctx, box, text, { ...base, lane: lanes[track % 2], led }, { lit: sounding.has(track), ring: this.#ring(track) })
+    })
   }
 
   #drawScrollbar = (p: P5CanvasInstance<CanvasProps>) => {
@@ -1624,6 +1739,12 @@ export class Renderer extends RendererBase {
     }
 
     if(overRuler(p.mouseY) || this.overScrollbar(p.mouseX, p.mouseY)) return
+    // a lip has its own menu
+    const lip = this.lipAt(p.mouseX, p.mouseY)
+    if(lip !== null) {
+      this.onLipRightClick?.(lip, ev.clientX, ev.clientY)
+      return
+    }
     const track = this.trackAt(this.screenToPlaylistY(p.mouseY))
     if(track < 0) return
     this.onEmptyRightClick(this.snapBeat(this.screenXToBeat(p.mouseX)), track, ev.clientX, ev.clientY)
@@ -1697,6 +1818,19 @@ export class Renderer extends RendererBase {
             this.#startSeek(p.mouseX)
             return
           }
+
+          // a lane's lip is its own control: the press doesn't reach the
+          // clips or the lane under it. its LED mutes the track, or with
+          // shift held, solos it
+          // (from the event: p5 hasn't caught its own mouse position up
+          // with this press yet)
+          const led = this.ledAt(ev.offsetX, ev.offsetY)
+          if(led !== null) {
+            if(ev.shiftKey) this.#toggleSolo(led)
+            else this.#toggleMute(led)
+            return
+          }
+          if(this.lipAt(ev.offsetX, ev.offsetY) !== null) return
 
           const item = this.clipUnderMouse()
 
@@ -1829,12 +1963,15 @@ export class Renderer extends RendererBase {
         const target = this.dropTarget(p.mouseX, p.mouseY, drag?.grabX)
 
         if(drag?.active && target.trackNumber >= 0) {
-          // send the unsnapped beat, the engine owns snapping
+          // send the unsnapped beat, the engine owns snapping. the clips are
+          // drawn where their phantoms were until it answers
           if(drag.group.length) {
             const ids = [drag.item, ...drag.group].map(clip => clip.playlistItem.id)
-            this.onNodesMove(ids, drag.item.playlistItem.id, target.beat, target.trackNumber)
+            const shown = this.landings({ ...drag, mouseX: p.mouseX, mouseY: p.mouseY })
+              .map(({ item, beat, track }) => ({ id: item.playlistItem.id, startBeat: beat, trackNumber: track }))
+            this.onNodesMove(ids, drag.item.playlistItem.id, target.beat, target.trackNumber, shown)
           } else {
-            this.onNodeMove(drag.item.playlistItem, target.beat, target.trackNumber)
+            this.onNodeMove(drag.item.playlistItem, target.beat, target.trackNumber, target.snappedBeat)
           }
         }
 
@@ -1963,6 +2100,11 @@ export class Renderer extends RendererBase {
       const tracksChanged = props.trackCount !== this.trackCount
       this.trackCount = props.trackCount
       this.trackColors = props.trackColors ?? {}
+      this.trackMixes = props.trackMixes ?? {}
+      this.onTrackMute = props.onTrackMute
+      this.onTrackSolo = props.onTrackSolo
+      this.onLipRightClick = props.onLipRightClick
+      this.trackNames = props.trackNames ?? {}
       // clips' lengths in beats change with the tempo, so where the loop ends
       if(props.tempo !== this.tempo) this.syncTransport()
       this.tempo = props.tempo
@@ -2152,6 +2294,7 @@ export class Renderer extends RendererBase {
       const idle = !this.edgeDrag && !this.clipDrag && !this.sampleDrag && !this.lasso && !this.#paint
         && !this.isMouseDown && !this.seekDragging && this.scrollbarGrab === null
       const overTracks = idle && !overRuler(p.mouseY) && !this.overScrollbar(p.mouseX, p.mouseY)
+        && this.lipAt(p.mouseX, p.mouseY) === null
       // (Draw is Select on a clip)
       const hover = overTracks && this.tool !== 'cut' ? this.edgeUnderMouse() : null
       this.#hoverEdge = hover ? { id: hover.item.playlistItem.id, edge: hover.edge } : null
@@ -2197,9 +2340,7 @@ export class Renderer extends RendererBase {
       
       p.pop()
 
-      // over the clips, and under the ruler, which covers a lane's bar as it
-      // scrolls up under it
-      this.#drawTrackBars(p)
+      this.#drawTrackLips(p)
       this.#drawNewTrackArea(p, canvas)
       // under the ruler, which covers it when it reaches past the top
       this.#drawLasso(p)
@@ -2225,6 +2366,9 @@ export class Renderer extends RendererBase {
         p.cursor(p.CROSS)
       } else if(this.scrollbarGrab !== null || this.overScrollbar(p.mouseX, p.mouseY)) {
         p.cursor(p.ARROW)
+      } else if(!this.clipDrag?.active && !this.sampleDrag && this.lipAt(p.mouseX, p.mouseY) !== null) {
+        // the LED can be clicked
+        p.cursor(this.ledAt(p.mouseX, p.mouseY) === null ? p.ARROW : p.HAND)
       } else if(this.seekDragging || (overRuler(p.mouseY) && !this.clipDrag?.active && !this.sampleDrag)) {
         p.cursor(p.HAND)
       } else if(this.#hoverEdge) {

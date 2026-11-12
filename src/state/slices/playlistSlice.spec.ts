@@ -1,7 +1,7 @@
 import type { Mock } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import reducer, {
-  addToPlaylist, copyClips, cutClips, deepCopyClips, joinClips, NEEDS_SAVING, pasteClips, repeatClips, reduceLoadedProject, playlistSlice, removeManyFromPlaylist, selectClipOverrides, selectClipWindow, setClipWindows,
+  addToPlaylist, copyClips, moveNodeInPlaylist, moveNodesInPlaylist, cutClips, deepCopyClips, joinClips, NEEDS_SAVING, pasteClips, repeatClips, reduceLoadedProject, playlistSlice, removeManyFromPlaylist, selectClipOverrides, selectClipWindow, setClipWindows,
   setPlaylistTempo,
   splitClips, stretchClips, updateClipSettings, validTempo, withWaitCursor,
 } from './playlistSlice'
@@ -172,6 +172,71 @@ describe('setPlaylistTempo', () => {
     expect(dispatch).not.toHaveBeenCalled()
     expect(error).toHaveBeenCalled()
     error.mockRestore()
+  })
+})
+
+describe('moving clips', () => {
+  const mockInvoke = invoke as Mock
+  const { actions } = playlistSlice
+
+  // a playlist with two clips, and the engine's answer held until `answer`
+  const setup = () => {
+    let state = reducer(undefined, { type: 'init' })
+    state = reducer(state, actions.addPlaylistItem({ id: 3, path: '', patternId: 5, startBeat: 0, trackNumber: 0 }))
+    state = reducer(state, actions.addPlaylistItem({ id: 4, path: '', patternId: 5, startBeat: 2, trackNumber: 0 }))
+    const dispatch = ((action: { type: string }) => {
+      state = reducer(state, action as never)
+      return action
+    }) as never
+    const getState = () => ({ playlist: state }) as never
+    const clip = (id: number) => state.playlistItems.find(i => i.id === id)
+    let answer: (value: unknown) => void = () => {}
+    let refuse: (reason: unknown) => void = () => {}
+    mockInvoke.mockImplementation((command: string) => {
+      if(command === 'get_playlist_data') return Promise.resolve([16, 256, 8, 4])
+      return new Promise((resolve, reject) => { answer = resolve; refuse = reject })
+    })
+    return { dispatch, getState, clip, answer: (v: unknown) => answer(v), refuse: (r: unknown) => refuse(r) }
+  }
+  const offset = { x: 0, y: 0, left: 0, top: 0 } as never
+
+  it('moves a clip where it was shown landing at once, then where the engine put it', async () => {
+    const { dispatch, getState, clip, answer } = setup()
+
+    const moving = moveNodeInPlaylist(3, '', 2, 3.8, offset, 4)(dispatch, getState)
+    // before the engine answers (it may be loading a synth for the track)
+    expect(clip(3)).toMatchObject({ startBeat: 4, trackNumber: 2 })
+
+    answer(3.5)
+    await moving
+    expect(clip(3)).toMatchObject({ startBeat: 3.5, trackNumber: 2 })
+  })
+
+  it('puts a clip back when the engine refuses the move', async () => {
+    const { dispatch, getState, clip, refuse } = setup()
+
+    const moving = moveNodeInPlaylist(3, '', 2, 3.8, offset, 4)(dispatch, getState)
+    refuse('no node with id 3')
+    await expect(moving).rejects.toBe('no node with id 3')
+    expect(clip(3)).toMatchObject({ startBeat: 0, trackNumber: 0 })
+  })
+
+  it('moves a selection at once too, and back if the engine refuses', async () => {
+    const shown = [{ id: 3, startBeat: 8, trackNumber: 1 }, { id: 4, startBeat: 10, trackNumber: 1 }]
+
+    const ok = setup()
+    const moving = moveNodesInPlaylist([3, 4], 3, 8, 1, shown)(ok.dispatch, ok.getState)
+    expect(ok.clip(4)).toMatchObject({ startBeat: 10, trackNumber: 1 })
+    ok.answer([{ id: 3, startBeat: 8, trackNumber: 1 }, { id: 4, startBeat: 10.5, trackNumber: 1 }])
+    await moving
+    expect(ok.clip(4)).toMatchObject({ startBeat: 10.5, trackNumber: 1 })
+
+    const refused = setup()
+    const failing = moveNodesInPlaylist([3, 4], 3, 8, 1, shown)(refused.dispatch, refused.getState)
+    refused.refuse('no')
+    await expect(failing).rejects.toBe('no')
+    expect(refused.clip(3)).toMatchObject({ startBeat: 0, trackNumber: 0 })
+    expect(refused.clip(4)).toMatchObject({ startBeat: 2, trackNumber: 0 })
   })
 })
 

@@ -10,6 +10,7 @@ import {
   inspectClip,
   joinClips,
   moveNodeInPlaylist,
+  MovedNode,
   moveNodesInPlaylist,
   paintPatternClips,
   pasteClips,
@@ -35,7 +36,11 @@ import { Renderer, StretchEdit, WindowEdit } from './sketch'
 import { isPlaceable, onSampleDrag } from '../../state/sampleDrag'
 import { OWN_DRAG_PREVIEW } from '../../components/DragGhost'
 import { selectFocusedView } from '../../state/slices/windowSlice'
-import { selectTrackColors } from '../../state/slices/mixerSlice'
+import {
+  sameMuteSolo, selectMuteSolo, selectTrackColor, selectTrackColors, selectTrackName, selectTrackNames, setTrackColor,
+  setTrackMute, setTrackSolo,
+} from '../../state/slices/mixerSlice'
+import TrackColorMenu, { TrackMenuAt } from '../mixer/TrackColorMenu'
 import { View } from '../../types/ui'
 import { isDeleteKey, isExplodeKey, isJoinKey, isTextTarget, isTypingTarget } from '../../util/keys'
 import { editShortcutHandler } from '../../util/shortcuts'
@@ -55,6 +60,43 @@ const setBusy = (busy: boolean) => {
   busyCount = Math.max(0, busyCount + (busy ? 1 : -1))
   playlistRenderer.setBusy(busyCount > 0)
   document.body.style.cursor = busyCount > 0 ? 'wait' : ''
+}
+
+// a lane's lip's right-click menu, which is a track's menu, as on its mixer
+// strip. its own state, as ClipMenuHost's, so opening it doesn't re-render
+// the canvas
+type OpenLipMenu = TrackMenuAt & { track: number }
+
+const LipMenu = ({ menu, onClose }: { menu: OpenLipMenu, onClose: () => void }) => {
+  const dispatch = useAppDispatch()
+  const { track } = menu
+  const color = useAppSelector(selectTrackColor(track))
+  const name = useAppSelector(selectTrackName(track))
+
+  return (
+    <TrackColorMenu
+      at={menu}
+      label={name}
+      color={color}
+      onChange={c => { dispatch(setTrackColor(track, c)) }}
+      onClose={onClose}
+    />
+  )
+}
+
+const LipMenuHost = ({ opener }: { opener: React.MutableRefObject<((m: OpenLipMenu) => void) | null> }) => {
+  const [menu, setMenu] = React.useState<OpenLipMenu | null>(null)
+  const close = React.useCallback(() => setMenu(null), [])
+
+  React.useEffect(() => {
+    // eslint-disable-next-line no-param-reassign
+    opener.current = setMenu
+    // eslint-disable-next-line no-param-reassign
+    return () => { opener.current = null }
+  }, [opener])
+
+  // (keyed by where it opened, so a second right-click starts from its menu)
+  return menu && <LipMenu key={`${menu.track}-${menu.clientX}-${menu.clientY}`} menu={menu} onClose={close} />
 }
 
 // a right-click menu: where it opens, relative to the playlist's box. on a
@@ -209,8 +251,22 @@ const PlaylistCanvas = () => {
     maxPlaylistDuration: duration,
     trackCount,
   } = useAppSelector(selectPlaylistUI)
-  // each lane is marked with its track's color
+  // each lane is labelled with its track's name and color
   const trackColors = useAppSelector(selectTrackColors)
+  const trackNames = useAppSelector(selectTrackNames)
+  // and its mute and solo, which its lip's LED shows and toggles
+  // (only mute and solo: a fader or pan moving doesn't redraw the playlist)
+  const trackMixes = useAppSelector(selectMuteSolo, sameMuteSolo)
+  const handleTrackMute = React.useCallback((trackNumber: number, mute: boolean) => {
+    dispatch(setTrackMute(trackNumber, mute))
+  }, [dispatch])
+  const openLipMenu = React.useRef<((m: OpenLipMenu) => void) | null>(null)
+  const handleLipRightClick = React.useCallback((track: number, clientX: number, clientY: number) => {
+    openLipMenu.current?.({ track, clientX, clientY })
+  }, [])
+  const handleTrackSolo = React.useCallback((trackNumber: number, solo: boolean) => {
+    dispatch(setTrackSolo(trackNumber, solo))
+  }, [dispatch])
 
   // samples dragged in from the sidebar, and patterns from the Sequencer:
   // show the clip under the mouse while it's over the playlist, and add it
@@ -488,6 +544,7 @@ const PlaylistCanvas = () => {
     item: PlaylistItem,
     dropBeat: number,
     trackNumber: number,
+    shownBeat: number,
   ) => {
     dispatch(moveNodeInPlaylist(
       item.id,
@@ -496,6 +553,7 @@ const PlaylistCanvas = () => {
       dropBeat,
       // keep the vertical offset the clip was first drawn with
       item.pixelOffset,
+      shownBeat,
     ))
   }, [dispatch])
 
@@ -506,8 +564,9 @@ const PlaylistCanvas = () => {
     anchorId: number,
     dropBeat: number,
     trackNumber: number,
+    shown: MovedNode[],
   ) => {
-    dispatch(moveNodesInPlaylist(ids, anchorId, dropBeat, trackNumber))
+    dispatch(moveNodesInPlaylist(ids, anchorId, dropBeat, trackNumber, shown))
   }, [dispatch])
 
   // clips' edges were dragged: trim them all, as one step to undo
@@ -558,6 +617,11 @@ const PlaylistCanvas = () => {
           duration={duration}
           trackCount={trackCount}
           trackColors={trackColors}
+          trackMixes={trackMixes}
+          onTrackMute={handleTrackMute}
+          onTrackSolo={handleTrackSolo}
+          onLipRightClick={handleLipRightClick}
+          trackNames={trackNames}
           playlistObjects={items}
           onItemDrop={handleItemDrop}
           onNodeRightClick={handleNodeRightClick}
@@ -575,6 +639,7 @@ const PlaylistCanvas = () => {
         />
       </div>}
       <ClipMenuHost opener={openMenu} />
+      <LipMenuHost opener={openLipMenu} />
     </div>
   )
 }

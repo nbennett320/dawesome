@@ -66,6 +66,12 @@
     "debug": "#ffbb99",
     "debugText": "inkStrong"
   },
+  "pianoRoll": {
+    "note": "mix(led, ledTint, 0.6)",
+    "noteBorder": "led",
+    "selected": "mix(accent, accentTint, 0.6)",
+    "selectedBorder": "accent"
+  },
   "track": {
     "red": "#e5484d",
     "orange": "#f76b15",
