@@ -1,6 +1,7 @@
 # 🎹 Dawsome
 
 [![CI](https://github.com/nbennett320/dawesome/actions/workflows/ci.yaml/badge.svg)](https://github.com/nbennett320/dawesome/actions/workflows/ci.yaml)
+![License](https://badgen.net/github/license/nbennett320/dawesome)
 
 An awesome, libre, and cross-platform DAW 
 (and extremely early work in progress) 
