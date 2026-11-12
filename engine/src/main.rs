@@ -4,6 +4,7 @@ mod util;
 mod event_dispatch;
 mod transport_commands;
 mod sample_commands;
+mod playlist_commands;
 mod project;
 mod project_files;
 mod recording;
@@ -42,6 +43,7 @@ fn init_tauri() {
   use event_dispatch::*;
   use transport_commands::*;
   use sample_commands::*;
+  use playlist_commands::*;
   use project::{save_project, load_project, new_project, project_file_for};
   use recent::{add_recent_project, remove_recent_project};
   use mixer_commands::*;
