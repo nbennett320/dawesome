@@ -244,7 +244,7 @@ pub fn render(
 mod tests {
   use super::*;
   use std::time::Instant;
-  use crate::event_dispatch::add_clip;
+  use crate::clip_commands::add_clip;
 
   const KICK: &str = "assets/assets_66-bd-01.wav";
   const LONG: &str = "assets/slide_guitar.wav";

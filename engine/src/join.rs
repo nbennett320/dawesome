@@ -307,7 +307,7 @@ mod tests {
   use std::path::{Path, PathBuf};
   use std::sync::Arc;
   use std::time::Instant;
-  use crate::event_dispatch::{add_clip, change_clip_settings, ClipWindow};
+  use crate::clip_commands::{add_clip, change_clip_settings, ClipWindow};
   use crate::project;
 
   const KICK: &str = "assets/assets_66-bd-01.wav";

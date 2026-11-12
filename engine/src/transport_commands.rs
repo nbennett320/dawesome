@@ -218,7 +218,8 @@ pub fn get_loop_enabled(
 mod tests {
   use super::*;
   use std::time::Duration;
-  use crate::event_dispatch::{add_node_at_offset, beat_to_offset, move_audiograph_node_to, node_beat};
+  use crate::clip_commands::{add_node_at_offset, move_audiograph_node_to};
+  use crate::playlist_commands::{beat_to_offset, node_beat};
 
   #[test]
   fn test_start_time_can_be_just_ahead() {

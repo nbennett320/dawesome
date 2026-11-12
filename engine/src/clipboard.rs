@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use crate::clip_commands::{changed_clips, ChangedClips};
 use crate::daw;
-use crate::event_dispatch::remove_clips;
+use crate::clip_commands::remove_clips;
 use crate::history::{self, ClipSnap};
 
 // a copied clip
@@ -280,7 +280,8 @@ pub(crate) fn repeat(state: &daw::InnerState, ids: &[u64]) -> Result<Placed, Str
 mod tests {
   use super::*;
   use std::sync::Arc;
-  use crate::event_dispatch::{add_clip, change_clip_settings, node_beat};
+  use crate::clip_commands::{add_clip, change_clip_settings};
+  use crate::playlist_commands::node_beat;
   use crate::project;
 
   const KICK: &str = "assets/assets_66-bd-01.wav";
@@ -328,7 +329,7 @@ mod tests {
     let (pattern, c) = pattern_clip(&state, 1, 4.);
     change_clip_settings(&state, b, daw::ClipSettings { pitch: 3., pan: 0.5, ..Default::default() }, None).unwrap();
     crate::clip_commands::set_windows(&state, &[crate::clip_commands::WindowEdit {
-      id: b, window: crate::event_dispatch::ClipWindow { start: 0.02, end: Some(0.09) },
+      id: b, window: crate::clip_commands::ClipWindow { start: 0.02, end: Some(0.09) },
     }]).unwrap();
     let b_beat = node_beat(&state, b).unwrap();
     state.history.lock().unwrap().clear();
@@ -350,7 +351,7 @@ mod tests {
     // new clips, with the trim and settings of the ones they were copied from
     assert!(![a, b, c].contains(&clips[1].id));
     assert_eq!(clips[1].info.settings, node(&state, b).settings());
-    assert_eq!(clips[1].info.window, node(&state, b).window().map(crate::event_dispatch::ClipWindow::of_sample));
+    assert_eq!(clips[1].info.window, node(&state, b).window().map(crate::clip_commands::ClipWindow::of_sample));
     assert_eq!(clips[0].path, KICK);
 
     // pasted again, a second set lands in the same place
@@ -421,7 +422,7 @@ mod tests {
     // trimmed, pitched and turned down, the pasted clip changes nothing
     // about the one it was copied from
     crate::clip_commands::set_windows(&state, &[crate::clip_commands::WindowEdit {
-      id: pasted, window: crate::event_dispatch::ClipWindow { start: 0.03, end: Some(0.06) },
+      id: pasted, window: crate::clip_commands::ClipWindow { start: 0.03, end: Some(0.06) },
     }]).unwrap();
     change_clip_settings(&state, pasted, daw::ClipSettings { pitch: -5., gain_db: -9., ..Default::default() }, None).unwrap();
     assert!(heard(pasted) != sound);

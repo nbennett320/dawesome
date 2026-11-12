@@ -620,8 +620,8 @@ mod tests {
     let (state, dir, _, clip) = project_with_a_clip_file("clips-history");
     // a second clip of the file, dropped in and then deleted (which can be
     // undone), and the first taken away without a trace
-    let added = crate::event_dispatch::add_clip(&state, clip.clone(), 2, Some(4.)).unwrap().id;
-    crate::event_dispatch::remove_clips(&state, &[added]).unwrap();
+    let added = crate::clip_commands::add_clip(&state, clip.clone(), 2, Some(4.)).unwrap().id;
+    crate::clip_commands::remove_clips(&state, &[added]).unwrap();
     let first = state.playlist.audiograph.lock().unwrap().nodes.iter()
       .find(|node| node.sample_path() == clip).unwrap().id;
     state.playlist.audiograph.lock().unwrap().remove_node(first).unwrap();

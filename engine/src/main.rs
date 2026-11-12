@@ -1,7 +1,6 @@
 mod app;
 mod daw;
 mod util;
-mod event_dispatch;
 mod transport_commands;
 mod sample_commands;
 mod playlist_commands;
@@ -40,7 +39,6 @@ use tauri;
 extern crate lazy_static;
 
 fn init_tauri() {
-  use event_dispatch::*;
   use transport_commands::*;
   use sample_commands::*;
   use playlist_commands::*;

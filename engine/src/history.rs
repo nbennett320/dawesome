@@ -478,7 +478,7 @@ pub fn sequencer_edit<T>(
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::event_dispatch::{add_clip, change_clip_settings, move_clip, remove_clips};
+  use crate::clip_commands::{add_clip, change_clip_settings, move_clip, remove_clips};
   use crate::project;
 
   fn state() -> Arc<daw::InnerState> {
@@ -496,7 +496,7 @@ mod tests {
   }
 
   fn beat_of(state: &daw::InnerState, id: u64) -> Option<f32> {
-    crate::event_dispatch::node_beat(state, id).ok()
+    crate::playlist_commands::node_beat(state, id).ok()
   }
 
   fn steps(state: &daw::InnerState) -> usize {
@@ -552,7 +552,7 @@ mod tests {
     let was = steps(&state);
 
     // the command the playlist uses for a dragged selection
-    let moved = crate::event_dispatch::move_clips(&state, &[a, b], a, 10., 2);
+    let moved = crate::clip_commands::move_clips(&state, &[a, b], a, 10., 2);
     assert!(moved.is_ok());
     assert_eq!(steps(&state), was + 1);
     let after = saved(&state);

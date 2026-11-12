@@ -1,6 +1,6 @@
 use std::sync::atomic::Ordering;
 
-use crate::daw;
+use crate::{app, daw};
 
 #[tauri::command]
 pub fn get_playlist_data(
@@ -118,6 +118,57 @@ pub fn set_snap_subdivision(
   Ok(snap_setting(state.inner()))
 }
 
+// the number of beats the playlist shows, and the time they span
+// at the current tempo
+pub(crate) fn displayed_beats_and_duration(
+  state: &daw::InnerState,
+) -> (f32, std::time::Duration) {
+  let tempo = state.playlist.audiograph.lock().unwrap().tempo();
+  let beats = state.playlist.ui.lock().unwrap().max_beats_displayed;
+  let dur = daw::timing::n_beat_duration_from_tempo(tempo, beats as u32);
+
+  (beats as f32, dur)
+}
+
+// convert a drop position, in beats from the start of the playlist,
+// into a start offset
+// positions are in beats rather than pixels, so they don't depend on the
+// canvas size, zoom, or pan, which the frontend accounts for
+pub(crate) fn beat_to_offset(
+  state: &daw::InnerState,
+  beat: Option<f32>,
+) -> std::time::Duration {
+  let (beats, dur) = displayed_beats_and_duration(state);
+
+  app::workspaces::playlist::calc_sample_offset(beat.unwrap_or(0.), beats, dur)
+}
+
+// the inverse of beat_to_offset: how many beats into the playlist
+// a start offset is
+pub(crate) fn offset_to_beat(
+  state: &daw::InnerState,
+  offset: std::time::Duration,
+) -> f32 {
+  let interval = state.playlist.audiograph.lock().unwrap().beat_interval();
+
+  if interval.is_zero() { return 0.; }
+
+  (offset.as_secs_f64() / interval.as_secs_f64()) as f32
+}
+
+// where a node starts, in beats from the start of the playlist, after snapping
+pub(crate) fn node_beat(state: &daw::InnerState, id: u64) -> Result<f32, String> {
+  let (offset, _) = state
+    .playlist
+    .audiograph
+    .lock()
+    .unwrap()
+    .placement(id)
+    .ok_or_else(|| format!("no node with id {}", id))?;
+
+  Ok(offset_to_beat(state, offset))
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -143,5 +194,27 @@ mod tests {
     let note: Note = serde_json::from_str("\"EighthNote\"").unwrap();
     assert_eq!(note, Note::EighthNote);
     assert_eq!(serde_json::to_string(&Note::WholeNote).unwrap(), "\"WholeNote\"");
+  }
+
+  #[test]
+  fn test_beat_to_offset() {
+    let state = daw::InnerState::default();
+
+    // default: 120bpm, a playlist of 256 beats (64 bars)
+    let ms = |b: Option<f32>| beat_to_offset(&state, b).as_millis();
+    assert_eq!(ms(Some(0.)), 0);
+    assert_eq!(ms(Some(1.)), 500);
+    assert_eq!(ms(Some(8.)), 4_000);
+    assert_eq!(ms(Some(1.5)), 750);
+    assert_eq!(ms(None), 0);
+
+    // drops outside the playlist are clamped to its start/end
+    assert_eq!(ms(Some(-2.)), 0);
+    assert_eq!(ms(Some(40.)), 20_000);
+    assert_eq!(ms(Some(300.)), 128_000);
+
+    // a beat is longer at a slower tempo
+    state.set_tempo(60.);
+    assert_eq!(ms(Some(8.)), 8_000);
   }
 }

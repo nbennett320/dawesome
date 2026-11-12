@@ -20,7 +20,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::daw;
-use crate::event_dispatch::{clip_info, ClipInfo, ClipWindow};
+use crate::clip_commands::{clip_info, ClipInfo, ClipWindow};
 use crate::project_files::{self, recordings_dir_for};
 
 // the newest project format this version of the app reads and writes.
@@ -1347,7 +1347,7 @@ mod tests {
     let file = dir.join("song.dawesome");
     let state = daw::InnerState::default();
     let id = add_clip(&state, "assets/assets_66-bd-01.wav", 0, 2.337);
-    crate::event_dispatch::change_clip_settings(
+    crate::clip_commands::change_clip_settings(
       &state, id, daw::ClipSettings { pitch: -7., ..Default::default() }, None,
     ).unwrap();
     // a beat inside the clip

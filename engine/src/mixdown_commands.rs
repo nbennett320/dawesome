@@ -179,7 +179,7 @@ pub fn reveal_file(path: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::event_dispatch::add_clip;
+  use crate::clip_commands::add_clip;
   use crate::mixdown_file::Bits;
 
   const KICK: &str = "assets/assets_66-bd-01.wav";

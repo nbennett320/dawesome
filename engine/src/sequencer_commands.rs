@@ -10,7 +10,8 @@ use serde::Serialize;
 
 use crate::daw;
 use crate::history;
-use crate::event_dispatch::{beat_to_offset, node_beat, PlacedNode};
+use crate::clip_commands::PlacedNode;
+use crate::playlist_commands::{beat_to_offset, node_beat};
 use crate::project::LoadedPatternClip;
 
 use crate::synth_commands::sequencer_state;
@@ -948,7 +949,7 @@ mod tests {
   }
 
   // the pattern clips on a track, as (start beat, window), in order
-  fn clips_on(state: &daw::InnerState, track: u32) -> Vec<(f32, Option<crate::event_dispatch::ClipWindow>)> {
+  fn clips_on(state: &daw::InnerState, track: u32) -> Vec<(f32, Option<crate::clip_commands::ClipWindow>)> {
     let audiograph = state.playlist.audiograph.lock().unwrap();
     let interval = audiograph.beat_interval();
     let mut clips: Vec<_> = audiograph.pattern_nodes.iter()
@@ -975,7 +976,7 @@ mod tests {
     // the last is trimmed to the drag's end: two beats, eight steps
     assert_eq!(painted.clips[0].window, None);
     assert_eq!(painted.clips[1].window, None);
-    assert_eq!(painted.clips[2].window, Some(crate::event_dispatch::ClipWindow { start: 0., end: Some(8.) }));
+    assert_eq!(painted.clips[2].window, Some(crate::clip_commands::ClipWindow { start: 0., end: Some(8.) }));
     assert_eq!(clips_on(&state, 2), painted.clips.iter().map(|c| (c.start_beat, c.window)).collect::<Vec<_>>());
     // no new pattern, and one step
     assert_eq!(painted.sequencer.patterns.len(), 1);
@@ -995,7 +996,7 @@ mod tests {
     assert_eq!(made.length, 32);
     assert_eq!(painted.clips.len(), 1);
     assert_eq!(painted.clips[0].start_beat, 2.);
-    assert_eq!(painted.clips[0].window, Some(crate::event_dispatch::ClipWindow { start: 0., end: Some(24.) }));
+    assert_eq!(painted.clips[0].window, Some(crate::clip_commands::ClipWindow { start: 0., end: Some(24.) }));
 
     // a click: a bar, and the clip is all of it
     let clicked = paint(&state, None, 0, 20., 20.).unwrap();
