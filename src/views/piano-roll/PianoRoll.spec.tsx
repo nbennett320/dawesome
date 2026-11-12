@@ -263,6 +263,25 @@ describe('the Piano Roll', () => {
       await waitFor(() => expect(lastNotes().at(-1)).toEqual(note(64, 13, 3)))
     })
 
+    it('takes the note being drawn to the key under the mouse, hearing it there', async () => {
+      await open()
+
+      // straight down a key: same start and length, on the new key
+      fireEvent.pointerDown(grid(), at(4.5, 64))
+      fireEvent.pointerMove(grid(), at(4.5, 63))
+      await waitFor(() => expect(lastNotes()).toEqual([note(63, 4, 4)]))
+      expect(calls('play_note').map(args => args.pitch)).toEqual([64, 63])
+      // still on that key: not heard again
+      fireEvent.pointerMove(grid(), at(4.6, 63))
+      expect(calls('play_note')).toHaveLength(2)
+      fireEvent.pointerUp(grid(), at(4.6, 63))
+      await waitFor(() => expect(lastNotes()).toEqual([note(63, 4, 4)]))
+
+      // diagonally: the key and the length together
+      drag(at(8.5, 60), at(10.6, 62))
+      await waitFor(() => expect(lastNotes().at(-1)).toEqual(note(62, 8, 3)))
+    })
+
     it('moves and trims notes as Select does', async () => {
       await open([note(60, 2, 4)])
       drag(at(4, 60), at(6.2, 62))

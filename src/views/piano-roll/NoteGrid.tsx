@@ -376,10 +376,14 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
 
     let next = d.last
     if(d.kind === 'draw') {
-      if(!d.drawn && Math.abs(point.screen.x - d.from.x) < DRAW_THRESHOLD_PX) return
-      d.drawn = true
+      // up or down onto another key: the note goes there, and is heard.
+      // dragging right (past a few pixels) sets its length
       const note = d.last[d.index]
-      next = [...d.origin, { ...note, length: drawnLength(note.start, point.step, length, snapping()) }]
+      if(!d.drawn && Math.abs(point.screen.x - d.from.x) >= DRAW_THRESHOLD_PX) d.drawn = true
+      const drawnTo = d.drawn ? drawnLength(note.start, point.step, length, snapping()) : note.length
+      if(point.pitch === note.pitch && drawnTo === note.length) return
+      next = [...d.origin, { ...note, pitch: point.pitch, length: drawnTo }]
+      if(point.pitch !== note.pitch) sound(point.pitch)
     } else {
       if(!d.active && distance(d.from, point.screen) <= DRAG_THRESHOLD_PX) return
       d.active = true
