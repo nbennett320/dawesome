@@ -96,6 +96,11 @@ fn status() -> AudioStatus {
   }
 }
 
+#[tauri::command]
+pub fn get_audio_drivers() -> Result<Vec<String>, String> {
+  Ok(daw::drivers::get_sound_host_names())
+}
+
 #[tauri::command(async)]
 pub fn get_audio_settings() -> AudioStatus {
   status()
