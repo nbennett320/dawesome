@@ -1,11 +1,11 @@
 use std::sync::atomic::{Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Instant, SystemTime};
 use tauri;
 
 use crate::daw::{InnerState};
-use crate::{app, daw, history, util, STATE};
+use crate::{app, daw, history};
 
 pub fn toggle_playlist(state: &Arc<daw::InnerState>) {
   if state.playlist.playing() {
@@ -51,13 +51,6 @@ pub fn t_seek_playlist(state: daw::TState<'_>, beat: f64) -> f64 {
   daw::seek_playlist(state.inner(), beat)
 }
 
-// the playhead, in beats
-#[tauri::command]
-pub fn get_playlist_position(state: daw::TState<'_>) -> f64 {
-  let state = state.inner();
-  daw::offset_beats(daw::playhead(state), daw::beat_interval(state))
-}
-
 #[tauri::command]
 pub fn get_playlist_playing(
   state: daw::TState<'_>
@@ -65,25 +58,8 @@ pub fn get_playlist_playing(
   Ok(state.playlist.playing())
 }
 
-#[tauri::command]
-pub fn get_playlist_start_time(
-  state: daw::TState<'_>
-) -> Result<u128, String> {
-  Ok(get_start_time_ms(state.inner())? as u128)
-}
-
 // convert the engine's monotonic start time into wall clock ms
 // (since the unix epoch), which the frontend can compare to Date.now()
-fn get_start_time_ms(state: &daw::InnerState) -> Result<f64, String> {
-  let started = state
-    .playlist
-    .started_time
-    .lock()
-    .unwrap()
-    .ok_or("playlist has not been started")?;
-  Ok(wall_clock_ms(started)?)
-}
-
 fn wall_clock_ms(started: Instant) -> Result<f64, String> {
   let now = Instant::now();
   // UNIX_EPOCH is the epoch on every platform, including windows
@@ -168,13 +144,6 @@ pub fn get_playlist_transport(
   playlist_transport(state.inner())
 }
 
-#[tauri::command]
-pub fn get_playlist_tempo(
-  state: daw::TState<'_>
-) -> Result<f32, String> {
-  Ok(state.tempo())
-}
-
 // change the tempo (see daw::set_playlist_tempo), as a step that can be
 // undone. refused while recording
 // - gesture: the visit to the tempo field it's part of, if any
@@ -216,39 +185,10 @@ pub fn t_toggle_count_in(state: daw::TState<'_>) -> bool {
 }
 
 #[tauri::command]
-pub fn get_count_in(state: daw::TState<'_>) -> bool {
-  state.playlist.count_in.load(Ordering::SeqCst)
-}
-
-#[tauri::command]
 pub fn get_metronome_enabled(
   state: daw::TState<'_>
 ) -> Result<bool, String> {
   Ok(state.metronome_enabled.load(Ordering::SeqCst))
-}
-
-#[tauri::command]
-pub fn get_playlist_runtime_formatted(
-  state: daw::TState<'_>
-) -> Result<String, String> {
-  // the playhead's time into the playlist
-  Ok(util::format_runtime(daw::playhead(state.inner())))
-}
-
-#[tauri::command]
-pub fn get_playlist_beat_count(
-  state: daw::TState<'_>
-) -> Result<u64, String> {
-  let beat_count = state.playlist.total_beats.load(Ordering::SeqCst);
-  Ok(beat_count)
-}
-
-#[tauri::command]
-pub fn get_playlist_time_signature(
-  state: daw::TState<'_>
-) -> Result<(u16, u16), String> {
-  let res = state.playlist.time_signature.lock().unwrap();
-  Ok((res.numerator, res.denominator))
 }
 
 #[tauri::command]
@@ -567,14 +507,6 @@ fn move_audiograph_nodes_to(
     .collect())
 }
 
-#[tauri::command]
-pub fn remove_audiograph_node(
-  state: daw::TState<'_>,
-  id: u64,
-) -> Result<(), String> {
-  remove_clips(state.inner(), &[id])
-}
-
 // take several clips out of the playlist (a selection). all of them, or (if
 // one isn't there) none
 #[tauri::command]
@@ -620,7 +552,6 @@ pub fn get_node_data(
   println!("offset dur: {:?}", node.start_offset.as_millis());
   let waveform = node.get_waveform().to_string();
   let dur = node.duration().as_secs_f32();
-  let ratio = dur / audiograph.max_beats() as f32;
 
   // return waveform data
   Ok((waveform, dur))
@@ -762,38 +693,11 @@ pub fn t_preview_node(
 // (async: off the main thread, as decoding the sample takes a while)
 #[tauri::command(async)]
 pub fn get_sample_preview(
-  state: daw::TState<'_>,
   sample_path: String,
 ) -> Result<(String, f32), String> {
   let (dur, waveform) = daw::preview_sample(&sample_path)?;
 
   Ok((waveform, dur.as_secs_f32()))
-}
-
-#[tauri::command]
-pub fn get_playlist_sample_offset(
-  _state: daw::TState<'_>,
-  drop_x: f32,
-  drop_y: f32,
-  min_bound_x: f32,
-  min_bound_y: f32,
-  max_bound_x: f32,
-  max_bound_y: f32,
-) -> Result<u64, String> {
-  // todo: choose a number that isn't arbitrary
-  let max_sample_offset = (max_bound_x - min_bound_x).round() as u64 * 5;
-  println!("max sample offset: {}", max_sample_offset);
-  let res = util::calc_playlist_sample_offset(
-    drop_x,
-    drop_y,
-    min_bound_x,
-    min_bound_y,
-    max_bound_x,
-    max_bound_y,
-    max_sample_offset,
-  );
-
-  Ok(res)
 }
 
 #[tauri::command]
@@ -918,26 +822,6 @@ pub fn set_snap_subdivision(
 }
 
 #[tauri::command]
-pub fn get_playlist_max_length (
-  state: daw::TState<'_>
-) -> Result<(u64, u64), String> {
-  let dur = state
-    .playlist
-    .audiograph
-    .lock()
-    .unwrap()
-    .duration_max();
-  let max_beats = state
-    .playlist
-    .audiograph
-    .lock()
-    .unwrap()
-    .max_beats();
-  let dur_ms: u64 = dur.as_millis().try_into().map_err(|_| "playlist too long")?;
-  Ok((dur_ms, max_beats))
-}
-
-#[tauri::command]
 pub fn init_playlist_workspace(
   state: daw::TState<'_>,
   min_bound_x: f32,
@@ -972,13 +856,13 @@ mod tests {
 
     // a run that's heard 20ms from now
     *state.playlist.started_time.lock().unwrap() = Some(Instant::now() + Duration::from_millis(20));
-    let ahead = get_start_time_ms(&state).unwrap() - wall(SystemTime::now());
+    let ahead = playlist_transport(&state).start_time_ms.unwrap() - wall(SystemTime::now());
     // (the wall clock and Instant are separate clocks, so allow a little)
     assert!(ahead > 15. && ahead < 21., "{}ms ahead", ahead);
 
     // and one heard 1.5s ago
     *state.playlist.started_time.lock().unwrap() = Some(Instant::now() - Duration::from_millis(1_500));
-    let ago = wall(SystemTime::now()) - get_start_time_ms(&state).unwrap();
+    let ago = wall(SystemTime::now()) - playlist_transport(&state).start_time_ms.unwrap();
     assert!(ago > 1_499. && ago < 1_505., "{}ms ago", ago);
   }
 
@@ -1209,7 +1093,7 @@ mod tests {
     assert!((beat - 6.5).abs() < 0.1, "beat {}", beat);
   }
 
-  // the playhead, in beats, as get_playlist_position reports it
+  // the playhead, in beats
   fn get_playlist_position_of(state: &daw::InnerState) -> f64 {
     let beats = daw::offset_beats(daw::playhead(state), daw::beat_interval(state));
     (beats * 1e6).round() / 1e6
@@ -1266,13 +1150,6 @@ mod tests {
 
     let expected = (Duration::from_millis(1_000) + tick).as_secs_f64() * 1000.;
     assert!((playlist_transport(&state).song_end_ms - expected).abs() < 0.001);
-  }
-
-  #[test]
-  fn test_runtime_shows_the_playhead() {
-    let state = daw::InnerState::default();
-    *state.playlist.start_offset.lock().unwrap() = Duration::from_millis(61_250);
-    assert_eq!(util::format_runtime(daw::playhead(&state)), "01:01:250");
   }
 
   #[test]

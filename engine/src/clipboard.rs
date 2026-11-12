@@ -276,12 +276,6 @@ pub(crate) fn repeat(state: &daw::InnerState, ids: &[u64]) -> Result<Placed, Str
   Ok(Placed { clips: changed_clips(state, &made), left_out })
 }
 
-// how many clips the clipboard holds
-#[tauri::command]
-pub fn clipboard_count(state: daw::TState<'_>) -> usize {
-  state.clipboard.lock().unwrap().len()
-}
-
 #[cfg(test)]
 mod tests {
   use super::*;

@@ -9,7 +9,6 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use rodio::source::UniformSourceIterator;
-use rodio::Source;
 
 use crate::clip_commands::{changed_clips, ChangedClips};
 use crate::daw;
