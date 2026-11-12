@@ -229,3 +229,6 @@ See `docs/` for more.
 Dawesome is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. See [`LICENSE`](./LICENSE).
 
 MP3 export uses [LAME](https://lame.sourceforge.io), which is licensed under the GNU LGPL.
+
+Samples packaged with the release binaries are provided from [Open Drums by Fluid Music](https://github.com/fluid-music/open-drums), which were sourced from [machines.hyperreal.org](http://machines.hyperreal.org/).
+
