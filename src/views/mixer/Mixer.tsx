@@ -7,6 +7,8 @@ import {
   selectMasterMix,
   selectTrackMix,
   selectTrackName,
+  selectTrackColor,
+  setTrackColor,
   setMasterVolume,
   setTrackMute,
   setTrackName,
@@ -50,6 +52,7 @@ const TrackStrip = ({ trackNumber, register, dropping }: {
   const fx = useFx(trackNumber)
   const mix = useAppSelector(selectTrackMix(trackNumber))
   const name = useAppSelector(selectTrackName(trackNumber))
+  const color = useAppSelector(selectTrackColor(trackNumber))
   const anySolo = useAppSelector(selectAnySolo)
   const armed = useAppSelector(selectArmed(trackNumber))
   const channels = useAppSelector(selectInputChannels)
@@ -59,6 +62,7 @@ const TrackStrip = ({ trackNumber, register, dropping }: {
     <ChannelStrip
       label={name}
       onRename={newName => dispatch(setTrackName(trackNumber, newName))}
+      color={{ value: color, onChange: c => dispatch(setTrackColor(trackNumber, c)) }}
       volumeDb={mix.volumeDb}
       onVolume={db => dispatch(setTrackVolume(trackNumber, db))}
       meterKey={trackMeterKey(trackNumber)}

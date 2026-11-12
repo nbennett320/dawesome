@@ -28,6 +28,15 @@ pub const MIN_DB: f32 = -60.;
 pub const MAX_DB: f32 = 6.;
 // the longest a track's name can be
 pub const MAX_NAME_CHARS: usize = 40;
+// how many colors a track can be. a color is an index into the theme's
+// `track` palette, so it follows the theme (see engine/themes/base.json)
+pub const TRACK_COLORS: u8 = 8;
+
+// the color a track is until it's given one: the palette in turn, so
+// neighbouring tracks differ
+pub fn default_track_color(track_number: u32) -> u8 {
+  (track_number % TRACK_COLORS as u32) as u8
+}
 
 // how often a strip reads its controls, in frames
 const CONTROL_FRAMES: u32 = 64;
@@ -183,6 +192,8 @@ pub struct Mixer {
   solo_count: Arc<AtomicUsize>,
   // names given to tracks. unnamed tracks are shown as "Track n"
   names: Mutex<BTreeMap<u32, String>>,
+  // colors given to tracks. the others are their default_track_color
+  colors: Mutex<BTreeMap<u32, u8>>,
 }
 
 // the whole mixer's settings, as the frontend and project files see them
@@ -200,8 +211,18 @@ pub struct TrackMix {
   // the name it was given, if any
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub name: Option<String>,
+  // the color it was given, if any (an index into the theme's track palette)
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub color: Option<u8>,
   #[serde(flatten)]
   pub settings: ChannelSettings,
+}
+
+impl TrackMix {
+  // whether it's been given a name or a color
+  pub fn labelled(&self) -> bool {
+    self.name.is_some() || self.color.is_some()
+  }
 }
 
 // each strip's meter reading, 0 to 1 (above 1 is clipping)
@@ -270,12 +291,12 @@ impl Mixer {
     self.master.set_volume_db(db)
   }
 
-  // name a track, or clear its name with an empty one. returns the name kept
   // a track's name, if it's been given one
   pub fn name(&self, track_number: u32) -> Option<String> {
     self.names.lock().unwrap().get(&track_number).cloned()
   }
 
+  // name a track, or clear its name with an empty one. returns the name kept
   pub fn set_name(&self, track_number: u32, name: &str) -> Option<String> {
     let name: String = name.trim().chars().take(MAX_NAME_CHARS).collect();
     let mut names = self.names.lock().unwrap();
@@ -289,6 +310,31 @@ impl Mixer {
     }
   }
 
+  // the color a track is drawn in: the one it was given, or its default
+  // (the frontend works this out itself, from settings)
+  #[cfg(test)]
+  pub fn color(&self, track_number: u32) -> u8 {
+    self.colors.lock().unwrap().get(&track_number).copied()
+      .unwrap_or_else(|| default_track_color(track_number))
+  }
+
+  // give a track a color, or None to go back to its default. a color past
+  // the palette wraps around into it. returns the color it's drawn in
+  pub fn set_color(&self, track_number: u32, color: Option<u8>) -> u8 {
+    let mut colors = self.colors.lock().unwrap();
+    match color.map(|c| c % TRACK_COLORS) {
+      // its default is kept as no color, so it's no change to save
+      Some(c) if c != default_track_color(track_number) => {
+        colors.insert(track_number, c);
+        c
+      }
+      _ => {
+        colors.remove(&track_number);
+        default_track_color(track_number)
+      }
+    }
+  }
+
   // the settings of every track from 0 to `track_count` (and any others that
   // have been used), and the master
   pub fn settings(&self, track_count: u32) -> MixerSettings {
@@ -296,9 +342,10 @@ impl Mixer {
       self.track(track_number);
     }
 
-    // named tracks are listed even if they haven't been used yet
+    // named or colored tracks are listed even if they haven't been used yet
     let names = self.names.lock().unwrap().clone();
-    for &track_number in names.keys() {
+    let colors = self.colors.lock().unwrap().clone();
+    for &track_number in names.keys().chain(colors.keys()) {
       self.track(track_number);
     }
 
@@ -308,6 +355,7 @@ impl Mixer {
         .map(|(&track_number, controls)| TrackMix {
           track_number,
           name: names.get(&track_number).cloned(),
+          color: colors.get(&track_number).copied(),
           settings: controls.settings(),
         })
         .collect(),
@@ -316,12 +364,13 @@ impl Mixer {
   }
 
   // only what's been changed: the tracks that aren't at their defaults or
-  // have a name, and the master. `apply` puts the whole mixer back from it,
+  // have a name or color, and the master. `apply` puts the whole mixer back from it,
   // so it's what the undo history keeps of the mixer
   pub fn changed(&self) -> MixerSettings {
     let names = self.names.lock().unwrap().clone();
+    let colors = self.colors.lock().unwrap().clone();
     let tracks = self.tracks.lock().unwrap();
-    let mut numbers: Vec<u32> = tracks.keys().chain(names.keys()).copied().collect();
+    let mut numbers: Vec<u32> = tracks.keys().chain(names.keys()).chain(colors.keys()).copied().collect();
     numbers.sort_unstable();
     numbers.dedup();
 
@@ -330,24 +379,29 @@ impl Mixer {
         .map(|track_number| TrackMix {
           track_number,
           name: names.get(&track_number).cloned(),
+          color: colors.get(&track_number).copied(),
           settings: tracks.get(&track_number).map(|controls| controls.settings()).unwrap_or_default(),
         })
-        .filter(|track| track.name.is_some() || track.settings != ChannelSettings::default())
+        .filter(|track| track.labelled() || track.settings != ChannelSettings::default())
         .collect(),
       master: self.master.settings(),
     }
   }
 
-  // set every strip and name, e.g. from a project. tracks not listed go back
-  // to their defaults, without a name
+  // set every strip, name and color, e.g. from a project. tracks not listed
+  // go back to their defaults, without a name or color
   pub fn apply(&self, settings: &MixerSettings) {
     self.reset();
     self.names.lock().unwrap().clear();
+    self.colors.lock().unwrap().clear();
 
     for track in &settings.tracks {
       self.set_channel(track.track_number, track.settings);
       if let Some(name) = &track.name {
         self.set_name(track.track_number, name);
+      }
+      if let Some(color) = track.color {
+        self.set_color(track.track_number, Some(color));
       }
     }
     self.master.set_volume_db(settings.master.volume_db);
@@ -360,7 +414,7 @@ impl Mixer {
     self.set_solo(track_number, s.solo);
   }
 
-  // every strip back to its defaults (names are kept)
+  // every strip back to its defaults (names and colors are kept)
   pub fn reset(&self) {
     let track_numbers: Vec<u32> = self.tracks.lock().unwrap().keys().copied().collect();
     for track_number in track_numbers {

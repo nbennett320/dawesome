@@ -66,6 +66,16 @@
     "debug": "#ffbb99",
     "debugText": "inkStrong"
   },
+  "track": {
+    "red": "#e5484d",
+    "orange": "#f76b15",
+    "yellow": "#e2a336",
+    "green": "#30a46c",
+    "teal": "#12a594",
+    "blue": "#3e63dd",
+    "violet": "#8e4ec6",
+    "pink": "#d6409f"
+  },
   "waveform": {
     "background": "surface",
     "ruler": "panel",

@@ -153,6 +153,7 @@ fn init_tauri() {
       set_track_mute,
       set_track_solo,
       set_track_name,
+      set_track_color,
       set_master_volume,
       reset_mixer,
       get_mixer_levels,

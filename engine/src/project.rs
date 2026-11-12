@@ -407,7 +407,7 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
   }
 
   let mut mixer = state.playlist.mixer.settings(0);
-  mixer.tracks.retain(|track| track.settings != daw::ChannelSettings::default() || track.name.is_some());
+  mixer.tracks.retain(|track| track.settings != daw::ChannelSettings::default() || track.labelled());
 
   let uses_patterns = !sequencer.is_empty() || !pattern_clips.is_empty();
   let uses_windows = clips.iter().any(|clip| clip.window.is_some())

@@ -302,7 +302,7 @@ mod tests {
     let list = v["themes"].as_array().unwrap();
     assert_eq!(list.len(), 4);
     for t in list {
-      assert_eq!(t["colors"].as_object().unwrap().len(), 119);
+      assert_eq!(t["colors"].as_object().unwrap().len(), 127);
     }
   }
 

@@ -8,8 +8,10 @@ import mixerReducer, {
   flushMixerSends,
   resetMixer,
   selectAnySolo,
+  selectTrackColor,
   selectTrackMix,
   selectTrackName,
+  setTrackColor,
   setMasterVolume,
   setTrackMute,
   setTrackName,
@@ -205,6 +207,35 @@ describe('mixerSlice', () => {
     expect(selectTrackName(1)(state(store))).toBe('Bass')
     // the name isn't mixed into the strip's settings
     expect(selectTrackMix(1)(state(store))).toEqual(defaultChannelSettings)
+  })
+
+  it('colors tracks, the palette in turn until they’re given one', async () => {
+    const store = makeStore()
+    expect(selectTrackColor(2)(state(store))).toBe(2)
+    expect(selectTrackColor(9)(state(store))).toBe(1)
+
+    mockInvoke.mockResolvedValue(5)
+    await store.dispatch(setTrackColor(2, 5))
+    expect(mockInvoke).toHaveBeenLastCalledWith('set_track_color', { trackNumber: 2, color: 5 })
+    expect(selectTrackColor(2)(state(store))).toBe(5)
+
+    // its default is no color
+    mockInvoke.mockResolvedValue(2)
+    await store.dispatch(setTrackColor(2, null))
+    expect(state(store).mixer.colors).toEqual({})
+  })
+
+  it('takes colors from the engine’s mixer', async () => {
+    const store = makeStore()
+    const settings = flat(2)
+    settings.tracks[0] = { ...settings.tracks[0], color: 6 }
+    mockInvoke.mockResolvedValue(settings)
+
+    await store.dispatch(fetchMixer())
+
+    expect(selectTrackColor(0)(state(store))).toBe(6)
+    expect(selectTrackColor(1)(state(store))).toBe(1)
+    expect(selectTrackMix(0)(state(store))).toEqual(defaultChannelSettings)
   })
 
   it('resets every strip', async () => {
