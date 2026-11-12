@@ -15,16 +15,15 @@ Choose **File ▸ New Project** (**⌘N (Ctrl+N)**).
 The playlist, Sequencer and mixer are cleared, and the window's title shows
 **Untitled — Dawesome**.
 
-::: warning CAUTION
-If the playlist has clips, Dawesome asks **Replace the current project?**
-before it clears anything. If the playlist is empty, it does not ask, even
-if you have made patterns, mixer changes or effects. Save first.
-:::
+If the current project has unsaved changes (see
+[4-7](#_4-7-closing-dawesome)), Dawesome asks **Replace the current
+project?** before it clears anything.
 
 ## 4-2 Opening a project
 
 1. Choose **File ▸ Open…** (**⌘O (Ctrl+O)**).
-2. If the playlist has clips, Dawesome asks **Replace the current project?**.
+2. If the current project has unsaved changes, Dawesome asks **Replace the
+   current project?**.
    Confirm to carry on.
    <!-- VERIFY: the confirm dialog's button labels (system dialog, e.g. Yes/No or OK/Cancel). -->
 3. In the **Open project** dialog, choose a `.dawesome` file.
@@ -51,7 +50,7 @@ recently, newest first. Each is listed by name; when two projects share a
 name, the folder each is in is added.
 
 - Choose a project to open it. As with **Open…**, Dawesome asks first if the
-  playlist has clips.
+  current project has unsaved changes.
 - A project that can't be opened (moved, deleted or damaged) is taken off the
   list.
 - **Clear Recent** empties the list. With nothing in it, the submenu shows

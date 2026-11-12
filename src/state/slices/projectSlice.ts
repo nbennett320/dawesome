@@ -99,13 +99,15 @@ const saveDialogStart = async (current: string | null, name = 'Untitled'): Promi
 const withExtension = (path: string) =>
   (path.toLowerCase().endsWith(`.${PROJECT_EXTENSION}`) ? path : `${path}.${PROJECT_EXTENSION}`)
 
-// whether it's fine to replace what's in the playlist
-// (until changes are tracked, this asks whenever the playlist has clips)
-const okToReplace = async (getState: () => RootState): Promise<boolean> => {
-  if(getState().playlist.playlistItems.length === 0) return true
+// whether it's fine to replace the project: it has no unsaved changes (see
+// has_unsaved_changes in engine/src/project.rs), or the user says so
+const okToReplace = async (): Promise<boolean> => {
+  // if the engine can't say, ask: better than losing changes
+  const changed = await invoke<boolean>('project_has_unsaved_changes').catch(() => true)
+  if(!changed) return true
 
   return ask(
-    'Any unsaved changes to the current project will be lost.',
+    'Your unsaved changes to the current project will be lost.',
     'Replace the current project?',
   )
 }
@@ -269,7 +271,7 @@ export const runProjectCommand = (command: ProjectCommand) => (
 ): Promise<void> => exclusive(async () => {
   switch(command) {
     case 'new': {
-      if(!(await okToReplace(getState))) break
+      if(!(await okToReplace())) break
 
       try {
         clearPendingMixerSends()
@@ -282,7 +284,7 @@ export const runProjectCommand = (command: ProjectCommand) => (
       break
     }
     case 'open': {
-      if(!(await okToReplace(getState))) break
+      if(!(await okToReplace())) break
 
       const chosen = chosenPath(await open({
         title: 'Open project',
@@ -307,9 +309,8 @@ export const runProjectCommand = (command: ProjectCommand) => (
 // deleted, or broken) is taken off the list
 export const openRecentProject = (path: string) => (
   dispatch: Dispatch,
-  getState: () => RootState,
 ): Promise<void> => exclusive(async () => {
-  if(!(await okToReplace(getState))) return
+  if(!(await okToReplace())) return
 
   if(!(await openFrom(dispatch, path))) await forgetRecent(path)
 })

@@ -259,9 +259,10 @@ describe('runProjectCommand', () => {
     expect(store.getState().project.notice).toMatchObject({ kind: 'error' })
   })
 
-  it('asks before replacing a playlist with clips', async () => {
+  it('asks before replacing a project with unsaved changes', async () => {
     const store = makeStore()
     store.dispatch(playlistSlice.actions.addPlaylistItem({ id: 1, path: 'a.wav', startBeat: 0, trackNumber: 0 }))
+    engine({ project_has_unsaved_changes: true })
 
     mockAsk.mockResolvedValue(false)
     await run(store, 'new')
@@ -271,6 +272,26 @@ describe('runProjectCommand', () => {
     mockAsk.mockResolvedValue(true)
     await run(store, 'new')
     expect(store.getState().playlist.playlistItems).toHaveLength(0)
+  })
+
+  it('replaces a project with no unsaved changes without asking, clips or not', async () => {
+    const store = makeStore()
+    store.dispatch(playlistSlice.actions.addPlaylistItem({ id: 1, path: 'a.wav', startBeat: 0, trackNumber: 0 }))
+    engine({ project_has_unsaved_changes: false })
+
+    await run(store, 'new')
+    expect(mockAsk).not.toHaveBeenCalled()
+    expect(store.getState().playlist.playlistItems).toHaveLength(0)
+  })
+
+  it('asks when the engine can\'t say whether there are changes', async () => {
+    const store = makeStore()
+    engine({ project_has_unsaved_changes: new Error('no engine') })
+    mockAsk.mockResolvedValue(false)
+
+    await run(store, 'new')
+    expect(mockAsk).toHaveBeenCalled()
+    expect(mockInvoke).not.toHaveBeenCalledWith('new_project', expect.anything())
   })
 
   it('adds projects that were opened or saved to the recent list', async () => {
@@ -299,8 +320,7 @@ describe('runProjectCommand', () => {
 
 describe('openRecentProject', () => {
   const openRecent = (store: ReturnType<typeof makeStore>, path: string) =>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    openRecentProject(path)(store.dispatch, store.getState as any)
+    openRecentProject(path)(store.dispatch)
 
   it('opens the project without asking where', async () => {
     const store = makeStore()
@@ -323,9 +343,9 @@ describe('openRecentProject', () => {
     expect(store.getState().project.notice).toMatchObject({ kind: 'error' })
   })
 
-  it('asks before replacing a playlist with clips', async () => {
+  it('asks before replacing a project with unsaved changes', async () => {
     const store = makeStore()
-    store.dispatch(playlistSlice.actions.addPlaylistItem({ id: 1, path: 'a.wav', startBeat: 0, trackNumber: 0 }))
+    engine({ project_has_unsaved_changes: true })
     mockAsk.mockResolvedValue(false)
 
     await openRecent(store, '/songs/old.dawesome')
