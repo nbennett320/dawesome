@@ -35,11 +35,6 @@ project is saved.
 | **Preferences…** | **⌘, (Ctrl+,)** | Opens the **Preferences** tab. See [2-4](./install.md#_2-4-preferences). |
 | **Quit** | — | Quits Dawesome. |
 
-::: warning CAUTION
-**Quit** closes Dawesome straight away, without asking you to save. Save
-your project first.
-:::
-
 <!-- VERIFY: Quit has no accelerator in build_menu; check whether macOS adds ⌘Q anyway. -->
 
 ### 3-2-2 File menu
