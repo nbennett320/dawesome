@@ -1,7 +1,7 @@
 import p5 from 'p5'
 import { P5CanvasInstance } from 'react-p5-wrapper'
 import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
-import { CanvasProps, Renderer, staticDefaults } from './index'
+import { CanvasProps, Renderer, staticDefaults, trackTop } from './index'
 import PlaylistObject from './PlaylistObject'
 import { P5BoundingBox, State as ComponentState } from '../../../render/P5Component'
 import { paint } from './theme'
@@ -34,7 +34,7 @@ class PlaylistTrack extends PlaylistComponent<State> {
     this.trackNumber = props.trackNumber
     this.trackCount = props.trackCount
     this.trackHeight = props?.trackHeight ?? staticDefaults.trackHeight
-    this.minHeight = this.trackHeight * this.trackNumber + (this.trackNumber * .3) + staticDefaults.timelineHeight
+    this.minHeight = trackTop(this.trackNumber, this.trackHeight)
     this.maxHeight = this.minHeight + this.trackHeight
     this.playlistObjects = props.playlistObjects
   }

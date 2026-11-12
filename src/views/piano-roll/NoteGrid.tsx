@@ -31,6 +31,7 @@ import {
   DEFAULT_LENGTH, centrePitch, clampPitch, cutNotes, drawnLength, fitSelection, moveNotes, newNote, noteBoxes,
   noteCut, pasteStep, pressKind, rollSnapping, sameNotes, snapStep, trimNotes,
 } from './notes'
+import { clamp } from '../../util/helpers'
 
 // a place on the grid: CSS pixels from the whole grid's top-left, the step
 // (fractional), row (fractional, down from the highest pitch) and pitch
@@ -621,7 +622,7 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
     const scroller = scrollerRef.current
     if(!scroller) return
     const rect = scroller.getBoundingClientRect()
-    const aroundX = Math.min(Math.max(clientX - rect.left, 0), scroller.clientWidth)
+    const aroundX = clamp(clientX - rect.left, 0, scroller.clientWidth)
     // (the scroller keeps whole pixels. zooming on from what it kept, the
     // step under the mouse would creep a fraction of a pixel each time)
     const kept = scroller.scrollLeft

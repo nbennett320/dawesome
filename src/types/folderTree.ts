@@ -109,3 +109,11 @@ export const freeName = (name: string, taken: string[]): string => {
   while(used.has(`${name} ${n}`.toLowerCase())) n += 1
   return `${name} ${n}`
 }
+
+// a folder path after the folder `from` moved to `to` (it, or one inside
+// it), or the path as it was
+export const movedFolderPath = (path: string, from: string, to: string): string => {
+  if(path === from) return to
+  if(path.startsWith(`${from}/`)) return to + path.slice(from.length)
+  return path
+}

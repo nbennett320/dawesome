@@ -6,7 +6,8 @@ import {
   selectRecording,
   toggleRecording,
 } from '../../state/slices/recordingSlice'
-import { AnalogButton, RecordIcon } from '../fourtrack'
+import { AnalogButton } from '../fourtrack'
+import { RecordIcon } from '../icons'
 
 // how often a recording is checked on, to catch it ending some other way
 const CHECK_EVERY_MS = 250

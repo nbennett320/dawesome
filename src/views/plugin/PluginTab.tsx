@@ -8,9 +8,9 @@ import { Synth } from '../../types/sequencer'
 import { tabKey, View } from '../../types/ui'
 import { AnalogButton, Led } from '../../components/fourtrack'
 import { useDraggingTab } from '../../components/panes/dragTab'
-import { PopOutIcon } from '../effects-rack/icons'
 import { OnKey, SmallKey } from '../effects-rack/RackStack'
 import DockedEditor from './DockedEditor'
+import { PopOutIcon } from '../../components/icons'
 
 // the key in the bar that shows where the plugin lives
 const WhereKey = ({ title, onPress, children }: { title: string, onPress: () => void, children: React.ReactNode }) => (

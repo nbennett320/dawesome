@@ -1,4 +1,5 @@
 import { PlaylistTransport, Wind } from '../../types/transport'
+import { clamp } from '../../util/helpers'
 
 export type { Wind }
 
@@ -78,7 +79,7 @@ export const tapTarget = (positionMs: number, direction: 1 | -1, t: PlaylistTran
 export const windPosition = (wind: Wind, now: number, t: PlaylistTransport): number => {
   const moved = wind.direction * WIND_SPEED * Math.max(0, now - wind.startedAt)
   const end = Math.max(tapeLengthMs(t), wind.fromMs)
-  return Math.min(Math.max(wind.fromMs + moved, 0), end)
+  return clamp(wind.fromMs + moved, 0, end)
 }
 
 // whether a wind has reached the end of the tape it's winding towards

@@ -1,5 +1,6 @@
 import React from 'react'
-import { cx, useControllable } from './util'
+import { useControllable } from './util'
+import { cx } from '../../util/helpers'
 
 export interface MasterFaderProps {
   value?: number

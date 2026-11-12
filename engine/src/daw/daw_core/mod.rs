@@ -1,6 +1,5 @@
 pub(crate) mod audio_settings;
 pub(crate) mod audiograph;
-pub(crate) mod buffer;
 pub(crate) mod clip;
 pub(crate) mod clip_reader;
 pub(crate) mod drivers;
@@ -14,10 +13,8 @@ pub(crate) mod waveform;
 
 pub use audio_settings::*;
 pub use audiograph::*;
-pub use buffer::*;
 pub use clip::*;
 pub use clip_reader::{ClipReader, Pcm, Window};
-pub use drivers::*;
 pub use engine::*;
 pub use input::*;
 pub use mixer::*;

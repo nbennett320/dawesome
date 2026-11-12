@@ -1,26 +1,12 @@
-import p5 from 'p5'
-import { P5CanvasInstance } from 'react-p5-wrapper'
-import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
-import { Renderer, CanvasProps } from './index'
+import PlaylistComponent from './PlaylistComponent'
+import { Renderer } from './index'
 import { P5BoundingBox } from '../../../render/P5Component'
 import { paint } from './theme'
-
-interface Props extends PlaylistComponentProps {}
 
 // the playhead: a line down through every track, stopping at the area below
 // them (for dragging in a new track), with a pointer in the ruler. drawn in
 // canvas pixels, outside the zoom/pan/scroll transform
 class Cursor extends PlaylistComponent {
-  // eslint-disable-next-line @typescript-eslint/no-useless-constructor
-  constructor(
-    p: P5CanvasInstance<CanvasProps>,
-    canvas: p5.Renderer,
-    playlist: Renderer,
-    props: Props,
-  ) {
-    super(p, canvas, playlist, props)
-  }
-
   // the playhead isn't clicked on (the ruler is, see Renderer)
   // eslint-disable-next-line class-methods-use-this
   boundingBox = (): P5BoundingBox => ({

@@ -11,6 +11,7 @@ import { groupLanding } from '../../editing/move'
 import { SnapNote, Snapping, snapDown, snapNoteBeats, snapPoint } from '../../editing/snap'
 import { Tool } from '../../editing/tools'
 import { Note, STEPS_PER_BEAT } from '../../types/sequencer'
+import { clamp } from '../../util/helpers'
 
 // MIDI note numbers
 export const LOWEST_PITCH = 0
@@ -37,7 +38,6 @@ export const pitchName = (pitch: number): string =>
 // the black keys of a piano: C#, D#, F#, G#, A#
 export const isBlackKey = (pitch: number): boolean => [1, 3, 6, 8, 10].includes(((pitch % 12) + 12) % 12)
 
-const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value))
 
 export const clampPitch = (pitch: number): number => clamp(Math.round(pitch), LOWEST_PITCH, HIGHEST_PITCH)
 

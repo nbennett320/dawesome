@@ -12,8 +12,10 @@ import {
   msLabel,
   rateLabel,
 } from '../../types/audio'
-import { AnalogButton, ResetIcon } from '../../components/fourtrack'
-import { Bar, Choice, Field, Notice } from '../../components/common'
+import { AnalogButton } from '../../components/fourtrack'
+import { Bar, Choice, Field, Notice, ReadoutInput } from '../../components/common'
+import { ResetIcon } from '../../components/icons'
+import { clamp } from '../../util/helpers'
 
 // how often the input meter is read, and how fast it falls
 const METER_EVERY_MS = 50
@@ -72,40 +74,25 @@ const OffsetField = ({ value, disabled, onChange }: {
   value: number
   disabled: boolean
   onChange: (ms: number) => void
-}) => {
-  const [draft, setDraft] = React.useState<string | null>(null)
-  const commit = () => {
-    if(draft === null) return
-    const ms = parseFloat(draft)
-    if(Number.isFinite(ms) && ms !== value) onChange(Math.max(-1000, Math.min(1000, ms)))
-    setDraft(null)
-  }
-
-  return (
-    <div className='flex flex-col gap-1'>
-      <Field label='Recording offset (ms)' htmlFor='audio-record-offset'>
-        <input
-          id='audio-record-offset'
-          type='text'
-          inputMode='decimal'
-          className='ft-readout text-sm py-1 w-24'
-          disabled={disabled}
-          value={draft ?? String(value)}
-          onFocus={e => e.currentTarget.select()}
-          onChange={e => setDraft(e.currentTarget.value)}
-          onBlur={commit}
-          onKeyDown={e => {
-            if(e.key === 'Enter') e.currentTarget.blur()
-            if(e.key === 'Escape') setDraft(null)
-          }}
-        />
-      </Field>
-      <span className='text-xs text-ink-soft max-w-md'>
-        If recordings land late, raise this by how much. Bluetooth headphones often need 150 to 250.
-      </span>
-    </div>
-  )
-}
+}) => (
+  <div className='flex flex-col gap-1'>
+    <Field label='Recording offset (ms)' htmlFor='audio-record-offset'>
+      <ReadoutInput
+        id='audio-record-offset'
+        className='text-sm py-1 w-24'
+        disabled={disabled}
+        value={String(value)}
+        onCommit={typed => {
+          const ms = parseFloat(typed)
+          if(Number.isFinite(ms) && ms !== value) onChange(clamp(ms, -1000, 1000))
+        }}
+      />
+    </Field>
+    <span className='text-xs text-ink-soft max-w-md'>
+      If recordings land late, raise this by how much. Bluetooth headphones often need 150 to 250.
+    </span>
+  </div>
+)
 
 const devices = (names: string[], chosen: string | null) => [
   { value: '', label: 'System default' },

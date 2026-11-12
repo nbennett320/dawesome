@@ -1,4 +1,6 @@
-// the engine's audio devices and buffer size (see engine/src/audio_commands.rs)
+import { clamp } from '../util/helpers'
+
+// the engine's audio devices and buffer size (see engine/src/commands/audio.rs)
 
 export interface AudioSettings {
   // device names, or null for the system's default
@@ -57,7 +59,7 @@ export interface ArmedTrack {
   input: InputChoice
 }
 
-// see get_record_setup in engine/src/audio_commands.rs
+// see get_record_setup in engine/src/commands/audio.rs
 export interface RecordSetup {
   armed: ArmedTrack[]
   // null when there's no input to record from
@@ -99,7 +101,7 @@ export const parseInputKey = (key: string): InputChoice | null => {
 export const meterPosition = (level: number): number => {
   if(!(level > 0)) return 0
   const db = 20 * Math.log10(level)
-  return Math.min(1, Math.max(0, (db + 60) / 60))
+  return clamp((db + 60) / 60, 0, 1)
 }
 
 // how long a buffer of `frames` lasts

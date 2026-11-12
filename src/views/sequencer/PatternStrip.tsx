@@ -16,7 +16,9 @@ import { beginSampleDrag } from '../../state/sampleDrag'
 import {
   BAR_CHOICES, MAX_NOTE_BARS, Pattern, PatternKind, patternBars, patternLabel,
 } from '../../types/sequencer'
-import { AnalogButton, Led, PlayIcon, StopIcon } from '../../components/fourtrack'
+import { AnalogButton, Led } from '../../components/fourtrack'
+import { PlayIcon, StopIcon } from '../../components/icons'
+import { NameInput } from '../../components/common'
 
 const MAX_NAME_CHARS = 24
 
@@ -28,31 +30,20 @@ const PatternKey = ({ pattern, selected, playing }: {
   playing: boolean
 }) => {
   const dispatch = useAppDispatch()
-  const [draft, setDraft] = React.useState<string | null>(null)
+  const [renaming, setRenaming] = React.useState(false)
   const label = patternLabel(pattern)
 
-  if(draft !== null) {
-    const commit = () => {
-      dispatch(renamePattern(pattern.id, draft))
-      setDraft(null)
-    }
-
+  if(renaming) {
     return (
-      <input
-        type='text'
-        // eslint-disable-next-line jsx-a11y/no-autofocus
-        autoFocus
+      <NameInput
+        initial={pattern.name ?? ''}
         aria-label='Pattern name'
         placeholder={String(pattern.id + 1)}
         maxLength={MAX_NAME_CHARS}
-        className='ft-scribble h-7 w-28 text-xs text-center px-1 outline-none ring-2 ring-accent-focus'
-        value={draft}
-        onFocus={e => e.currentTarget.select()}
-        onChange={e => setDraft(e.currentTarget.value)}
-        onBlur={commit}
-        onKeyDown={e => {
-          if(e.key === 'Enter') commit()
-          if(e.key === 'Escape') setDraft(null)
+        className='h-7 w-28 text-center'
+        onDone={name => {
+          if(name !== null) dispatch(renamePattern(pattern.id, name))
+          setRenaming(false)
         }}
       />
     )
@@ -69,7 +60,7 @@ const PatternKey = ({ pattern, selected, playing }: {
         title={`${label}. Drag into the playlist to place it, double-click to rename`}
         onMouseDown={ev => beginSampleDrag({ kind: 'pattern', patternId: pattern.id, label }, ev)}
         onPress={() => dispatch(selectPattern(pattern.id))}
-        onDoubleClick={() => setDraft(pattern.name ?? '')}
+        onDoubleClick={() => setRenaming(true)}
       >
         {label}
       </AnalogButton>

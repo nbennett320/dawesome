@@ -1,7 +1,8 @@
 // effect plugins (VST3): what the engine found, and each channel's chain of
-// them. mirrors engine/src/effect_commands.rs (see
+// them. mirrors engine/src/commands/effect.rs (see
 // context/vst-project/04-api.md, the contract both sides keep to)
 import { trackLabel } from './mixer'
+import { clamp } from '../util/helpers'
 
 // one plugin the scan found (engine/src/plugin/mod.rs PluginInfo)
 export interface PluginInfo {
@@ -169,7 +170,7 @@ export const pluginTabLabel = (
 // taken out, b is at 0 and a goes after it
 export const reorderIndex = (slots: EffectSlot[], slotId: number, gap: number): number | null => {
   const from = slots.findIndex(slot => slot.id === slotId)
-  const clamped = Math.max(0, Math.min(gap, slots.length))
+  const clamped = clamp(gap, 0, slots.length)
   if(from < 0) return clamped
 
   const to = clamped > from ? clamped - 1 : clamped

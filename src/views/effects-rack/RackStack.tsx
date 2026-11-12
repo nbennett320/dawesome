@@ -11,8 +11,8 @@ import {
 import { ChannelId, EffectSlot, hasTab } from '../../types/effects'
 import { AnalogButton, Led } from '../../components/fourtrack'
 import ChannelSelect from './ChannelSelect'
-import { GripIcon, PopOutIcon, RemoveIcon, TabIcon } from './icons'
 import { RACK_ROW, useRackDrop } from './useRackDrop'
+import { CloseIcon, GripIcon, PopOutIcon, TabIcon } from '../../components/icons'
 
 // how long a slot just dropped in stays pointed out
 const HIGHLIGHT_MS = 1500
@@ -114,7 +114,7 @@ const RackRow = ({ slot, highlighted, dragging }: RowProps) => {
         title='Take it off the channel'
         onPress={() => { dispatch(removeEffect(slot.id)).catch(() => {}) }}
       >
-        <RemoveIcon />
+        <CloseIcon />
       </SmallKey>
     </div>
   )

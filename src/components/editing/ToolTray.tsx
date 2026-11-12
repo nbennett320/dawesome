@@ -7,12 +7,10 @@ import { SnapNote } from '../../editing/snap'
 import { TOOL_LABELS, Tool, toolKey } from '../../editing/tools'
 import { View } from '../../types/ui'
 import { isTextTarget } from '../../util/keys'
-import CutToolIcon from '../icons/CutToolIcon'
-import DrawToolIcon from '../icons/DrawToolIcon'
-import SelectToolIcon from '../icons/SelectToolIcon'
 import LatchKey from '../topbar/LatchKey'
 import SnapButton from './SnapButton'
 import SnapInput from './SnapInput'
+import { CutToolIcon, DrawToolIcon, SelectToolIcon } from '../icons'
 
 const ICONS: Record<Tool, React.ReactNode> = {
   select: <SelectToolIcon />,

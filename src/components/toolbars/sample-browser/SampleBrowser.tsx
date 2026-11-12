@@ -8,7 +8,6 @@ import {
 } from '../../../state/slices/envSlice'
 import { useAppSelector, useAppDispatch } from '../../../hooks/redux'
 import { BrowserItemTypes, BrowserSampleItem } from '../../../types/sampleBrowser'
-import { AnalogButton, ResetIcon } from '../../fourtrack'
 import SampleItem from './SampleItem'
 import BrowserSearch from '../browser/BrowserSearch'
 
@@ -56,7 +55,7 @@ const SampleBrowser = () => {
 
   const preview = (sample: BrowserSampleItem) => {
     setSelected(sample.index)
-    invoke('t_preview_sample', { path: sample.path }).catch(logError(`preview ${sample.label}`))
+    invoke('preview_sample', { path: sample.path }).catch(logError(`preview ${sample.label}`))
   }
 
   const rows: React.ReactNode[] = []
@@ -118,12 +117,6 @@ const SampleBrowser = () => {
 
   return (
     <div className='flex flex-col h-full min-h-0'>
-      {/* <div className='flex flex-row items-center justify-between px-3 pt-3 pb-2'>
-        <AnalogButton size='xs' aria-label='Refresh samples' title='List the samples folder again' onPress={refresh}>
-          <ResetIcon />
-        </AnalogButton>
-      </div> */}
-
       <BrowserSearch value={query} onChange={setQuery} label='Search samples' />
 
       <div className='flex-1 min-h-0 overflow-y-auto overflow-x-hidden pb-2' role='tree' aria-label='Samples'>

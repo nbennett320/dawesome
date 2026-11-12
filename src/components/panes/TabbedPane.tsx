@@ -16,9 +16,9 @@ import { useAppDispatch, useAppSelector } from '../../hooks/redux'
 import { matchViewComponent } from '../../views/matchViewComponent'
 import { keyOf, PaneTab, TabKey, WindowNode } from '../../types/ui'
 import { cssVar } from '../../theme/apply'
-import Close from '../icons/Close'
 import { AnalogButton, Led } from '../fourtrack'
 import { DraggedTab, PANE_TAB, useDraggingTab } from './dragTab'
+import { CloseIcon, SplitIcon } from '../icons'
 
 // where a tab dropped on a pane's body goes: an edge splits the pane there,
 // the centre moves the tab into the pane
@@ -101,7 +101,7 @@ const TabItem = ({ pane, tab, index, selected, lit }: TabItemProps) => {
           dispatch(closeTab(key))
         }}
       >
-        <Close height={12} width={12} fill='currentColor' />
+        <CloseIcon height={12} width={12} />
       </button>
     </div>
   )
@@ -185,15 +185,6 @@ const DropOverlay = ({ pane }: { pane: WindowNode }) => {
   )
 }
 
-// split icons for the tab bar
-const SplitIcon = ({ direction }: { direction: 'vertical' | 'horizontal' }) => (
-  <svg viewBox='0 0 16 16' fill='none' stroke='currentColor' strokeWidth='1.25'>
-    <rect x='1.5' y='2.5' width='13' height='11' rx='1' />
-    {direction === 'vertical'
-      ? <line x1='8' y1='2.5' x2='8' y2='13.5' />
-      : <line x1='1.5' y1='8' x2='14.5' y2='8' />}
-  </svg>
-)
 
 interface Props {
   pane: WindowNode

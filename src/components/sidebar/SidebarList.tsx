@@ -1,13 +1,7 @@
 import React from 'react'
-import SidebarIcon from '../icons/SidebarIcon'
-import PatternIcon from '../icons/PatternIcon'
-import RecordingsIcon from '../icons/RecordingsIcon'
-import ClipsIcon from '../icons/ClipsIcon'
-import EffectsIcon from '../icons/EffectsIcon'
-import NotePatternIcon from '../icons/NotePatternIcon'
-import InstrumentsIcon from '../icons/InstrumentsIcon'
 import { AnalogButton } from '../fourtrack'
 import { SidebarPage } from '../../types/ui'
+import { ClipsIcon, EffectsIcon, IconProps, InstrumentsIcon, NotePatternIcon, PatternIcon, RecordingsIcon, SidebarIcon } from '../icons'
 
 interface Props {
   open: boolean
@@ -16,7 +10,7 @@ interface Props {
   onPress: (page: SidebarPage) => void
 }
 
-const keys: Array<{ page: SidebarPage, name: string, Icon: React.ComponentType<React.SVGAttributes<object>> }> = [
+const keys: Array<{ page: SidebarPage, name: string, Icon: React.ComponentType<IconProps> }> = [
   { page: SidebarPage.Samples, name: 'samples', Icon: SidebarIcon },
   { page: SidebarPage.Patterns, name: 'drum patterns', Icon: PatternIcon },
   { page: SidebarPage.NotePatterns, name: 'note patterns', Icon: NotePatternIcon },
@@ -42,7 +36,7 @@ const SidebarList = ({ open, page, onPress }: Props) => (
           title={showing ? `Hide ${name}` : `Show ${name}`}
           onPress={() => onPress(key)}
         >
-          <Icon fill='currentColor' />
+          <Icon />
         </AnalogButton>
       )
     })}

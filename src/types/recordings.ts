@@ -19,10 +19,10 @@ export interface RecordingFile {
 }
 
 // which of the project's folders of audio a sidebar page shows. mirrors
-// Library in engine/src/audio_commands.rs
+// Library in engine/src/commands/audio.rs
 export type Library = 'recordings' | 'clips'
 
-// what's in the recordings folder (see t_list_recordings)
+// what's in the recordings folder (see list_recordings)
 export interface RecordingsListing {
   // newest first
   takes: RecordingFile[]
@@ -103,7 +103,7 @@ export const searchTakes = (takes: RecordingFile[], query: string): RecordingFil
 }
 
 // a take or folder after it's moved or renamed (see MovedRecording in
-// engine/src/audio_commands.rs), and the clips and rows that now play from
+// engine/src/commands/audio.rs), and the clips and rows that now play from
 // its new place
 export interface MovedRecording {
   // a take's full path, or a folder's path relative to the recordings folder
@@ -116,10 +116,9 @@ export interface MovedRecording {
 
 // a recordings folder's path (relative to the recordings folder, / between
 // folders) as a folder in the browser's tree: the path is its key
-export const recordingFolders = (paths: string[]): FolderInfo[] => paths.map(path => {
-  const cut = path.lastIndexOf('/')
-  return { key: path, name: path.slice(cut + 1), parent: cut < 0 ? ROOT : path.slice(0, cut) }
-})
+export const recordingFolders = (paths: string[]): FolderInfo[] => paths.map(path => (
+  { key: path, name: path.slice(path.lastIndexOf('/') + 1), parent: parentFolder(path) }
+))
 
 // the folder a folder is in
 export const parentFolder = (path: string): string => {
@@ -127,10 +126,3 @@ export const parentFolder = (path: string): string => {
   return cut < 0 ? ROOT : path.slice(0, cut)
 }
 
-// a folder path after the folder `from` moved to `to` (it, or one inside
-// it), or the path as it was
-export const movedFolderPath = (path: string, from: string, to: string): string => {
-  if(path === from) return to
-  if(path.startsWith(`${from}/`)) return to + path.slice(from.length)
-  return path
-}

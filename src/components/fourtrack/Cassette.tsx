@@ -1,5 +1,5 @@
 import React from 'react'
-import { clamp, cx } from './util'
+import { clamp, cx } from '../../util/helpers'
 
 // the cassette is drawn in a 320 x 200 box (a real one is 100 x 63mm)
 const WIDTH = 320

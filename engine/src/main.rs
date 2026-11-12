@@ -1,96 +1,53 @@
 mod app;
+mod commands;
 mod daw;
 mod util;
-// mod lang;
-mod event_dispatch;
 mod project;
 mod project_files;
 mod recording;
 mod recent;
 mod theme;
 mod preferences;
-mod appearance_commands;
 mod history;
-mod history_commands;
-mod mixer_commands;
-mod audio_commands;
-mod sequencer_commands;
-mod clip_commands;
 mod clipboard;
 mod bounce;
 mod join;
 mod mixdown;
 mod mixdown_file;
-mod mixdown_commands;
-mod bind_functions;
 mod plugin;
 mod plugin_catalog;
 mod main_thread;
 mod effects;
-mod effect_commands;
 mod effect_windows;
-mod synth_commands;
+#[cfg(test)]
+mod test_support;
 
 use std::env;
-use std::sync::{Arc, Mutex};
-use std::io::{self, Write};
-use daw::InnerState;
+use std::sync::Arc;
 use tauri;
-use mlua;
 
 #[macro_use(lazy_static)]
 extern crate lazy_static;
 
-lazy_static! {
-  pub static ref STATE: Arc<daw::InnerState> = Arc::new(daw::InnerState::default());
-  // pub static ref STATE: Arc<Mutex<daw::InnerState>> = Arc::new(Mutex::from(daw::InnerState::default()));
-}
-
-fn debug(){
-  println!("debug mode:");
-  use mlua::prelude::*;
-  let lua = Lua::new();
-  let globals = lua.globals();
-  // let state = Arc::new(Mutex::from(daw::InnerState::default()));
-
-  let mut input = String::new();
-
-  loop {
-    print!("> ");
-    io::stdout().flush().ok();
-    io::stdin().read_line(&mut input).ok();
-
-    if input == "exit\n" {
-      break;
-    }
-
-    // println!("input: \"{}\"", input);
-
-    bind_functions::bind_functions(&lua);
-
-    lua.load(&input).exec().unwrap();
-
-    input = "".to_string();
-  }
-}
-
 fn init_tauri() {
-  use event_dispatch::*;
+  use commands::transport::*;
+  use commands::sample::*;
+  use commands::playlist::*;
   use project::{save_project, load_project, new_project, project_file_for};
   use recent::{add_recent_project, remove_recent_project};
-  use mixer_commands::*;
-  use audio_commands::*;
-  use sequencer_commands::*;
-  use clip_commands::*;
+  use commands::mixer::*;
+  use commands::audio::*;
+  use commands::sequencer::*;
+  use commands::clip::*;
   use clipboard::*;
   use bounce::*;
   use join::*;
-  use mixdown_commands::*;
-  use appearance_commands::{themes, preferences, set_preferences, set_window_background};
-  use history_commands::{undo, redo};
-  use effect_commands::*;
+  use commands::mixdown::*;
+  use commands::appearance::{themes, preferences, set_preferences, set_window_background};
+  use commands::history::{undo, redo};
+  use commands::effect::*;
   use effect_windows::*;
-  use synth_commands::*;
+  use commands::synth::*;
 
   // read before the menu is built, which lists them
   let recent_projects = recent::RecentProjects::load();
@@ -124,43 +81,35 @@ fn init_tauri() {
       effects::keep_idling(racks.clone());
       effects::follow_output(&racks);
       effect_windows::init(&racks);
-      synth_commands::keep_following(following.clone());
+      commands::synth::keep_following(following.clone());
       app::window::setup(app)
     })
     .manage(state)
     .manage(recent_projects)
     .manage(preferences::AppPreferences::load())
-    .manage(Arc::new(mixdown_commands::Mixdowns::default()))
+    .manage(Arc::new(commands::mixdown::Mixdowns::default()))
     .invoke_handler(tauri::generate_handler![
       get_playlist_playing,
-      t_toggle_playlist,
-      t_play_playlist,
-      t_pause_playlist,
-      t_stop_playlist,
-      t_seek_playlist,
-      get_playlist_position,
-      get_playlist_start_time,
+      toggle_playlist,
+      play_playlist,
+      pause_playlist,
+      stop_playlist,
+      seek_playlist,
       get_playlist_transport,
-      get_playlist_tempo,
       set_playlist_tempo,
-      t_toggle_metronome_enabled,
+      toggle_metronome_enabled,
       get_metronome_enabled,
-      t_toggle_count_in,
-      get_count_in,
-      get_playlist_runtime_formatted,
-      get_playlist_beat_count,
-      get_playlist_time_signature,
+      toggle_count_in,
       set_playlist_time_signature,
       get_sidebar_samples,
       enumerate_directory,
-      t_preview_sample,
+      preview_sample,
       get_audio_drivers,
       get_audio_settings,
       set_audio_settings,
-      t_add_audiograph_node,
+      add_audiograph_node,
       move_audiograph_node,
       move_audiograph_nodes,
-      remove_audiograph_node,
       remove_audiograph_nodes,
       themes,
       preferences,
@@ -169,9 +118,8 @@ fn init_tauri() {
       undo,
       redo,
       get_node_data,
-      get_playlist_sample_offset,
       get_playlist_data,
-      t_toggle_loop_enabled,
+      toggle_loop_enabled,
       get_loop_enabled,
       toggle_snap_enabled,
       get_snap_enabled,
@@ -180,7 +128,7 @@ fn init_tauri() {
       get_sample_preview,
       get_clip,
       set_clip_settings,
-      t_preview_node,
+      preview_node,
       save_project,
       load_project,
       new_project,
@@ -196,19 +144,18 @@ fn init_tauri() {
       set_master_volume,
       reset_mixer,
       get_mixer_levels,
-      get_playlist_max_length,
       init_playlist_workspace,
-      t_start_recording,
-      t_stop_recording,
+      start_recording,
+      stop_recording,
       collect_recording,
-      t_list_recordings,
-      t_rename_recording,
-      t_delete_recording,
-      t_move_recording,
-      t_move_recording_folder,
-      t_create_recording_folder,
-      t_rename_recording_folder,
-      t_delete_recording_folder,
+      list_recordings,
+      rename_recording,
+      delete_recording,
+      move_recording,
+      move_recording_folder,
+      create_recording_folder,
+      rename_recording_folder,
+      delete_recording_folder,
       get_record_setup,
       set_track_armed,
       listen_to_input,
@@ -230,8 +177,8 @@ fn init_tauri() {
       remove_pattern_folder,
       set_pattern_bars,
       set_pattern_step,
-      t_play_pattern,
-      t_toggle_pattern,
+      play_pattern,
+      toggle_pattern,
       add_pattern_clip,
       explode_pattern_clips,
       paint_pattern_clips,
@@ -242,7 +189,6 @@ fn init_tauri() {
       cut_clips,
       paste_clips,
       repeat_clips,
-      clipboard_count,
       deep_copy_clips,
       join_clips,
       mixdown_defaults,
@@ -277,8 +223,7 @@ fn init_tauri() {
 }
 
 /**
- * args: 
- *   -d | --debug => debug mode
+ * args:
  *   --scan-plugin <path> => scan one plugin bundle and print what's in it
  */
 fn main() {
@@ -290,18 +235,5 @@ fn main() {
     std::process::exit(code)
   }
 
-  if args.is_empty() {
-    init_tauri();
-  }
-
-  for arg in args {
-    match &arg[..] {
-      "-d" | "--debug" => debug(),
-      _ => {
-        if arg.starts_with('-') {
-          println!("Unkown argument: {}", arg);
-        }
-      }
-    }
-  }
+  init_tauri();
 }

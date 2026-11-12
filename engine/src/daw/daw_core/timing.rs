@@ -109,18 +109,6 @@ pub fn n_beat_duration_from_tempo(
   interval * n
 }
 
-// calculate the duration for n subdivisions to execute
-pub fn n_subdivision_duration_from_tempo<T: MusicalTiming>(
-  tempo: f32, 
-  n: u32,
-  note: T,
-) -> Duration {
-  let interval = subdivision_interval_from_tempo(tempo, note);
-  println!("beat interval: {}ms", interval.as_millis());
-
-  interval * n
-}
-
 #[cfg(test)]
 mod tests {
   use super::*;

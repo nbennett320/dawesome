@@ -2,7 +2,7 @@ import React from 'react'
 import { beginSampleDrag } from '../../../state/sampleDrag'
 import { BrowserItemTypes, BrowserSampleItem } from '../../../types/sampleBrowser'
 import BrowserRow, { RowHint } from '../browser/BrowserRow'
-import { Chevron, FolderIcon, WaveIcon } from '../browser/icons'
+import { ChevronIcon, FolderIcon, WaveIcon } from '../../icons'
 
 interface Props {
   item: BrowserSampleItem
@@ -51,7 +51,7 @@ const SampleItem = ({ item, depth, open, selected, hint, onToggle, onPreview }: 
       onMouseDown={onMouseDown}
       onKeyDown={onKeyDown}
     >
-      {isFolder ? <Chevron open={open} /> : <span className='w-3 shrink-0' />}
+      {isFolder ? <ChevronIcon open={open} /> : <span className='w-3 shrink-0' />}
       {isFolder ? <FolderIcon /> : <WaveIcon />}
       <span className={`truncate ${isFolder ? 'font-medium' : ''}`}>{item.label}</span>
       {hint && <RowHint className='ml-auto pl-2 max-w-[40%]'>{hint}</RowHint>}

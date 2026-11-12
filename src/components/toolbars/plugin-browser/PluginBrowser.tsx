@@ -3,12 +3,13 @@ import { useAppDispatch, useAppSelector } from '../../../hooks/redux'
 import { fetchPlugins, scanPlugins, selectCatalog } from '../../../state/slices/effectsSlice'
 import { beginSampleDrag, DragItem } from '../../../state/sampleDrag'
 import { FailedPlugin, groupPlugins, PluginInfo, PluginKind } from '../../../types/effects'
-import { AnalogButton, ResetIcon } from '../../fourtrack'
+import { AnalogButton } from '../../fourtrack'
 import { Bar } from '../../common'
 import BrowserSearch from '../browser/BrowserSearch'
 import BrowserRow, { RowHint } from '../browser/BrowserRow'
-import { Chevron, FolderIcon, KeysIcon, KnobIcon, WarningIcon } from '../browser/icons'
 import { useSessionSet } from '../browser/useSessionSet'
+import { ChevronIcon, FolderIcon, KeysIcon, KnobIcon, ResetIcon, WarningIcon } from '../../icons'
+import { fileName } from '../../../util/helpers'
 
 // how often the engine is asked how a scan is going
 export const POLL_MS = 300
@@ -17,10 +18,9 @@ const logError = (what: string) => (e: unknown) =>
   // eslint-disable-next-line no-console
   console.error(`could not ${what}:`, e)
 
-const fileName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path
 
 // what each kind of plugin is called, and where it's dragged to
-const KINDS: Record<PluginKind, { plural: string, where: string, Icon: () => JSX.Element }> = {
+const KINDS: Record<PluginKind, { plural: string, where: string, Icon: typeof KnobIcon }> = {
   effect: {
     plural: 'effects',
     where: 'Drag onto a mixer channel or into the Effects Rack',
@@ -29,7 +29,7 @@ const KINDS: Record<PluginKind, { plural: string, where: string, Icon: () => JSX
   instrument: {
     plural: 'instruments',
     where: 'Drag into the Note Sequencer to add it as a synth, or onto a track in the Mixer to start a note pattern there',
-    Icon: () => <KeysIcon />,
+    Icon: KeysIcon,
   },
 }
 
@@ -73,7 +73,7 @@ const CategoryRow = ({ category, count, open, onToggle }: {
     title={category}
     onClick={onToggle}
   >
-    <Chevron open={open} />
+    <ChevronIcon open={open} />
     <FolderIcon />
     <span className='truncate font-medium'>{category}</span>
     <RowHint className='ml-auto pl-2'>{count}</RowHint>
@@ -93,7 +93,7 @@ const FailedList = ({ failed }: { failed: FailedPlugin[] }) => {
         title='Plugins that crashed, hung or couldn’t be read while scanning. Refresh tries them again'
         onClick={() => setOpen(!open)}
       >
-        <Chevron open={open} />
+        <ChevronIcon open={open} />
         <WarningIcon />
         <span className='truncate'>Couldn’t be read ({failed.length})</span>
       </BrowserRow>

@@ -9,8 +9,9 @@ import {
 } from '../../state/slices/mixdownSlice'
 import { AnalogButton } from '../../components/fourtrack'
 import { Bar, Choice, Field, Notice } from '../../components/common'
+import { fileName } from '../../util/helpers'
 
-// how a mixdown is going (see Status in engine/src/mixdown_commands.rs)
+// how a mixdown is going (see Status in engine/src/commands/mixdown.rs)
 type Status =
   | { state: 'idle' }
   | { state: 'rendering', progress: number }
@@ -21,7 +22,6 @@ type Status =
 // how often the engine is asked, while a mixdown is going
 const POLL_MS = 100
 
-const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path
 
 const Button = ({ children, ...props }: React.ComponentProps<typeof AnalogButton>) => (
   <AnalogButton variant='text' size='sm' {...props}>{children}</AnalogButton>

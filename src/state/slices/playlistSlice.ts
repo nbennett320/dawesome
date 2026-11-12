@@ -44,8 +44,6 @@ export interface PlaylistState {
   // follows the tape while it winds
   wind: Wind | null
   tempo: number
-  runtime?: string | null
-  currentBeat?: number | null
   metronomeEnabled: boolean,
   loopEnabled: boolean,
   snapEnabled: boolean,
@@ -86,8 +84,6 @@ const initialState = {
   transportRevision: 0,
   wind: null,
   tempo: 120,
-  runtime: null,
-  currentBeat: null,
   metronomeEnabled: true,
   loopEnabled: true,
   snapEnabled: true,
@@ -137,7 +133,7 @@ const patternItem = (clip: LoadedPatternClip): PlaylistItem => ({
 
 // pattern clips painted with the Draw tool, as the engine's
 // paint_pattern_clips returns them (Painted in
-// engine/src/sequencer_commands.rs): the clips made, in order, the pattern
+// engine/src/commands/sequencer.rs): the clips made, in order, the pattern
 // they play (made by the paint when none was given), the sequencer, the
 // mixer, and how many tracks there are now
 export interface PaintedClips {
@@ -170,12 +166,6 @@ export const playlistSlice = createSlice({
     },
     reduceTempo: (state, action) => {
       state.tempo = action.payload
-    },
-    setRuntime: (state, action) => {
-      state.runtime = action.payload
-    },
-    setBeatCount: (state, action) => {
-      state.currentBeat = action.payload
     },
     setMetronomeEnabled: (state, action) => {
       state.metronomeEnabled = action.payload
@@ -382,8 +372,6 @@ export const playlistSlice = createSlice({
       const project = action.payload
 
       state.playing = false
-      state.runtime = null
-      state.currentBeat = null
       state.tempo = project.tempo
       state.metronomeEnabled = project.metronomeEnabled
       state.loopEnabled = project.loopEnabled
@@ -441,7 +429,7 @@ export const syncPlayingFrom = (dispatch: Dispatch) =>
     })
 
 export const togglePlay = () => async (dispatch: Dispatch) => {
-  await invoke<void>('t_toggle_playlist', {})
+  await invoke<void>('toggle_playlist', {})
   await syncPlayingFrom(dispatch)
 }
 
@@ -452,17 +440,17 @@ const transportError = (what: string) => (e: unknown) =>
 // the transport's keys: play from the playhead, pause there, stop and go back
 // to the start
 export const playPlaylist = () => (dispatch: Dispatch) =>
-  invoke<void>('t_play_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('play'))
+  invoke<void>('play_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('play'))
 
 export const pausePlaylist = () => (dispatch: Dispatch) =>
-  invoke<void>('t_pause_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('pause'))
+  invoke<void>('pause_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('pause'))
 
 export const stopPlaylist = () => (dispatch: Dispatch) =>
-  invoke<void>('t_stop_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('stop'))
+  invoke<void>('stop_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('stop'))
 
 // move the playhead to a beat (playing carries on from there)
 export const seekPlaylist = (beat: number) => (dispatch: Dispatch) =>
-  invoke<number>('t_seek_playlist', { beat })
+  invoke<number>('seek_playlist', { beat })
     .then(() => syncPlayingFrom(dispatch))
     .catch(transportError(`move to beat ${beat}`))
 
@@ -516,45 +504,15 @@ export const setPlaylistTempo = (val: number, gesture: number | null = null) => 
   }
 }
 
-// retrieve tempo from internal (rust) state
-export const getPlaylistTempo = () => async (): Promise<boolean> => {
-  const playing = await invoke<boolean>('get_playlist_playing', {})
-  return playing
-}
-
 // retrieve tempo from redux state
 export const selectPlaylistTempo = (state: RootState) => state.playlist.tempo
 // end tempo methods
-
-// start runtime methods
-export const { setRuntime } = playlistSlice.actions
-
-export const fetchPlaylistRuntime = () => async (dispatch: Dispatch) => {
-  const runtime = await invoke<string>('get_playlist_runtime_formatted', {})
-  dispatch(setRuntime(runtime))
-}
-
-export const selectPlaylistRuntime = (state: RootState) =>
-  state.playlist.runtime
-// end rutime methods
-
-// start beat count methods
-export const { setBeatCount } = playlistSlice.actions
-
-export const fetchPlaylistBeatCount = () => async (dispatch: Dispatch) => {
-  const count = await invoke<string>('get_playlist_beat_count', {})
-  dispatch(setBeatCount(count))
-}
-
-export const selectPlaylistBeatCount = (state: RootState) =>
-  state.playlist.currentBeat
-// end rutime methods
 
 // start metronome enable/disable methods
 export const { setMetronomeEnabled } = playlistSlice.actions
 
 export const toggleMetronome = () => async (dispatch: Dispatch) => {
-  await invoke<void>('t_toggle_metronome_enabled', {})
+  await invoke<void>('toggle_metronome_enabled', {})
   const enabled = await invoke<boolean>('get_metronome_enabled', {})
   dispatch(setMetronomeEnabled(enabled))
 }
@@ -567,7 +525,7 @@ export const selectMetronomeEnabled = (state: RootState) =>
 export const { setLoopEnabled } = playlistSlice.actions
 
 export const toggleLoop = () => async (dispatch: Dispatch) => {
-  await invoke<void>('t_toggle_loop_enabled', {})
+  await invoke<void>('toggle_loop_enabled', {})
   const enabled = await invoke<boolean>('get_loop_enabled', {})
   dispatch(setLoopEnabled(enabled))
 }
@@ -608,7 +566,7 @@ export const addToPlaylist = (
   const dropX = pixelOffset.x - pixelOffset.left
   const dropY = pixelOffset.y - pixelOffset.top
   // startBeat is where the engine actually placed the clip (after snapping)
-  const { id, startBeat } = await invoke<{ id: number, startBeat: number }>('t_add_audiograph_node', {
+  const { id, startBeat } = await invoke<{ id: number, startBeat: number }>('add_audiograph_node', {
     samplePath: path,
     trackNumber,
     dropBeat,
@@ -735,19 +693,6 @@ export const removeManyFromPlaylist = (ids: number[]) => async (dispatch: Dispat
   await invoke('remove_audiograph_nodes', { ids })
   ids.forEach(id => dispatch(removePlaylistItem({ id })))
   // the last clips on the bottom tracks may have gone
-  await refreshTrackCount()(dispatch)
-}
-
-export const removeFromPlaylist = (id: number) => async (dispatch: Dispatch) => {
-  await invoke('remove_audiograph_node', {
-    id
-  })
-
-  dispatch(removePlaylistItem({
-    id
-  }))
-
-  // the last track's only clip was removed
   await refreshTrackCount()(dispatch)
 }
 
@@ -1156,7 +1101,7 @@ export const repeatClips = (ids: number[]) => async (
 export const auditionClip = (id: number) => async (_: Dispatch, getState: () => RootState) => {
   // make sure the engine has the latest settings first
   await sendSettingsNow(id, selectClipSettings(id)(getState()))
-  await invoke('t_preview_node', { id })
+  await invoke('preview_node', { id })
 }
 // end clip settings methods
 

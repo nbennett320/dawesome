@@ -1,4 +1,5 @@
 import { ClipWindow } from '../../types/clip'
+import { clamp, clampLowWins } from '../../util/helpers'
 
 // a horizontal span of the waveform canvas, pixels
 export interface Region {
@@ -16,8 +17,8 @@ export const playedRegion = (
   if(!window || sampleDuration <= 0) return { left: 0, width }
 
   // a window past the sample's ends is cut to them
-  const start = Math.max(0, Math.min(sampleDuration, window.start))
-  const end = Math.max(start, Math.min(sampleDuration, window.end ?? sampleDuration))
+  const start = clampLowWins(window.start, 0, sampleDuration)
+  const end = clampLowWins(window.end ?? sampleDuration, start, sampleDuration)
 
   return {
     left: start / sampleDuration * width,
@@ -32,6 +33,6 @@ export const xAtTime = (region: Region, played: number, time: number): number =>
 // the time within the played part at x, held to the region's ends
 export const timeAtX = (region: Region, played: number, x: number): number => {
   if(region.width <= 0) return 0
-  const fraction = Math.max(0, Math.min(1, (x - region.left) / region.width))
+  const fraction = clamp((x - region.left) / region.width, 0, 1)
   return fraction * played
 }

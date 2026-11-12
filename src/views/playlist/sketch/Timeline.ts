@@ -1,24 +1,10 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import p5 from 'p5'
-import { P5CanvasInstance } from 'react-p5-wrapper'
-import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
-import { CanvasProps, Renderer } from './index'
+import PlaylistComponent from './PlaylistComponent'
+import { Renderer } from './index'
 import { P5BoundingBox } from '../../../render/P5Component'
 import { paint, theme } from './theme'
 import { MIN_LABEL_GAP, gridSteps, visibleBeats } from './grid'
 
-interface Props extends PlaylistComponentProps {}
-
 class Timeline extends PlaylistComponent {
-  constructor(
-    p: P5CanvasInstance<CanvasProps>,
-    canvas: p5.Renderer,
-    playlist: Renderer,
-    props: Props,
-  ) {
-    super(p, canvas, playlist, props)
-  }
-
   boundingBox = (): P5BoundingBox => {
     return {
       bottom: 0,

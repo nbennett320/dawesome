@@ -184,7 +184,7 @@ describe('the Piano Roll', () => {
     expect(lastSynth()).toBe(8)
 
     fireEvent.click(screen.getByRole('button', { name: 'Play the pattern' }))
-    await waitFor(() => expect(calls('t_toggle_pattern')).toEqual([{ patternId: 1 }]))
+    await waitFor(() => expect(calls('toggle_pattern')).toEqual([{ patternId: 1 }]))
   })
 
   it('sends to the Note Sequencer when there’s no synth yet', async () => {

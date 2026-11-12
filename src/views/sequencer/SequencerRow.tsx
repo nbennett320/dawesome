@@ -10,9 +10,9 @@ import {
   Pattern,
   STEPS_PER_BEAT,
   SequencerRow as Row,
-  fileName,
   isLit,
 } from '../../types/sequencer'
+import { fileName } from '../../util/helpers'
 import RowControls from './RowControls'
 
 // a step being painted: pressing a step lights it (or clears it), and every

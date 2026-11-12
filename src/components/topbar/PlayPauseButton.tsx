@@ -2,7 +2,8 @@ import React from 'react'
 import { selectPlaylistPlaying } from '../../state/slices/playlistSlice'
 import { togglePlayHere } from '../../state/slices/sequencerSlice'
 import { useAppSelector, useAppDispatch } from '../../hooks/redux'
-import { AnalogButton, PauseIcon, PlayIcon } from '../fourtrack'
+import { AnalogButton } from '../fourtrack'
+import { PauseIcon, PlayIcon } from '../icons'
 
 // latches down while playing, like a tape deck's play key
 const PlayPauseButton = () => {

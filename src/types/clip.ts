@@ -1,3 +1,5 @@
+import { clamp } from '../util/helpers'
+
 // how a clip in the playlist is played back, adjusted in the Sample tab
 //
 // pitch and speed are linked, like a tape or record: raising the pitch
@@ -71,7 +73,6 @@ export const clipSettingRanges: Record<ClipSetting, { min: number, max: number }
   decayMs: { min: 0, max: 10_000 },
 }
 
-const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n))
 
 // how much faster than the original the clip plays: 12 semitones up is
 // twice as fast, 12 down is half as fast

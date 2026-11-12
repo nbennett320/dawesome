@@ -1,3 +1,5 @@
+import { clampLowWins } from '../util/helpers'
+
 // moving a group of items together. plain functions, with no canvas
 
 // an item's place in its view: where it starts along time (beats in the
@@ -31,12 +33,11 @@ export const groupLanding = <T extends Placement>(
   const anchor = placed.find(c => c.id === anchorId)
   if(!anchor) return []
 
-  const clamp = (n: number, lo: number, hi: number) => Math.min(Math.max(n, lo), Math.max(lo, hi))
   const beats = placed.map(c => c.beat)
   const ends = placed.map(c => c.beat + (c.length ?? 0))
   const tracks = placed.map(c => c.track)
-  const shift = clamp(beat - anchor.beat, -Math.min(...beats), Math.max(0, maxBeat - Math.max(...ends)))
-  const down = clamp(track - anchor.track, -Math.min(...tracks), maxTrack - Math.max(...tracks))
+  const shift = clampLowWins(beat - anchor.beat, -Math.min(...beats), Math.max(0, maxBeat - Math.max(...ends)))
+  const down = clampLowWins(track - anchor.track, -Math.min(...tracks), maxTrack - Math.max(...tracks))
 
   return placed.map(c => ({ ...c, beat: c.beat + shift, track: c.track + down }))
 }

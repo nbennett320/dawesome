@@ -40,6 +40,7 @@ import {
   snapPoint, stretchAll, stretchSet, trimAll, trimmedWindow,
 } from './edges'
 import { paintedSpans } from './paint'
+import { clamp } from '../../../util/helpers'
 
 export interface CanvasProps extends SketchProps {
   height: number
@@ -126,9 +127,9 @@ export const staticDefaults = {
   },
 }
 
-// the top of a track, in playlist y. matches PlaylistTrack's layout
-const trackTop = (trackNumber: number): number =>
-  staticDefaults.trackHeight * trackNumber + trackNumber * .3 + staticDefaults.timelineHeight
+// the top of a track, in playlist y
+export const trackTop = (trackNumber: number, trackHeight: number = staticDefaults.trackHeight): number =>
+  trackHeight * trackNumber + trackNumber * .3 + staticDefaults.timelineHeight
 
 // room below the last track: dropping a clip there puts it on a new track
 const NEW_TRACK_AREA_HEIGHT = staticDefaults.trackHeight / 2
@@ -701,7 +702,7 @@ export class Renderer extends RendererBase {
 
   // the beat at canvas x `screenX`, kept to the playlist
   #beatAt = (screenX: number): number =>
-    Math.min(Math.max(this.screenXToBeat(screenX), 0), this.beatsDisplayed)
+    clamp(this.screenXToBeat(screenX), 0, this.beatsDisplayed)
 
   // a press on empty lane space with the Draw tool, at canvas x, y: a paint
   // starts there, on the line at or before the mouse
@@ -1013,7 +1014,7 @@ export class Renderer extends RendererBase {
     const stretches: StretchEdit[] = !drag.stretch || !rates ? [] : drag.stretch.flatMap(clip => {
       const rate = rates.get(clip.id)
       if(rate === undefined || Math.abs(rate - clip.rate) < 1e-9) return []
-      const pitch = Math.min(MAX_PITCH, Math.max(-MAX_PITCH, pitchOf(rate)))
+      const pitch = clamp(pitchOf(rate), -MAX_PITCH, MAX_PITCH)
       return [{ id: clip.id, pitch, keep: drag.edge === 'left' ? 'end' as const : 'start' as const }]
     })
     if(!edits.length && !stretches.length) {
@@ -1149,7 +1150,7 @@ export class Renderer extends RendererBase {
   // the same rule the engine uses: clamp to the playlist, then round to the
   // nearest snap step
   snapBeat = (beat: number): number => {
-    const clamped = Math.min(Math.max(beat, 0), this.beatsDisplayed)
+    const clamped = clamp(beat, 0, this.beatsDisplayed)
     const { enabled, beats } = this.snap
 
     return enabled && beats > 0 ? Math.round(clamped / beats) * beats : clamped
@@ -1159,7 +1160,7 @@ export class Renderer extends RendererBase {
   // and how far from the clip's left edge it's held (in playlist x)
   dropTarget = (mouseX: number, mouseY: number, grabX = 0): DropTarget => {
     const left = this.screenToPlaylistX(mouseX) - grabX
-    const beat = Math.min(Math.max(this.xToBeat(left), 0), this.beatsDisplayed)
+    const beat = clamp(this.xToBeat(left), 0, this.beatsDisplayed)
 
     return {
       beat,
@@ -1438,7 +1439,7 @@ export class Renderer extends RendererBase {
   // scroll the tracks, kept in range
   scrollTo = (y: number) => {
     // `|| 0` also catches NaN, which would break every clip's hit-test
-    this.scrollY = Math.min(Math.max(y, 0), this.maxScrollY()) || 0
+    this.scrollY = clamp(y, 0, this.maxScrollY()) || 0
   }
 
   // the vertical scrollbar, in canvas pixels. null when every track fits
@@ -1450,7 +1451,7 @@ export class Renderer extends RendererBase {
     const trackLength = this.height - top
     // the share of the tracks that's visible
     const visible = trackLength / (this.contentHeight() - top)
-    const thumbHeight = Math.min(trackLength, Math.max(SCROLLBAR.minThumbHeight, trackLength * visible))
+    const thumbHeight = clamp(trackLength * visible, SCROLLBAR.minThumbHeight, trackLength)
     const thumbTop = top + (trackLength - thumbHeight) * (this.scrollY / max)
 
     return { top, trackLength, thumbTop, thumbHeight, max }
@@ -1481,7 +1482,7 @@ export class Renderer extends RendererBase {
 
     const { zone, maxSpeed } = AUTO_SCROLL
     const top = staticDefaults.timelineHeight
-    const depth = (into: number) => Math.min(1, Math.max(0, into / zone))
+    const depth = (into: number) => clamp(into / zone, 0, 1)
 
     if(y < top + zone) this.scrollTo(this.scrollY - maxSpeed * depth(top + zone - y))
     else if(y > this.height - zone) this.scrollTo(this.scrollY + maxSpeed * depth(y - (this.height - zone)))

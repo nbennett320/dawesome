@@ -1,7 +1,7 @@
 import React from 'react'
 import { AnalogButton, AnalogButtonSize } from './AnalogButton'
 import { Led, LedState } from './Led'
-import { cx } from './util'
+import { cx } from '../../util/helpers'
 
 export interface MuteSoloProps {
   // the track's name, for labels, e.g. "Track 1"

@@ -3,7 +3,11 @@
 //
 // pitch and speed are linked, like a tape or record: raising the pitch plays
 // the clip faster and shorter
+use std::ops::RangeInclusive;
 use std::time::Duration;
+
+use crate::util::math::clamp_or;
+#[cfg(test)]
 use rodio::Source;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -34,15 +38,10 @@ impl Default for ClipSettings {
 }
 
 // the range of each setting (attack and decay are also kept within the clip)
-const GAIN_DB: (f32, f32) = (-60., 12.);
-const PAN: (f32, f32) = (-1., 1.);
-const PITCH: (f32, f32) = (-24., 24.);
-const FADE_MS: (f32, f32) = (0., 10_000.);
-
-// clamp to a range, using `default` for NaN
-fn clamp(value: f32, (min, max): (f32, f32), default: f32) -> f32 {
-  if value.is_nan() { default } else { value.clamp(min, max) }
-}
+const GAIN_DB: RangeInclusive<f32> = -60.0..=12.0;
+const PAN: RangeInclusive<f32> = -1.0..=1.0;
+const PITCH: RangeInclusive<f32> = -24.0..=24.0;
+const FADE_MS: RangeInclusive<f32> = 0.0..=10_000.0;
 
 impl ClipSettings {
   // how much faster than the original the clip plays: 12 semitones up is
@@ -78,11 +77,11 @@ impl ClipSettings {
   pub fn clamped(&self, sample_duration: Duration) -> Self {
     let d = ClipSettings::default();
     let mut s = ClipSettings {
-      gain_db: clamp(self.gain_db, GAIN_DB, d.gain_db),
-      pan: clamp(self.pan, PAN, d.pan),
-      pitch: clamp(self.pitch, PITCH, d.pitch),
-      attack_ms: clamp(self.attack_ms, FADE_MS, d.attack_ms),
-      decay_ms: clamp(self.decay_ms, FADE_MS, d.decay_ms),
+      gain_db: clamp_or(self.gain_db, GAIN_DB, d.gain_db),
+      pan: clamp_or(self.pan, PAN, d.pan),
+      pitch: clamp_or(self.pitch, PITCH, d.pitch),
+      attack_ms: clamp_or(self.attack_ms, FADE_MS, d.attack_ms),
+      decay_ms: clamp_or(self.decay_ms, FADE_MS, d.decay_ms),
     };
 
     let length_ms = s.played_duration(sample_duration).as_secs_f32() * 1000.;
@@ -95,6 +94,7 @@ impl ClipSettings {
   // a source played with these settings: sped up or slowed down, louder or
   // quieter, faded in and out, and panned (always stereo)
   // - sample_duration: the source's length before any speed change
+  #[cfg(test)]
   pub fn apply<S>(&self, source: S, sample_duration: Duration) -> Pan<Envelope<rodio::source::Amplify<rodio::source::Speed<S>>>>
   where
     S: Source<Item = f32>,
@@ -113,6 +113,7 @@ impl ClipSettings {
 // fades a source in from silence over `attack` and out to silence over
 // `decay` before `length` (the source's played length). where the fades
 // overlap, the quieter one wins
+#[cfg(test)]
 pub struct Envelope<S> {
   inner: S,
   attack: f32,
@@ -122,6 +123,7 @@ pub struct Envelope<S> {
   position: u64,
 }
 
+#[cfg(test)]
 impl<S: Source<Item = f32>> Envelope<S> {
   pub fn new(inner: S, attack: Duration, decay: Duration, length: Duration) -> Self {
     Envelope {
@@ -142,6 +144,7 @@ impl<S: Source<Item = f32>> Envelope<S> {
   }
 }
 
+#[cfg(test)]
 impl<S: Source<Item = f32>> Iterator for Envelope<S> {
   type Item = f32;
 
@@ -160,6 +163,7 @@ impl<S: Source<Item = f32>> Iterator for Envelope<S> {
   }
 }
 
+#[cfg(test)]
 impl<S: Source<Item = f32>> Source for Envelope<S> {
   fn current_frame_len(&self) -> Option<usize> { self.inner.current_frame_len() }
   fn channels(&self) -> u16 { self.inner.channels() }
@@ -173,6 +177,7 @@ impl<S: Source<Item = f32>> Source for Envelope<S> {
 //
 // uses a balance law: at the centre both sides are unchanged, and panning
 // turns the opposite side down, to silence at hard left or right
+#[cfg(test)]
 pub struct Pan<S> {
   inner: S,
   left_gain: f32,
@@ -181,6 +186,7 @@ pub struct Pan<S> {
   pending_right: Option<f32>,
 }
 
+#[cfg(test)]
 impl<S: Source<Item = f32>> Pan<S> {
   pub fn new(inner: S, pan: f32) -> Self {
     let pan = pan.clamp(-1., 1.);
@@ -194,6 +200,7 @@ impl<S: Source<Item = f32>> Pan<S> {
   }
 }
 
+#[cfg(test)]
 impl<S: Source<Item = f32>> Iterator for Pan<S> {
   type Item = f32;
 
@@ -215,6 +222,7 @@ impl<S: Source<Item = f32>> Iterator for Pan<S> {
   }
 }
 
+#[cfg(test)]
 impl<S: Source<Item = f32>> Source for Pan<S> {
   fn current_frame_len(&self) -> Option<usize> {
     // the same number of frames, now two samples each

@@ -93,7 +93,7 @@ export const setTrackArmed = (trackNumber: number, input: InputChoice | null) =>
 // count in a bar before recording, or not
 export const toggleCountIn = () => async (dispatch: Dispatch) => {
   try {
-    dispatch(setCountIn(await invoke<boolean>('t_toggle_count_in', {})))
+    dispatch(setCountIn(await invoke<boolean>('toggle_count_in', {})))
   } catch(e) {
     // eslint-disable-next-line no-console
     console.error('could not change the count-in:', e)
@@ -123,7 +123,7 @@ const receive = (dispatch: Dispatch, recorded: Recorded) => {
 // start recording every armed track from the playhead, or stop (playback
 // stops too, keeping its place) and put the takes on their tracks
 export const toggleRecording = () => async (dispatch: Dispatch, getState: () => RootState) => {
-  const command = getState().recording.recording ? 't_stop_recording' : 't_start_recording'
+  const command = getState().recording.recording ? 'stop_recording' : 'start_recording'
   try {
     receive(dispatch, await invoke<Recorded>(command, {}))
   } catch(e) {

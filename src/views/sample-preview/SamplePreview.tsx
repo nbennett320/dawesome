@@ -23,8 +23,9 @@ import {
 } from '../../types/clip'
 import ClipWaveform, { WaveformData } from './ClipWaveform'
 import SettingControl from './SettingControl'
-import { AnalogButton, PlayIcon } from '../../components/fourtrack'
+import { AnalogButton } from '../../components/fourtrack'
 import { decodeLevels } from '../../util/waveform'
+import { PlayIcon } from '../../components/icons'
 
 type Loaded =
   | { state: 'loading' }
