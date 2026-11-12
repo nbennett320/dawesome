@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::play;
 use std::time::Instant;
 use crate::commands::clip::add_clip;
 
@@ -10,29 +11,6 @@ fn mixdown(state: &daw::InnerState, rate: u32) -> Vec<f32> {
   render(snapshot(state, rate).unwrap(), rate, &mut |chunk| { samples.extend_from_slice(chunk); Ok(()) },
     &Progress::default(), &AtomicBool::new(false)).unwrap();
   samples
-}
-
-// the playlist as the scheduler plays it, through the live mixer, `total`
-// long (see the same in bounce.rs)
-fn play(state: &daw::InnerState, rate: u32, total: Duration) -> Vec<f32> {
-  let mut graph = state.playlist.audiograph.lock().unwrap();
-  let (engine, mut renderer) = daw::Engine::new(rate);
-  let beat = graph.beat_interval();
-  graph.init();
-  let mut voices = Vec::new();
-  let mut at = Duration::ZERO;
-  while at < total {
-    graph.set_current_offset(Some(at));
-    for (delay, source, route) in graph.run_sounds_at(at, rate, beat, false, at.is_zero()) {
-      voices.push(engine.boxed_voice(source, Some(1), engine.frames_in(at + delay), route));
-    }
-    at += beat;
-  }
-  graph.pause();
-  engine.start_run(1, graph.mixer.master(), voices).unwrap();
-  let mut out = vec![0f32; engine.frames_in(total) as usize * 2];
-  renderer.render(&mut out, Instant::now(), Duration::ZERO);
-  out
 }
 
 fn peak(samples: &[f32]) -> f32 {

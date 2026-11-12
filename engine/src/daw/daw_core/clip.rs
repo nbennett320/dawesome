@@ -3,7 +3,10 @@
 //
 // pitch and speed are linked, like a tape or record: raising the pitch plays
 // the clip faster and shorter
+use std::ops::RangeInclusive;
 use std::time::Duration;
+
+use crate::util::math::clamp_or;
 #[cfg(test)]
 use rodio::Source;
 
@@ -35,15 +38,10 @@ impl Default for ClipSettings {
 }
 
 // the range of each setting (attack and decay are also kept within the clip)
-const GAIN_DB: (f32, f32) = (-60., 12.);
-const PAN: (f32, f32) = (-1., 1.);
-const PITCH: (f32, f32) = (-24., 24.);
-const FADE_MS: (f32, f32) = (0., 10_000.);
-
-// clamp to a range, using `default` for NaN
-fn clamp(value: f32, (min, max): (f32, f32), default: f32) -> f32 {
-  if value.is_nan() { default } else { value.clamp(min, max) }
-}
+const GAIN_DB: RangeInclusive<f32> = -60.0..=12.0;
+const PAN: RangeInclusive<f32> = -1.0..=1.0;
+const PITCH: RangeInclusive<f32> = -24.0..=24.0;
+const FADE_MS: RangeInclusive<f32> = 0.0..=10_000.0;
 
 impl ClipSettings {
   // how much faster than the original the clip plays: 12 semitones up is
@@ -79,11 +77,11 @@ impl ClipSettings {
   pub fn clamped(&self, sample_duration: Duration) -> Self {
     let d = ClipSettings::default();
     let mut s = ClipSettings {
-      gain_db: clamp(self.gain_db, GAIN_DB, d.gain_db),
-      pan: clamp(self.pan, PAN, d.pan),
-      pitch: clamp(self.pitch, PITCH, d.pitch),
-      attack_ms: clamp(self.attack_ms, FADE_MS, d.attack_ms),
-      decay_ms: clamp(self.decay_ms, FADE_MS, d.decay_ms),
+      gain_db: clamp_or(self.gain_db, GAIN_DB, d.gain_db),
+      pan: clamp_or(self.pan, PAN, d.pan),
+      pitch: clamp_or(self.pitch, PITCH, d.pitch),
+      attack_ms: clamp_or(self.attack_ms, FADE_MS, d.attack_ms),
+      decay_ms: clamp_or(self.decay_ms, FADE_MS, d.decay_ms),
     };
 
     let length_ms = s.played_duration(sample_duration).as_secs_f32() * 1000.;

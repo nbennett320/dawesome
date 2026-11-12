@@ -19,6 +19,8 @@ mod plugin_catalog;
 mod main_thread;
 mod effects;
 mod effect_windows;
+#[cfg(test)]
+mod test_support;
 
 use std::env;
 use std::sync::Arc;

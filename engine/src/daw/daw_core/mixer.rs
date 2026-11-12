@@ -19,6 +19,8 @@ use std::time::Duration;
 use rodio::Source;
 use serde::{Deserialize, Serialize};
 
+use crate::util::math::clamp_or;
+
 // the quietest a fader goes. at or below this it's silent (shown as -∞)
 // (JSON has no infinity, so silence is stored as this)
 pub const MIN_DB: f32 = -60.;
@@ -84,10 +86,6 @@ impl Default for ChannelSettings {
   }
 }
 
-fn clamp(value: f32, min: f32, max: f32, default: f32) -> f32 {
-  if value.is_nan() { default } else { value.clamp(min, max) }
-}
-
 // a strip's live controls, read by the audio while it plays
 #[derive(Debug)]
 pub struct ChannelControls {
@@ -144,13 +142,13 @@ impl ChannelControls {
   }
 
   fn set_volume_db(&self, db: f32) -> f32 {
-    let db = clamp(db, MIN_DB, MAX_DB, 0.);
+    let db = clamp_or(db, MIN_DB..=MAX_DB, 0.);
     self.volume_db.store(db);
     db
   }
 
   fn set_pan(&self, pan: f32) -> f32 {
-    let pan = clamp(pan, -1., 1., 0.);
+    let pan = clamp_or(pan, -1.0..=1.0, 0.);
     self.pan.store(pan);
     pan
   }

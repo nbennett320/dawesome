@@ -192,6 +192,11 @@ pub fn sample_to_n_elements<
   }
 }
 
+// a number kept within a range, or `default` when it isn't a number
+pub fn clamp_or(value: f32, range: std::ops::RangeInclusive<f32>, default: f32) -> f32 {
+  if value.is_nan() { default } else { value.clamp(*range.start(), *range.end()) }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -265,5 +270,14 @@ mod tests {
     }
 
     assert_eq!(greater_than_one.len(), 0);
+  }
+
+  #[test]
+  fn test_clamp_or() {
+    assert_eq!(clamp_or(0.5, -1.0..=1.0, 0.), 0.5);
+    assert_eq!(clamp_or(7., -1.0..=1.0, 0.), 1.);
+    assert_eq!(clamp_or(-7., -1.0..=1.0, 0.), -1.);
+    assert_eq!(clamp_or(f32::INFINITY, -1.0..=1.0, 0.), 1.);
+    assert_eq!(clamp_or(f32::NAN, -1.0..=1.0, 0.25), 0.25);
   }
 }
