@@ -564,6 +564,17 @@ pub fn pattern_start(state: &state::InnerState, id: u64) -> Duration {
   }
 }
 
+// the step (fractional) a pattern playing on its own has got to: from the
+// step its run started from, wrapped at its length. None before it's heard
+pub fn pattern_step(state: &state::InnerState, id: u64) -> Option<f64> {
+  let len = pattern_len(state, id)?;
+  let started = (*state.playlist.started_time.lock().unwrap())?;
+  if len.is_zero() { return None; }
+  let at = (pattern_start(state, id) + started.elapsed()).as_secs_f64() % len.as_secs_f64();
+  let step = beat_interval(state).as_secs_f64() / daw_core::STEPS_PER_BEAT as f64;
+  Some(at / step)
+}
+
 // loop a pattern on its own (Play in a sequencer tab, or the Piano Roll),
 // stopping whatever was playing: from `from_step` (the Piano Roll's start
 // marker, fractional) to its end, then the whole pattern over and over. a
@@ -629,7 +640,8 @@ pub enum Retimed {
 
 // change the tempo, ending whatever's playing. every clip, and the playhead,
 // stays on its beat: a playlist that was playing is left paused on the beat
-// it had got to. returns what was playing (see set_playlist_tempo)
+// it had got to, and a pattern on the step it had got to. returns what was
+// playing (see set_playlist_tempo)
 pub fn retime(state: &state::InnerState, tempo: f32) -> Result<Retimed, String> {
   if !daw_core::timing::valid_tempo(tempo) {
     return Err(format!("the tempo can't be {}", tempo));
@@ -653,7 +665,12 @@ pub fn retime(state: &state::InnerState, tempo: f32) -> Result<Retimed, String> 
       end_run(state);
       *state.playlist.start_offset.lock().unwrap() = position;
     }
-    Retimed::Pattern(_) => end_run(state),
+    Retimed::Pattern(id) => {
+      // where it's got to (in the old tempo's steps), to carry on from
+      let reached = pattern_step(state, id);
+      end_run(state);
+      if let Some(step) = reached { *state.playlist.pattern_start.lock().unwrap() = step; }
+    }
     Retimed::Stopped => {}
   }
 
@@ -667,13 +684,13 @@ pub fn retime(state: &state::InnerState, tempo: f32) -> Result<Retimed, String> 
 
 // change the tempo. every clip, and the playhead, stays on its beat. while
 // the playlist plays, it carries on from the beat it had got to (after a
-// short fade); a pattern playing on its own starts over. returns the tempo
+// short fade), and so does a pattern playing on its own. returns the tempo
 pub fn set_playlist_tempo(state: &Arc<state::InnerState>, tempo: f32) -> Result<f32, String> {
   match retime(state, tempo)? {
     Retimed::Playlist => start_playlist(state),
     // (the tempo's changed even if the pattern has gone meanwhile). from the
-    // step it was started from (read first: an `if let` holds its lock until
-    // its end, and start_pattern takes it again)
+    // step it had got to (read first: an `if let` holds its lock until its
+    // end, and start_pattern takes it again)
     Retimed::Pattern(id) => {
       let from = *state.playlist.pattern_start.lock().unwrap();
       if let Err(e) = start_pattern(state, id, from) {

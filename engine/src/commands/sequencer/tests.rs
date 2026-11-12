@@ -120,13 +120,43 @@ fn test_a_seek_moves_only_the_pattern_playing() {
   assert_eq!(*state.playlist.pattern_start.lock().unwrap(), 0.);
 }
 
+// a pattern that's played `ago`, from `from_step`
+fn fake_pattern_run(state: &daw::InnerState, pattern: u64, from_step: f64, ago: Duration) {
+  *state.playlist.mode.lock().unwrap() = daw::PlayMode::Pattern(pattern);
+  *state.playlist.pattern_start.lock().unwrap() = from_step;
+  *state.playlist.started_time.lock().unwrap() = Some(std::time::Instant::now() - ago);
+  state.playlist.set_playing(true);
+}
+
 #[test]
-fn test_a_tempo_change_restarts_a_pattern_from_its_marker() {
+fn test_a_tempo_change_carries_a_pattern_on_from_its_step() {
+  let state = daw::InnerState::default();
+  // one bar of 4/4 at 120bpm: 16 steps, 2s, 125ms a step
+  let pattern = add_pattern_of(&state, 1, daw::PatternKind::Drum).unwrap().id;
+  let close = |a: f64, b: f64| (a - b).abs() < 0.5;
+
+  // from step 4 (0.5s), 1.25s ago: step 14
+  fake_pattern_run(&state, pattern, 4., Duration::from_millis(1_250));
+  assert!(close(daw::pattern_step(&state, pattern).unwrap(), 14.));
+  assert_eq!(daw::retime(&state, 60.), Ok(daw::Retimed::Pattern(pattern)));
+  assert!(!state.playlist.playing());
+  let step = *state.playlist.pattern_start.lock().unwrap();
+  assert!(close(step, 14.), "step {}", step);
+
+  // round the pattern's end: 0.5s + 3s is 1.5s into the second pass, step 12
+  daw::retime(&state, 120.).unwrap();
+  fake_pattern_run(&state, pattern, 4., Duration::from_secs(3));
+  daw::retime(&state, 90.).unwrap();
+  let step = *state.playlist.pattern_start.lock().unwrap();
+  assert!(close(step, 12.), "step {}", step);
+}
+
+#[test]
+fn test_a_tempo_change_carries_on_playing_a_pattern() {
   let state = Arc::new(daw::InnerState::default());
   let pattern = add_pattern_of(&state, 1, daw::PatternKind::Drum).unwrap().id;
-  *state.playlist.mode.lock().unwrap() = daw::PlayMode::Pattern(pattern);
-  *state.playlist.pattern_start.lock().unwrap() = 4.;
-  state.playlist.set_playing(true);
+  // from step 4, 1s ago: step 12
+  fake_pattern_run(&state, pattern, 4., Duration::from_secs(1));
 
   // (on another thread: it hung, the marker's lock held while restarting)
   let (done_tx, done_rx) = std::sync::mpsc::channel();
@@ -135,7 +165,9 @@ fn test_a_tempo_change_restarts_a_pattern_from_its_marker() {
   let changed = done_rx.recv_timeout(Duration::from_secs(5)).expect("the tempo change hung");
 
   assert_eq!(changed, Ok(90.));
-  assert_eq!(*state.playlist.pattern_start.lock().unwrap(), 4.);
+  assert_eq!(state.playlist.playing_pattern(), Some(pattern));
+  let step = *state.playlist.pattern_start.lock().unwrap();
+  assert!((step - 12.).abs() < 0.5, "step {}", step);
   daw::stop_playlist(&state);
 }
 
