@@ -292,26 +292,35 @@ pub(crate) fn set_notes(
   edit_in(state, gesture, |seq| seq.set_pattern_notes(pattern_id, synth_id, notes))
 }
 
-// loop a pattern on its own, from its start, stopping whatever was playing.
-// a note pattern's notes play on its synths' master copies
+// loop a pattern on its own, from `from_step` (its start if not given),
+// stopping whatever was playing. a note pattern's notes play on its synths'
+// master copies
 #[tauri::command]
-pub fn play_pattern(state: daw::TState<'_>, pattern_id: u64) -> Result<(), String> {
-  daw::start_pattern(state.inner(), pattern_id)
+pub fn play_pattern(state: daw::TState<'_>, pattern_id: u64, from_step: Option<f64>) -> Result<(), String> {
+  daw::start_pattern(state.inner(), pattern_id, from_step.unwrap_or(0.))
 }
 
-// pause whatever is playing, or loop the pattern if nothing is
+// pause whatever is playing, or loop the pattern if nothing is (from
+// `from_step`, or its start)
 #[tauri::command]
-pub fn toggle_pattern(state: daw::TState<'_>, pattern_id: u64) -> Result<(), String> {
-  toggle_pattern_in(state.inner(), pattern_id)
+pub fn toggle_pattern(state: daw::TState<'_>, pattern_id: u64, from_step: Option<f64>) -> Result<(), String> {
+  toggle_pattern_in(state.inner(), pattern_id, from_step.unwrap_or(0.))
 }
 
-fn toggle_pattern_in(state: &Arc<daw::InnerState>, pattern_id: u64) -> Result<(), String> {
+fn toggle_pattern_in(state: &Arc<daw::InnerState>, pattern_id: u64, from_step: f64) -> Result<(), String> {
   if state.playlist.playing() {
     daw::pause_playlist(state);
     Ok(())
   } else {
-    daw::start_pattern(state, pattern_id)
+    daw::start_pattern(state, pattern_id, from_step)
   }
+}
+
+// while the pattern plays on its own, carry on from `step` (the Piano Roll's
+// ruler). otherwise nothing happens
+#[tauri::command]
+pub fn seek_pattern(state: daw::TState<'_>, pattern_id: u64, step: f64) -> Result<(), String> {
+  daw::seek_pattern(state.inner(), pattern_id, step)
 }
 
 // place a pattern in the playlist, dropped at `drop_beat` on `track_number`

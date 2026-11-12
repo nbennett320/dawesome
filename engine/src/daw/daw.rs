@@ -224,10 +224,11 @@ pub fn run_playlist(
       }
     };
 
-    // the run plays from the playhead, or a pattern from its start
+    // the run plays from the playhead, or a pattern from the step it was
+    // started from
     let start = match mode {
       state::PlayMode::Playlist => *state.playlist.start_offset.lock().unwrap(),
-      state::PlayMode::Pattern(_) => Duration::ZERO,
+      state::PlayMode::Pattern(id) => pattern_start(&state, id),
     };
     // the sounds of the slice `dur` long, `at` into the run, as voices, and
     // its notes. while the playlist loops (`loop_len`), its notes end by the
@@ -551,15 +552,29 @@ fn start_run(state: &Arc<state::InnerState>, count_in: Duration) {
   }
 }
 
-// loop a pattern on its own from its start (Play in a sequencer tab, or the
-// Piano Roll), stopping whatever was playing. a note pattern's notes are
-// played by the synths' copies on the master. the playlist's playhead stays
-// where it is
-pub fn start_pattern(state: &Arc<state::InnerState>, id: u64) -> Result<(), String> {
-  println!("playing pattern {}", id);
+// where a pattern playing on its own starts, at this tempo: the step it was
+// started from, or its start if that's past its end (it was made shorter)
+pub fn pattern_start(state: &state::InnerState, id: u64) -> Duration {
+  let step = *state.playlist.pattern_start.lock().unwrap();
+  let per_beat = daw_core::STEPS_PER_BEAT as f64;
+  let at = Duration::from_secs_f64(beat_interval(state).as_secs_f64() * step.max(0.) / per_beat);
+  match pattern_len(state, id) {
+    Some(len) if at < len => at,
+    _ => Duration::ZERO,
+  }
+}
+
+// loop a pattern on its own (Play in a sequencer tab, or the Piano Roll),
+// stopping whatever was playing: from `from_step` (the Piano Roll's start
+// marker, fractional) to its end, then the whole pattern over and over. a
+// note pattern's notes are played by the synths' copies on the master. the
+// playlist's playhead stays where it is
+pub fn start_pattern(state: &Arc<state::InnerState>, id: u64, from_step: f64) -> Result<(), String> {
+  println!("playing pattern {} from step {}", id, from_step);
   if pattern_len(state, id).is_none() {
     return Err(format!("no pattern with id {}", id));
   }
+  *state.playlist.pattern_start.lock().unwrap() = if from_step.is_finite() { from_step.max(0.) } else { 0. };
 
   if state.playlist.playing() {
     if state.playlist.playing_playlist() {
@@ -572,6 +587,14 @@ pub fn start_pattern(state: &Arc<state::InnerState>, id: u64) -> Result<(), Stri
   *state.playlist.mode.lock().unwrap() = state::PlayMode::Pattern(id);
   start_run(state, Duration::ZERO);
   Ok(())
+}
+
+// while pattern `id` plays on its own, carry on from `step` instead (the
+// Piano Roll's ruler was clicked). otherwise nothing changes: the marker the
+// next Play starts from is kept by the frontend
+pub fn seek_pattern(state: &Arc<state::InnerState>, id: u64, step: f64) -> Result<(), String> {
+  if state.playlist.playing_pattern() != Some(id) { return Ok(()); }
+  start_pattern(state, id, step)
 }
 
 // move the playhead to a beat, kept within the playlist. while playing,
@@ -648,8 +671,9 @@ pub fn retime(state: &state::InnerState, tempo: f32) -> Result<Retimed, String> 
 pub fn set_playlist_tempo(state: &Arc<state::InnerState>, tempo: f32) -> Result<f32, String> {
   match retime(state, tempo)? {
     Retimed::Playlist => start_playlist(state),
-    // (the tempo's changed even if the pattern has gone meanwhile)
-    Retimed::Pattern(id) => if let Err(e) = start_pattern(state, id) {
+    // (the tempo's changed even if the pattern has gone meanwhile). from the
+    // step it was started from
+    Retimed::Pattern(id) => if let Err(e) = start_pattern(state, id, *state.playlist.pattern_start.lock().unwrap()) {
 
       println!("could not carry on with pattern {}: {}", id, e);
     },

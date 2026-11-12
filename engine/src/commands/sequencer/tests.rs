@@ -77,8 +77,47 @@ fn test_add_row_returns_the_sequencer() {
 #[test]
 fn test_a_pattern_needs_steps_to_play() {
   let state = Arc::new(daw::InnerState::default());
-  assert!(daw::start_pattern(&state, 7).is_err());
+  assert!(daw::start_pattern(&state, 7, 0.).is_err());
   assert!(!state.playlist.playing());
+}
+
+#[test]
+fn test_a_pattern_starts_from_its_marker_kept_inside_it() {
+  let state = daw::InnerState::default();
+  // one bar of 4/4 at 120bpm: 16 steps, 2s
+  let pattern = add_pattern_of(&state, 1, daw::PatternKind::Drum).unwrap().id;
+  let from = |step: f64| {
+    *state.playlist.pattern_start.lock().unwrap() = step;
+    daw::pattern_start(&state, pattern).as_secs_f64() * 1000.
+  };
+  assert_eq!(from(0.), 0.);
+  assert_eq!(from(4.), 500.);
+  assert_eq!(from(2.5), 312.5);
+  // past the end (the pattern was made shorter): from its start
+  assert_eq!(from(16.), 0.);
+  assert_eq!(from(-3.), 0.);
+  // another tempo: the same step
+  daw::retime(&state, 60.).unwrap();
+  assert_eq!(from(4.), 1000.);
+}
+
+#[test]
+fn test_a_seek_moves_only_the_pattern_playing() {
+  let state = Arc::new(daw::InnerState::default());
+  let pattern = add_pattern_of(&state, 1, daw::PatternKind::Drum).unwrap().id;
+  let other = add_pattern_of(&state, 1, daw::PatternKind::Drum).unwrap().id;
+
+  // nothing playing: nothing starts, and the marker's left to the frontend
+  assert_eq!(daw::seek_pattern(&state, pattern, 8.), Ok(()));
+  assert!(!state.playlist.playing());
+  assert_eq!(*state.playlist.pattern_start.lock().unwrap(), 0.);
+
+  // another pattern playing: it plays on as it was
+  *state.playlist.mode.lock().unwrap() = daw::PlayMode::Pattern(other);
+  state.playlist.set_playing(true);
+  assert_eq!(daw::seek_pattern(&state, pattern, 8.), Ok(()));
+  assert_eq!(state.playlist.playing_pattern(), Some(other));
+  assert_eq!(*state.playlist.pattern_start.lock().unwrap(), 0.);
 }
 
 #[test]

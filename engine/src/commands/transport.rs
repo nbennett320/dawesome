@@ -77,7 +77,9 @@ fn wall_clock_ms(started: Instant) -> Result<f64, String> {
 pub struct PlaylistTransport {
   playing: bool,
   // engine start time of the current run, ms since the unix epoch (None
-  // before the first run)
+  // before the first run). for a pattern playing on its own, when its step
+  // 0 was (or would have been) heard: it may have started part way in, from
+  // the Piano Roll's start marker
   start_time_ms: Option<f64>,
   // where on the timeline the current run started, in ms. while playing,
   // the playhead is this plus the time since `start_time_ms` (wrapped at the
@@ -111,10 +113,12 @@ fn playlist_transport(state: &daw::InnerState) -> PlaylistTransport {
   let (start_offset, started) = daw::run_anchor(state);
   // (worked out before the struct, whose fields hold other locks as they're read)
   let loop_beats = daw::offset_beats(daw::loop_end(state), beat_interval).round() as u64;
+  let pattern = state.playlist.playing_pattern();
+  let pattern_start_ms = pattern.map_or(0., |id| daw::pattern_start(state, id).as_secs_f64() * 1000.);
 
   PlaylistTransport {
     playing: state.playlist.playing(),
-    start_time_ms: started.and_then(|started| wall_clock_ms(started).ok()),
+    start_time_ms: started.and_then(|started| wall_clock_ms(started).ok()).map(|ms| ms - pattern_start_ms),
     start_offset_ms: start_offset.as_secs_f64() * 1000.,
     position_ms: daw::playhead(state).as_secs_f64() * 1000.,
     beat_interval_ms: beat_interval.as_secs_f64() * 1000.,

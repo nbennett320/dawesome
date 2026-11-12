@@ -74,6 +74,10 @@ pub struct Playlist {
   pub effects: Arc<crate::effects::Effects>,
   // what the current (or last) run plays. set before each run starts
   pub mode: Mutex<PlayMode>,
+  // the step a pattern playing on its own started from (the Piano Roll's
+  // start marker), in steps so it stays on its step if the tempo changes.
+  // it plays on from there, and loops the whole pattern from its start
+  pub pattern_start: Mutex<f64>,
   pub ui: Arc<Mutex<PlaylistUI>>,
 }
 
@@ -113,6 +117,7 @@ impl Playlist {
       sequencer,
       effects,
       mode: Mutex::new(PlayMode::Playlist),
+      pattern_start: Mutex::new(0.),
 
       ui: Arc::new(Mutex::from(PlaylistUI::new())),
     }

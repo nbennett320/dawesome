@@ -283,3 +283,21 @@ fn test_song_end_in_transport() {
   let expected = (Duration::from_millis(1_000) + tick).as_secs_f64() * 1000.;
   assert!((playlist_transport(&state).song_end_ms - expected).abs() < 0.001);
 }
+
+#[test]
+fn test_a_pattern_started_part_way_in_reports_when_its_start_was_heard() {
+  let state = daw::InnerState::default();
+  let pattern = state.playlist.sequencer.lock().unwrap().add_pattern(1, 4, daw::PatternKind::Drum).unwrap();
+  *state.playlist.mode.lock().unwrap() = daw::PlayMode::Pattern(pattern);
+  *state.playlist.started_time.lock().unwrap() = Some(Instant::now());
+  state.playlist.set_playing(true);
+
+  let started = |step: f64| {
+    *state.playlist.pattern_start.lock().unwrap() = step;
+    playlist_transport(&state).start_time_ms.unwrap()
+  };
+  // from step 4 (a beat, 500ms in): as if step 0 had been heard 500ms
+  // before the run started
+  let from_start = started(0.);
+  assert!((from_start - started(4.) - 500.).abs() < 1.);
+}
