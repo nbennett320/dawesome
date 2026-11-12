@@ -16,6 +16,7 @@ export default tseslint.config(
       '**/coverage/**',
       'engine/**',
       'context/**',
+      'docs/.vitepress/cache/**',
       'public/**',
       'eslint.config.mjs',
       'vite.config.mts',

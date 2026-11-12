@@ -20,6 +20,9 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier -w src/",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
     "version:bump": "./scripts/bump-version.sh"
   },
   "dependencies": {
@@ -67,6 +70,7 @@
     "typescript": "5.9.3",
     "typescript-eslint": "^8.72.2",
     "vite": "8.3.8",
+    "vitepress": "1.6.4",
     "vitest": "^5.1.0"
   },
   "browserslist": {

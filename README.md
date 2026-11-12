@@ -7,7 +7,7 @@ An awesome, libre, and cross-platform DAW
 built with Rust, Tauri, React, and Typescript.
 
 <img 
-  src="./docs/sc10.png" 
+  src="./notes/sc10.png" 
   alt="an early screenshot of Dawesome in its current state" 
 />
 
@@ -197,6 +197,10 @@ See the [Vitest docs](https://vitest.dev/) for more information.
 
 Lints the frontend with ESLint (`eslint.config.mjs`).
 
+#### `pnpm version:bump --to {x.y.z}`
+
+Bump the version to what's passed as the parameter.
+
 ## Resources
 
 ### Research, articles, tutorials, and misc. implementation details
@@ -212,15 +216,15 @@ Lints the frontend with ESLint (`eslint.config.mjs`).
 - [PulseAudio](https://www.freedesktop.org/software/pulseaudio/doxygen/)
 - [Wry](https://github.com/tauri-apps/wry)
 
-See `docs/` for more.
+See `notes/` for more.
 
 ## Gallery
 <img 
-  src="./docs/sc7.png" 
+  src="./notes/sc7.png" 
   alt="the playlist ui interface can no be zoomed in" 
 />
 <img 
-  src="./docs/sc9.png" 
+  src="./notes/sc9.png" 
   alt="the playlist ui interface can no be zoomed in" 
 />
 

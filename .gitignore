@@ -35,3 +35,6 @@ context/*
 
 # tauri 2 generates these on build
 /engine/gen
+
+# vitepress
+/docs/.vitepress/cache
