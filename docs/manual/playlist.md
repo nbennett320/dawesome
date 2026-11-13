@@ -16,7 +16,8 @@ Open it with **Window ▸ Playlist**.
 
 1. **Tray** — The mouse tools and snap (see [6-2](#_6-2-tools) and
    [6-6](#_6-6-snap)).
-2. **Ruler** — Click or drag here to move the playhead.
+2. **Ruler** — Numbered in bars. Zoomed in, it numbers each beat too: **3.2** is
+   bar 3, beat 2. Click or drag here to move the playhead.
 3. **Tracks** — Each track has its own mixer strip.
 4. **Clips** — Sample clips show their waveform; pattern clips show their
    pattern.
@@ -28,7 +29,8 @@ Open it with **Window ▸ Playlist**.
 - **Scroll:** mouse wheel or two-finger swipe. Up and down scrolls through
   the tracks; left and right (or **Shift** with the wheel) scrolls along the
   timeline.
-- **Zoom:** **⌘ (Ctrl)** with the wheel, or pinch on a trackpad.
+- **Zoom:** **⌘ (Ctrl)** with the wheel, or pinch on a trackpad. Zooming in
+  stops once the grid is down to 1/16 notes.
 - **Pan:** drag on empty track space.
 - **Move the playhead:** click or drag in the ruler.
 

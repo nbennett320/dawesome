@@ -1,10 +1,12 @@
-import { BEATS_IN_VIEW, gridSteps, maxScale, openingScale, panForWidth, visibleBeats } from './grid'
+import {
+  BEATS_IN_VIEW, MIN_LABEL_GAP, gridSteps, maxScale, openingScale, panForWidth, rulerLabel, visibleBeats,
+} from './grid'
 import { MAX_PIXELS_PER_BEAT, MIN_LINE_GAP } from '../../../editing/beatGrid'
 
 describe('gridSteps', () => {
   it('splits beats into finer lines when there is room', () => {
     // a 960px playlist showing 16 beats: 60px a beat, a line every 1/16 note
-    expect(gridSteps(60, 4)).toEqual({ lineEvery: 1 / 4, labelEvery: 4 })
+    expect(gridSteps(60, 4)).toEqual({ lineEvery: 1 / 4, labelEvery: 1 })
     // zoomed in further: still 1/16 notes, the finest there is
     expect(gridSteps(160, 4).lineEvery).toBe(1 / 4)
   })
@@ -33,17 +35,21 @@ describe('gridSteps', () => {
       [3, 4].forEach(beatsPerBar => {
         const { lineEvery, labelEvery } = gridSteps(pixelsPerBeat, beatsPerBar)
         expect(labelEvery % lineEvery).toBe(0)
-        expect(labelEvery % beatsPerBar).toBe(0)
+        // every beat, or whole bars
+        expect(labelEvery === 1 || labelEvery % beatsPerBar === 0).toBe(true)
         expect(lineEvery * pixelsPerBeat).toBeGreaterThanOrEqual(MIN_LINE_GAP)
+        // and the numbers have room
+        expect(labelEvery * pixelsPerBeat).toBeGreaterThanOrEqual(MIN_LABEL_GAP)
       })
     })
   })
 
-  it('numbers bars, not beats, however far it zooms in', () => {
-    [30, 60, 200, 2000].forEach(pixelsPerBeat => {
-      expect(gridSteps(pixelsPerBeat, 4).labelEvery).toBe(4)
-      expect(gridSteps(pixelsPerBeat, 3).labelEvery).toBe(3)
-    })
+  it('numbers beats once the grid is down to 1/8 notes', () => {
+    // 30px a beat: 1/8 note lines
+    expect(gridSteps(30, 4)).toEqual({ lineEvery: 1 / 2, labelEvery: 1 })
+    expect(gridSteps(30, 3).labelEvery).toBe(1)
+    // 25px a beat: lines on beats, numbers on bars only
+    expect(gridSteps(25, 4)).toEqual({ lineEvery: 1, labelEvery: 4 })
   })
 
   it('follows the bar length', () => {
@@ -54,6 +60,21 @@ describe('gridSteps', () => {
   it('never returns a step of zero', () => {
     expect(gridSteps(0, 4).lineEvery).toBeGreaterThan(0)
     expect(gridSteps(NaN, 4).labelEvery).toBeGreaterThan(0)
+  })
+})
+
+describe('rulerLabel', () => {
+  it('names bars by number and beats as bar.beat, from 1', () => {
+    expect(rulerLabel(0, 4)).toBe('1')
+    expect(rulerLabel(1, 4)).toBe('1.2')
+    expect(rulerLabel(3, 4)).toBe('1.4')
+    expect(rulerLabel(4, 4)).toBe('2')
+    expect(rulerLabel(9, 4)).toBe('3.2')
+  })
+
+  it('follows the bar length', () => {
+    expect(rulerLabel(2, 3)).toBe('1.3')
+    expect(rulerLabel(3, 3)).toBe('2')
   })
 })
 

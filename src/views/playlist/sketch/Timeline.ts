@@ -2,7 +2,7 @@ import PlaylistComponent from './PlaylistComponent'
 import { Renderer } from './index'
 import { P5BoundingBox } from '../../../render/P5Component'
 import { paint, theme } from './theme'
-import { MIN_LABEL_GAP, gridSteps, visibleBeats } from './grid'
+import { MIN_LABEL_GAP, gridSteps, rulerLabel, visibleBeats } from './grid'
 import { lineLevel } from '../../../editing/beatGrid'
 
 class Timeline extends PlaylistComponent {
@@ -29,9 +29,9 @@ class Timeline extends PlaylistComponent {
     const limit = renderer.beatsDisplayed
     const beatWidth = this.timelineWidth * this.currentScale / limit
     // a tick on each grid line (see adaptiveStep), and bar numbers that thin
-    // out so they never overlap. only the beats on screen are drawn
+    // out so they never overlap, with bar.beat on each beat when zoomed in
+    // (see rulerLabel). only the beats on screen are drawn
     const { lineEvery, labelEvery } = gridSteps(beatWidth, theme.beatsPerBar)
-    const bars = Math.max(1, Math.round(theme.beatsPerBar))
     // (a number is drawn to the right of its beat, so one just off the left
     // edge may still show)
     const [first, last] = visibleBeats(beatWidth, renderer.transformX, this.timelineWidth, limit, MIN_LABEL_GAP)
@@ -50,12 +50,13 @@ class Timeline extends PlaylistComponent {
       p.strokeWeight(1)
       p.line(x, this.timelineHeight - [3, 5, 10][level], x, this.timelineHeight)
 
-      // (labelEvery is whole bars, so a number is always on a bar)
+      // (labelEvery is whole beats, so a number is always on a beat or bar)
       if(i % labelEvery === 0) {
+        const bar = level === 2
         p.noStroke()
-        paint.fill(p, 'rulerBarText')
-        p.textStyle(p.BOLD)
-        p.text(i / bars + 1, x + 3, this.timelineHeight - 8)
+        paint.fill(p, bar ? 'rulerBarText' : 'rulerText')
+        p.textStyle(bar ? p.BOLD : p.NORMAL)
+        p.text(rulerLabel(i, theme.beatsPerBar), x + 3, this.timelineHeight - 8)
       }
     }
     p.textStyle(p.NORMAL)
