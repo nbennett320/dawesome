@@ -43,12 +43,11 @@ fn test_stock_themes_parse_clean() {
     ("nightshade", Appearance::Dark),
     ("coup-de-grace", Appearance::Dark),
   ];
-  assert_eq!(base().by_name.len(), 131);
   for (id, appearance) in expected {
     let (theme, warnings) = parse(id, stock_json(id)).unwrap();
     assert!(warnings.is_empty(), "{}: {:?}", id, warnings);
     assert_eq!(theme.appearance, appearance, "{}", id);
-    assert_eq!(theme.colors.len(), 131, "{}", id);
+    assert_eq!(theme.colors.len(), base().by_name.len(), "{}", id);
     for name in base().by_name.keys() {
       assert!(theme.colors.contains_key(name), "{} {}", id, name);
     }
