@@ -45,6 +45,32 @@ fn test_count_in_is_saved() {
 }
 
 #[test]
+fn test_added_tracks_are_saved() {
+  let dir = test_dir("added_tracks");
+  let file = dir.join("song.dawesome");
+  let default = daw::defaults::NUM_OF_TRACKS;
+
+  // the default number isn't written
+  let state = daw::InnerState::default();
+  save_to(&state, &file).unwrap();
+  let json: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+  assert!(json.get("tracks").is_none());
+
+  crate::commands::playlist::add_track_to(&state);
+  save_to(&state, &file).unwrap();
+
+  let loaded = daw::InnerState::default();
+  load_from(&loaded, &file).unwrap();
+  assert_eq!(loaded.playlist.audiograph.lock().unwrap().track_count(), default + 1);
+
+  // and a new project starts with the default number again
+  apply(&loaded, &Project::default(), None);
+  assert_eq!(loaded.playlist.audiograph.lock().unwrap().track_count(), default);
+
+  let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn test_armed_tracks_are_saved() {
   use crate::recording::{ArmedTrack, InputChoice};
   let dir = test_dir("armed");

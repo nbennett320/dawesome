@@ -473,3 +473,31 @@ fn test_clips_that_come_back_follow_moved_files() {
   let audiograph = state.playlist.audiograph.lock().unwrap();
   assert_eq!(audiograph.get_node_by_id(id).unwrap().sample_path(), "/somewhere/else.wav");
 }
+
+#[test]
+fn test_adding_a_track() {
+  let state = state();
+  let default = daw::defaults::NUM_OF_TRACKS;
+  let before = saved(&state);
+
+  assert_eq!(crate::commands::playlist::add_track_to(&state), default + 1);
+  let added = saved(&state);
+  assert_eq!(added.tracks, default + 1);
+  assert_eq!(steps(&state), 1);
+
+  // a clip on the new track, taken off again, leaves the track there
+  let id = clip(&state, default, 0.);
+  remove_clips(&state, &[id]).unwrap();
+  assert_eq!(state.playlist.audiograph.lock().unwrap().track_count(), default + 1);
+
+  // under clips past it, the next track added is below them
+  let id = clip(&state, default + 3, 0.);
+  assert_eq!(crate::commands::playlist::add_track_to(&state), default + 5);
+  remove_clips(&state, &[id]).unwrap();
+  assert_eq!(state.playlist.audiograph.lock().unwrap().track_count(), default + 5);
+
+  // undo the removal, the add, the clip, the removal, the clip: back to one added
+  for _ in 0..5 { undo(&state).unwrap(); }
+  assert_eq!(saved(&state), added);
+  there_and_back(&state, &before, &added);
+}

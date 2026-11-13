@@ -4,6 +4,7 @@ import { ReactP5Wrapper } from 'react-p5-wrapper'
 import { 
   addPatternToPlaylist,
   addToPlaylist,
+  addTrack,
   copyClips,
   cutClips,
   deepCopyClips,
@@ -591,6 +592,8 @@ const PlaylistCanvas = () => {
   )
 
   // clips were painted with the Draw tool: one command, one step to undo
+  const handleAddTrack = React.useCallback(() => dispatch(addTrack()), [dispatch])
+
   const handlePaint = React.useCallback(
     (patternId: number | null, trackNumber: number, startBeat: number, endBeat: number) =>
       dispatch(paintPatternClips(patternId, trackNumber, startBeat, endBeat)),
@@ -639,6 +642,7 @@ const PlaylistCanvas = () => {
           onClipsStretch={handleClipsStretch}
           onClipsCut={handleClipsCut}
           onPaint={handlePaint}
+          onAddTrack={handleAddTrack}
           onGridStep={handleGridStep}
         />
       </div>}

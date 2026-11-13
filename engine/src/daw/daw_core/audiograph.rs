@@ -750,6 +750,9 @@ pub struct AudioGraph<'a> {
   // the patterns that pattern clips play (shared with the playlist state).
   // always locked after the graph, never before it
   pub sequencer: Arc<Mutex<daw::Sequencer>>,
+  // the fewest tracks the playlist shows, even with no clips on them: the
+  // default number, or more once tracks are added (see add_track)
+  pub min_tracks: u32,
   _phantom: PhantomData<&'a str>,
 }
 
@@ -770,6 +773,7 @@ impl AudioGraph<'static> {
       next_id: 0,
       mixer: Arc::new(daw::Mixer::default()),
       sequencer: Arc::new(Mutex::new(daw::Sequencer::default())),
+      min_tracks: daw::defaults::NUM_OF_TRACKS,
       _phantom: PhantomData,
     }
   }
@@ -1196,6 +1200,7 @@ impl AudioGraph<'static> {
     self.nodes.clear();
     self.pattern_nodes.clear();
     self.current_offset = Some(Duration::ZERO);
+    self.min_tracks = daw::defaults::NUM_OF_TRACKS;
   }
 
   // take a clip of either kind out of the playlist
@@ -1285,7 +1290,7 @@ impl AudioGraph<'static> {
       .map(|n| (n.track_number, Some(n.sample_path())))
       .chain(placed_patterns.iter().map(|(t, p)| (*t, p.as_deref())))
       .collect();
-    let tracks = explode_tracks(&paths, clip.track_number, &placed, daw::defaults::NUM_OF_TRACKS);
+    let tracks = explode_tracks(&paths, clip.track_number, &placed);
 
     self.remove_node(id)?;
     let mut ids = Vec::new();
@@ -1530,9 +1535,9 @@ impl AudioGraph<'static> {
     Duration::from_nanos(nearest_offset_nanos.try_into().unwrap())
   }
   
-  // how many tracks the playlist shows: the default number, or enough to
-  // reach the highest track a clip is on. (counting only the tracks that
-  // have clips would hide a clip on track 4 when just two tracks are used)
+  // how many tracks the playlist shows: min_tracks, or enough to reach the
+  // highest track a clip is on. (counting only the tracks that have clips
+  // would hide a clip on track 4 when just two tracks are used)
   pub fn track_count(&self) -> u32 {
     let needed = self.nodes.iter().map(|node| node.track_number)
       .chain(self.pattern_nodes.iter().map(|node| node.track_number))
@@ -1540,7 +1545,14 @@ impl AudioGraph<'static> {
       .max()
       .unwrap_or(0);
 
-    needed.max(daw::defaults::NUM_OF_TRACKS)
+    needed.max(self.min_tracks)
+  }
+
+  // an empty track below the last one. it stays when clips come and go
+  // above it. returns the new track count
+  pub fn add_track(&mut self) -> u32 {
+    self.min_tracks = self.track_count() + 1;
+    self.min_tracks
   }
 
 }
@@ -1551,17 +1563,16 @@ impl AudioGraph<'static> {
 // - clip_track: the track the pattern clip was on
 // - placed: every other clip in the playlist, as (track, sample path), with
 //   None for pattern clips
-// - min_tracks: how many tracks the playlist always shows
 //
 // a sample goes on the track already holding only clips of it (its track
 // from an earlier explode), if there is one. otherwise the first sample
 // stays on the clip's track, unless that has other samples on it, and the
-// rest go on the first empty track, or a new one at the bottom
+// rest go on the next empty tracks below it (new ones past the last
+// track), so they stay together under the clip
 pub fn explode_tracks(
   paths: &[&str],
   clip_track: u32,
   placed: &[(u32, Option<&str>)],
-  min_tracks: u32,
 ) -> Vec<u32> {
   let mut placed: Vec<(u32, Option<&str>)> = placed.to_vec();
   let mut tracks = Vec::new();
@@ -1577,10 +1588,9 @@ pub fn explode_tracks(
 
     let track = dedicated
       .or_else(|| if i == 0 && !has_other_sample(&placed, clip_track) { Some(clip_track) } else { None })
-      .unwrap_or_else(|| {
-        let count = placed.iter().map(|&(t, _)| t + 1).max().unwrap_or(0).max(min_tracks);
-        (0..count).find(|&t| t != clip_track && !placed.iter().any(|&(pt, _)| pt == t)).unwrap_or(count)
-      });
+      .unwrap_or_else(|| (clip_track + 1..)
+        .find(|&t| !placed.iter().any(|&(pt, _)| pt == t))
+        .expect("an empty track below the clip"));
 
     placed.push((track, Some(path)));
     tracks.push(track);

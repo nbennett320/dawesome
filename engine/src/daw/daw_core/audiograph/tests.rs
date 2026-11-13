@@ -828,10 +828,18 @@ fn test_clear_takes_pattern_nodes() {
 
 #[test]
 fn test_explode_tracks_on_an_empty_playlist() {
-  // the first sample stays on the clip's track, the rest take empty ones
-  assert_eq!(explode_tracks(&["kick", "snare", "hat"], 1, &[], 4), vec![1, 0, 2]);
-  // past the tracks shown: new ones at the bottom
-  assert_eq!(explode_tracks(&["a", "b", "c", "d", "e"], 0, &[], 4), vec![0, 1, 2, 3, 4]);
+  // the first sample stays on the clip's track, the rest take the tracks
+  // below it, past the tracks shown if need be
+  assert_eq!(explode_tracks(&["kick", "snare", "hat"], 1, &[]), vec![1, 2, 3]);
+  assert_eq!(explode_tracks(&["a", "b", "c", "d", "e"], 0, &[]), vec![0, 1, 2, 3, 4]);
+}
+
+#[test]
+fn test_explode_tracks_go_below_the_clip() {
+  // empty tracks above the clip are left alone: the samples take the empty
+  // ones below it, then new ones
+  let placed = [(0, None), (1, None), (4, None), (5, None), (6, None), (7, None), (9, None)];
+  assert_eq!(explode_tracks(&["kick", "hat", "clap", "cymbal"], 7, &placed), vec![7, 8, 10, 11]);
 }
 
 #[test]
@@ -839,7 +847,7 @@ fn test_explode_tracks_reuses_a_samples_track() {
   // an earlier explode put kicks on 0 and snares on 5; another copy of the
   // pattern sits on 0
   let placed = [(0, Some("kick")), (5, Some("snare")), (0, None), (2, Some("bass"))];
-  assert_eq!(explode_tracks(&["kick", "snare", "hat"], 0, &placed, 4), vec![0, 5, 1]);
+  assert_eq!(explode_tracks(&["kick", "snare", "hat"], 0, &placed), vec![0, 5, 1]);
 }
 
 #[test]
@@ -847,7 +855,7 @@ fn test_explode_tracks_skips_shared_tracks() {
   // the clip's track holds another sample, so the first sample moves off it,
   // and a track with the sample and something else isn't its own
   let placed = [(0, Some("bass")), (1, Some("kick")), (1, Some("bass"))];
-  assert_eq!(explode_tracks(&["kick"], 0, &placed, 4), vec![2]);
+  assert_eq!(explode_tracks(&["kick"], 0, &placed), vec![2]);
 }
 
 #[test]

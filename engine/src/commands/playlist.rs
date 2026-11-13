@@ -169,6 +169,23 @@ pub(crate) fn node_beat(state: &daw::InnerState, id: u64) -> Result<f32, String>
   Ok(offset_to_beat(state, offset))
 }
 
+// the plus below the last track: an empty track under it, which can be
+// undone. returns the new track count
+#[tauri::command]
+pub fn add_track(state: daw::TState<'_>) -> u32 {
+  add_track_to(&state)
+}
+
+pub fn add_track_to(state: &daw::InnerState) -> u32 {
+  let (before, count) = {
+    let mut audiograph = state.playlist.audiograph.lock().unwrap();
+    let before = audiograph.min_tracks;
+    (before, audiograph.add_track())
+  };
+  crate::history::record(state, crate::history::Step::new().with_tracks(before, count));
+  count
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -218,3 +235,4 @@ mod tests {
     assert_eq!(ms(Some(8.)), 8_000);
   }
 }
+
