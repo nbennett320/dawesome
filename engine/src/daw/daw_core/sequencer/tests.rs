@@ -406,19 +406,20 @@ fn test_state_names_match_the_frontend() {
   let keys = seq.add_synth_row(synth(500, "Keys"));
   seq.set_step(pattern, kick, 2, true).unwrap();
   let json = serde_json::to_value(seq.state(&())).unwrap();
+  let rev = |rev: Rev| rev.get();
   assert_eq!(json["rows"][0], serde_json::json!({
-    "id": kick, "label": null, "volume": 1.0, "pan": 0.0, "muted": false, "stepPitch": 60,
+    "id": kick, "rev": rev(seq.row(kick).unwrap().rev), "label": null, "volume": 1.0, "pan": 0.0, "muted": false, "stepPitch": 60,
     "instrument": { "kind": "sample", "path": KICK, "samplePitch": 60, "gated": false },
   }));
   assert_eq!(json["rows"][2], serde_json::json!({
-    "id": keys, "label": null, "volume": 1.0, "pan": 0.0, "muted": false, "stepPitch": 60,
+    "id": keys, "rev": rev(seq.row(keys).unwrap().rev), "label": null, "volume": 1.0, "pan": 0.0, "muted": false, "stepPitch": 60,
     "instrument": {
       "kind": "synth", "slot": 500, "pluginId": "vst3:synth", "name": "Keys", "vendor": "Fake Audio",
       "missing": true, "hasEditor": false,
     },
   }));
   assert_eq!(json["patterns"][0], serde_json::json!({
-    "id": pattern, "name": "Sequence 1", "length": 16, "floor": 16,
+    "id": pattern, "rev": rev(seq.pattern(pattern).unwrap().rev), "name": "Sequence 1", "length": 16, "floor": 16,
     "notes": { kick.to_string(): [{ "pitch": 60, "start": 2.0, "length": 1.0, "velocity": 1.0 }] },
   }));
   assert!(json.get("synths").is_none());
@@ -839,4 +840,95 @@ fn test_a_copy_shares_and_an_edit_copies_only_what_it_changes() {
   seq.set_row_volume(kick, 1.).unwrap();
   assert!(!Arc::ptr_eq(&seq.rows, &before.rows));
   assert!(seq.same_as(&before));
+}
+
+// every row's and every pattern's rev, by id
+fn revs(seq: &Sequencer) -> (BTreeMap<u64, u64>, BTreeMap<u64, u64>) {
+  (
+    seq.rows().iter().map(|r| (r.id, r.rev.get())).collect(),
+    seq.patterns().iter().map(|p| (p.id, p.rev.get())).collect(),
+  )
+}
+
+// the ids whose rev isn't what it was, new ones included
+fn changed(before: &BTreeMap<u64, u64>, after: &BTreeMap<u64, u64>) -> Vec<u64> {
+  after.iter().filter(|(id, rev)| before.get(id) != Some(rev)).map(|(id, _)| *id).collect()
+}
+
+#[test]
+fn test_revs_arent_part_of_what_a_row_or_pattern_holds() {
+  let (a, b) = (Rev::next(), Rev::next());
+  assert_ne!(a.get(), b.get());
+  assert_eq!(a, b);
+
+  let (mut seq, kick, _, pattern) = kit();
+  let before = seq.clone();
+  // set as they were: new revs, the same rows and patterns
+  seq.set_row_volume(kick, 1.).unwrap();
+  seq.rename_pattern(pattern, "Sequence 1").unwrap();
+  assert_ne!(revs(&seq), revs(&before));
+  assert!(seq.same_as(&before));
+  assert_eq!(seq.state(&()), before.state(&()));
+  assert_eq!(seq.saved(), before.saved());
+}
+
+#[test]
+fn test_each_change_gives_what_it_changed_a_new_rev() {
+  let (mut seq, kick, snare, pattern) = kit();
+  let other = seq.add_pattern(1, 4).unwrap();
+  seq.set_step(other, snare, 0, true).unwrap();
+  let folder = seq.add_folder("Drums", None).unwrap();
+  let next = seq.add_pattern(1, 4).unwrap() + 1;
+
+  // each change, the rows it changes and the patterns it changes or makes
+  type Change = Box<dyn Fn(&mut Sequencer)>;
+  let changes: Vec<(&str, Change, Vec<u64>, Vec<u64>)> = vec![
+    ("volume", Box::new(move |seq| seq.set_row_volume(kick, 0.5).unwrap()), vec![kick], vec![]),
+    ("pan", Box::new(move |seq| seq.set_row_pan(kick, 0.5).unwrap()), vec![kick], vec![]),
+    ("mute", Box::new(move |seq| seq.set_row_muted(snare, true).unwrap()), vec![snare], vec![]),
+    ("label", Box::new(move |seq| seq.rename_row(snare, "Snare").unwrap()), vec![snare], vec![]),
+    ("sample", Box::new(move |seq| seq.replace_row_sample(kick, SNARE, RowSound::load(SNARE).unwrap()).unwrap()),
+      vec![kick], vec![]),
+    ("a sample moved", Box::new(|seq| { seq.move_row_samples(&[(SNARE.into(), "moved.wav".into())]); }),
+      vec![kick, snare], vec![]),
+    ("a step", Box::new(move |seq| seq.set_step(pattern, kick, 4, true).unwrap()), vec![], vec![pattern]),
+    ("notes", Box::new(move |seq| seq.set_pattern_notes(pattern, snare, vec![note(62, 2., 1.)]).unwrap()),
+      vec![], vec![pattern]),
+    ("bars", Box::new(move |seq| seq.set_pattern_bars(pattern, 2, 4).unwrap()), vec![], vec![pattern]),
+    ("name", Box::new(move |seq| seq.rename_pattern(pattern, "verse").unwrap()), vec![], vec![pattern]),
+    ("folder", Box::new(move |seq| seq.move_pattern(pattern, Some(folder)).unwrap()), vec![], vec![pattern]),
+    ("a copy", Box::new(move |seq| { seq.duplicate_pattern(pattern).unwrap(); }), vec![], vec![next]),
+    ("a split", Box::new(move |seq| { seq.split_pattern(pattern).unwrap(); }), vec![], vec![next + 1, next + 2]),
+    ("a new pattern", Box::new(|seq| { seq.add_pattern(1, 4).unwrap(); }), vec![], vec![next + 3]),
+    // (a join)
+    ("a pattern after another", Box::new(move |seq| {
+      seq.add_pattern_after(pattern, "joined".into(), 16, BTreeMap::from([(kick, vec![step(0.)])])).unwrap();
+    }), vec![], vec![next + 4]),
+    ("a sample row", Box::new(|seq| { seq.add_row(KICK).unwrap(); }), vec![snare + 1], vec![]),
+    ("a synth row", Box::new(|seq| { seq.add_synth_row(synth(500, "Keys")); }), vec![snare + 2], vec![]),
+    // only the list's order changes
+    ("a move", Box::new(move |seq| seq.move_row(snare, 0).unwrap()), vec![], vec![]),
+    // and its notes go from the patterns that had them (the copy and a
+    // part of the split too)
+    ("a row removed", Box::new(move |seq| seq.remove_row(snare).unwrap()), vec![], vec![pattern, other, next, next + 2]),
+    ("a folder renamed", Box::new(move |seq| seq.rename_folder(folder, "Kit").unwrap()), vec![], vec![]),
+  ];
+
+  for (what, change, rows, patterns) in changes {
+    let (rows_before, patterns_before) = revs(&seq);
+    change(&mut seq);
+    let (rows_after, patterns_after) = revs(&seq);
+    assert_eq!(changed(&rows_before, &rows_after), rows, "the rows {} changes", what);
+    assert_eq!(changed(&patterns_before, &patterns_after), patterns, "the patterns {} changes", what);
+    // a copy or split never shares its pattern's rev, nor a row another's
+    let all: BTreeSet<u64> = patterns_after.values().chain(rows_after.values()).copied().collect();
+    assert_eq!(all.len(), patterns_after.len() + rows_after.len(), "{} gave a rev twice", what);
+  }
+
+  // a restored project's are all new
+  let mut loaded = Sequencer::default();
+  loaded.restore(seq.saved());
+  let (rows, patterns) = revs(&loaded);
+  assert!(rows.iter().all(|(id, rev)| revs(&seq).0[id] != *rev));
+  assert!(patterns.iter().all(|(id, rev)| revs(&seq).1[id] != *rev));
 }

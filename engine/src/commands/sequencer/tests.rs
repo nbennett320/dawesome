@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 const KICK: &str = "assets/assets_66-bd-01.wav";
@@ -304,8 +305,8 @@ fn test_a_drag_of_notes_is_one_step() {
 
   // a note drawn, then dragged along, without letting go of the mouse
   for n in 0..10 {
-    let seq = set_notes(&state, pattern, synth, vec![note(60, 0.), note(62, n as f64 * 0.5)], Some(31)).unwrap();
-    let notes = &seq.pattern(pattern).unwrap().notes[&synth];
+    let change = set_notes(&state, pattern, synth, vec![note(60, 0.), note(62, n as f64 * 0.5)], Some(31)).unwrap();
+    let notes = &change.pattern.notes[&synth];
     assert_eq!(notes.iter().map(|note| note.start).fold(0., f64::max), n as f64 * 0.5);
   }
   assert_eq!(steps(&state), had + 1);
@@ -636,8 +637,8 @@ fn test_replacing_a_sample_keeps_the_row() {
   edit(&state, None, |seq| seq.set_row_volume(kick, 0.5)).unwrap();
   let before = state.playlist.sequencer.lock().unwrap().pattern(pattern).unwrap().clone();
 
-  let after = replace_sample(&state, kick, SNARE).unwrap();
-  let row = after.rows.iter().find(|r| r.id == kick).unwrap();
+  let row = replace_sample(&state, kick, SNARE).unwrap().row;
+  assert_eq!(row.id, kick);
   assert_eq!(row.sample_path(), Some(SNARE));
   assert_eq!(row.label.as_deref(), Some("Boom"));
   assert_eq!(row.volume, 0.5);
@@ -651,4 +652,101 @@ fn test_replacing_a_sample_keeps_the_row() {
   // and a synth row has no sample to replace
   let (synth, _) = synth_and_pattern(&state);
   assert!(replace_sample(&state, synth, SNARE).unwrap_err().contains("plays a synth"));
+}
+
+// every row's and every pattern's rev, by id
+fn revs(state: &daw::InnerState) -> (BTreeMap<u64, u64>, BTreeMap<u64, u64>) {
+  let seq = state.playlist.sequencer.lock().unwrap();
+  (
+    seq.rows().iter().map(|r| (r.id, r.rev.get())).collect(),
+    seq.patterns().iter().map(|p| (p.id, p.rev.get())).collect(),
+  )
+}
+
+// the ids whose rev isn't what it was
+fn changed(before: &BTreeMap<u64, u64>, after: &BTreeMap<u64, u64>) -> Vec<u64> {
+  after.iter().filter(|(id, rev)| before.get(id) != Some(rev)).map(|(id, _)| *id).collect()
+}
+
+#[test]
+fn test_a_row_edit_replies_with_the_row_and_undo_puts_its_rev_back() {
+  let (state, kick, snare, _, _, _) = drums();
+  let s: &daw::InnerState = &state;
+  // as the commands make them
+  let edits: Vec<(&str, Box<dyn Fn() -> Result<daw::RowChange, String> + '_>)> = vec![
+    ("rename_row", Box::new(|| edit_row(s, None, snare, |seq| seq.rename_row(snare, "Snare")))),
+    ("set_row_volume", Box::new(|| edit_row(s, Some(7), kick, |seq| seq.set_row_volume(kick, 0.5)))),
+    ("set_row_pan", Box::new(|| edit_row(s, Some(8), kick, |seq| seq.set_row_pan(kick, -0.5)))),
+    ("set_row_muted", Box::new(|| edit_row(s, None, snare, |seq| seq.set_row_muted(snare, true)))),
+    ("replace_row_sample", Box::new(|| replace_sample(s, kick, SNARE))),
+  ];
+
+  for (what, edit) in &edits {
+    let before = revs(s);
+    let change = edit().unwrap();
+    let after = revs(s);
+    assert_eq!(changed(&before.0, &after.0), vec![change.row.id], "{} changes its row", what);
+    assert_eq!(after.1, before.1, "{} changes no pattern", what);
+    // the row as the whole sequencer has it, at its new rev
+    assert_eq!(change.row.rev.get(), after.0[&change.row.id], "{}", what);
+    assert_eq!(sequencer_state(s).rows.iter().find(|r| r.id == change.row.id), Some(&change.row), "{}", what);
+
+    history::undo(&state).unwrap();
+    assert_eq!(revs(s), before, "{} undone", what);
+    history::redo(&state).unwrap();
+    assert_eq!(revs(s), after, "{} redone", what);
+  }
+
+  let json = serde_json::to_value(edit_row(s, None, kick, |seq| seq.set_row_muted(kick, true)).unwrap()).unwrap();
+  assert_eq!(json.as_object().unwrap().keys().collect::<Vec<_>>(), vec!["row"]);
+  assert_eq!(json["row"]["id"], kick);
+  assert_eq!(json["row"]["rev"], revs(s).0[&kick]);
+  assert!(edit_row(s, None, 99, |seq| seq.set_row_muted(99, true)).is_err());
+}
+
+#[test]
+fn test_a_pattern_edit_replies_with_the_pattern_and_undo_puts_its_rev_back() {
+  let (state, kick, snare, pattern, _, _) = drums();
+  let other = add_pattern_of(&state, 1).unwrap().id;
+  set_step(&state, other, kick, 0, true, None).unwrap();
+  let s: &daw::InnerState = &state;
+  let edits: Vec<(&str, Box<dyn Fn() -> Result<daw::PatternChange, String> + '_>)> = vec![
+    ("set_pattern_step", Box::new(|| set_step(s, pattern, kick, 8, true, Some(3)))),
+    ("set_pattern_notes", Box::new(|| set_notes(s, pattern, snare, vec![note(48, 2.5)], Some(4)))),
+    ("set_pattern_bars", Box::new(|| edit_pattern(s, None, pattern, |seq| seq.set_pattern_bars(pattern, 2, 4)))),
+  ];
+
+  for (what, edit) in &edits {
+    let before = revs(s);
+    let change = edit().unwrap();
+    let after = revs(s);
+    assert_eq!(change.pattern.id, pattern);
+    assert_eq!(changed(&before.1, &after.1), vec![pattern], "{} changes its pattern", what);
+    assert_eq!(after.0, before.0, "{} changes no row", what);
+    assert_eq!(change.pattern.rev.get(), after.1[&pattern], "{}", what);
+    assert_eq!(sequencer_state(s).pattern(pattern), Some(&change.pattern), "{}", what);
+
+    history::undo(&state).unwrap();
+    assert_eq!(revs(s), before, "{} undone", what);
+    history::redo(&state).unwrap();
+    assert_eq!(revs(s), after, "{} redone", what);
+  }
+
+  // the reply is the one pattern, and is all the frontend needs of it
+  let json = serde_json::to_value(set_step(s, pattern, kick, 12, true, None).unwrap()).unwrap();
+  assert_eq!(json.as_object().unwrap().keys().collect::<Vec<_>>(), vec!["pattern"]);
+  assert_eq!(json["pattern"]["id"], pattern);
+  assert_eq!(json["pattern"]["rev"], revs(s).1[&pattern]);
+  assert_eq!(json["pattern"]["notes"][kick.to_string()][2]["start"], 12.);
+  assert!(set_step(s, 99, kick, 0, true, None).is_err());
+}
+
+#[test]
+fn test_moving_a_row_changes_no_rev() {
+  let (state, _, snare, _, _, _) = drums();
+  let before = revs(&state);
+  edit(&state, None, |seq| seq.move_row(snare, 0)).unwrap();
+  assert_eq!(revs(&state), before);
+  history::undo(&state).unwrap();
+  assert_eq!(revs(&state), before);
 }

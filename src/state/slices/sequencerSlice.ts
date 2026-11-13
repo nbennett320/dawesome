@@ -1,9 +1,9 @@
-import { createSelector, createSlice, Dispatch, PayloadAction } from '@reduxjs/toolkit'
+import { createSelector, createSlice, Dispatch, Draft, original, PayloadAction } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api/core'
 import type { RootState } from '../store'
 import {
-  AddedRow, Note, Pattern, Row, SequencerState, SynthInstrument, isSampleRow, isSynthRow, sortNotes, withNotes,
-  withStep,
+  AddedRow, Note, Pattern, PatternChange, PatternFolder, Row, RowChange, SequencerState, SynthInstrument,
+  isSampleRow, isSynthRow, keepNotes, keepUnchanged, samePattern, sameRow, sortNotes, withNotes, withStep,
 } from '../../types/sequencer'
 import { PlaylistTransport } from '../../types/transport'
 import { View } from '../../types/ui'
@@ -68,10 +68,19 @@ const fixSelection = (state: SequencerSliceState) => {
   }
 }
 
-const take = (state: SequencerSliceState, sequencer: SequencerState | null | undefined) => {
-  state.rows = sequencer?.rows ?? []
-  state.patterns = sequencer?.patterns ?? []
-  state.folders = sequencer?.folders ?? []
+const sameFolders = (a: PatternFolder[], b: PatternFolder[]): boolean =>
+  a.length === b.length && a.every((folder, i) => folder.id === b[i].id && folder.name === b[i].name
+    && (folder.parent ?? null) === (b[i].parent ?? null))
+
+// the whole sequencer as the engine sent it, keeping every row and pattern
+// it didn't change (by rev: see keepUnchanged), and the folders when none did.
+// (what's kept is taken from the state before this action, with `original`,
+// so it's the very object selectors and memoised rows saw, not a draft)
+const take = (state: Draft<SequencerSliceState>, sequencer: SequencerState | null | undefined) => {
+  state.rows = keepUnchanged(original(state.rows), sequencer?.rows ?? [], sameRow)
+  state.patterns = keepUnchanged(original(state.patterns), sequencer?.patterns ?? [], samePattern)
+  const folders = sequencer?.folders ?? []
+  if(!sameFolders(original(state.folders), folders)) state.folders = folders
 }
 
 const select = (state: SequencerSliceState, patternId: number) => {
@@ -84,10 +93,28 @@ export const sequencerSlice = createSlice({
   name: 'sequencerSlice',
   initialState,
   reducers: {
-    // the sequencer as the engine has it, after any edit
+    // the sequencer as the engine has it, after any edit that answers with
+    // all of it
     setSequencer: (state, action: PayloadAction<SequencerState>) => {
       take(state, action.payload)
       fixSelection(state)
+    },
+    // the one pattern an edit changed, as the engine has it. the rest of the
+    // sequencer is kept as it is, and so are the note lists of the rows the
+    // edit didn't change (see keepNotes). a pattern deleted meanwhile stays
+    // deleted
+    reducePattern: (state, action: PayloadAction<PatternChange>) => {
+      const got = action.payload.pattern
+      const patterns = original(state.patterns)
+      const i = patterns.findIndex(p => p.id === got.id)
+      if(i >= 0 && !samePattern(patterns[i], got)) state.patterns[i] = keepNotes(patterns[i], got)
+    },
+    // the one row whose own settings an edit changed, as the engine has it
+    reduceRow: (state, action: PayloadAction<RowChange>) => {
+      const got = action.payload.row
+      const rows = original(state.rows)
+      const i = rows.findIndex(row => row.id === got.id)
+      if(i >= 0 && !sameRow(rows[i], got)) state.rows[i] = got
     },
     // show a pattern in the sequencers and the Piano Roll
     selectPattern: (state, action: PayloadAction<number>) => {
@@ -104,15 +131,17 @@ export const sequencerSlice = createSlice({
       action: PayloadAction<{ patternId: number, rowId: number, step: number, on: boolean }>,
     ) => {
       const { patternId, rowId, step, on } = action.payload
-      const row = state.rows.find(r => r.id === rowId)
-      const i = state.patterns.findIndex(p => p.id === patternId)
-      if(row && i >= 0) state.patterns[i] = withStep(state.patterns[i], row, step, on)
+      const row = original(state.rows).find(r => r.id === rowId)
+      const patterns = original(state.patterns)
+      const i = patterns.findIndex(p => p.id === patternId)
+      if(row && i >= 0) state.patterns[i] = withStep(patterns[i], row, step, on)
     },
     // and a row's notes in a pattern (in order), as they're drawn and dragged
     reduceNotes: (state, action: PayloadAction<{ patternId: number, rowId: number, notes: Note[] }>) => {
       const { patternId, rowId, notes } = action.payload
-      const i = state.patterns.findIndex(p => p.id === patternId)
-      if(i >= 0) state.patterns[i] = withNotes(state.patterns[i], rowId, notes)
+      const patterns = original(state.patterns)
+      const i = patterns.findIndex(p => p.id === patternId)
+      if(i >= 0) state.patterns[i] = withNotes(patterns[i], rowId, notes)
     },
     // and a row moved, as soon as it's dropped
     reduceRowMove: (state, action: PayloadAction<{ rowId: number, index: number }>) => {
@@ -156,7 +185,7 @@ export const sequencerSlice = createSlice({
 })
 
 export const { selectPattern, setPianoRollRow, setSequencer } = sequencerSlice.actions
-const { reduceStep, reduceNotes, reduceRowMove, setRun } = sequencerSlice.actions
+const { reducePattern, reduceRow, reduceStep, reduceNotes, reduceRowMove, setRun } = sequencerSlice.actions
 
 export default sequencerSlice.reducer
 
@@ -176,6 +205,26 @@ export const loadSequencer = () => (dispatch: Dispatch) =>
   invoke<SequencerState>('get_sequencer', {})
     .then(sequencer => { dispatch(setSequencer(sequencer)) })
     .catch(sequencerError('load the sequencer'))
+
+// run a command that changes one row's own settings, and keep the row it
+// returns
+const editRow = (what: string, command: string, args: Record<string, unknown>) =>
+  (dispatch: Dispatch) =>
+    invoke<RowChange>(command, args)
+      .then(change => { dispatch(reduceRow(change)) })
+      .catch(sequencerError(what))
+
+// run a command that changes one pattern, and keep the pattern it returns.
+// if it's refused, the sequencer is fetched again, so a change shown before
+// the engine answered (see setPatternStep) doesn't stay
+const editPattern = (what: string, command: string, args: Record<string, unknown>) =>
+  (dispatch: Dispatch) =>
+    invoke<PatternChange>(command, args)
+      .then(change => { dispatch(reducePattern(change)) })
+      .catch(e => {
+        sequencerError(what)(e)
+        return loadSequencer()(dispatch)
+      })
 
 // a new empty pattern at the end, selected
 export const addPattern = (bars: number) => (dispatch: Dispatch) =>
@@ -212,19 +261,19 @@ export const removeRow = (rowId: number) =>
 
 // (one drag of the knob is one step to undo: see state/gesture.ts)
 export const setRowVolume = (rowId: number, volume: number) =>
-  edit("set the row's volume", 'set_row_volume', { rowId, volume, gesture: currentGesture() })
+  editRow("set the row's volume", 'set_row_volume', { rowId, volume, gesture: currentGesture() })
 
 // (a mute is always a step of its own)
 export const setRowMuted = (rowId: number, muted: boolean) =>
-  edit('mute the row', 'set_row_muted', { rowId, muted, gesture: null })
+  editRow('mute the row', 'set_row_muted', { rowId, muted, gesture: null })
 
 // (one drag of the knob is one step to undo: see state/gesture.ts)
 export const setRowPan = (rowId: number, pan: number) =>
-  edit("set the row's pan", 'set_row_pan', { rowId, pan, gesture: currentGesture() })
+  editRow("set the row's pan", 'set_row_pan', { rowId, pan, gesture: currentGesture() })
 
 // a blank name shows the instrument's name again
 export const renameRow = (rowId: number, name: string) =>
-  edit('rename the row', 'rename_row', { rowId, name })
+  editRow('rename the row', 'rename_row', { rowId, name })
 
 // move a row to `index` in the list (counted without it). shown straight
 // away, then as the engine has it
@@ -242,7 +291,7 @@ export const moveRow = (rowId: number, index: number) => (dispatch: Dispatch) =>
 // play another sample on a sample row, keeping its notes, label, volume,
 // pan and mute
 export const replaceRowSample = (rowId: number, path: string) =>
-  edit(`replace the row's sample with ${path}`, 'replace_row_sample', { rowId, path })
+  editRow(`replace the row's sample with ${path}`, 'replace_row_sample', { rowId, path })
 
 // hear a sample row's sample, as it is
 export const previewRow = (rowId: number) => () =>
@@ -306,7 +355,7 @@ export const renamePattern = (patternId: number, name: string) =>
   edit('rename the pattern', 'rename_pattern', { patternId, name })
 
 export const setPatternBars = (patternId: number, bars: number) =>
-  edit("change the pattern's length", 'set_pattern_bars', { patternId, bars })
+  editPattern("change the pattern's length", 'set_pattern_bars', { patternId, bars })
 
 // light or clear a row's step (see withStep)
 export const setPatternStep = (patternId: number, rowId: number, step: number, on: boolean) =>
@@ -314,7 +363,7 @@ export const setPatternStep = (patternId: number, rowId: number, step: number, o
     dispatch(reduceStep({ patternId, rowId, step, on }))
     // every step painted in one stroke of the mouse is undone together
     const gesture = currentGesture()
-    return edit('change the step', 'set_pattern_step', { patternId, rowId, step, on, gesture })(dispatch)
+    return editPattern('change the step', 'set_pattern_step', { patternId, rowId, step, on, gesture })(dispatch)
   }
 
 // how often a pattern's notes are sent while they're being dragged
@@ -343,9 +392,9 @@ let noteSends = 0
 const sendNotes = ({ patternId, rowId, notes, gesture, dispatch }: QueuedNotes): Promise<void> => {
   noteSends += 1
   const send = noteSends
-  return invoke<SequencerState>('set_pattern_notes', { patternId, rowId, notes, gesture })
-    .then(sequencer => {
-      if(send === noteSends && !queuedNotes.get(queueKey(patternId, rowId))) dispatch(setSequencer(sequencer))
+  return invoke<PatternChange>('set_pattern_notes', { patternId, rowId, notes, gesture })
+    .then(change => {
+      if(send === noteSends && !queuedNotes.get(queueKey(patternId, rowId))) dispatch(reducePattern(change))
     })
     .catch(e => {
       sequencerError('change the notes')(e)
@@ -593,9 +642,13 @@ export const addSynthOnTrack = (pluginId: string, trackNumber: number) =>
   }
 
 export const selectRows = (state: RootState) => state.sequencer.rows
-// each the same list until the rows change
-export const selectSampleRows = createSelector([selectRows], rows => rows.filter(isSampleRow))
-export const selectSynthRows = createSelector([selectRows], rows => rows.filter(isSynthRow))
+// each the same list until one of its rows changes (a synth row's knob
+// leaves the sample rows' list as it was)
+const sameItems = <T>(a: T[], b: T[]) => a.length === b.length && a.every((item, i) => item === b[i])
+export const selectSampleRows = createSelector(
+  [selectRows], rows => rows.filter(isSampleRow), { memoizeOptions: { resultEqualityCheck: sameItems } })
+export const selectSynthRows = createSelector(
+  [selectRows], rows => rows.filter(isSynthRow), { memoizeOptions: { resultEqualityCheck: sameItems } })
 export const selectPatterns = (state: RootState) => state.sequencer.patterns
 export const selectPatternFolders = (state: RootState) => state.sequencer.folders
 

@@ -1,6 +1,11 @@
 import {
   Note,
+  UNCONFIRMED,
   clipContents,
+  keepNotes,
+  keepUnchanged,
+  samePattern,
+  sameRow,
   noteBars,
   patternBars,
   patternLabel,
@@ -82,6 +87,10 @@ describe('withNotes', () => {
     // the others' lists are the same lists
     expect(withNotes(p, 2, []).notes[1]).toBe(p.notes[1])
   })
+
+  it('is unconfirmed until the engine answers', () => {
+    expect(withNotes(pattern(0), 2, steps(8)).rev).toBe(UNCONFIRMED)
+  })
 })
 
 describe('withStep', () => {
@@ -120,6 +129,73 @@ describe('withStep', () => {
     const p = pattern(0, { notes: { 7: [step(4, 62)] } })
     withStep(p, row, 5, true)
     expect(p.notes).toEqual({ 7: [step(4, 62)] })
+  })
+
+  it('is unconfirmed until the engine answers', () => {
+    expect(withStep(pattern(0), row, 4, true).rev).toBe(UNCONFIRMED)
+    expect(withStep(pattern(0, { notes: { 7: [step(4, 62)] } }), row, 4, false).rev).toBe(UNCONFIRMED)
+  })
+})
+
+describe('keepUnchanged', () => {
+  const [a, b, c] = [pattern(0), pattern(1), pattern(2)]
+  // the same patterns as the engine sends them again: new objects, same revs
+  const again = (...patterns: typeof a[]) => patterns.map(p => ({ ...p, notes: { ...p.notes } }))
+
+  it('keeps the very list when nothing in it changed', () => {
+    const had = [a, b, c]
+    expect(keepUnchanged(had, again(a, b, c), samePattern)).toBe(had)
+  })
+
+  it('takes a changed item, keeping the others', () => {
+    const changed = pattern(1, { name: 'verse' })
+    const kept = keepUnchanged([a, b, c], [...again(a), changed, ...again(c)], samePattern)
+    expect(kept).toEqual([a, changed, c])
+    expect(kept[0]).toBe(a)
+    expect(kept[1]).toBe(changed)
+    expect(kept[2]).toBe(c)
+  })
+
+  it('follows the order and the items sent, keeping what it can', () => {
+    const d = pattern(3)
+    const kept = keepUnchanged([a, b, c], [...again(c, a), d], samePattern)
+    expect(kept).toEqual([c, a, d])
+    expect(kept[0]).toBe(c)
+    expect(kept[1]).toBe(a)
+    expect(keepUnchanged([a, b], again(a), samePattern)).toEqual([a])
+  })
+
+  it('never keeps what the frontend changed itself', () => {
+    const shown = withStep(a, sampleRow(7), 0, true)
+    const confirmed = { ...shown, rev: a.rev + 1000 }
+    expect(keepUnchanged([shown], [confirmed], samePattern)[0]).toBe(confirmed)
+  })
+})
+
+describe('sameRow', () => {
+  it('goes by rev, and for a synth by its plugin being missing or having an interface', () => {
+    const row = synthRow(3)
+    expect(sameRow(row, { ...row, label: 'not compared' })).toBe(true)
+    expect(sameRow(row, { ...row, rev: row.rev + 1 })).toBe(false)
+    expect(sameRow(row, { ...row, instrument: { ...row.instrument, missing: true } })).toBe(false)
+    expect(sameRow(row, { ...row, instrument: { ...row.instrument, hasEditor: false } })).toBe(false)
+    const sample = sampleRow(0)
+    expect(sameRow(sample, { ...sample })).toBe(true)
+  })
+})
+
+describe('keepNotes', () => {
+  it('keeps the note lists of rows whose notes came back the same', () => {
+    const had = pattern(0, { notes: { 1: steps(0, 4), 2: steps(8) } })
+    const got = pattern(0, { notes: { 1: steps(0, 4), 2: steps(8, 12), 3: steps(1) } })
+    const kept = keepNotes(had, got)
+    expect(kept).toEqual(got)
+    expect(kept.rev).toBe(got.rev)
+    expect(kept.notes[1]).toBe(had.notes[1])
+    expect(kept.notes[2]).toBe(got.notes[2])
+    // a velocity or length that differs is a change
+    const louder = pattern(0, { notes: { 1: [{ ...step(0), velocity: 0.5 }, step(4)] } })
+    expect(keepNotes(had, louder).notes[1]).toBe(louder.notes[1])
   })
 })
 

@@ -22,6 +22,11 @@ export const STEP_VELOCITY = 1
 // a row's volume, as a gain: 1 leaves the instrument as it is
 export const ROW_VOLUME_MAX = 2
 
+// the rev of a row or pattern the frontend changed itself, before the
+// engine has answered (see withStep). it's never one of the engine's, so
+// the answer always replaces it
+export const UNCONFIRMED = -1
+
 export interface SampleInstrument {
   kind: 'sample'
   path: string
@@ -54,6 +59,9 @@ export type Instrument = SampleInstrument | SynthInstrument
 // row's id is not its slot)
 export interface Row<I extends Instrument = Instrument> {
   id: number
+  // new whenever the engine changes the row (not when it moves). compared
+  // only for being the same (see sameRow)
+  rev: number
   // what it's called ("Snare"), shown instead of its instrument's name
   label: string | null
   // a gain, 0 to ROW_VOLUME_MAX
@@ -99,6 +107,9 @@ export interface Note {
 
 export interface Pattern {
   id: number
+  // new whenever the engine changes the pattern, and UNCONFIRMED while a
+  // change made here hasn't been answered. compared only for being the same
+  rev: number
   // unnamed patterns are shown by their number
   name: string | null
   // in steps
@@ -127,12 +138,12 @@ export const rowNotes = (pattern: Pick<Pattern, 'notes'>, rowId: number): Note[]
   pattern.notes[rowId] ?? NO_NOTES
 
 // a pattern with a row's notes replaced (what the engine will make of
-// it). `notes` must be in order already
+// it, unconfirmed until it answers). `notes` must be in order already
 export const withNotes = (pattern: Pattern, rowId: number, notes: Note[]): Pattern => {
   const next = { ...pattern.notes }
   if(notes.length) next[rowId] = notes
   else delete next[rowId]
-  return { ...pattern, notes: next }
+  return { ...pattern, rev: UNCONFIRMED, notes: next }
 }
 
 // a pattern with a row's step (a whole step) lit or cleared, as the engine
@@ -181,6 +192,56 @@ export interface SequencerState {
   rows: Row[]
   patterns: Pattern[]
   folders: PatternFolder[]
+}
+
+// what a command that changed one pattern returns (a step, notes, its bars)
+export interface PatternChange {
+  pattern: Pattern
+}
+
+// what a command that changed one row's own settings returns (its volume,
+// pan, mute, label or sample)
+export interface RowChange {
+  row: Row
+}
+
+// the object `had` holds for every item the engine hasn't changed (`same`),
+// and `had` itself when nothing in the list changed, so selectors and
+// memoised rows see the same references and don't re-render
+export const keepUnchanged = <T extends { id: number }>(
+  had: readonly T[], got: readonly T[], same: (had: T, got: T) => boolean,
+): T[] => {
+  const byId = new Map(had.map(item => [item.id, item]))
+  const kept = got.map(item => {
+    const old = byId.get(item.id)
+    return old && same(old, item) ? old : item
+  })
+  const changed = kept.length !== had.length || kept.some((item, i) => item !== had[i])
+  return changed ? kept : had as T[]
+}
+
+export const samePattern = (a: Pattern, b: Pattern): boolean => a.rev === b.rev
+
+// (a synth's missing and hasEditor are its plugin's, which the rev doesn't
+// cover)
+export const sameRow = (a: Row, b: Row): boolean => a.rev === b.rev
+  && (a.instrument.kind !== 'synth' || (b.instrument.kind === 'synth'
+    && a.instrument.missing === b.instrument.missing && a.instrument.hasEditor === b.instrument.hasEditor))
+
+const sameNote = (a: Note, b: Note): boolean =>
+  a.pitch === b.pitch && a.start === b.start && a.length === b.length && a.velocity === b.velocity
+
+// a pattern the engine sent, holding `had`'s list of notes for each row
+// whose notes are the same, so the rows showing them don't re-render. (an
+// edit changes one row's notes: the rest arrive as new copies)
+export const keepNotes = (had: Pattern, got: Pattern): Pattern => {
+  const notes: Record<string, Note[]> = {}
+  Object.entries(got.notes).forEach(([rowId, list]) => {
+    const old = had.notes[rowId]
+    const same = old !== undefined && old.length === list.length && old.every((note, i) => sameNote(note, list[i]))
+    notes[rowId] = same ? old : list
+  })
+  return { ...got, notes }
 }
 
 // a row just added, and the sequencer with it

@@ -176,6 +176,39 @@ fn perf_slice() {
   report(&format!("slice pattern alone, long ({} bars)", LONG_BARS), &times, scheduled);
 }
 
+// what a step edit sends the frontend on (b), and how long the engine takes
+// to make it: the pattern it changed (stage 1b on), against the whole
+// sequencer (every edit's reply before then). tauri sends a reply as JSON
+#[test]
+#[ignore]
+fn perf_replies() {
+  let mut seq = daw::Sequencer::default();
+  let big = big_project(&mut seq);
+  seq.set_step(big.drums, big.samples[0], 0, false).unwrap();
+
+  let whole = seq.state(&());
+  let step = seq.pattern_change(big.drums).unwrap();
+  let long = seq.pattern_change(big.long).unwrap();
+  let row = seq.row_change(big.samples[0], &()).unwrap();
+  let bytes = |json: serde_json::Result<String>| json.unwrap().len();
+  println!(
+    "perf reply: bytes: the whole sequencer {}; a step's pattern (drums, 4 bars) {}; the long pattern ({} bars) {}; a row {}",
+    bytes(serde_json::to_string(&whole)), bytes(serde_json::to_string(&step)),
+    LONG_BARS, bytes(serde_json::to_string(&long)), bytes(serde_json::to_string(&row)),
+  );
+
+  const N: usize = 200;
+  let time = |f: &dyn Fn() -> serde_json::Result<String>| -> Vec<Duration> {
+    (0..N).map(|_| {
+      let start = Instant::now();
+      black_box(f().unwrap());
+      start.elapsed()
+    }).collect()
+  };
+  report("reply: the whole sequencer, as JSON", &time(&|| serde_json::to_string(&whole)), 0);
+  report("reply: a step's pattern, as JSON", &time(&|| serde_json::to_string(&step)), 0);
+}
+
 // the bytes held on the heap, for perf_history. (a test build's allocator:
 // the app's is the system's, as it is)
 static HELD: AtomicIsize = AtomicIsize::new(0);

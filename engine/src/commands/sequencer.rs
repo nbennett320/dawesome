@@ -1,8 +1,9 @@
 // the Sequencer tab's commands (see daw/daw_core/sequencer.rs), and placing
 // patterns in the playlist
 //
-// every edit returns the whole sequencer, so the frontend's copy stays the
-// same as the engine's. edits take effect straight away, even while playing
+// every edit returns what it changed (one row, one pattern, or the whole
+// sequencer), so the frontend's copy stays the same as the engine's. edits
+// take effect straight away, even while playing
 use std::sync::Arc;
 use std::thread;
 use serde::Serialize;
@@ -26,6 +27,28 @@ pub(crate) fn edit(
 ) -> Result<daw::SequencerState, String> {
   history::sequencer_edit(state, &[], gesture, || f(&mut state.playlist.sequencer.lock().unwrap()))?;
   Ok(sequencer_state(state))
+}
+
+// the same for an edit of one row's own settings, returning just that row
+pub(crate) fn edit_row(
+  state: &daw::InnerState,
+  gesture: Option<u64>,
+  row_id: u64,
+  f: impl FnOnce(&mut daw::Sequencer) -> Result<(), String>,
+) -> Result<daw::RowChange, String> {
+  history::sequencer_edit(state, &[], gesture, || f(&mut state.playlist.sequencer.lock().unwrap()))?;
+  state.playlist.sequencer.lock().unwrap().row_change(row_id, &*state.playlist.effects)
+}
+
+// and for an edit of one pattern, returning just that pattern
+pub(crate) fn edit_pattern(
+  state: &daw::InnerState,
+  gesture: Option<u64>,
+  pattern_id: u64,
+  f: impl FnOnce(&mut daw::Sequencer) -> Result<(), String>,
+) -> Result<daw::PatternChange, String> {
+  history::sequencer_edit(state, &[], gesture, || f(&mut state.playlist.sequencer.lock().unwrap()))?;
+  state.playlist.sequencer.lock().unwrap().pattern_change(pattern_id)
 }
 
 fn beats_per_bar(state: &daw::InnerState) -> u16 {
@@ -75,8 +98,8 @@ pub fn move_row(state: daw::TState<'_>, row_id: u64, index: usize) -> Result<daw
 
 // label a row ("Snare"). a blank label shows its instrument's name again
 #[tauri::command]
-pub fn rename_row(state: daw::TState<'_>, row_id: u64, name: String) -> Result<daw::SequencerState, String> {
-  edit(&state, None, |seq| seq.rename_row(row_id, &name))
+pub fn rename_row(state: daw::TState<'_>, row_id: u64, name: String) -> Result<daw::RowChange, String> {
+  edit_row(&state, None, row_id, |seq| seq.rename_row(row_id, &name))
 }
 
 // a row's volume, as a gain: 1 leaves the sound as is
@@ -86,8 +109,8 @@ pub fn set_row_volume(
   row_id: u64,
   volume: f32,
   gesture: Option<u64>,
-) -> Result<daw::SequencerState, String> {
-  edit(&state, gesture, |seq| seq.set_row_volume(row_id, volume))
+) -> Result<daw::RowChange, String> {
+  edit_row(&state, gesture, row_id, |seq| seq.set_row_volume(row_id, volume))
 }
 
 // a row's pan, -1 (left) to 1 (right)
@@ -97,8 +120,8 @@ pub fn set_row_pan(
   row_id: u64,
   pan: f32,
   gesture: Option<u64>,
-) -> Result<daw::SequencerState, String> {
-  edit(&state, gesture, |seq| seq.set_row_pan(row_id, pan))
+) -> Result<daw::RowChange, String> {
+  edit_row(&state, gesture, row_id, |seq| seq.set_row_pan(row_id, pan))
 }
 
 #[tauri::command]
@@ -107,8 +130,8 @@ pub fn set_row_muted(
   row_id: u64,
   muted: bool,
   gesture: Option<u64>,
-) -> Result<daw::SequencerState, String> {
-  edit(&state, gesture, |seq| seq.set_row_muted(row_id, muted))
+) -> Result<daw::RowChange, String> {
+  edit_row(&state, gesture, row_id, |seq| seq.set_row_muted(row_id, muted))
 }
 
 // play the sample at `path` on a sample row instead, keeping its notes and
@@ -119,14 +142,14 @@ pub fn replace_row_sample(
   state: daw::TState<'_>,
   row_id: u64,
   path: String,
-) -> Result<daw::SequencerState, String> {
+) -> Result<daw::RowChange, String> {
   replace_sample(&state, row_id, &path)
 }
 
-fn replace_sample(state: &daw::InnerState, row_id: u64, path: &str) -> Result<daw::SequencerState, String> {
+fn replace_sample(state: &daw::InnerState, row_id: u64, path: &str) -> Result<daw::RowChange, String> {
   // decoded before taking the sequencer's lock, which playback needs
   let sound = daw::RowSound::load(path)?;
-  edit(state, None, |seq| seq.replace_row_sample(row_id, path, sound))
+  edit_row(state, None, row_id, |seq| seq.replace_row_sample(row_id, path, sound))
 }
 
 // play a sample row's sample once, at its volume and pan (whether it's muted
@@ -288,9 +311,9 @@ pub fn rename_pattern(state: daw::TState<'_>, pattern_id: u64, name: String) -> 
 // make a pattern `bars` long (1 to PATTERN_BARS_MAX), and never trimmed
 // shorter. its clips in the playlist get longer or shorter
 #[tauri::command]
-pub fn set_pattern_bars(state: daw::TState<'_>, pattern_id: u64, bars: u32) -> Result<daw::SequencerState, String> {
+pub fn set_pattern_bars(state: daw::TState<'_>, pattern_id: u64, bars: u32) -> Result<daw::PatternChange, String> {
   let beats = beats_per_bar(&state);
-  edit(&state, None, |seq| seq.set_pattern_bars(pattern_id, bars, beats))
+  edit_pattern(&state, None, pattern_id, |seq| seq.set_pattern_bars(pattern_id, bars, beats))
 }
 
 // turn one of a row's steps on or off in a pattern (see Sequencer::set_step)
@@ -302,7 +325,7 @@ pub fn set_pattern_step(
   step: u32,
   on: bool,
   gesture: Option<u64>,
-) -> Result<daw::SequencerState, String> {
+) -> Result<daw::PatternChange, String> {
   set_step(&state, pattern_id, row_id, step, on, gesture)
 }
 
@@ -313,8 +336,8 @@ fn set_step(
   step: u32,
   on: bool,
   gesture: Option<u64>,
-) -> Result<daw::SequencerState, String> {
-  edit(state, gesture, |seq| seq.set_step(pattern_id, row_id, step, on))
+) -> Result<daw::PatternChange, String> {
+  edit_pattern(state, gesture, pattern_id, |seq| seq.set_step(pattern_id, row_id, step, on))
 }
 
 // replace a row's notes in a pattern (the Piano Roll), sorted. one drag of
@@ -326,7 +349,7 @@ pub fn set_pattern_notes(
   row_id: u64,
   notes: Vec<daw::PatternNote>,
   gesture: Option<u64>,
-) -> Result<daw::SequencerState, String> {
+) -> Result<daw::PatternChange, String> {
   set_notes(&state, pattern_id, row_id, notes, gesture)
 }
 
@@ -336,8 +359,8 @@ pub(crate) fn set_notes(
   row_id: u64,
   notes: Vec<daw::PatternNote>,
   gesture: Option<u64>,
-) -> Result<daw::SequencerState, String> {
-  edit(state, gesture, |seq| seq.set_pattern_notes(pattern_id, row_id, notes))
+) -> Result<daw::PatternChange, String> {
+  edit_pattern(state, gesture, pattern_id, |seq| seq.set_pattern_notes(pattern_id, row_id, notes))
 }
 
 // loop a pattern on its own, from `from_step` (its start if not given),

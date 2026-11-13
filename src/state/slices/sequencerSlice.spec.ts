@@ -18,8 +18,8 @@ import mixdownReducer from './mixdownSlice'
 import appearanceReducer from './appearanceSlice'
 import pianoRollReducer from './pianoRollSlice'
 import { LoadedProject, ProjectView } from '../../types/project'
-import { Note, SequencerState } from '../../types/sequencer'
-import { pattern, sampleRow, sequencerOf, step, steps, synthRow } from '../../types/sequencer.fixture'
+import { Note, PatternChange, RowChange, SequencerState, UNCONFIRMED } from '../../types/sequencer'
+import { freshRev, pattern, sampleRow, sequencerOf, step, steps, synthRow } from '../../types/sequencer.fixture'
 import { View } from '../../types/ui'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
@@ -459,5 +459,131 @@ describe('moving a row', () => {
     await store.dispatch(moveRow(0, 2))
     expect(order(store)).toEqual([0, 1, 2])
     expect(mockInvoke).toHaveBeenCalledWith('get_sequencer', {})
+  })
+})
+
+describe('what the engine answers', () => {
+  const mockInvoke = invoke as Mock
+  // the kick (0) and Pad (3) both have notes in pattern 0
+  const engine: SequencerState = sequencerOf({
+    rows: [sampleRow(0), synthRow(3, { name: 'Pad' }), sampleRow(5)],
+    patterns: [pattern(0, { notes: { 0: steps(0, 8), 3: [note(60, 0)] } }), pattern(2, { length: 64 })],
+    folders: [{ id: 1, name: 'Fills' }, { id: 4, name: 'Keys', parent: 1 }],
+  })
+  // the engine's answer as it arrives: new objects, whatever it holds
+  const sent = <T>(answer: T): T => JSON.parse(JSON.stringify(answer))
+
+  const makeStore = () => {
+    const store = configureStore({ reducer: { sequencer: reducer } })
+    store.dispatch(setSequencer(sent(engine)))
+    return store
+  }
+
+  beforeEach(() => {
+    mockInvoke.mockReset()
+    resetGestures()
+  })
+
+  it('keeps all it has when the whole sequencer comes back unchanged', () => {
+    const state = reducer(init(), setSequencer(sent(engine)))
+    expect(reducer(state, setSequencer(sent(engine)))).toBe(state)
+  })
+
+  it('takes only the rows, patterns and folders the whole sequencer changed', () => {
+    const state = reducer(init(), setSequencer(sent(engine)))
+    const changed = sent(engine)
+    changed.patterns[1] = { ...changed.patterns[1], rev: freshRev(), name: 'chorus' }
+    changed.rows[2] = { ...changed.rows[2], rev: freshRev(), muted: true }
+
+    const next = reducer(state, setSequencer(changed))
+    expect(next.patterns[0]).toBe(state.patterns[0])
+    expect(next.patterns[1].name).toBe('chorus')
+    expect(next.rows.slice(0, 2)).toEqual(state.rows.slice(0, 2))
+    next.rows.slice(0, 2).forEach((row, i) => expect(row).toBe(state.rows[i]))
+    expect(next.rows[2].muted).toBe(true)
+    expect(next.folders).toBe(state.folders)
+
+    // a folder renamed is a new list of folders
+    const renamed = sent(changed)
+    renamed.folders[1].name = 'Pads'
+    expect(reducer(next, setSequencer(renamed)).folders).toEqual(renamed.folders)
+  })
+
+  it('replaces just the one pattern a step changed, keeping the other rows’ notes', async () => {
+    const store = makeStore()
+    const before = store.getState().sequencer
+    const lit: PatternChange = sent({ pattern: { ...engine.patterns[0], rev: freshRev(), notes: { ...engine.patterns[0].notes, 0: steps(0, 4, 8) } } })
+    mockInvoke.mockResolvedValue(lit)
+
+    await store.dispatch(setPatternStep(0, 0, 4, true))
+    const after = store.getState().sequencer
+    expect(after.patterns[0]).toEqual(lit.pattern)
+    expect(after.patterns[1]).toBe(before.patterns[1])
+    expect(after.rows).toBe(before.rows)
+    expect(after.folders).toBe(before.folders)
+    // Pad's notes didn't change: still the list it had
+    expect(after.patterns[0].notes[3]).toBe(before.patterns[0].notes[3])
+  })
+
+  it('replaces just the row a knob changed', async () => {
+    const store = makeStore()
+    const before = store.getState().sequencer
+    const sampleRows = selectSampleRows(asRoot(before))
+    const turned: RowChange = sent({ row: { ...engine.rows[1], rev: freshRev(), volume: 0.5 } })
+    mockInvoke.mockResolvedValue(turned)
+
+    await store.dispatch(setRowVolume(3, 0.5))
+    const after = store.getState().sequencer
+    expect(after.rows[1].volume).toBe(0.5)
+    expect(after.rows[0]).toBe(before.rows[0])
+    expect(after.rows[2]).toBe(before.rows[2])
+    expect(after.patterns).toBe(before.patterns)
+    // a synth row's knob leaves the sample rows' list as it was
+    expect(selectSampleRows(asRoot(after))).toBe(sampleRows)
+    expect(selectSynthRows(asRoot(after))[0].volume).toBe(0.5)
+  })
+
+  it('always replaces what it showed before the engine answered', async () => {
+    const store = makeStore()
+    let answer: (change: PatternChange) => void = () => {}
+    mockInvoke.mockImplementation(() => new Promise(resolve => { answer = resolve }))
+
+    const stepped = store.dispatch(setPatternStep(0, 0, 4, true))
+    const shown = store.getState().sequencer.patterns[0]
+    expect(shown.rev).toBe(UNCONFIRMED)
+
+    // the engine made the same of it
+    const confirmed = sent({ ...shown, rev: freshRev() })
+    answer({ pattern: confirmed })
+    await stepped
+    const now = store.getState().sequencer.patterns[0]
+    expect(now).not.toBe(shown)
+    expect(now.rev).toBe(confirmed.rev)
+    expect(now.notes[0]).toBe(shown.notes[0])
+  })
+
+  it('goes back to the engine’s pattern when a step is refused', async () => {
+    const store = makeStore()
+    const before = store.getState().sequencer.patterns[0]
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockInvoke.mockImplementation(async (command: string) => {
+      if(command === 'set_pattern_step') throw new Error('no row with id 0')
+      return sent(engine)
+    })
+
+    await store.dispatch(setPatternStep(0, 0, 4, true))
+    expect(mockInvoke).toHaveBeenCalledWith('get_sequencer', {})
+    const now = store.getState().sequencer.patterns[0]
+    expect(now.rev).toBe(before.rev)
+    expect(now.notes).toEqual(before.notes)
+  })
+
+  it('ignores an answer about a pattern or row that’s gone', () => {
+    const { reducePattern, reduceRow } = sequencerSlice.actions
+    const state = reducer(init(), setSequencer(sent(engine)))
+    expect(reducer(state, reducePattern({ pattern: pattern(9) }))).toBe(state)
+    expect(reducer(state, reduceRow({ row: sampleRow(9) }))).toBe(state)
+    // nor one that changes nothing
+    expect(reducer(state, reducePattern(sent({ pattern: engine.patterns[1] })))).toBe(state)
   })
 })

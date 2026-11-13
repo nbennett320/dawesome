@@ -22,7 +22,12 @@
 // undo keeps whole copies of the sequencer (see history.rs), so the row list,
 // each pattern, and each row's notes in a pattern are shared (Arc): a copy
 // shares all of them, and an edit copies only what it changes
+//
+// each row and pattern has a rev, which changes whenever it does, so the
+// frontend can tell what an edit changed. edits change rows and patterns
+// only through row_mut and pattern_mut, which give the new rev
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use rodio::Source;
@@ -54,11 +59,39 @@ pub const MAX_NOTES: usize = 40_000;
 // of 32 beats), so any note a pattern could play is kept
 pub const MAX_NOTE_START: f64 = (PATTERN_BARS_MAX * 32 * STEPS_PER_BEAT) as f64;
 
+// a version of a row or a pattern, so the frontend can tell what changed
+// without comparing contents. revs come from one counter for the whole run
+// of the app, so a rev is never given twice, not even after an undo or a new
+// project. a rev isn't part of what a row or pattern is: two that differ only
+// in their revs are equal (so history's same_as and the unsaved check ignore it)
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(transparent)]
+pub struct Rev(u64);
+
+impl Rev {
+  pub fn next() -> Rev {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    Rev(NEXT.fetch_add(1, Ordering::Relaxed))
+  }
+
+  // (equality can't see a rev that should have changed: tests compare these)
+  #[cfg(test)]
+  pub fn get(&self) -> u64 {
+    self.0
+  }
+}
+
+impl PartialEq for Rev {
+  fn eq(&self, _: &Rev) -> bool { true }
+}
+
 // a row: one instrument, and how a pattern's steps play on it
 #[derive(Clone, PartialEq)]
 pub struct Row {
   // one id space for both instruments, never reused in a run
   pub id: u64,
+  // new whenever the row changes (see Rev). moving it changes only the list
+  pub rev: Rev,
   // what the row is called ("Snare"), shown instead of its instrument's name
   pub label: Option<String>,
   // a gain, 0 to ROW_VOLUME_MAX
@@ -169,7 +202,10 @@ impl OneShot<'_> {
 impl Row {
   // a row as it's added: unlabelled, at full volume, centered and unmuted
   fn new(id: u64, instrument: Instrument) -> Row {
-    Row { id, label: None, volume: ROW_VOLUME, pan: 0., muted: false, step_pitch: DEFAULT_PITCH, instrument }
+    Row {
+      id, rev: Rev::next(), label: None, volume: ROW_VOLUME, pan: 0., muted: false, step_pitch: DEFAULT_PITCH,
+      instrument,
+    }
   }
 
   // what the row is called: its label, or its sample's or synth's name
@@ -239,6 +275,7 @@ impl Row {
   fn state(&self, plugins: &dyn SynthPlugins) -> RowState {
     RowState {
       id: self.id,
+      rev: self.rev,
       label: self.label.clone(),
       volume: self.volume,
       pan: self.pan,
@@ -320,6 +357,8 @@ fn tidy_notes(notes: Vec<PatternNote>) -> Vec<PatternNote> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Pattern {
   pub id: u64,
+  // new whenever the pattern changes (see Rev)
+  pub rev: Rev,
   // an unnamed pattern (renamed blank) is shown by its number: see label
   pub name: Option<String>,
   // how many steps long the pattern is: its bars times the steps in a bar,
@@ -384,9 +423,10 @@ impl Pattern {
   }
 
   // whether another pattern holds the same, comparing only the note lists
-  // the two don't share. (every field is named, so a new one can't be missed)
+  // the two don't share. (every field is named, so a new one can't be missed.
+  // the rev isn't part of what it holds)
   fn same_as(&self, other: &Pattern) -> bool {
-    let Pattern { id, name, length, floor, notes, folder } = self;
+    let Pattern { id, rev: _, name, length, floor, notes, folder } = self;
     *id == other.id && *name == other.name && *length == other.length && *floor == other.floor
       && *folder == other.folder
       && notes.len() == other.notes.len()
@@ -460,6 +500,8 @@ impl SynthPlugins for () {
 #[serde(rename_all = "camelCase")]
 pub struct RowState {
   pub id: u64,
+  // (a synth's missing and has_editor are its plugin's, and change without it)
+  pub rev: Rev,
   // (always given: null when it has none)
   pub label: Option<String>,
   pub volume: f32,
@@ -519,6 +561,7 @@ pub struct SynthState {
 #[serde(rename_all = "camelCase")]
 pub struct PatternState {
   pub id: u64,
+  pub rev: Rev,
   pub name: Option<String>,
   pub length: u32,
   pub floor: u32,
@@ -531,6 +574,7 @@ impl PatternState {
   fn of(pattern: &Pattern) -> PatternState {
     PatternState {
       id: pattern.id,
+      rev: pattern.rev,
       name: pattern.name.clone(),
       length: pattern.length,
       floor: pattern.floor,
@@ -550,14 +594,29 @@ pub struct FolderState {
   pub parent: Option<u64>,
 }
 
-// the whole sequencer, as the frontend sees it. every editing command
-// returns it, so the frontend's copy can't drift from the engine's
+// the whole sequencer, as the frontend sees it. an editing command returns
+// it, or just the row or pattern it changed (RowChange, PatternChange), so
+// the frontend's copy can't drift from the engine's
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SequencerState {
   pub rows: Vec<RowState>,
   pub patterns: Vec<PatternState>,
   pub folders: Vec<FolderState>,
+}
+
+// a reply that changed one pattern only
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PatternChange {
+  pub pattern: PatternState,
+}
+
+// a reply that changed one row's own settings only
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RowChange {
+  pub row: RowState,
 }
 
 impl SequencerState {
@@ -761,13 +820,12 @@ impl Sequencer {
   // one. returns whether any row's did. (the row list is only copied when
   // one did: every undo step's copies are repointed)
   pub fn repoint_rows(&mut self, to: &dyn Fn(&str) -> Option<String>) -> bool {
-    let moved: Vec<(usize, String)> = self.rows.iter().enumerate()
-      .filter_map(|(at, row)| to(&row.sample()?.path).map(|path| (at, path)))
+    let moved: Vec<(u64, String)> = self.rows.iter()
+      .filter_map(|row| to(&row.sample()?.path).map(|path| (row.id, path)))
       .collect();
     if moved.is_empty() { return false; }
-    let rows = Arc::make_mut(&mut self.rows);
-    for (at, path) in moved {
-      if let Some(sample) = rows[at].sample_mut() { sample.path = path; }
+    for (id, path) in moved {
+      if let Some(sample) = self.row_mut(id).ok().and_then(Row::sample_mut) { sample.path = path; }
     }
     true
   }
@@ -803,19 +861,39 @@ impl Sequencer {
     self.rows.iter().find(|r| r.id == id)
   }
 
-  // (the row list is copied only when the row is there)
+  // a row to change, with a new rev (see Rev): every change to a row is
+  // made through here. (the row list is copied only when the row is there)
   fn row_mut(&mut self, id: u64) -> Result<&mut Row, String> {
     let at = self.rows.iter().position(|r| r.id == id).ok_or_else(|| no_row(id))?;
-    Ok(&mut Arc::make_mut(&mut self.rows)[at])
+    let row = &mut Arc::make_mut(&mut self.rows)[at];
+    row.rev = Rev::next();
+    Ok(row)
   }
 
   pub fn pattern(&self, id: u64) -> Option<&Pattern> {
     self.patterns.iter().find(|p| p.id == id).map(|p| &**p)
   }
 
+  // a pattern to change, with a new rev (see Rev): every change to a
+  // pattern is made through here
   fn pattern_mut(&mut self, id: u64) -> Result<&mut Pattern, String> {
-    self.patterns.iter_mut().find(|p| p.id == id).map(Arc::make_mut)
-      .ok_or_else(|| format!("no pattern with id {}", id))
+    let shared = self.patterns.iter_mut().find(|p| p.id == id)
+      .ok_or_else(|| format!("no pattern with id {}", id))?;
+    let pattern = Arc::make_mut(shared);
+    pattern.rev = Rev::next();
+    Ok(pattern)
+  }
+
+  // a row as the frontend sees it, after an edit of its own settings
+  pub fn row_change(&self, id: u64, plugins: &dyn SynthPlugins) -> Result<RowChange, String> {
+    let row = self.row(id).ok_or_else(|| no_row(id))?;
+    Ok(RowChange { row: row.state(plugins) })
+  }
+
+  // a pattern as the frontend sees it, after an edit of it
+  pub fn pattern_change(&self, id: u64) -> Result<PatternChange, String> {
+    let pattern = self.pattern(id).ok_or_else(|| format!("no pattern with id {}", id))?;
+    Ok(PatternChange { pattern: PatternState::of(pattern) })
   }
 
   // each synth row's plugin, for effects.rs to keep in line (see
@@ -915,8 +993,9 @@ impl Sequencer {
   pub fn remove_row(&mut self, id: u64) -> Result<(), String> {
     let at = self.rows.iter().position(|r| r.id == id).ok_or_else(|| no_row(id))?;
     Arc::make_mut(&mut self.rows).remove(at);
-    for pattern in self.patterns.iter_mut().filter(|p| p.notes.contains_key(&id)) {
-      Arc::make_mut(pattern).notes.remove(&id);
+    let holding: Vec<u64> = self.patterns.iter().filter(|p| p.notes.contains_key(&id)).map(|p| p.id).collect();
+    for pattern in holding {
+      self.pattern_mut(pattern)?.notes.remove(&id);
     }
     Ok(())
   }
@@ -973,6 +1052,7 @@ impl Sequencer {
     let length = steps_in_bars(bars, beats_per_bar);
     self.insert_pattern(Pattern {
       id,
+      rev: Rev::next(),
       name: Some(self.free_pattern_name()),
       length,
       floor: length,
@@ -1011,6 +1091,7 @@ impl Sequencer {
 
     let mut copy = (*self.patterns[at]).clone();
     copy.id = new_id;
+    copy.rev = Rev::next();
     copy.name = copy.name.map(|n| format!("{} copy", n));
     self.patterns.insert(at + 1, Arc::new(copy));
     Ok(new_id)
@@ -1037,7 +1118,9 @@ impl Sequencer {
 
     let notes = self.known_rows_notes(notes);
     let folder = self.patterns[at].folder;
-    self.patterns.insert(at + 1, Arc::new(Pattern { id, name: Some(name), length, floor: length, notes, folder }));
+    self.patterns.insert(at + 1, Arc::new(Pattern {
+      id, rev: Rev::next(), name: Some(name), length, floor: length, notes, folder,
+    }));
     Ok(id)
   }
 
@@ -1183,6 +1266,7 @@ impl Sequencer {
           self.next_pattern_id += 1;
           self.patterns.insert(insert_at, Arc::new(Pattern {
             id: new_id,
+            rev: Rev::next(),
             name: Some(format!("{} ({})", label, name)),
             length: source.length,
             floor: source.floor,
@@ -1407,6 +1491,7 @@ impl Sequencer {
     };
     Arc::make_mut(&mut self.rows).push(Row {
       id: saved.id,
+      rev: Rev::next(),
       label: saved.label.and_then(|l| row_label(&l)),
       volume: clamp_volume(saved.volume),
       pan: clamp_pan(saved.pan),
@@ -1423,6 +1508,7 @@ impl Sequencer {
   fn restored_pattern(&self, saved: SavedPattern) -> Pattern {
     Pattern {
       id: saved.id,
+      rev: Rev::next(),
       name: saved.name,
       length: saved.length,
       floor: if saved.floor == 0 { saved.length } else { saved.floor.min(saved.length) },

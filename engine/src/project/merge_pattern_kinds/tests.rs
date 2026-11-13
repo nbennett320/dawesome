@@ -277,7 +277,7 @@ fn test_the_v3_fixture_opens_as_the_old_app_showed_it() {
 
   let samples = std::fs::canonicalize("tests/fixtures/samples").unwrap();
   let sample = |name: &str, label: Option<&str>, volume: f32, pan: f32, muted: bool, id: u64| daw::RowState {
-    id, label: label.map(str::to_string), volume, pan, muted, step_pitch: 60,
+    id, rev: daw::Rev::next(), label: label.map(str::to_string), volume, pan, muted, step_pitch: 60,
     instrument: daw::InstrumentState::Sample(daw::SampleState {
       path: samples.join(name).to_string_lossy().into_owned(), sample_pitch: 60, gated: false,
     }),
@@ -285,7 +285,7 @@ fn test_the_v3_fixture_opens_as_the_old_app_showed_it() {
   let slots: Vec<u64> = loaded.sequencer.rows.iter().filter_map(|row| row.synth()).map(|synth| synth.slot).collect();
   assert!(slots.len() == 2 && slots[0] != slots[1]);
   let synth = |name: &str, slot: u64, id: u64| daw::RowState {
-    id, label: None, volume: 1., pan: 0., muted: false, step_pitch: 60,
+    id, rev: daw::Rev::next(), label: None, volume: 1., pan: 0., muted: false, step_pitch: 60,
     instrument: daw::InstrumentState::Synth(daw::SynthState {
       slot, plugin_id: "vst3:00000000000000000000000000BADBAD".into(), name: name.into(), vendor: "Nobody".into(),
       missing: true, has_editor: false,
@@ -300,7 +300,7 @@ fn test_the_v3_fixture_opens_as_the_old_app_showed_it() {
   ]);
 
   let pattern = |id: u64, name: &str, length: u32, folder: Option<u64>, notes: Vec<(u64, Arc<Vec<daw::PatternNote>>)>| daw::PatternState {
-    id, name: Some(name.into()), length, floor: length, notes: notes.into_iter().collect(), folder,
+    id, rev: daw::Rev::next(), name: Some(name.into()), length, floor: length, notes: notes.into_iter().collect(), folder,
   };
   let all_evens: Vec<u32> = (0..16).map(|n| n * 2).collect();
   assert_eq!(loaded.sequencer.patterns, vec![

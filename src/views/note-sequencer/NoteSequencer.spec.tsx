@@ -89,7 +89,11 @@ beforeEach(() => {
       sequencer = { ...sequencer, rows: sequencer.rows.filter(row => row.id !== args.rowId) }
       return sequencer
     }
-    if(command === 'set_row_muted' || command === 'set_pattern_bars' || command === 'set_pattern_step') return sequencer
+    // (changing nothing: each answers with what it would have changed)
+    if(command === 'set_row_muted') return { row: sequencer.rows.find(row => row.id === args.rowId) }
+    if(command === 'set_pattern_bars' || command === 'set_pattern_step') {
+      return { pattern: sequencer.patterns.find(p => p.id === args.patternId) }
+    }
     if(command === 'add_pattern') {
       sequencer = { ...sequencer, patterns: [...sequencer.patterns, pattern(5)] }
       return { id: 5, sequencer }

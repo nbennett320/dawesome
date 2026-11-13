@@ -269,7 +269,7 @@ describe('a synth row’s tab', () => {
   beforeEach(() => {
     const docked = mockInvoke.getMockImplementation()
     mockInvoke.mockImplementation(async (command: string, args: { rowId: number, muted: boolean }) => {
-      if(command === 'set_row_muted') return sequencer([pad(args.muted), other()])
+      if(command === 'set_row_muted') return { row: pad(args.muted) }
       return docked?.(command, args)
     })
   })

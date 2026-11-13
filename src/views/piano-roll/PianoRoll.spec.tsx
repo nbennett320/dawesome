@@ -17,7 +17,7 @@ import { resetGestures } from '../../state/gesture'
 import { clearNoteClipboard, runNoteCommandFromMenu } from '../../state/noteCommands'
 import { Tool } from '../../editing/tools'
 import { Note, SequencerState, sortNotes } from '../../types/sequencer'
-import { pattern, sampleRow, sequencerOf, steps, synthRow } from '../../types/sequencer.fixture'
+import { freshRev, pattern, sampleRow, sequencerOf, steps, synthRow } from '../../types/sequencer.fixture'
 import { View } from '../../types/ui'
 import PianoRoll from './PianoRoll'
 import { DEFAULT_STEP_WIDTH, ROW_HEIGHT, rowTop } from './draw'
@@ -143,10 +143,10 @@ beforeEach(() => {
       sequencer = {
         ...sequencer,
         patterns: sequencer.patterns.map(p => (p.id === args.patternId
-          ? { ...p, notes: { ...p.notes, [args.rowId as number]: sortNotes(args.notes as Note[]) } }
+          ? { ...p, rev: freshRev(), notes: { ...p.notes, [args.rowId as number]: sortNotes(args.notes as Note[]) } }
           : p)),
       }
-      return sequencer
+      return { pattern: sequencer.patterns.find(p => p.id === args.patternId) }
     }
     if(command === 'add_pattern') return { id: 0, sequencer: makeSequencer() }
     return undefined

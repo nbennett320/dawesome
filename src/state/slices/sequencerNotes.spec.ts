@@ -5,7 +5,7 @@ import sequencerReducer, {
   clearPendingNoteSends, flushNoteSends, setPatternNotes, setSequencer,
 } from './sequencerSlice'
 import { beginGesture, endGesture, resetGestures } from '../gesture'
-import { Note, SequencerState } from '../../types/sequencer'
+import { Note, PatternChange, SequencerState } from '../../types/sequencer'
 import { pattern, sequencerOf } from '../../types/sequencer.fixture'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
@@ -16,6 +16,9 @@ const note = (pitch: number, start = 0): Note => ({ pitch, start, length: 1, vel
 // row 7's notes in pattern 2
 const sequencer = (notes: Note[]): SequencerState =>
   sequencerOf({ patterns: [pattern(2, { notes: notes.length ? { 7: notes } : {} })] })
+
+// set_pattern_notes's answer: the pattern, at a new rev
+const changed = (notes: Note[]): PatternChange => ({ pattern: sequencer(notes).patterns[0] })
 
 const makeStore = () => {
   const store = configureStore({ reducer: { sequencer: sequencerReducer } })
@@ -38,7 +41,7 @@ beforeEach(() => {
   mockInvoke.mockReset()
   mockInvoke.mockImplementation((command: string, args: { notes: Note[] }) => {
     if(command !== 'set_pattern_notes') return Promise.resolve(sequencer([]))
-    return new Promise(resolve => { answers.push(() => resolve(sequencer(args.notes))) })
+    return new Promise(resolve => { answers.push(() => resolve(changed(args.notes))) })
   })
 })
 
@@ -119,5 +122,20 @@ describe('setPatternNotes', () => {
     answers[0]()
     await vi.runAllTimersAsync()
     expect(notesShown(store)).toEqual([note(70)])
+  })
+
+  it('takes the answer’s pattern, keeping the lists of the notes it didn’t change', async () => {
+    const store = configureStore({ reducer: { sequencer: sequencerReducer } })
+    const ghosts = [note(40), note(43, 2)]
+    store.dispatch(setSequencer(sequencerOf({ patterns: [pattern(2, { notes: { 8: ghosts } })] })))
+    const had = store.getState().sequencer.patterns[0].notes[8]
+    mockInvoke.mockImplementation(async (_command: string, args: { notes: Note[] }) =>
+      ({ pattern: pattern(2, { notes: { 7: args.notes, 8: [...ghosts] } }) }))
+
+    await store.dispatch(setPatternNotes(2, 7, [note(60)]))
+    const shown = store.getState().sequencer.patterns[0]
+    expect(shown.rev).toBeGreaterThan(0)
+    expect(shown.notes[7]).toEqual([note(60)])
+    expect(shown.notes[8]).toBe(had)
   })
 })
