@@ -226,6 +226,12 @@ fn base() -> &'static Base {
   })
 }
 
+// how many keys a resolved theme has: every one in base.json
+#[cfg(test)]
+pub fn key_count() -> usize {
+  base().by_name.len()
+}
+
 // works out keys on demand, remembering each
 struct Resolver<'a> {
   // the theme's own values by resolved name

@@ -1263,7 +1263,7 @@ impl AudioGraph<'static> {
   // split a pattern clip into a clip per sample it plays: each plays a
   // pattern holding just that sample's steps (see Sequencer::split_pattern),
   // on a track of its own (see explode_tracks), so each sample gets its own
-  // mixer strip. unnamed tracks are named after their samples. returns the
+  // mixer strip. unnamed tracks are named after their rows. returns the
   // new clips' ids, in row order
   pub fn explode_pattern_node(&mut self, id: u64) -> Result<Vec<u64>, String> {
     let clip = self.get_pattern_node_by_id(id).cloned()
@@ -1280,7 +1280,7 @@ impl AudioGraph<'static> {
       (split, placed)
     };
 
-    let paths: Vec<&str> = split.iter().map(|(path, _)| path.as_str()).collect();
+    let paths: Vec<&str> = split.iter().map(|(path, _, _)| path.as_str()).collect();
     let placed: Vec<(u32, Option<&str>)> = self.nodes.iter()
       .map(|n| (n.track_number, Some(n.sample_path())))
       .chain(placed_patterns.iter().map(|(t, p)| (*t, p.as_deref())))
@@ -1289,7 +1289,7 @@ impl AudioGraph<'static> {
 
     self.remove_node(id)?;
     let mut ids = Vec::new();
-    for ((path, pattern_id), &track) in split.iter().zip(&tracks) {
+    for ((_, name, pattern_id), &track) in split.iter().zip(&tracks) {
       let new_id = self.next_id;
       // each plays the same part of its pattern as the clip did of its
       self.add_pattern_node_with_id(PatternNode {
@@ -1301,7 +1301,7 @@ impl AudioGraph<'static> {
       });
       ids.push(new_id);
       if self.mixer.name(track).is_none() {
-        self.mixer.set_name(track, &daw::sample_name(path));
+        self.mixer.set_name(track, name);
       }
     }
 

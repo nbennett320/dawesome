@@ -300,9 +300,9 @@ mod tests {
     assert_eq!(v["preferences"]["darkTheme"], theme::DEFAULT_DARK);
     assert_eq!(v["preferences"]["appearance"], "system");
     let list = v["themes"].as_array().unwrap();
-    assert_eq!(list.len(), 4);
+    assert_eq!(list.len(), themes.len());
     for t in list {
-      assert_eq!(t["colors"].as_object().unwrap().len(), 127);
+      assert_eq!(t["colors"].as_object().unwrap().len(), theme::key_count());
     }
   }
 

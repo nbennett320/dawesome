@@ -72,7 +72,7 @@ describe('stepAt', () => {
 
 describe('litRows', () => {
   it("lists each row's steps in row order, inside the pattern", () => {
-    const rows = [5, 3].map(id => ({ id, path: '', volume: 1, muted: false }))
+    const rows = [5, 3].map(id => ({ id, path: '', label: null, volume: 1, pan: 0, muted: false }))
     expect(litRows(pattern({ 3: [1, 20], 9: [2] }), rows)).toEqual([[], [1]])
   })
 })

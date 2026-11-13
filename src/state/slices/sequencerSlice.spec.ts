@@ -28,7 +28,7 @@ const synth = (id: number, name = `Synth ${id}`): Synth => ({
 })
 
 const sequencer: SequencerState = {
-  rows: [{ id: 0, path: '/drums/kick.wav', volume: 1, muted: false }],
+  rows: [{ id: 0, path: '/drums/kick.wav', label: null, volume: 1, pan: 0, muted: false }],
   synths: [],
   patterns: [
     { id: 0, name: null, length: 16, steps: { 0: [0, 8] } },

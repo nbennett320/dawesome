@@ -308,9 +308,10 @@ fn test_split_a_pattern_by_row() {
 
   let split = seq.split_pattern(pattern).unwrap();
   assert_eq!(split.len(), 2);
-  let (kick_path, kick_pattern) = &split[0];
-  let (_, snare_pattern) = &split[1];
+  let (kick_path, kick_name, kick_pattern) = &split[0];
+  let (_, _, snare_pattern) = &split[1];
   assert_eq!(kick_path, KICK);
+  assert_eq!(kick_name, "assets_66-bd-01");
 
   // each holds just its row's steps, named after its sample, after the source
   let order: Vec<u64> = seq.patterns().iter().map(|p| p.id).collect();
@@ -522,4 +523,119 @@ fn test_split_needs_steps() {
   let (mut seq, _, _, pattern) = kit();
   assert!(seq.split_pattern(pattern).is_err());
   assert!(seq.split_pattern(99).is_err());
+}
+
+#[test]
+fn test_a_split_is_named_after_a_rows_label() {
+  let (mut seq, kick, snare, pattern) = kit();
+  seq.set_step(pattern, kick, 0, true).unwrap();
+  // (with the snare too, so the kick's is a new pattern)
+  seq.set_step(pattern, snare, 4, true).unwrap();
+  seq.rename_row(kick, "Kick").unwrap();
+  let split = seq.split_pattern(pattern).unwrap();
+  assert_eq!(split[0].1, "Kick");
+  let name = format!("{} (Kick)", pattern + 1);
+  assert_eq!(seq.pattern(split[0].2).unwrap().name.as_deref(), Some(name.as_str()));
+}
+
+#[test]
+fn test_pan_is_kept_in_range() {
+  let (mut seq, kick, _, _) = kit();
+  seq.set_row_pan(kick, -3.).unwrap();
+  assert_eq!(seq.row(kick).unwrap().pan, -1.);
+  seq.set_row_pan(kick, f32::NAN).unwrap();
+  assert_eq!(seq.row(kick).unwrap().pan, 0.);
+  assert!(seq.set_row_pan(99, 0.5).is_err());
+}
+
+#[test]
+fn test_a_row_is_panned_in_stereo() {
+  let (mut seq, kick, _, _) = kit();
+  let centred: Vec<f32> = seq.row(kick).unwrap().source().collect();
+  assert_eq!(seq.row(kick).unwrap().source().channels(), 2);
+
+  // hard left: the left side as it was, the right silent
+  seq.set_row_pan(kick, -1.).unwrap();
+  let left: Vec<f32> = seq.row(kick).unwrap().source().collect();
+  assert_eq!(left.len(), centred.len());
+  assert!(left.chunks(2).zip(centred.chunks(2)).all(|(l, c)| l[0] == c[0] && l[1] == 0.));
+  assert!(centred.iter().any(|s| *s != 0.));
+
+  // half right: the right as it was, the left at half
+  seq.set_row_pan(kick, 0.5).unwrap();
+  let right: Vec<f32> = seq.row(kick).unwrap().source().collect();
+  assert!(right.chunks(2).zip(centred.chunks(2)).all(|(r, c)| r[1] == c[1] && (r[0] - c[0] * 0.5).abs() < 1e-6));
+}
+
+#[test]
+fn test_rows_are_labelled() {
+  let (mut seq, kick, _, _) = kit();
+  assert_eq!(seq.row(kick).unwrap().name(), "assets_66-bd-01");
+  seq.rename_row(kick, "  Kick  ").unwrap();
+  assert_eq!(seq.row(kick).unwrap().label.as_deref(), Some("Kick"));
+  assert_eq!(seq.row(kick).unwrap().name(), "Kick");
+  // cut to ROW_LABEL_MAX characters
+  seq.rename_row(kick, &"é".repeat(60)).unwrap();
+  assert_eq!(seq.row(kick).unwrap().label.as_ref().unwrap().chars().count(), ROW_LABEL_MAX);
+  // a blank label goes back to the sample's name
+  seq.rename_row(kick, "   ").unwrap();
+  assert_eq!(seq.row(kick).unwrap().label, None);
+  assert!(seq.rename_row(99, "x").is_err());
+}
+
+#[test]
+fn test_rows_are_moved() {
+  let (mut seq, kick, snare, pattern) = kit();
+  seq.set_step(pattern, kick, 0, true).unwrap();
+  let hat = seq.add_row(KICK).unwrap();
+  let order = |seq: &Sequencer| seq.rows().iter().map(|r| r.id).collect::<Vec<_>>();
+
+  seq.move_row(hat, 0).unwrap();
+  assert_eq!(order(&seq), vec![hat, kick, snare]);
+  seq.move_row(hat, 1).unwrap();
+  assert_eq!(order(&seq), vec![kick, hat, snare]);
+  // past the end: the bottom
+  seq.move_row(kick, 99).unwrap();
+  assert_eq!(order(&seq), vec![hat, snare, kick]);
+  // steps go with the row
+  assert!(seq.pattern(pattern).unwrap().lit(kick, 0));
+  assert!(seq.move_row(99, 0).is_err());
+}
+
+#[test]
+fn test_a_replaced_sample_keeps_the_row() {
+  let (mut seq, kick, _, pattern) = kit();
+  seq.set_step(pattern, kick, 0, true).unwrap();
+  seq.rename_row(kick, "Boom").unwrap();
+  seq.set_row_pan(kick, 0.25).unwrap();
+  seq.set_row_muted(kick, true).unwrap();
+
+  seq.replace_row_sample(kick, SNARE, RowSample::load(SNARE).unwrap()).unwrap();
+  let row = seq.row(kick).unwrap();
+  assert_eq!((row.path.as_str(), row.label.as_deref(), row.pan, row.muted), (SNARE, Some("Boom"), 0.25, true));
+  assert_eq!(seq.rows()[0].id, kick);
+  assert!(seq.pattern(pattern).unwrap().lit(kick, 0));
+  assert_eq!(row.duration(), RowSample::load(SNARE).unwrap().duration);
+}
+
+#[test]
+fn test_labels_and_pan_are_saved_and_restored() {
+  let (mut seq, kick, snare, _) = kit();
+  seq.rename_row(kick, "Kick").unwrap();
+  seq.set_row_pan(snare, 0.3).unwrap();
+
+  let json = serde_json::to_value(seq.saved()).unwrap();
+  assert_eq!(json["rows"][0]["label"], "Kick");
+  // left out when there's none, or it's centred: older projects look the same
+  assert!(json["rows"][0].get("pan").is_none());
+  assert!(json["rows"][1].get("label").is_none());
+
+  let mut loaded = Sequencer::default();
+  assert!(loaded.restore(seq.saved()).is_empty());
+  assert!(loaded.same_as(&seq));
+  assert_eq!(loaded.row(snare).unwrap().pan, 0.3);
+
+  // a project from before labels and pan
+  let old: SavedRow = serde_json::from_value(serde_json::json!({ "id": 0, "path": KICK, "volume": 1.0 })).unwrap();
+  assert_eq!((old.label, old.pan), (None, 0.));
 }

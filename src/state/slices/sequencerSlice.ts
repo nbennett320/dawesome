@@ -204,6 +204,22 @@ export const setSequencerRowVolume = (rowId: number, volume: number) =>
 export const setSequencerRowMuted = (rowId: number, muted: boolean) =>
   edit('mute the row', 'set_sequencer_row_muted', { rowId, muted })
 
+// (one drag of the knob is one step to undo: see state/gesture.ts)
+export const setSequencerRowPan = (rowId: number, pan: number) =>
+  edit("set the row's pan", 'set_sequencer_row_pan', { rowId, pan, gesture: currentGesture() })
+
+// a blank name shows the sample's name again
+export const renameSequencerRow = (rowId: number, name: string) =>
+  edit('rename the row', 'rename_sequencer_row', { rowId, name })
+
+// move a row to `index` in the list
+export const moveSequencerRow = (rowId: number, index: number) =>
+  edit('move the row', 'move_sequencer_row', { rowId, index })
+
+// play another sample on a row, keeping its steps, label, volume, pan and mute
+export const replaceSequencerRowSample = (rowId: number, path: string) =>
+  edit(`replace the row's sample with ${path}`, 'replace_sequencer_row_sample', { rowId, path })
+
 export const previewSequencerRow = (rowId: number) => () =>
   invoke('preview_sequencer_row', { rowId }).catch(sequencerError('preview the row'))
 

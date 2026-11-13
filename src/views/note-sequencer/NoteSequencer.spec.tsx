@@ -31,7 +31,7 @@ const synth = (id: number, name: string, change: Partial<Synth> = {}): Synth => 
 
 // a drum pattern (0) and two note patterns (1, 2), with Pad's notes in 1
 const makeSequencer = (change: Partial<SequencerState> = {}): SequencerState => ({
-  rows: [{ id: 0, path: '/drums/kick.wav', volume: 1, muted: false }],
+  rows: [{ id: 0, path: '/drums/kick.wav', label: null, volume: 1, pan: 0, muted: false }],
   synths: [synth(7, 'Pad'), synth(8, 'Gone', { missing: true })],
   patterns: [
     { id: 0, name: 'Beat', length: 16, steps: { 0: [0] } },

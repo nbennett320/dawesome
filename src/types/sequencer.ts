@@ -20,7 +20,11 @@ export const ROW_VOLUME_MAX = 2
 export interface SequencerRow {
   id: number
   path: string
+  // what it's called ("Snare"), shown instead of its sample's name
+  label: string | null
   volume: number
+  // -1 (left) to 1 (right)
+  pan: number
   muted: boolean
 }
 

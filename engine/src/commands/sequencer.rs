@@ -84,7 +84,48 @@ pub fn set_sequencer_row_muted(state: daw::TState<'_>, row_id: u64, muted: bool)
   edit(&state, |seq| seq.set_row_muted(row_id, muted))
 }
 
-// play a row's sample once, at its volume
+// a row's pan, -1 (left) to 1 (right)
+#[tauri::command]
+pub fn set_sequencer_row_pan(
+  state: daw::TState<'_>,
+  row_id: u64,
+  pan: f32,
+  gesture: Option<u64>,
+) -> Result<daw::SequencerState, String> {
+  edit_in(&state, gesture, |seq| seq.set_row_pan(row_id, pan))
+}
+
+// label a row ("Snare"). a blank label shows its sample's name again
+#[tauri::command]
+pub fn rename_sequencer_row(state: daw::TState<'_>, row_id: u64, name: String) -> Result<daw::SequencerState, String> {
+  edit(&state, |seq| seq.rename_row(row_id, &name))
+}
+
+// move a row to `index` in the list
+#[tauri::command]
+pub fn move_sequencer_row(state: daw::TState<'_>, row_id: u64, index: usize) -> Result<daw::SequencerState, String> {
+  edit(&state, |seq| seq.move_row(row_id, index))
+}
+
+// play the sample at `path` on a row instead, keeping its steps, label,
+// volume, pan and mute
+// (async: off the main thread, as decoding the sample takes a while)
+#[tauri::command(async)]
+pub fn replace_sequencer_row_sample(
+  state: daw::TState<'_>,
+  row_id: u64,
+  path: String,
+) -> Result<daw::SequencerState, String> {
+  replace_row_sample(&state, row_id, &path)
+}
+
+fn replace_row_sample(state: &daw::InnerState, row_id: u64, path: &str) -> Result<daw::SequencerState, String> {
+  // decoded before taking the sequencer's lock, which playback needs
+  let sample = daw::RowSample::load(path)?;
+  edit(state, |seq| seq.replace_row_sample(row_id, path, sample))
+}
+
+// play a row's sample once, at its volume and pan
 #[tauri::command]
 pub fn preview_sequencer_row(state: daw::TState<'_>, row_id: u64) -> Result<(), String> {
   let source = state.playlist.sequencer.lock().unwrap()
