@@ -10,21 +10,28 @@ interface Props {
   onPress: (page: SidebarPage) => void
 }
 
-const keys: Array<{ page: SidebarPage, name: string, Icon: React.ComponentType<IconProps> }> = [
-  { page: SidebarPage.Samples, name: 'samples', Icon: SidebarIcon },
-  { page: SidebarPage.Patterns, name: 'drum patterns', Icon: PatternIcon },
-  { page: SidebarPage.NotePatterns, name: 'note patterns', Icon: NotePatternIcon },
-  { page: SidebarPage.Recordings, name: 'recordings', Icon: RecordingsIcon },
-  { page: SidebarPage.Clips, name: 'clips', Icon: ClipsIcon },
-  { page: SidebarPage.Effects, name: 'effects', Icon: EffectsIcon },
-  { page: SidebarPage.Instruments, name: 'instruments', Icon: InstrumentsIcon },
+const keys: Array<{ page: SidebarPage, name: string, hint: string, Icon: React.ComponentType<IconProps> }> = [
+  { page: SidebarPage.Samples, name: 'samples',
+    hint: "browse audio files on disk and preview them", Icon: SidebarIcon },
+  { page: SidebarPage.Patterns, name: 'drum patterns',
+    hint: "the project's drum sequencer patterns", Icon: PatternIcon },
+  { page: SidebarPage.NotePatterns, name: 'note patterns',
+    hint: "the project's note (piano roll) patterns", Icon: NotePatternIcon },
+  { page: SidebarPage.Recordings, name: 'recordings',
+    hint: "takes recorded into the project's recordings folder", Icon: RecordingsIcon },
+  { page: SidebarPage.Clips, name: 'clips',
+    hint: "audio the app wrote out itself (deep copies and joins), in the project's clips folder", Icon: ClipsIcon },
+  { page: SidebarPage.Effects, name: 'effects',
+    hint: "effect plugins you can load", Icon: EffectsIcon },
+  { page: SidebarPage.Instruments, name: 'instruments',
+    hint: "instrument plugins you can load", Icon: InstrumentsIcon },
 ]
 
 // the rail down the left: a key per sidebar page, latched while it's showing.
 // pressing the latched key closes the sidebar
 const SidebarList = ({ open, page, onPress }: Props) => (
   <div className='ft-panel flex flex-col items-center gap-1 px-1.5 pt-3 border-r border-line'>
-    {keys.map(({ page: key, name, Icon }) => {
+    {keys.map(({ page: key, name, hint, Icon }) => {
       const showing = open && page === key
 
       return (
@@ -34,6 +41,7 @@ const SidebarList = ({ open, page, onPress }: Props) => (
           latched={showing}
           aria-label={name[0].toUpperCase() + name.slice(1)}
           title={showing ? `Hide ${name}` : `Show ${name}`}
+          data-hint={`${showing ? 'Hide' : 'Show'} ${name}: ${hint}`}
           onPress={() => onPress(key)}
         >
           <Icon />

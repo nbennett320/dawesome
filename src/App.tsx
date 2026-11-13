@@ -7,6 +7,7 @@ import { listeners } from './events/window'
 import { selectProjectPath, selectProjectUnsaved, windowTitle } from './state/slices/projectSlice'
 import ProjectNotice from './components/ProjectNotice'
 import DragGhost from './components/DragGhost'
+import InfoBar from './components/InfoBar'
 import { togglePlayHere } from './state/slices/sequencerSlice'
 import { listenForTransportKey } from './util/keys'
 import { useEditCommands } from './state/useEditCommands'
@@ -49,7 +50,7 @@ const App = () => {
   }, [projectPath, unsaved])
 
   return (
-    <div className="AppRoot min-h-screen text-ink-strong">
+    <div className="AppRoot text-ink-strong">
       <Topbar />
       <ProjectNotice />
       <div className="WorkspaceContainer flex flex-row w-full">
@@ -58,6 +59,7 @@ const App = () => {
           <TabWindow />
         </div>
       </div>
+      <InfoBar />
       <DragGhost />
     </div>
   )

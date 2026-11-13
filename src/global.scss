@@ -4,11 +4,21 @@
 
 .AppRoot {
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
 }
 
 .WorkspaceContainer {
   overflow: hidden;
-  height: calc(100vh - 12vh);
+  // whatever the topbar and the info bar leave
+  flex: 1;
+  min-height: 0;
+}
+
+.InfoBar {
+  flex-shrink: 0;
+  height: 1.5rem;
 }
 
 .rct-tree-items-container {
