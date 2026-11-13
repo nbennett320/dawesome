@@ -63,13 +63,13 @@ pub struct PatternHits {
 }
 
 pub fn pattern_hits(audiograph: &daw::AudioGraph<'static>, node: &daw::PatternNode, rate: u32) -> Result<PatternHits, String> {
-  let length = audiograph.sequencer.lock().unwrap().pattern(node.pattern_id)
-    .ok_or_else(|| format!("no pattern with id {}", node.pattern_id))?
-    .length;
+  if audiograph.sequencer.lock().unwrap().pattern(node.pattern_id).is_none() {
+    return Err(format!("no pattern with id {}", node.pattern_id));
+  }
   let frame = |at: Duration| daw::run_frame(at.as_nanos() as i128, rate);
 
   let starts = frame(node.start_offset);
-  let frames = (frame(node.start_offset + node.duration(length, audiograph.beat_interval())) - starts).max(0) as usize;
+  let frames = (frame(node.start_offset + node.duration(audiograph.beat_interval())) - starts).max(0) as usize;
   let hits = audiograph.pattern_clip_voices(node, rate).into_iter()
     // on the frame the engine would start it on
     .map(|(delay, voice)| ((frame(node.start_offset + delay) - starts).max(0) as usize, voice))

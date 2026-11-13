@@ -121,7 +121,8 @@ export interface ClipView {
   // how long it is
   seconds: number
   // the part of its source it shows, and the source's whole length: in
-  // seconds of the sample, or steps of the pattern
+  // seconds of the sample, or steps of the pattern (where a pattern clip
+  // starts and ends in its pattern, which can be past its end: it loops)
   from: number
   to: number
   length: number
@@ -891,7 +892,11 @@ export class Renderer extends RendererBase {
     const window = this.clipWindows[id]
     if(patternId !== undefined) {
       const pattern = this.patternOf(patternId)
-      return pattern ? patternTrimClip(id, startBeat, pattern.length, window) : null
+      if(!pattern) return null
+      // (the engine gives every pattern clip a window: until it has, the
+      // clip is all of its pattern, as a new clip is)
+      const own = window ?? { start: 0, end: pattern.length }
+      return patternTrimClip(id, startBeat, own, pattern.length, this.beatsDisplayed)
     }
 
     const override = this.clipOverrides[id]
@@ -918,7 +923,7 @@ export class Renderer extends RendererBase {
       seconds: (span.end - span.start) * this.#beatSeconds(),
       from: (shows.start - clip.sourceStart) * perBeat,
       to: (shows.end - clip.sourceStart) * perBeat,
-      length: (clip.sourceEnd - clip.sourceStart) * perBeat,
+      length: clip.sourceLength,
     }
   }
 
@@ -1260,11 +1265,7 @@ export class Renderer extends RendererBase {
   // (called on every store update, so only a change wakes the playlist)
   setSequencer = (sequencer: SequencerState) => {
     if(sequencer === this.sequencer) return
-    // a pattern's length changes where its clips (and so the loop) end
-    const lengths = (s: SequencerState) => s.patterns.map(p => `${p.id}:${p.length}`).join()
-    const resized = lengths(sequencer) !== lengths(this.sequencer)
     this.sequencer = sequencer
-    if(resized) this.syncTransport()
     this.wake()
   }
 
@@ -2223,7 +2224,7 @@ export class Renderer extends RendererBase {
       // a clip's waveform and length (seconds)
       const clipData = async (item: PlaylistItem) => {
         // a pattern clip has no sample: it draws its pattern, and is as long
-        // as the pattern is (see PlaylistObject)
+        // as its window says (see viewOf), or its pattern until it has one
         if(item.patternId !== undefined) {
           return { wf: new Float32Array(0), dur: this.patternSecondsOf(item.patternId) }
         }

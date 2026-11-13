@@ -164,6 +164,16 @@ fn perf_slice() {
   let (times, scheduled) = time_slices(&mut graph, &engine, LONG_BARS * 4, 10, playlist);
   report(&format!("slice playlist, {} clips, {} bars", graph.pattern_nodes.len(), LONG_BARS), &times, scheduled);
 
+  // the same notes from three clips: the drums and the short pattern each
+  // one clip that goes round its pattern again and again (stage 3)
+  let (mut graph, _) = big_graph(|big| vec![(big.long, 0, 1), (big.drums, 0, 0), (big.short, 0, 2)]);
+  let looping: Vec<u64> = graph.pattern_nodes[1..].iter().map(|node| node.id).collect();
+  for id in looping {
+    graph.set_pattern_window(id, 0., Some((LONG_BARS * 4 * daw::STEPS_PER_BEAT) as f64)).unwrap();
+  }
+  let (times, scheduled) = time_slices(&mut graph, &engine, LONG_BARS * 4, 10, playlist);
+  report(&format!("slice playlist, 3 clips (2 looping), {} bars", LONG_BARS), &times, scheduled);
+
   // a pattern playing on its own
   let (mut graph, big) = big_graph(|_| vec![]);
   let alone = |id: u64| move |graph: &daw::AudioGraph<'static>, at: Duration, beat: Duration, first: bool| (

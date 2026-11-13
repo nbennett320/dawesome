@@ -34,7 +34,7 @@ const travelled: Travelled = {
       playedDuration: 1,
       window: null,
     }],
-    patternClips: [{ id: 9, patternId: 2, trackNumber: 1, startBeat: 8, window: null }],
+    patternClips: [{ id: 9, patternId: 2, trackNumber: 1, startBeat: 8, window: { start: 0, end: 16 } }],
     mixer: {
       tracks: [{ trackNumber: 0, name: 'drums', volumeDb: -6, pan: 0.25, mute: true, solo: false }],
       master: { volumeDb: -3, pan: 0, mute: false, solo: false },

@@ -8,8 +8,9 @@ import { P5BoundingBox, State as ComponentState } from '../../../render/P5Compon
 import { paint, theme } from './theme'
 import { mixRgba } from '../../../theme/color'
 import type { SectionKey } from '../../../theme/keys'
-import { STEPS_PER_BEAT, clipContents, noteBars, patternLabel } from '../../../types/sequencer'
-import { hiddenBeyond } from './edges'
+import { Pass, STEPS_PER_BEAT, clipPasses, patternLabel } from '../../../types/sequencer'
+import { hiddenBeyond, patternHiddenBeyond } from './edges'
+import { firstFrom, patternDrawing } from './patternDrawing'
 import { drawEdgeBar } from '../../../editing/look'
 
 interface Props extends PlaylistComponentProps {
@@ -114,7 +115,9 @@ class PlaylistObject extends PlaylistComponent<State> {
   // which edges hide some of the sample or pattern beyond them
   #hidden = (): { left: boolean, right: boolean } => {
     const view = this.#view
-    return view ? hiddenBeyond(view.from, view.to, view.length) : { left: false, right: false }
+    if(!view) return { left: false, right: false }
+    const hidden = this.playlistItem.patternId === undefined ? hiddenBeyond : patternHiddenBeyond
+    return hidden(view.from, view.to, view.length)
   }
 
   // the pattern a pattern clip plays (undefined for a sample clip, or a
@@ -286,49 +289,70 @@ class PlaylistObject extends PlaylistComponent<State> {
     this.p.pop()
   }
 
-  // a pattern clip's body, over faint beat lines: a lane per sample row,
-  // with a cell where each of its notes starts, and the synth rows' notes
-  // as small bars
+  // a pattern clip's body: its pattern, played end to end from where the
+  // clip starts in it, each time through after the first marked with a
+  // faint repeat line (see clipPasses), over fainter beat lines. a lane per
+  // sample row, with a cell where each of its notes starts, and the synth
+  // rows' notes as small bars, each cut at the end of its time through.
+  // only the times through that are on the canvas are drawn, and of those,
+  // only the notes that start on it
   drawPattern = () => {
     const pattern = this.#pattern()
+    const view = this.#view
     const { left, top, width, height } = this.waveform.boundingBox()
     const bodyTop = top + this.labelHeight + 3
     const bodyHeight = height - this.labelHeight - 7
-    if(!pattern || pattern.length <= 0 || bodyHeight <= 0) return
+    if(!pattern || !view || pattern.length <= 0 || bodyHeight <= 0 || view.to <= view.from) return
 
-    // the steps the clip shows: the whole pattern, or a trimmed clip's part
-    // of it (which can start or end between two steps)
-    const from = this.#view ? this.#view.from : 0
-    const to = this.#view ? this.#view.to : pattern.length
-    if(to <= from) return
+    // where the clip starts and ends in its pattern, in steps (which can be
+    // past its end, or between two steps), and where a step of a time
+    // through it is drawn
+    const { from, to } = view
     const stepWidth = width / (to - from)
-    const right = left + width
-    const stepX = (step: number) => left + (step - from) * stepWidth
-    const last = Math.min(to, pattern.length)
+    const stepX = (pass: Pass, step: number) => left + (pass.at + step - from) * stepWidth
+    // the clip's steps that are on the canvas
+    const ctx = this.p.drawingContext as CanvasRenderingContext2D
+    const { a: scaleX, e: offsetX } = ctx.getTransform()
+    const stepAt = (x: number) => from + (x - left) / stepWidth
+    const shownFrom = stepAt(-offsetX / scaleX)
+    const shownTo = stepAt((ctx.canvas.width - offsetX) / scaleX)
+    const passes = clipPasses(from, to - from, pattern.length)
+      .filter(pass => pass.at + pass.to > shownFrom && pass.at + pass.from < shownTo)
+    // the last step of a time through to draw a note from
+    const lastShown = (pass: Pass) => Math.min(pass.to, shownTo - pass.at)
 
     // in the track's color (see patternColors)
-    const ink = (this.renderer as Renderer).patternRgba(this.playlistItem.trackNumber)
+    const renderer = this.renderer as Renderer
+    const ink = renderer.patternRgba(this.playlistItem.trackNumber)
     this.p.strokeWeight(1 / this.currentScale)
-    this.p.stroke(...ink.beat)
-    const firstBeat = (Math.floor(from / STEPS_PER_BEAT) + 1) * STEPS_PER_BEAT
-    for(let step = firstBeat; step < last; step += STEPS_PER_BEAT) {
-      const x = stepX(step)
-      this.p.line(x, bodyTop, x, bodyTop + bodyHeight)
-    }
+    const line = (x: number) => this.p.line(x, bodyTop, x, bodyTop + bodyHeight)
+    passes.forEach(pass => {
+      if(pass.at > from) {
+        this.p.stroke(...ink.repeat)
+        line(stepX(pass, 0))
+      }
+      this.p.stroke(...ink.beat)
+      for(let step = (Math.floor(pass.from / STEPS_PER_BEAT) + 1) * STEPS_PER_BEAT; step < pass.to; step += STEPS_PER_BEAT) {
+        line(stepX(pass, step))
+      }
+    })
 
     // (with both, the hits go above the bars)
-    const { lanes, notes } = clipContents(pattern, (this.renderer as Renderer).sequencer.rows)
-    const { rows, bars } = noteBars(notes, pattern.length, from, to)
+    const { lanes, bars, rows } = patternDrawing(pattern, renderer.sequencer.rows)
     const hits = lanes.some(steps => steps.length)
+    this.p.noStroke()
+    this.p.fill(...ink.hit)
     if(bars.length) {
       const notesTop = hits ? bodyTop + bodyHeight / 2 : bodyTop
       const rowHeight = (hits ? bodyHeight / 2 : bodyHeight) / rows
-      this.p.noStroke()
-      this.p.fill(...ink.hit)
-      bars.forEach(({ start, end, row }) => {
-        const x = stepX(start)
-        const w = Math.min(stepX(end), right) - x
-        if(w > 0) this.p.rect(x, notesTop + row * rowHeight, w, Math.max(1, rowHeight * 0.8))
+      passes.forEach(pass => {
+        const last = lastShown(pass)
+        for(let i = firstFrom(bars, bar => bar.start, pass.from); i < bars.length && bars[i].start < last; i += 1) {
+          const { start, end, row } = bars[i]
+          const x = stepX(pass, start)
+          const w = stepX(pass, Math.min(end, pass.to)) - x
+          if(w > 0) this.p.rect(x, notesTop + row * rowHeight, w, Math.max(1, rowHeight * 0.8))
+        }
       })
     }
 
@@ -337,16 +361,18 @@ class PlaylistObject extends PlaylistComponent<State> {
     // a little gap around each cell, unless they'd vanish
     const gapX = Math.min(stepWidth * .15, 1 / this.currentScale)
     const gapY = Math.min(laneHeight * .15, 1)
-
-    this.p.noStroke()
-    this.p.fill(...ink.hit)
-    lanes.forEach((steps, lane) => {
-      const y = bodyTop + lane * laneHeight
-      // only the hits that start inside the clip, as it plays them
-      steps.filter(step => step >= from && step < last).forEach(step => {
-        const x = stepX(step)
-        const cell = Math.min(stepWidth, right - x)
-        if(cell > gapX * 2) this.p.rect(x + gapX, y + gapY, cell - gapX * 2, laneHeight - gapY * 2)
+    passes.forEach(pass => {
+      // (a cell is a step wide at most: one starting a step before the
+      // canvas can still show)
+      const first = Math.max(pass.from, shownFrom - pass.at - 1)
+      const last = lastShown(pass)
+      lanes.forEach((steps, lane) => {
+        const y = bodyTop + lane * laneHeight
+        for(let i = firstFrom(steps, step => step, first); i < steps.length && steps[i] < last; i += 1) {
+          const x = stepX(pass, steps[i])
+          const cell = Math.min(stepWidth, stepX(pass, pass.to) - x)
+          if(cell > gapX * 2) this.p.rect(x + gapX, y + gapY, cell - gapX * 2, laneHeight - gapY * 2)
+        }
       })
     })
   }
@@ -354,8 +380,8 @@ class PlaylistObject extends PlaylistComponent<State> {
   render = () => {
     const { waveform } = this
 
-    // a pattern clip is as long as its pattern, which can change at any
-    // time, and any clip changes while it's trimmed
+    // a pattern clip's pattern can change at any time, and any clip
+    // changes while it's trimmed
     const { patternId } = this.playlistItem
     this.syncView()
 

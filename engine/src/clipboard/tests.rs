@@ -348,6 +348,38 @@ fn test_the_halves_of_a_cut_clip_stay_together_when_pasted() {
 }
 
 #[test]
+fn test_a_looping_clip_and_its_cut_halves_are_pasted_and_repeated_as_they_play() {
+  let state = state();
+  // round its one bar pattern two and a half times, from beat 3, then cut
+  // on its second time round (step 20.5)
+  let (pattern, c) = pattern_clip(&state, 1, 3.);
+  crate::commands::clip::set_windows(&state, &[crate::commands::clip::WindowEdit {
+    id: c, window: crate::commands::clip::ClipWindow { start: 0., end: Some(40.) },
+  }]).unwrap();
+  let right = crate::commands::clip::split(&state, &[c], 3. + 20.5 / 4.).unwrap().pattern_clips[1].id;
+  let clip = |id: u64| state.playlist.audiograph.lock().unwrap().get_pattern_node_by_id(id).unwrap().clone();
+  let beat = state.playlist.audiograph.lock().unwrap().beat_interval();
+  assert_eq!(((clip(c).start, clip(c).end()), (clip(right).start, clip(right).end())), ((0., 20.5), (20.5, 40.)));
+
+  // pasted, each keeps its own part of its pattern (past the pattern's end
+  // too), and the second still starts on the nanosecond the first ends on
+  copy(&state, &[c, right]);
+  state.playlist.sequencer.lock().unwrap().set_pattern_bars(pattern, 2, 4).unwrap();
+  let pasted = paste(&state, 40., None).unwrap();
+  let (a, b) = (clip(pasted.clips.pattern_clips[0].id), clip(pasted.clips.pattern_clips[1].id));
+  assert_eq!(((a.start, a.end()), (b.start, b.end())), ((0., 20.5), (20.5, 40.)));
+  assert_eq!(a.origin(beat), b.origin(beat));
+  assert_eq!(a.start_offset + a.duration(beat), b.start_offset);
+
+  // repeated, the copies start where the clip ends: its own end, not its
+  // pattern's
+  let repeated = repeat(&state, &[c, right]).unwrap();
+  let first = repeated.clips.pattern_clips.iter().map(|copy| clip(copy.id)).min_by_key(|copy| copy.start_offset).unwrap();
+  assert_eq!(first.start_offset, clip(right).start_offset + clip(right).duration(beat));
+  assert_eq!(first.start_offset, beat.mul_f64(3. + 10.));
+}
+
+#[test]
 fn test_pasted_at_another_tempo_clips_keep_their_beats() {
   let state = state();
   let (a, b) = (sample(&state, 0, 2.), sample(&state, 1, 6.));

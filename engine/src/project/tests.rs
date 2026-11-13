@@ -503,7 +503,7 @@ fn test_patterns_saved_and_loaded() {
   assert_eq!(loaded.sequencer.patterns[0].name.as_deref(), Some("intro"));
   assert_eq!((loaded.sequencer.patterns[0].length, loaded.sequencer.patterns[0].floor), (32, 32));
   assert_eq!(loaded.pattern_clips.len(), 2);
-  assert!(loaded.pattern_clips.iter().all(|c| c.window.is_none()));
+  assert!(loaded.pattern_clips.iter().all(|c| c.window == ClipWindow { start: 0., end: Some(32.) }));
   assert!(loaded.pattern_clips.iter().all(|c| c.pattern_id == pattern));
   assert_eq!(other.playlist.audiograph.lock().unwrap().pattern_nodes.len(), 2);
 
@@ -639,30 +639,41 @@ fn test_the_version_follows_what_a_project_uses() {
   assert_eq!(capture(&state, None).version, 4);
 }
 
+// where each pattern clip starts and ends in its pattern, in steps
+fn spans(state: &daw::InnerState) -> Vec<(f64, f64)> {
+  state.playlist.audiograph.lock().unwrap().pattern_nodes.iter().map(|n| (n.start, n.end())).collect()
+}
+
 #[test]
-fn test_a_pattern_clip_is_saved_as_the_part_it_plays() {
+fn test_a_pattern_clip_is_saved_with_its_own_start_and_length() {
   let dir = test_dir("pattern-window");
   let file = dir.join("song.dawesome");
   let state = daw::InnerState::default();
   let (pattern, clip) = add_pattern_clip(&state, 2, 0.);
   let (_, middle) = add_pattern_clip(&state, 2, 16.);
   crate::commands::clip::set_windows(&state, &[edit(clip, 4., Some(24.)), edit(middle, 2., Some(10.))]).unwrap();
-  // the first now runs past its pattern's end: it plays from step 4 to 16
+  // the first now runs past its pattern's end: it plays steps 4 to 16, then
+  // 0 to 8 again
   state.playlist.sequencer.lock().unwrap().set_pattern_bars(pattern, 1, 4).unwrap();
   save_to(&state, &file).unwrap();
   let saved = saved_json(file.to_str().unwrap());
   let parts: Vec<(f64, f64)> = saved.pattern_clips.iter().map(|c| (c.start, c.length)).collect();
-  assert_eq!(parts, vec![(4., 12.), (2., 8.)]);
+  assert_eq!(parts, vec![(4., 20.), (2., 8.)]);
 
-  // loaded, the first follows its pattern's end, and the other keeps its own
+  // loaded, each is as it was, whatever its pattern's length does after
   let other = daw::InnerState::default();
   let loaded = load_from(&other, &file).unwrap();
-  let windows: Vec<Option<daw::PatternWindow>> = other.playlist.audiograph.lock().unwrap().pattern_nodes.iter().map(|n| n.window).collect();
-  assert_eq!(windows, vec![
-    Some(daw::PatternWindow { start: 4., end: None }),
-    Some(daw::PatternWindow { start: 2., end: Some(10.) }),
-  ]);
-  assert_eq!(loaded.pattern_clips[1].window, Some(ClipWindow { start: 2., end: Some(10.) }));
+  assert_eq!(spans(&other), vec![(4., 24.), (2., 10.)]);
+  assert_eq!(loaded.pattern_clips[0].window, ClipWindow { start: 4., end: Some(24.) });
+  assert_eq!(loaded.pattern_clips[1].window, ClipWindow { start: 2., end: Some(10.) });
+  other.playlist.sequencer.lock().unwrap().set_pattern_bars(loaded.pattern_clips[0].pattern_id, 3, 4).unwrap();
+  assert_eq!(spans(&other), vec![(4., 24.), (2., 10.)]);
+
+  // and saved again, it's the same
+  other.playlist.sequencer.lock().unwrap().set_pattern_bars(loaded.pattern_clips[0].pattern_id, 1, 4).unwrap();
+  let again = dir.join("again.dawesome");
+  save_to(&other, &again).unwrap();
+  assert_eq!(saved_json(again.to_str().unwrap()).pattern_clips, saved.pattern_clips);
 
   fs::remove_dir_all(dir).unwrap();
 }
@@ -670,22 +681,28 @@ fn test_a_pattern_clip_is_saved_as_the_part_it_plays() {
 #[test]
 fn test_a_saved_pattern_clips_start_and_length_are_made_sensible() {
   let clip = |start: f64, length: f64| ProjectPatternClip { pattern_id: 0, track_number: 0, start_beat: 0., start, length };
-  let window = |start: f64, end: Option<f64>| Some(daw::PatternWindow { start, end });
-  // the whole pattern, or past its end: none
-  assert_eq!(clip_window(&clip(0., 16.), 16), None);
-  assert_eq!(clip_window(&clip(0., 40.), 16), None);
-  assert_eq!(clip_window(&clip(4., 8.), 16), window(4., Some(12.)));
-  assert_eq!(clip_window(&clip(4., 12.), 16), window(4., None));
+  let kept = |start: f64, length: f64| {
+    let (start, length) = saved_span(&clip(start, length), 16);
+    let mut node = daw::PatternNode::new(0, 0, Duration::ZERO, 0, 16);
+    node.set_span(start, length);
+    (node.start, node.length)
+  };
+  // as saved, past the pattern's end too (it plays the pattern again)
+  assert_eq!(kept(0., 16.), (0., 16.));
+  assert_eq!(kept(0., 40.), (0., 40.));
+  assert_eq!(kept(4., 8.), (4., 8.));
   // a length left out (0), or that makes no sense: to the pattern's end
-  assert_eq!(clip_window(&clip(4., 0.), 16), window(4., None));
-  assert_eq!(clip_window(&clip(4., f64::NAN), 16), window(4., None));
-  assert_eq!(clip_window(&clip(4., 0.5), 16), window(4., None));
-  assert_eq!(clip_window(&clip(0., -3.), 16), None);
+  assert_eq!(kept(4., 0.), (4., 12.));
+  assert_eq!(kept(4., f64::NAN), (4., 12.));
+  assert_eq!(kept(4., 0.5), (4., 12.));
+  assert_eq!(kept(0., -3.), (0., 16.));
   // a start that makes no sense: the pattern's start
-  assert_eq!(clip_window(&clip(-2., 8.), 16), window(0., Some(8.)));
-  assert_eq!(clip_window(&clip(f64::NAN, 8.), 16), window(0., Some(8.)));
-  // past the pattern's end: kept, a step long (it plays nothing)
-  assert_eq!(clip_window(&clip(20., 0.), 16), window(20., None));
+  assert_eq!(kept(-2., 8.), (0., 8.));
+  assert_eq!(kept(f64::NAN, 8.), (0., 8.));
+  // past the pattern's end: kept, at least a step long
+  assert_eq!(kept(20., 0.), (20., 1.));
+  // no longer than a clip can be
+  assert_eq!(kept(0., 1e12), (0., daw::MAX_PATTERN_CLIP));
 }
 
 #[test]
@@ -716,10 +733,10 @@ fn test_an_older_file_loads_whole_and_is_left_alone() {
   assert_eq!(loaded.clips.len(), 1);
   assert_eq!(loaded.pattern_clips.len(), 1);
   assert_eq!(loaded.clips[0].info.window, None);
-  assert_eq!(loaded.pattern_clips[0].window, None);
+  assert_eq!(loaded.pattern_clips[0].window, ClipWindow { start: 0., end: Some(16.) });
   let audiograph = state.playlist.audiograph.lock().unwrap();
   assert!(audiograph.nodes.iter().all(|node| node.window().is_none()));
-  assert!(audiograph.pattern_nodes.iter().all(|node| node.window.is_none()));
+  assert!(audiograph.pattern_nodes.iter().all(|node| (node.start, node.length) == (0., 16.)));
   drop(audiograph);
   assert_eq!(fs::read(&file).unwrap(), json.as_bytes());
 

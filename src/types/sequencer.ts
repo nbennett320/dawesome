@@ -281,11 +281,49 @@ export const stepAt = (elapsedMs: number, pattern: Pattern, beatIntervalMs: numb
   return Math.floor(Math.max(0, elapsedMs) / stepMs) % pattern.length
 }
 
+// the step of its pattern, `length` steps long, that a clip starting
+// `start` steps into it plays `t` steps after the clip's start: the clip
+// plays the pattern end to end, over and over (pattern_step_at in
+// engine/src/daw/daw_core/audiograph.rs)
+export const patternStepAt = (start: number, t: number, length: number): number => {
+  const at = (start + t) % length
+  return at < 0 ? at + length : at
+}
+
+// one time through its pattern that a clip plays: the part of the pattern
+// it plays then (`from` up to `to`, steps of the pattern), and where that
+// time through starts, in steps from where the clip would have the
+// pattern's first step (a whole number of patterns). Pass in
+// engine/src/daw/daw_core/audiograph.rs
+export interface Pass {
+  from: number
+  to: number
+  at: number
+}
+
+// every time through its pattern, `patternLength` steps long, that a clip
+// plays, in order: from `start` steps into the pattern (not wrapped), for
+// `length` steps. PatternNode::passes in engine/src/daw/daw_core/audiograph.rs
+export const clipPasses = (start: number, length: number, patternLength: number): Pass[] => {
+  if(!(patternLength > 0)) return []
+  const end = start + length
+  const passes: Pass[] = []
+  for(let at = start - patternStepAt(start, 0, patternLength); at < end; at += patternLength) {
+    passes.push({ from: Math.max(start - at, 0), to: Math.min(end - at, patternLength), at })
+  }
+  return passes
+}
+
+// where a clip starts its pattern over, in steps from the clip's start (for
+// the faint repeat lines): k·L − s for every whole k with s < k·L < s + c
+export const repeatLines = (start: number, length: number, patternLength: number): number[] =>
+  clipPasses(start, length, patternLength).slice(1).map(pass => pass.at - start)
+
 // what a pattern clip draws, rows in their order: a lane for each sample
 // row, holding the steps its notes start on inside the pattern, and every
-// synth row's notes, drawn as small bars (see noteBars)
-// (drawn every frame for each clip in view, so one pass over each row's
-// notes, with nothing copied)
+// synth row's notes, drawn as small bars (see noteBars). (one pass over
+// each row's notes, with nothing copied: the playlist keeps what it makes
+// for each version of a pattern, see patternDrawing)
 export const clipContents = (pattern: Pattern, rows: Row[]): { lanes: number[][], notes: Note[] } => {
   const lanes: number[][] = []
   const notes: Note[] = []

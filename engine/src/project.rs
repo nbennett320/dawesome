@@ -89,10 +89,11 @@ pub struct ProjectPatternClip {
   pub track_number: u32,
   // beats from the start of the playlist
   pub start_beat: f64,
-  // where in the pattern the clip starts, in steps. left out at its start
+  // where in the pattern the clip starts, in steps (see PatternNode::start).
+  // left out at its start
   #[serde(default, skip_serializing_if = "is_zero")]
   pub start: f64,
-  // the clip's own length, in steps (see clip_window for one that's left
+  // the clip's own length, in steps (see saved_span for one that's left
   // out or makes no sense)
   #[serde(default)]
   pub length: f64,
@@ -235,8 +236,9 @@ pub struct LoadedPatternClip {
   pub pattern_id: u64,
   pub track_number: u32,
   pub start_beat: f32,
-  // the part of the pattern it plays, in steps. None: all of it
-  pub window: Option<ClipWindow>,
+  // where in its pattern it starts and ends, in steps (see
+  // ClipWindow::of_pattern)
+  pub window: ClipWindow,
 }
 
 impl LoadedPatternClip {
@@ -246,7 +248,7 @@ impl LoadedPatternClip {
       pattern_id: node.pattern_id,
       track_number: node.track_number,
       start_beat: beats(node.start_offset, interval),
-      window: node.window.map(ClipWindow::of_pattern),
+      window: ClipWindow::of_pattern(node),
     }
   }
 }
@@ -402,17 +404,18 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
       .then(a.track_number.cmp(&b.track_number))
       .then_with(|| a.path.cmp(&b.path)));
 
-    // in the order they start, so saving twice gives the same file. each
-    // with the part of its pattern it spans now
+    // in the order they start, so saving twice gives the same file. a clip
+    // that isn't all of its pattern, once, is trimmed (a half of a cut clip,
+    // or a clip that loops it)
     let sequencer = state.playlist.sequencer.lock().unwrap();
     let mut pattern_clips: Vec<ProjectPatternClip> = audiograph.pattern_nodes.iter().map(|node| {
-      let (from, to) = node.span(sequencer.pattern(node.pattern_id).map_or(0, |pattern| pattern.length));
+      let whole = sequencer.pattern(node.pattern_id).map(|pattern| pattern.length as f64);
       ProjectPatternClip {
         pattern_id: node.pattern_id,
         track_number: node.track_number,
-        start_beat: beat_of(node.start_offset, node.window.is_some()),
-        start: from,
-        length: to - from,
+        start_beat: beat_of(node.start_offset, node.start != 0. || Some(node.length) != whole),
+        start: node.start,
+        length: node.length,
       }
     }).collect();
     pattern_clips.sort_by(|a, b| a.start_beat.total_cmp(&b.start_beat).then(a.track_number.cmp(&b.track_number)));
@@ -472,21 +475,18 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
   }
 }
 
-// the part of its pattern, `length` steps long, a saved pattern clip plays,
-// as the playlist keeps it: none for all of it. a start that makes no sense
-// is the pattern's start, and a length that's left out or makes no sense is
-// to the pattern's end. a clip that ends at or past the pattern's end
-// follows its end
-fn clip_window(clip: &ProjectPatternClip, length: u32) -> Option<daw::PatternWindow> {
-  let whole = length as f64;
+// where in its pattern, `length` steps long, a saved pattern clip starts,
+// and how long it is, in steps: a start that makes no sense is the
+// pattern's start, and a length that's left out or makes no sense is to
+// the pattern's end (see PatternNode::set_span for the rest)
+fn saved_span(clip: &ProjectPatternClip, length: u32) -> (f64, f64) {
   let start = if clip.start.is_finite() { clip.start.max(0.) } else { 0. };
   let own = if clip.length.is_finite() && clip.length >= daw::MIN_PATTERN_CLIP {
     clip.length
   } else {
-    (whole - start).max(daw::MIN_PATTERN_CLIP)
+    (length as f64 - start).max(daw::MIN_PATTERN_CLIP)
   };
-  let end = Some(start + own).filter(|&end| end < whole);
-  if start == 0. && end.is_none() { None } else { Some(daw::PatternWindow { start, end }) }
+  (start, own)
 }
 
 // replace the playlist with a project. playback stops, and every clip gets a
@@ -611,15 +611,15 @@ pub fn apply(
       clip.pattern_id, interval.mul_f64(start_beat), clip.track_number, None,
     ) {
       Ok(id) => {
-        let window = clip_window(clip, pattern.length);
+        let (start, length) = saved_span(clip, pattern.length);
         let node = audiograph.pattern_nodes.iter_mut().find(|n| n.id == id).expect("a node that was just added");
-        node.window = window;
+        node.set_span(start, length);
         pattern_clips.push(LoadedPatternClip {
           id,
           pattern_id: clip.pattern_id,
           track_number: clip.track_number,
           start_beat: start_beat as f32,
-          window: window.map(ClipWindow::of_pattern),
+          window: ClipWindow::of_pattern(node),
         });
       }
       Err(e) => println!("left out a clip of pattern {}: {}", clip.pattern_id, e),

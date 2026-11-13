@@ -323,21 +323,29 @@ fn test_the_v3_fixture_opens_as_the_old_app_showed_it() {
     folder(0, "Verse", None), folder(1, "Verse 2", None), folder(2, "Fills", Some(0)), folder(3, "Pads", Some(1)),
   ]);
 
-  // the clips, in the file's order, each playing the part it played
-  let window = |start: f64, end: Option<f64>| Some(daw::PatternWindow { start, end });
-  let clips: Vec<(u64, u32, f32, Option<daw::PatternWindow>)> = {
+  // the clips, in the file's order, each playing the part it played: from
+  // where it started in its pattern to where it ended, as long as it was
+  let clips = |state: &daw::InnerState| -> Vec<(u64, u32, f32, (f64, f64))> {
     let audiograph = state.playlist.audiograph.lock().unwrap();
-    let windows = audiograph.pattern_nodes.iter().map(|node| node.window);
-    loaded.pattern_clips.iter().zip(windows).map(|(c, window)| (c.pattern_id, c.track_number, c.start_beat, window)).collect()
+    let spans = audiograph.pattern_nodes.iter().map(|node| (node.start, node.end()));
+    loaded.pattern_clips.iter().zip(spans).map(|(c, span)| (c.pattern_id, c.track_number, c.start_beat, span)).collect()
   };
-  assert_eq!(clips, vec![
-    (0, 0, 0., None),
-    (3, 2, 0., window(8., None)),
-    (0, 0, 4., window(4., Some(12.))),
-    (1, 1, 8., None),
-    (2, 1, 12., window(8., None)),
-    (4, 3, 16., None),
-  ]);
+  let played = vec![
+    (0, 0, 0., (0., 16.)),
+    (3, 2, 0., (8., 32.)),
+    (0, 0, 4., (4., 12.)),
+    (1, 1, 8., (0., 16.)),
+    (2, 1, 12., (8., 32.)),
+    (4, 3, 16., (0., 64.)),
+  ];
+  assert_eq!(clips(&state), played);
+
+  // their lengths are their own now: the patterns' lengths don't change them
+  for id in [0, 3, 4] {
+    state.playlist.sequencer.lock().unwrap().set_pattern_bars(id, 1, 4).unwrap();
+  }
+  state.playlist.sequencer.lock().unwrap().set_pattern_bars(1, 8, 4).unwrap();
+  assert_eq!(clips(&state), played);
 }
 
 #[test]

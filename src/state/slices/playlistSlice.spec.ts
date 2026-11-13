@@ -1,7 +1,7 @@
 import type { Mock } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import reducer, {
-  addToPlaylist, copyClips, moveNodeInPlaylist, moveNodesInPlaylist, cutClips, deepCopyClips, joinClips, NEEDS_SAVING, pasteClips, repeatClips, reduceLoadedProject, playlistSlice, removeManyFromPlaylist, selectClipOverrides, selectClipWindow, setClipWindows,
+  addPatternToPlaylist, addToPlaylist, copyClips, moveNodeInPlaylist, moveNodesInPlaylist, cutClips, deepCopyClips, joinClips, NEEDS_SAVING, pasteClips, repeatClips, reduceLoadedProject, playlistSlice, removeManyFromPlaylist, selectClipOverrides, selectClipWindow, setClipWindows,
   setPlaylistTempo,
   splitClips, stretchClips, updateClipSettings, validTempo, withWaitCursor,
 } from './playlistSlice'
@@ -98,8 +98,8 @@ describe('reduceExploded', () => {
     state = reducer(state, actions.reduceExploded({
       removed: [3],
       clips: [
-        { id: 10, patternId: 6, trackNumber: 0, startBeat: 4, window: null },
-        { id: 11, patternId: 7, trackNumber: 2, startBeat: 4, window: null },
+        { id: 10, patternId: 6, trackNumber: 0, startBeat: 4, window: { start: 0, end: 16 } },
+        { id: 11, patternId: 7, trackNumber: 2, startBeat: 4, window: { start: 0, end: 16 } },
       ],
     }))
 
@@ -405,7 +405,7 @@ describe('trimmed and cut clips', () => {
     ...loaded.clips[0], id: 7, startBeat: 4.5, window: null, ...overrides,
   })
   const patternClip = (overrides = {}) => ({
-    id: 9, patternId: 2, trackNumber: 1, startBeat: 8, window: null, ...overrides,
+    id: 9, patternId: 2, trackNumber: 1, startBeat: 8, window: { start: 0, end: 16 }, ...overrides,
   })
   const start = () => {
     let state = reducer(undefined, { type: 'init' })
@@ -463,13 +463,13 @@ describe('trimmed and cut clips', () => {
     expect(selectClipWindow()({ playlist: state } as never)).toBeNull()
   })
 
-  it('drops the window of a clip that comes back whole', () => {
+  it('drops the window of a sample clip that comes back whole (a pattern clip always has one)', () => {
     let state = start()
     expect(state.clipWindows[7]).toBeDefined()
     state = reducer(state, actions.reduceChangedClips({
       clips: [clip()], patternClips: [patternClip()],
     }))
-    expect(state.clipWindows).toEqual({})
+    expect(state.clipWindows).toEqual({ 9: { start: 0, end: 16 } })
   })
 
   it('forgets the window of a removed clip', () => {
@@ -531,6 +531,23 @@ describe('trimmed and cut clips', () => {
       expect(state.playlistItems.find((item: { id: number }) => item.id === 7)?.startBeat).toBe(3)
     })
 
+    it('places a pattern as long as the engine made it, which its pattern no longer changes', async () => {
+      const placed = { id: 30, patternId: 2, trackNumber: 1, startBeat: 12, window: { start: 0, end: 32 } }
+      mockInvoke.mockImplementation(async (command: string) =>
+        (command === 'get_playlist_data' ? playlistData : placed))
+      const dispatch = vi.fn()
+      await addPatternToPlaylist(2, 1, 12.3)(dispatch)
+      const state = dispatch.mock.calls.reduce(
+        (s, [action]) => typeof action === 'function' ? s : reducer(s, action),
+        start(),
+      )
+
+      expect(mockInvoke).toHaveBeenCalledWith('add_pattern_clip', { patternId: 2, trackNumber: 1, dropBeat: 12.3 })
+      expect(state.playlistItems.find((item: { id: number }) => item.id === 30))
+        .toMatchObject({ patternId: 2, trackNumber: 1, startBeat: 12, path: '' })
+      expect(state.clipWindows[30]).toEqual({ start: 0, end: 32 })
+    })
+
     it('gives null when the engine refuses', async () => {
       const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
       mockInvoke.mockRejectedValue('no node with id 7')
@@ -581,7 +598,7 @@ describe('the clip clipboard', () => {
   const start = () => reducer(undefined, reduceLoadedProject(loaded))
   const placed = (overrides = {}): Placed => ({
     clips: [clip({ id: 20 })],
-    patternClips: [{ id: 21, patternId: 2, trackNumber: 1, startBeat: 13, window: null }],
+    patternClips: [{ id: 21, patternId: 2, trackNumber: 1, startBeat: 13, window: { start: 0, end: 16 } }],
     leftOut: 0,
     ...overrides,
   })
@@ -772,7 +789,7 @@ describe('reduceChangedClips with a deep copy', () => {
     const base = reducer(undefined, reduceLoadedProject(loaded))
     const withPattern = reducer(base, playlistSlice.actions.reduceChangedClips({
       clips: [],
-      patternClips: [{ id: 30, patternId: 2, trackNumber: 1, startBeat: 3, window: null }],
+      patternClips: [{ id: 30, patternId: 2, trackNumber: 1, startBeat: 3, window: { start: 0, end: 16 } }],
     }))
     expect(withPattern.playlistItems.find(i => i.id === 30)?.patternId).toBe(2)
 

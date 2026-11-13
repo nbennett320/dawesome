@@ -45,8 +45,10 @@ export interface LoadedPatternClip {
   patternId: number
   trackNumber: number
   startBeat: number
-  // the part of the pattern it plays, in steps. null for all of it
-  window: ClipWindow | null
+  // where it starts and ends in its pattern, in steps: its own length, which
+  // can be past the pattern's end (the clip plays the pattern again from
+  // there). the end is never null
+  window: ClipWindow
 }
 
 // clips as they are after a trim or a cut (see engine/src/commands/clip.rs)

@@ -384,7 +384,7 @@ fn test_a_pattern_clip_becomes_a_sample_clip_of_what_it_played() {
   let (start, length) = {
     let audiograph = state.playlist.audiograph.lock().unwrap();
     let node = audiograph.get_pattern_node_by_id(id).unwrap().clone();
-    (node.start_offset, node.duration(16, audiograph.beat_interval()))
+    (node.start_offset, node.duration(audiograph.beat_interval()))
   };
   let original = play(&state, rate, total);
   state.history.lock().unwrap().clear();
@@ -429,7 +429,7 @@ fn test_a_pattern_clip_becomes_a_sample_clip_of_what_it_played() {
   assert!(audiograph.get_node_by_id(id).is_none());
   let node = audiograph.get_pattern_node_by_id(id).unwrap();
   assert_eq!((node.pattern_id, node.start_offset, node.track_number), (pattern, start, 3));
-  assert_eq!(node.window, Some(daw::PatternWindow { start: 2., end: None }));
+  assert_eq!((node.start, node.end()), (2., 16.));
   drop(audiograph);
   assert!(play(&state, rate, total) == original);
   assert!(file.is_file());
@@ -439,8 +439,11 @@ fn test_a_pattern_clip_becomes_a_sample_clip_of_what_it_played() {
 #[test]
 fn test_a_pattern_clip_of_pitched_and_gated_notes_is_written_as_it_plays() {
   let note = |pitch, start, length, velocity| daw::PatternNote { pitch, start, length, velocity };
-  for (tempo, rate, file_rate) in [(97., 48_000, 44_100), (120., 44_100, 48_000)] {
-    let (state, dir) = saved_project(&format!("pitched-{}", rate));
+  // the last: a clip from the middle of a step, round the pattern twice
+  // and more, cut at the end of each time round
+  let cases = [(97., 48_000, 44_100, None), (120., 44_100, 48_000, None), (97., 48_000, 44_100, Some((5.5, 47.25)))];
+  for (tempo, rate, file_rate, window) in cases {
+    let (state, dir) = saved_project(&format!("pitched-{}-{}", rate, window.is_some()));
     let long = noise_wav(&dir, "long.wav", file_rate, 2, file_rate);
     let pattern = {
       let mut sequencer = state.playlist.sequencer.lock().unwrap();
@@ -453,20 +456,23 @@ fn test_a_pattern_clip_of_pitched_and_gated_notes_is_written_as_it_plays() {
       let pattern = sequencer.add_pattern(1, 4).unwrap();
       // an octave up and down, quieter and louder, off the grid
       sequencer.set_pattern_notes(pattern, kick, vec![note(72, 0.5, 1., 0.4), note(48, 6.25, 0.1, 1.)]).unwrap();
-      sequencer.set_pattern_notes(pattern, gated, vec![note(57, 1., 2.7, 0.8), note(69, 8.1, 1., 1.), note(45, 12., 3.5, 0.5)]).unwrap();
+      // (the last runs past the pattern's end: it's cut there)
+      sequencer.set_pattern_notes(pattern, gated, vec![note(57, 1., 2.7, 0.8), note(69, 8.1, 1., 1.), note(45, 14., 3.5, 0.5)]).unwrap();
       pattern
     };
     let id = {
       let mut audiograph = state.playlist.audiograph.lock().unwrap();
       audiograph.set_tempo(tempo);
-      audiograph.add_pattern_node::<daw::timing::Note>(pattern, Duration::from_nanos(987_654_321), 2, None).unwrap()
+      let id = audiograph.add_pattern_node::<daw::timing::Note>(pattern, Duration::from_nanos(987_654_321), 2, None).unwrap();
+      if let Some((start, end)) = window { audiograph.set_pattern_window(id, start, Some(end)).unwrap(); }
+      id
     };
     let (start, length) = {
       let audiograph = state.playlist.audiograph.lock().unwrap();
       let node = audiograph.get_pattern_node_by_id(id).unwrap().clone();
-      (node.start_offset, node.duration(16, audiograph.beat_interval()))
+      (node.start_offset, node.duration(audiograph.beat_interval()))
     };
-    let total = Duration::from_secs(4);
+    let total = start + length + Duration::from_secs(1);
     let original = play(&state, rate, total);
 
     deep_copy(&state, &[id], Some(rate)).unwrap();

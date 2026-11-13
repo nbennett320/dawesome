@@ -38,7 +38,7 @@ const Strips = () => {
 const project: ProjectView = {
   tempo: 120,
   clips: [],
-  patternClips: [{ id: 40, patternId: 5, trackNumber: 2, startBeat: 6, window: null }],
+  patternClips: [{ id: 40, patternId: 5, trackNumber: 2, startBeat: 6, window: { start: 0, end: 16 } }],
   mixer: { tracks: [], master: { volumeDb: 0, pan: 0, mute: false, solo: false } },
   // the new synth row (9, in slot 109) and its pattern
   sequencer: sequencerOf({ rows: [synthRow(9, { pluginId: 'vst3:pad', name: 'Pad' })], patterns: [pattern(5)] }),

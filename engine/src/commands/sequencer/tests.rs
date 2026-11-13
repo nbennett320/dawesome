@@ -1,5 +1,6 @@
 use super::*;
 use std::collections::BTreeMap;
+use crate::commands::clip::ClipWindow;
 use std::time::Duration;
 
 const KICK: &str = "assets/assets_66-bd-01.wav";
@@ -513,7 +514,7 @@ fn test_the_paint_layout() {
 }
 
 // the pattern clips on a track, as (start beat, window), in order
-fn clips_on(state: &daw::InnerState, track: u32) -> Vec<(f32, Option<crate::commands::clip::ClipWindow>)> {
+fn clips_on(state: &daw::InnerState, track: u32) -> Vec<(f32, ClipWindow)> {
   let audiograph = state.playlist.audiograph.lock().unwrap();
   let interval = audiograph.beat_interval();
   let mut clips: Vec<_> = audiograph.pattern_nodes.iter()
@@ -538,9 +539,9 @@ fn test_painting_lays_clips_end_to_end() {
   let starts: Vec<f32> = painted.clips.iter().map(|clip| clip.start_beat).collect();
   assert_eq!(starts, vec![4., 8., 12.]);
   // the last is trimmed to the drag's end: two beats, eight steps
-  assert_eq!(painted.clips[0].window, None);
-  assert_eq!(painted.clips[1].window, None);
-  assert_eq!(painted.clips[2].window, Some(crate::commands::clip::ClipWindow { start: 0., end: Some(8.) }));
+  assert_eq!(painted.clips[0].window, ClipWindow { start: 0., end: Some(16.) });
+  assert_eq!(painted.clips[1].window, ClipWindow { start: 0., end: Some(16.) });
+  assert_eq!(painted.clips[2].window, ClipWindow { start: 0., end: Some(8.) });
   assert_eq!(clips_on(&state, 2), painted.clips.iter().map(|c| (c.start_beat, c.window)).collect::<Vec<_>>());
   // no new pattern, and one step
   assert_eq!(painted.sequencer.patterns.len(), 1);
@@ -559,13 +560,13 @@ fn test_painting_with_no_pattern_makes_one() {
   assert_eq!((made.name.as_deref(), made.length, made.floor), (Some("Sequence 2"), 32, 32));
   assert_eq!(painted.clips.len(), 1);
   assert_eq!(painted.clips[0].start_beat, 2.);
-  assert_eq!(painted.clips[0].window, Some(crate::commands::clip::ClipWindow { start: 0., end: Some(24.) }));
+  assert_eq!(painted.clips[0].window, ClipWindow { start: 0., end: Some(24.) });
 
   // a click: a bar, and the clip is all of it
   let clicked = paint(&state, None, 0, 20., 20.).unwrap();
   let made = clicked.sequencer.patterns.iter().find(|p| p.id == clicked.pattern_id).unwrap();
   assert_eq!(made.length, 16);
-  assert_eq!(clicked.clips[0].window, None);
+  assert_eq!(clicked.clips[0].window, ClipWindow { start: 0., end: Some(16.) });
 }
 
 #[test]

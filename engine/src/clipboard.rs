@@ -61,17 +61,11 @@ fn snap(audiograph: &daw::AudioGraph<'static>, id: u64) -> Option<ClipSnap> {
     .or_else(|| audiograph.get_pattern_node_by_id(id).cloned().map(ClipSnap::Pattern))
 }
 
-// where a clip ends: a pattern clip with its pattern, or with the part of
-// it that it plays
+// where a clip ends
 fn end_of(audiograph: &daw::AudioGraph<'static>, clip: &ClipSnap) -> Duration {
   match clip {
     ClipSnap::Sample(node) => node.start_offset + node.duration(),
-    ClipSnap::Pattern(node) => {
-      let length = audiograph.sequencer.lock().unwrap()
-        .pattern(node.pattern_id)
-        .map_or(0, |pattern| pattern.length);
-      node.start_offset + node.duration(length, audiograph.beat_interval())
-    }
+    ClipSnap::Pattern(node) => node.start_offset + node.duration(audiograph.beat_interval()),
   }
 }
 

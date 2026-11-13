@@ -2,6 +2,7 @@ import {
   Note,
   UNCONFIRMED,
   clipContents,
+  clipPasses,
   keepNotes,
   keepUnchanged,
   samePattern,
@@ -10,6 +11,8 @@ import {
   patternBars,
   patternLabel,
   patternSeconds,
+  patternStepAt,
+  repeatLines,
   rowName,
   rowNotes,
   sortNotes,
@@ -255,6 +258,47 @@ describe('stepAt', () => {
     expect(stepAt(2_000, p, 500)).toBe(0)
     expect(stepAt(2_130, p, 500)).toBe(1)
     expect(stepAt(100, p, 0)).toBeNull()
+  })
+})
+
+describe('patternStepAt', () => {
+  it('plays the pattern end to end, over and over, from where the clip starts in it', () => {
+    expect(patternStepAt(0, 0, 16)).toBe(0)
+    expect(patternStepAt(0, 15.5, 16)).toBe(15.5)
+    expect(patternStepAt(0, 16, 16)).toBe(0)
+    expect(patternStepAt(4, 13, 16)).toBe(1)
+    // a clip starting on the pattern's third time round (not wrapped)
+    expect(patternStepAt(36, 0, 16)).toBe(4)
+    expect(patternStepAt(36, 30, 16)).toBe(2)
+    // and before its start
+    expect(patternStepAt(0, -1, 16)).toBe(15)
+  })
+})
+
+describe('clipPasses', () => {
+  it('is each time through the pattern: the part played, and where it starts', () => {
+    // all of it once
+    expect(clipPasses(0, 16, 16)).toEqual([{ from: 0, to: 16, at: 0 }])
+    // part of it
+    expect(clipPasses(4, 8, 16)).toEqual([{ from: 4, to: 12, at: 0 }])
+    // from step 4, round it two and a quarter times
+    expect(clipPasses(4, 36, 16)).toEqual([
+      { from: 4, to: 16, at: 0 }, { from: 0, to: 16, at: 16 }, { from: 0, to: 8, at: 32 },
+    ])
+    // the second half of a clip cut on its pattern's second time round
+    expect(clipPasses(20.5, 15.5, 16)).toEqual([{ from: 4.5, to: 16, at: 16 }, { from: 0, to: 4, at: 32 }])
+    expect(clipPasses(0, 16, 0)).toEqual([])
+  })
+})
+
+describe('repeatLines', () => {
+  it('is where the pattern starts over, in steps from the clip\'s start', () => {
+    expect(repeatLines(0, 16, 16)).toEqual([])
+    expect(repeatLines(0, 64, 16)).toEqual([16, 32, 48])
+    expect(repeatLines(4, 36, 16)).toEqual([12, 28])
+    expect(repeatLines(20.5, 15.5, 16)).toEqual([11.5])
+    // ending where it would start over: no line on its edge
+    expect(repeatLines(8, 24, 16)).toEqual([8])
   })
 })
 

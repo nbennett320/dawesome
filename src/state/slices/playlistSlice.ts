@@ -609,27 +609,20 @@ export const addTrack = () => async (dispatch: Dispatch) => {
 }
 
 // place a pattern in the playlist (dragged from the Sequencer's pattern
-// strip). the clip stays linked to the pattern
+// strip). the clip stays linked to the pattern, and is as long as the
+// pattern is now
 export const addPatternToPlaylist = (
   patternId: number,
   trackNumber: number,
   dropBeat: number,
 ) => async (dispatch: Dispatch) => {
-  const { id, startBeat } = await invoke<{ id: number, startBeat: number }>('add_pattern_clip', {
+  const clip = await invoke<LoadedPatternClip>('add_pattern_clip', {
     patternId,
     trackNumber,
     dropBeat,
   })
 
-  dispatch(addPlaylistItem({
-    id,
-    path: '',
-    patternId,
-    startBeat,
-    trackNumber,
-    pixelOffset: { ...NO_PIXEL_OFFSET },
-  } as PlaylistItem))
-
+  dispatch(playlistSlice.actions.reduceChangedClips({ clips: [], patternClips: [clip] }))
   await refreshTrackCount()(dispatch)
 }
 

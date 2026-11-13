@@ -107,7 +107,7 @@ describe('sequencerSlice', () => {
     let state = reducer(init(), setSequencer(sequencer))
     // a new pattern the paint made
     const painted = {
-      clips: [{ id: 40, patternId: 8, trackNumber: 1, startBeat: 0, window: null }],
+      clips: [{ id: 40, patternId: 8, trackNumber: 1, startBeat: 0, window: { start: 0, end: 32 } }],
       patternId: 8,
       sequencer: { ...sequencer, patterns: [...sequencer.patterns, pattern(8, { length: 32 })] },
       mixer: { tracks: [], master: { volumeDb: 0, pan: 0, mute: false, solo: false } },
@@ -389,7 +389,7 @@ describe('adding rows', () => {
     const project: ProjectView = {
       tempo: 120,
       clips: [],
-      patternClips: [{ id: 30, patternId: 6, trackNumber: 2, startBeat: 8, window: null }],
+      patternClips: [{ id: 30, patternId: 6, trackNumber: 2, startBeat: 8, window: { start: 0, end: 16 } }],
       mixer: { tracks: [], master: { volumeDb: 0, pan: 0, mute: false, solo: false } },
       sequencer: { ...sequencer, rows: [...sequencer.rows, synthRow(12)] },
     }

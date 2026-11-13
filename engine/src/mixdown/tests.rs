@@ -378,6 +378,22 @@ fn test_a_pattern_clips_notes_play_on_its_tracks_copy_and_are_mixed_down() {
 }
 
 #[test]
+fn test_a_looping_clips_notes_are_cut_each_time_round_and_mixed_down_the_same() {
+  let (mut rig, _, pattern) = synth_and_notes();
+  let state = rig.state.clone();
+  // on beat 1, round its one bar pattern two and a half times: the note
+  // from step 14 is cut at the end of each time round, and the last time
+  // round ends before it
+  let clip = note_clip(&state, pattern, 2, Duration::from_millis(500));
+  state.playlist.audiograph.lock().unwrap().set_pattern_window(clip, 0., Some(40.)).unwrap();
+  let at = |step: usize| 24_000 + step * 6_000;
+  let expected = vec![(at(3), at(6)), (at(14), at(16)), (at(19), at(22)), (at(30), at(32)), (at(35), at(38))];
+
+  assert_eq!(sounding(&play_on_rig(&mut rig, 100, Duration::ZERO, Duration::from_secs(6))), expected);
+  assert_eq!(sounding(&mixdown(&state, 48_000)), expected);
+}
+
+#[test]
 fn test_a_synth_on_two_tracks_is_mixed_down_through_each_tracks_fader() {
   let (rig, synth, pattern) = synth_and_notes();
   let state = rig.state.clone();

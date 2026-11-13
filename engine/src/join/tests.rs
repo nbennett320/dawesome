@@ -290,8 +290,8 @@ fn test_pattern_clips_become_one_clip_of_a_new_pattern() {
   assert_eq!(starts(made, kick), vec![0., 8., 47.]);
   assert_eq!(starts(made, snare), vec![36., 44.]);
   assert!(made.notes[&kick].iter().all(|note| note.length == 1.));
-  // three bars is the whole pattern: no window
-  assert_eq!(clip.window, None);
+  // three bars is the whole pattern
+  assert_eq!(clip.window, ClipWindow { start: 0., end: Some(48.) });
 
   // every hit where it was
   assert!(play(&state, rate, total) == original);
@@ -324,7 +324,7 @@ fn test_joined_pattern_clips_keep_their_span_and_merge_where_they_overlap() {
   let made = joined.sequencer.unwrap().patterns.into_iter().find(|p| p.id == joined.clips.pattern_clips[0].pattern_id).unwrap();
   // 22 steps, so a two bar pattern, and a clip trimmed to the 22
   assert_eq!(made.length, 32);
-  assert_eq!(joined.clips.pattern_clips[0].window, Some(ClipWindow { start: 0., end: Some(22.) }));
+  assert_eq!(joined.clips.pattern_clips[0].window, ClipWindow { start: 0., end: Some(22.) });
   // the kick's two steps, and the snare's from step 8 on (the second
   // clip's kick on step 15 was trimmed off)
   assert_eq!(starts(&made, kick), vec![0., 8.]);
@@ -372,6 +372,90 @@ fn test_joined_pattern_clips_keep_the_notes_they_play() {
 }
 
 #[test]
+fn test_a_looping_clip_is_joined_as_it_plays() {
+  let rate = 44_100;
+  let total = Duration::from_secs(8);
+  let state = Arc::new(daw::InnerState::default());
+  let (kick, snare, a, b) = two_patterns(&state);
+  // the first from step 4 of its pattern, round it two and a quarter
+  // times (its kick on steps 8, then 0 and 8, then 0), and the second
+  // straight after it
+  let first = pattern_clip(&state, a, 2.);
+  crate::commands::clip::set_windows(&state, &[crate::commands::clip::WindowEdit {
+    id: first, window: ClipWindow { start: 4., end: Some(40.) },
+  }]).unwrap();
+  let second = pattern_clip(&state, b, 12.);
+  let original = play(&state, rate, total);
+
+  let joined = join(&state, &[first, second], Some(rate)).unwrap();
+  let made = joined.sequencer.unwrap().patterns.into_iter().find(|p| p.id == joined.clips.pattern_clips[0].pattern_id).unwrap();
+  // 36 steps and 16: four bars, and a clip of the 52
+  assert_eq!(made.length, 64);
+  assert_eq!(joined.clips.pattern_clips[0].window, ClipWindow { start: 0., end: Some(52.) });
+  assert_eq!(starts(&made, kick), vec![4., 12., 20., 28., 51.]);
+  assert_eq!(starts(&made, snare), vec![40., 48.]);
+  assert!(play(&state, rate, total) == original);
+}
+
+#[test]
+fn test_a_join_too_long_or_too_full_for_a_pattern_is_refused() {
+  let state = Arc::new(daw::InnerState::default());
+  let (_, _, a, b) = two_patterns(&state);
+  // 128 bars of the first, then the second: 129 bars
+  let first = pattern_clip(&state, a, 0.);
+  state.playlist.audiograph.lock().unwrap().set_pattern_window(first, 0., Some(2_048.)).unwrap();
+  let second = pattern_clip(&state, b, 512.);
+  let before = saved(&state);
+  assert_eq!(join(&state, &[first, second], None).unwrap_err(), "Join needs the pattern clips to span no more than 128 bars.");
+  assert_eq!(saved(&state), before);
+
+  // a bar of 320 notes, round 128 times: more than a row can hold
+  let full = {
+    let mut sequencer = state.playlist.sequencer.lock().unwrap();
+    let row = sequencer.rows()[0].id;
+    let full = sequencer.add_pattern(1, 4).unwrap();
+    let notes = (0..320).map(|n| daw::PatternNote { pitch: 60, start: n as f64 * 0.05, length: 0.04, velocity: 1. }).collect();
+    sequencer.set_pattern_notes(full, row, notes).unwrap();
+    full
+  };
+  let third = pattern_clip(&state, full, 0.);
+  state.playlist.audiograph.lock().unwrap().set_pattern_window(third, 0., Some(2_047.)).unwrap();
+  let fourth = pattern_clip(&state, b, 511.75);
+  let before = saved(&state);
+  assert_eq!(join(&state, &[third, fourth], None).unwrap_err(), "a pattern can hold at most 40000 notes for a row");
+  assert_eq!(saved(&state), before);
+}
+
+#[test]
+fn test_the_halves_of_a_cut_looping_clip_join_again_after_a_save() {
+  // off the grid, at a tempo whose steps aren't whole nanoseconds
+  let (state, dir) = saved_project("rejoin");
+  let (_, _, a, _) = two_patterns(&state);
+  let start = Duration::from_nanos(1_234_567_891);
+  let clip = {
+    let mut audiograph = state.playlist.audiograph.lock().unwrap();
+    audiograph.set_tempo(97.);
+    let clip = audiograph.add_pattern_node::<daw::timing::Note>(a, start, 1, None).unwrap();
+    audiograph.set_pattern_window(clip, 0., Some(40.)).unwrap();
+    clip
+  };
+  // cut on its second time round, between steps
+  let beat = state.playlist.audiograph.lock().unwrap().beat_interval().as_secs_f64();
+  crate::commands::clip::split(&state, &[clip], start.as_secs_f64() / beat + 21.3 / 4.).unwrap();
+  let file = dir.join("song.dawesome");
+  project::save_to(&state, &file).unwrap();
+
+  let other = Arc::new(daw::InnerState::default());
+  project::load_from(&other, &file).unwrap();
+  let ids: Vec<u64> = other.playlist.audiograph.lock().unwrap().pattern_nodes.iter().map(|n| n.id).collect();
+  assert_eq!(ids.len(), 2);
+  let joined = join(&other, &ids, None).unwrap();
+  assert_eq!(joined.sequencer, None);
+  assert_eq!(joined.clips.pattern_clips[0].window, ClipWindow { start: 0., end: Some(40.) });
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn test_the_halves_of_a_cut_pattern_clip_are_one_clip_of_its_pattern_again() {
 
   let state = Arc::new(daw::InnerState::default());
@@ -386,7 +470,7 @@ fn test_the_halves_of_a_cut_pattern_clip_are_one_clip_of_its_pattern_again() {
   let joined = join(&state, &[clip, right, last], None).unwrap();
   assert_eq!(joined.sequencer, None);
   assert_eq!(joined.removed, vec![right, last]);
-  assert_eq!(joined.clips.pattern_clips[0].window, None);
+  assert_eq!(joined.clips.pattern_clips[0].window, ClipWindow { start: 0., end: Some(16.) });
   assert_eq!(joined.clips.pattern_clips[0].pattern_id, a);
   // no new pattern
   assert_eq!(crate::commands::synth::sequencer_state(&state), patterns);

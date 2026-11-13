@@ -10,8 +10,7 @@ use serde::Serialize;
 
 use crate::daw;
 use crate::history;
-use crate::commands::clip::PlacedNode;
-use crate::commands::playlist::{beat_to_offset, node_beat};
+use crate::commands::playlist::beat_to_offset;
 use crate::project::LoadedPatternClip;
 
 use crate::commands::synth::sequencer_state;
@@ -330,7 +329,7 @@ pub fn rename_pattern(state: daw::TState<'_>, pattern_id: u64, name: String) -> 
 }
 
 // make a pattern `bars` long (1 to PATTERN_BARS_MAX), and never trimmed
-// shorter. its clips in the playlist get longer or shorter
+// shorter. its clips in the playlist keep their own lengths
 #[tauri::command]
 pub fn set_pattern_bars(state: daw::TState<'_>, pattern_id: u64, bars: u32) -> Result<daw::PatternChange, String> {
   let beats = beats_per_bar(&state);
@@ -416,14 +415,15 @@ pub fn seek_pattern(state: daw::TState<'_>, pattern_id: u64, step: f64) -> Resul
 }
 
 // place a pattern in the playlist, dropped at `drop_beat` on `track_number`
-// and snapped by the snap setting. the clip stays linked to the pattern
+// and snapped by the snap setting. the clip stays linked to the pattern, and
+// is as long as the pattern is now. returns the clip as it's placed
 #[tauri::command]
 pub fn add_pattern_clip(
   state: daw::TState<'_>,
   pattern_id: u64,
   track_number: u32,
   drop_beat: Option<f32>,
-) -> Result<PlacedNode, String> {
+) -> Result<LoadedPatternClip, String> {
   add_pattern_clip_to(&state, pattern_id, track_number, drop_beat)
 }
 
@@ -432,7 +432,7 @@ fn add_pattern_clip_to(
   pattern_id: u64,
   track_number: u32,
   drop_beat: Option<f32>,
-) -> Result<PlacedNode, String> {
+) -> Result<LoadedPatternClip, String> {
   let start_offset = beat_to_offset(state, drop_beat);
   let subdivision = {
     let ui = state.playlist.ui.lock().unwrap();
@@ -442,9 +442,10 @@ fn add_pattern_clip_to(
   // one step to undo
   let id = crate::history::clip_edit(state, &[], None, || state.playlist.audiograph.lock().unwrap()
     .add_pattern_node(pattern_id, start_offset, track_number, subdivision), |&id| vec![id])?;
-  let start_beat = node_beat(state, id)?;
 
-  Ok(PlacedNode { id, start_beat })
+  let audiograph = state.playlist.audiograph.lock().unwrap();
+  let node = audiograph.get_pattern_node_by_id(id).ok_or_else(|| format!("no node with id {}", id))?;
+  Ok(LoadedPatternClip::of(node, audiograph.beat_interval()))
 }
 
 // pattern clips that were exploded: the ones taken out, the pattern clips
