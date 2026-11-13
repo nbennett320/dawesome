@@ -8,7 +8,7 @@ import { P5BoundingBox, State as ComponentState } from '../../../render/P5Compon
 import { paint, theme } from './theme'
 import { mixRgba } from '../../../theme/color'
 import type { SectionKey } from '../../../theme/keys'
-import { Pass, Pattern, STEPS_PER_BEAT, clipPasses, patternLabel } from '../../../types/sequencer'
+import { Pass, Pattern, clipPasses, patternLabel } from '../../../types/sequencer'
 import { hiddenBeyond, patternHiddenBeyond } from './edges'
 import { SampleLane, SynthLane, firstFrom, patternLanes } from './patternDrawing'
 import { drawEdgeBar } from '../../../editing/look'
@@ -312,7 +312,7 @@ class PlaylistObject extends PlaylistComponent<State> {
 
   // a pattern clip's body: its pattern, played end to end from where the
   // clip starts in it, each time through after the first marked with a
-  // faint repeat line (see clipPasses), over fainter beat lines. a lane for
+  // faint repeat line (see clipPasses). a lane for
   // each row that plays notes in it, in the rows' order: a sample row's
   // notes are short ticks where they start, and a synth row's small bars on
   // rows of their pitches, each cut at the end of its time through. only
@@ -330,7 +330,7 @@ class PlaylistObject extends PlaylistComponent<State> {
     // in the track's color (see patternColors)
     const renderer = this.renderer as Renderer
     const ink = renderer.patternRgba(this.playlistItem.trackNumber)
-    this.#drawLines(body, ink, bodyTop, bodyHeight)
+    this.#drawRepeats(body, ink, bodyTop, bodyHeight)
 
     const lanes = patternLanes(pattern, renderer.sequencer.rows)
     if(!lanes.length) return
@@ -364,20 +364,15 @@ class PlaylistObject extends PlaylistComponent<State> {
     }
   }
 
-  // a repeat line where each time through after the first starts, and a
-  // beat line on each beat inside the times through
-  #drawLines = ({ from, passes, stepX }: PatternBody, ink: PatternInk, top: number, height: number) => {
+  // a repeat line where each time through after the first starts (no lines
+  // on the beats: the playlist's grid is behind the clip)
+  #drawRepeats = ({ from, passes, stepX }: PatternBody, ink: PatternInk, top: number, height: number) => {
     this.p.strokeWeight(1 / this.currentScale)
-    const line = (x: number) => this.p.line(x, top, x, top + height)
+    this.p.stroke(...ink.repeat)
     passes.forEach(pass => {
-      if(pass.at > from) {
-        this.p.stroke(...ink.repeat)
-        line(stepX(pass, 0))
-      }
-      this.p.stroke(...ink.beat)
-      for(let step = (Math.floor(pass.from / STEPS_PER_BEAT) + 1) * STEPS_PER_BEAT; step < pass.to; step += STEPS_PER_BEAT) {
-        line(stepX(pass, step))
-      }
+      if(pass.at <= from) return
+      const x = stepX(pass, 0)
+      this.p.line(x, top, x, top + height)
     })
   }
 

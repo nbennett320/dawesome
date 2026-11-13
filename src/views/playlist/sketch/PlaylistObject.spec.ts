@@ -72,13 +72,15 @@ const drawn = (
 
   const ink = renderer.patternRgba(0)
   const linesIn = (color: readonly number[]) => lines.filter(line => line.color === color.join()).map(line => line.x / STEP)
+  // every line drawn in the clip's body, of any colour
+  const all = lines.map(line => line.x / STEP)
   // the ticks (narrower than a step), and the steps of the clip each starts
   // on, and each note's bar as (start, end), in steps from the clip's start
   const ticks = rects.filter(rect => rect.width < STEP)
   const barRects = rects.filter(rect => rect.width >= STEP)
   const hits = ticks.map(rect => Math.floor(rect.x / STEP))
   const bars = barRects.map(rect => [rect.x / STEP, (rect.x + rect.width) / STEP])
-  return { repeats: linesIn(ink.repeat), beats: linesIn(ink.beat), hits, bars, ticks, barRects }
+  return { repeats: linesIn(ink.repeat), all, hits, bars, ticks, barRects }
 }
 
 // whether every rect of `lower` is drawn below every rect of `upper`
@@ -88,19 +90,20 @@ const below = (lower: Rect[], upper: Rect[]) =>
 describe('a pattern clip', () => {
   beforeEach(() => applyTheme(slateLightTheme))
 
-  it('draws its pattern once when it\'s as long as it, with no repeat line', () => {
-    const { repeats, beats, hits, bars } = drawn({ start: 0, end: 16 })
+  it('draws its pattern once when it\'s as long as it, with no lines in it', () => {
+    const { repeats, all, hits, bars } = drawn({ start: 0, end: 16 })
     expect(repeats).toEqual([])
-    expect(beats).toEqual([4, 8, 12])
+    expect(all).toEqual([])
     expect(hits).toEqual([0, 8])
     // the synth's note cut at the pattern's end
     expect(bars).toEqual([[14, 16]])
   })
 
   it('draws its pattern each time round when it\'s longer, with a repeat line where it starts over', () => {
-    const { repeats, beats, hits, bars } = drawn({ start: 0, end: 40 })
+    const { repeats, all, hits, bars } = drawn({ start: 0, end: 40 })
     expect(repeats).toEqual([16, 32])
-    expect(beats).toEqual([4, 8, 12, 20, 24, 28, 36])
+    // only the repeat lines: none on the beats
+    expect(all).toEqual([16, 32])
     expect(hits.sort((a, b) => a - b)).toEqual([0, 8, 16, 24, 32])
     // cut at the end of each time round, and the third time round ends first
     expect(bars).toEqual([[14, 16], [30, 32]])

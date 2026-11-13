@@ -15,8 +15,8 @@ export const theme = {
 // a pattern clip's colors in its track's color, worked out as the theme's
 // amber pattern colors are from its LED colors (engine/themes/base.json),
 // with the track's color as the LED: a pale body, and a stronger label,
-// edge, hits and beat lines, and lines a little stronger than the beat's
-// where a clip longer than its pattern starts it over. `clip` is a sample
+// edge and hits, and a line where a clip longer than its pattern starts it
+// over. `clip` is a sample
 // clip's body and `ink` its text, which the track's color is mixed with
 export const patternColors = (track: Readonly<RGBA>, clip: Readonly<RGBA>, ink: Readonly<RGBA>) => {
   // ledTint, ledLine and ledInk
@@ -28,7 +28,6 @@ export const patternColors = (track: Readonly<RGBA>, clip: Readonly<RGBA>, ink: 
     label: mixRgba(track, tint, 0.15),
     border: mixRgba(track, line, 0.5),
     hit: mixRgba(track, dark, 0.75),
-    beat: mixRgba(line, tint, 0.6),
     repeat: line,
   }
 }
