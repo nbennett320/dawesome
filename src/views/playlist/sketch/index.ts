@@ -1680,12 +1680,13 @@ export class Renderer extends RendererBase {
       mute: fourtrackPaint.rgba('ledAmberOn'),
       solo: fourtrackPaint.rgba('ledLimeOn'),
     }
-    // every other lane is shaded (see draw)
-    const lanes = [paint.rgba('background'), paint.rgba('laneAlt')]
+    // (lanes aren't shaded: the lines between them set them apart, so a
+    // lip sits on the plain background)
+    const lane = paint.rgba('background')
 
     this.#lipBoxes().forEach(({ track, box, text }) => {
       const led = this.trackRgba(track)
-      drawLip(ctx, box, text, { ...base, lane: lanes[track % 2], led }, { lit: sounding.has(track), ring: this.#ring(track) })
+      drawLip(ctx, box, text, { ...base, lane, led }, { lit: sounding.has(track), ring: this.#ring(track) })
     })
   }
 
@@ -2339,13 +2340,6 @@ export class Renderer extends RendererBase {
       p.push()
       p.translate(this.transformX, 1 - this.scrollY)
       p.scale(currentScale, 1)
-
-      // every other track lane is shaded a little
-      p.noStroke()
-      paint.fill(p, 'laneAlt')
-      for(let n = 1; n < trackCount; n += 2) {
-        p.rect(0, trackTop(n), width, staticDefaults.trackHeight)
-      }
 
       // the grid follows the zoom (see adaptiveStep): its lines stay about
       // GRID_GAP pixels apart, splitting beats into finer notes zoomed in and
