@@ -227,7 +227,8 @@
 }
 
 // ── a row's notes when they aren't plain steps: a panel for each bar,
-// where its keys would be, and the notes drawn across them ──
+// where its keys would be, and the notes drawn across them. clicked, the
+// Piano Roll opens on them ──
 .seq-preview {
   position: absolute;
   top: 0;
@@ -236,10 +237,7 @@
   padding: 0;
   border: 0;
   background: none;
-
-  &.is-open {
-    cursor: pointer;
-  }
+  cursor: pointer;
 
   &:focus-visible {
     outline: 2px solid var(--ft-focus);
@@ -256,7 +254,7 @@
   background: rgb(var(--c-raised));
   box-shadow: inset 0 0 0 1px var(--ft-line-strong);
 
-  .seq-preview.is-open:hover & {
+  .seq-preview:hover & {
     box-shadow: inset 0 0 0 1px var(--ft-ink-faint);
   }
 }

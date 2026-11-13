@@ -121,21 +121,25 @@ describe('sequencerSlice', () => {
     expect(state.lastSelected).toBe(8)
   })
 
-  it('keeps the synth row the Piano Roll edits while it’s there, or the first', () => {
+  it('keeps the row the Piano Roll edits while it’s there, or the first synth row, or the first row', () => {
     let state = reducer(init(), setSequencer(sequencer))
     // the first synth row on screen, whatever the ids
     expect(state.pianoRollRowId).toBe(3)
 
     state = reducer(state, setPianoRollRow(1))
-    // not a row, nor a sample row
+    // not a row
     state = reducer(state, setPianoRollRow(99))
-    state = reducer(state, setPianoRollRow(0))
     expect(state.pianoRollRowId).toBe(1)
-    expect(selectPianoRollRow(asRoot(state))?.instrument.slot).toBe(101)
+    expect(selectPianoRollRow(asRoot(state))?.instrument).toMatchObject({ kind: 'synth', slot: 101 })
+    // a sample row
+    state = reducer(state, setPianoRollRow(0))
+    expect(selectPianoRollRow(asRoot(state))?.instrument).toMatchObject({ kind: 'sample', path: '/drums/0.wav' })
 
-    state = reducer(state, setSequencer({ ...sequencer, rows: [sampleRow(0), synthRow(3)] }))
+    state = reducer(state, setSequencer({ ...sequencer, rows: [synthRow(3), sampleRow(2)] }))
     expect(state.pianoRollRowId).toBe(3)
-    state = reducer(state, setSequencer({ ...sequencer, rows: [sampleRow(0)] }))
+    state = reducer(state, setSequencer({ ...sequencer, rows: [sampleRow(2), sampleRow(0)] }))
+    expect(state.pianoRollRowId).toBe(2)
+    state = reducer(state, setSequencer({ ...sequencer, rows: [] }))
     expect(state.pianoRollRowId).toBeNull()
   })
 

@@ -208,11 +208,15 @@ describe('the Pattern Sequencer', () => {
     expect(state.sequencer.pianoRollRowId).toBe(3)
   })
 
-  it('shows a sample row’s notes that aren’t plain steps as a picture, and changes nothing', async () => {
+  it('shows a sample row’s notes that aren’t plain steps as a picture, which opens the Piano Roll on them', async () => {
     sequencer = makeSequencer({ patterns: [pattern(0, { name: 'Beat', notes: { 0: [...steps(0), note(60, 2.5)] } })] })
-    await setup()
+    const { store } = await setup()
     expect(keysOf('kick').every(key => key.getAttribute('aria-label')?.endsWith('past the end'))).toBe(true)
-    fireEvent.click(screen.getByRole('img', { name: 'kick notes' }))
+    pick('kick notes')
+
+    const state = store.getState()
+    expect(selectFocusedView(state as never)).toBe(View.PianoRoll)
+    expect(state.sequencer.pianoRollRowId).toBe(0)
     expect(mockInvoke.mock.calls.map(([command]) => command)).not.toContain('set_pattern_notes')
   })
 

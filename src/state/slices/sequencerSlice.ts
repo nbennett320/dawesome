@@ -2,7 +2,7 @@ import { createSelector, createSlice, Dispatch, Draft, original, PayloadAction }
 import { invoke } from '@tauri-apps/api/core'
 import type { RootState } from '../store'
 import {
-  AddedRow, Note, Pattern, PatternChange, PatternFolder, Row, RowChange, RowKinds, SequencerState, SynthInstrument,
+  AddedRow, Note, Pattern, PatternChange, PatternFolder, Row, RowChange, RowKinds, SequencerState,
   isSampleRow, isSynthRow, keepNotes, keepUnchanged, samePattern, sameRow, sortNotes, withNotes, withStep, withTrim,
 } from '../../types/sequencer'
 import { PlaylistTransport } from '../../types/transport'
@@ -47,7 +47,7 @@ export interface SequencerSliceState extends SequencerState {
   // playlist's Draw tool paints. null when there isn't one (it was deleted,
   // or a project was opened since)
   lastSelected: number | null
-  // the synth row whose notes the Piano Roll edits
+  // the row whose notes the Piano Roll edits
   pianoRollRowId: number | null
   run: PatternRun | null
   // the Pattern Sequencer shows only the rows with notes in the pattern
@@ -67,13 +67,14 @@ const initialState: SequencerSliceState = {
 }
 
 // keep a pattern selected while there are any: the one that was, or the
-// first. and a synth row for the Piano Roll while there are any
+// first. and a row for the Piano Roll while there are any: the one that
+// was, or the first synth row (a melody, more likely), or the first row
 const fixSelection = (state: SequencerSliceState) => {
   if(!state.patterns.some(p => p.id === state.selected)) state.selected = state.patterns[0]?.id ?? null
   // (not replaced by another: the Draw tool makes a pattern instead)
   if(!state.patterns.some(p => p.id === state.lastSelected)) state.lastSelected = null
-  if(!state.rows.some(row => row.id === state.pianoRollRowId && isSynthRow(row))) {
-    state.pianoRollRowId = state.rows.find(isSynthRow)?.id ?? null
+  if(!state.rows.some(row => row.id === state.pianoRollRowId)) {
+    state.pianoRollRowId = (state.rows.find(isSynthRow) ?? state.rows[0])?.id ?? null
   }
 }
 
@@ -129,9 +130,9 @@ export const sequencerSlice = createSlice({
     selectPattern: (state, action: PayloadAction<number>) => {
       select(state, action.payload)
     },
-    // the synth row whose notes the Piano Roll edits
+    // the row whose notes the Piano Roll edits
     setPianoRollRow: (state, action: PayloadAction<number>) => {
-      if(state.rows.some(row => row.id === action.payload && isSynthRow(row))) state.pianoRollRowId = action.payload
+      if(state.rows.some(row => row.id === action.payload)) state.pianoRollRowId = action.payload
     },
     // show a step changed straight away, before the engine answers, so
     // painting across a row keeps up with the mouse (and a step past the
@@ -593,7 +594,7 @@ export const showPattern = (patternId: number) => (dispatch: Dispatch, getState:
   dispatch(openTab(View.PatternSequencer))
 }
 
-// open the Piano Roll on a synth row's notes in a pattern
+// open the Piano Roll on a row's notes in a pattern
 export const showNotes = (patternId: number, rowId: number) => (dispatch: Dispatch) => {
   dispatch(selectPattern(patternId))
   dispatch(setPianoRollRow(rowId))
@@ -748,8 +749,7 @@ export const selectSelectedPattern = (state: RootState): Pattern | null =>
   state.sequencer.patterns.find(p => p.id === state.sequencer.selected) ?? null
 // the pattern the playlist's Draw tool paints (see lastSelected)
 export const selectLastSelectedPattern = (state: RootState) => state.sequencer.lastSelected
-export const selectPianoRollRow = (state: RootState): Row<SynthInstrument> | null =>
-  state.sequencer.rows.find((row): row is Row<SynthInstrument> =>
-    row.id === state.sequencer.pianoRollRowId && isSynthRow(row)) ?? null
+export const selectPianoRollRow = (state: RootState): Row | null =>
+  state.sequencer.rows.find(row => row.id === state.sequencer.pianoRollRowId) ?? null
 export const selectPatternRun = (state: RootState) => state.sequencer.run
 export const selectUsedOnly = (state: RootState) => state.sequencer.usedOnly

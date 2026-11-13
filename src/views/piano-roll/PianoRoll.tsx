@@ -7,8 +7,8 @@ import {
   selectPatternRun,
   selectPatterns,
   selectPianoRollRow,
+  selectRows,
   selectSelectedPattern,
-  selectSynthRows,
   setPianoRollRow,
   togglePattern,
 } from '../../state/slices/sequencerSlice'
@@ -19,13 +19,12 @@ import {
 import { openTab } from '../../state/slices/windowSlice'
 import { TOOLS } from '../../editing/tools'
 import ToolTray from '../../components/editing/ToolTray'
-import {
-  Note, Pattern, Row, SynthInstrument, patternHint, patternLabel, rowName, stepsPerBar,
-} from '../../types/sequencer'
+import { Note, Pattern, Row, patternLabel, rowName, stepsPerBar } from '../../types/sequencer'
 import { View } from '../../types/ui'
 import { AnalogButton, Led } from '../../components/fourtrack'
 import { useTransport } from '../transport/useTransport'
 import { useStopWhenUnfocused } from '../pattern-sequencer/useStopWhenUnfocused'
+import BarsCounter from '../pattern-sequencer/BarsCounter'
 import NoteGrid from './NoteGrid'
 import { PlayIcon, StopIcon } from '../../components/icons'
 
@@ -79,16 +78,17 @@ const PianoRollTray = () => {
   )
 }
 
-// the strip along the top: which pattern and which synth row's notes, play
-// and stop, how long it is, and the mouse tools
+// the strip along the top: which pattern and which row's notes, play and
+// stop, how many bars long it is (the Pattern Sequencer's counter), and the
+// mouse tools
 const Toolbar = ({ pattern, row, beatsPerBar }: {
   pattern: Pattern
-  row: Row<SynthInstrument> | null
+  row: Row | null
   beatsPerBar: number
 }) => {
   const dispatch = useAppDispatch()
   const patterns = useAppSelector(selectPatterns)
-  const synthRows = useAppSelector(selectSynthRows)
+  const rows = useAppSelector(selectRows)
   const run = useAppSelector(selectPatternRun)
   const playing = run?.patternId === pattern.id
   const startStep = useAppSelector(selectPianoRollStart(pattern.id))
@@ -106,12 +106,12 @@ const Toolbar = ({ pattern, row, beatsPerBar }: {
 
       {row && (
         <Picker
-          label='Synth'
-          title='The synth whose notes are edited, and which plays the keys'
+          label='Row'
+          title='The row whose notes are edited, and which plays the keys: a sample or an instrument'
           value={String(row.id)}
           onChange={value => dispatch(setPianoRollRow(Number(value)))}
         >
-          {synthRows.map(r => <option key={r.id} value={r.id}>{rowName(r)}</option>)}
+          {rows.map(r => <option key={r.id} value={r.id}>{rowName(r)}</option>)}
         </Picker>
       )}
 
@@ -132,8 +132,8 @@ const Toolbar = ({ pattern, row, beatsPerBar }: {
       </div>
 
       <div className='flex flex-col gap-1'>
-        <span className='ft-label'>Length</span>
-        <span className='text-xs text-ink-mid h-7 leading-7 tabular-nums'>{patternHint(pattern, beatsPerBar, 0)}</span>
+        <span className='ft-label'>Bars</span>
+        <BarsCounter key={pattern.id} pattern={pattern} beatsPerBar={beatsPerBar} />
       </div>
 
       <div className='ml-auto'>
@@ -150,12 +150,28 @@ const Empty = ({ children }: { children: React.ReactNode }) => (
   </div>
 )
 
-const NO_GHOSTS: Note[] = []
+const NO_GHOSTS: Note[][] = []
 
-// one synth row's notes in a pattern, on a grid of 16th note steps against
-// a piano keyboard. the pattern is the Pattern Sequencer's selected one, so
-// the tabs agree, and Play loops it while either is focused. the other
-// rows' notes show faintly behind
+const sameLists = (a: Note[][], b: Note[][]) => a.length === b.length && a.every((notes, i) => notes === b[i])
+
+// every other row's notes in the pattern, a list per row: the store's own
+// lists, each kept while its notes don't change (see keepNotes). and the
+// same list of them while none changes, so a drag, which makes a new
+// pattern every move, gives the grid the same ghosts
+const useGhosts = (byRow: Pattern['notes'] | undefined, rowId: number | undefined): Note[][] => {
+  const ghosts = React.useMemo(() => {
+    if(!byRow || rowId === undefined) return NO_GHOSTS
+    return Object.entries(byRow).filter(([id]) => Number(id) !== rowId).map(([, notes]) => notes)
+  }, [byRow, rowId])
+  const kept = React.useRef(ghosts)
+  if(!sameLists(kept.current, ghosts)) kept.current = ghosts
+  return kept.current
+}
+
+// one row's notes in a pattern, a sample row's or a synth row's, on a grid
+// of 16th note steps against a piano keyboard. the pattern is the Pattern
+// Sequencer's selected one, so the tabs agree, and Play loops it while
+// either is focused. the other rows' notes show faintly behind
 const PianoRoll = () => {
   const dispatch = useAppDispatch()
   const pattern = useAppSelector(selectSelectedPattern)
@@ -170,13 +186,7 @@ const PianoRoll = () => {
   // tab opens
   React.useEffect(() => { dispatch(loadSequencer()) }, [dispatch])
 
-  // every other row's notes, sample rows' too
-  const byRow = pattern?.notes
-  const rowId = row?.id
-  const ghosts = React.useMemo(() => {
-    if(!byRow || rowId === undefined) return NO_GHOSTS
-    return Object.entries(byRow).filter(([id]) => Number(id) !== rowId).flatMap(([, notes]) => notes)
-  }, [byRow, rowId])
+  const ghosts = useGhosts(pattern?.notes, row?.id)
 
   if(!pattern) {
     return (
@@ -204,7 +214,7 @@ const PianoRoll = () => {
         </div>
       ) : (
         <Empty>
-          <p className='text-xs text-ink-soft'>No synth yet. Drag an instrument into the Pattern Sequencer to draw its notes</p>
+          <p className='text-xs text-ink-soft'>No rows yet. Drag a sample or an instrument into the Pattern Sequencer to draw its notes</p>
           <AnalogButton variant='text' size='sm' onPress={() => dispatch(openTab(View.PatternSequencer))}>
             Pattern Sequencer
           </AnalogButton>

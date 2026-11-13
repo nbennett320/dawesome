@@ -12,8 +12,8 @@ interface Props {
   fromBar: number
   toBar: number
   muted: boolean
-  // opens the Piano Roll on them. without it, the picture is only looked at
-  onOpen?: () => void
+  // opens the Piano Roll on them
+  onOpen: () => void
 }
 
 // a picture of a row's notes in a pattern, where its keys would be and as
@@ -76,24 +76,10 @@ const NotePreview = ({ name, notes, length, beatsPerBar, fromBar, toBar, muted, 
   const box = { width: gridWidth(length, beatsPerBar) }
   const said = bars.length ? `${bars.length} note${bars.length === 1 ? '' : 's'}` : 'No notes yet'
 
-  if(!onOpen) {
-    return (
-      <div
-        role='img'
-        className='seq-preview'
-        style={box}
-        aria-label={`${name} notes`}
-        title={`${said}. They aren’t plain steps, so they can’t be clicked here`}
-      >
-        {picture}
-      </div>
-    )
-  }
-
   return (
     <button
       type='button'
-      className='seq-preview is-open'
+      className='seq-preview'
       style={box}
       aria-label={`${name} notes`}
       title={`${said}. Click to edit them in the Piano Roll`}

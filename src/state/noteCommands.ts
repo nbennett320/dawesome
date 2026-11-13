@@ -28,8 +28,9 @@ export interface NoteTarget {
   // the row's notes in the pattern shown, in order, and which are selected
   notes: Note[]
   selected: ReadonlySet<number>
-  // the pattern's length, in steps: no copy starts at or past it
-  patternLength: number
+  // where the Piano Roll's time runs to, in steps (see timelineEnd): no
+  // copy starts at or past it
+  limit: number
   // the step a paste puts the earliest note at (see pasteStep)
   pasteAt: number
   // whether the Piano Roll is the focused view
@@ -56,7 +57,7 @@ const inOrder = (outcome: NoteOutcome, selected: ReadonlySet<number>): NoteOutco
 // what a command does to the notes, before they're put in order
 const changeNotes = (command: NoteCommand, target: NoteTarget): NoteOutcome | null => {
   if(!target.focused) return null
-  const { notes, selected, patternLength, pasteAt } = target
+  const { notes, selected, limit, pasteAt } = target
   const none = new Set<number>()
 
   switch(command) {
@@ -70,12 +71,12 @@ const changeNotes = (command: NoteCommand, target: NoteTarget): NoteOutcome | nu
       return { notes: deleteNotes(notes, selected), selected: none }
     case 'paste': {
       if(!clipboard.length) return null
-      const pasted = pasteNotes(notes, clipboard, pasteAt, patternLength)
+      const pasted = pasteNotes(notes, clipboard, pasteAt, limit)
       return pasted.added.length ? { notes: pasted.notes, selected: new Set(pasted.added) } : null
     }
     case 'repeat': {
       if(!selected.size) return null
-      const repeated = repeatNotes(notes, selected, patternLength)
+      const repeated = repeatNotes(notes, selected, limit)
       return repeated.added.length ? { notes: repeated.notes, selected: new Set(repeated.added) } : null
     }
     case 'select-all': return { selected: allIndices(notes) }
@@ -88,7 +89,7 @@ const changeNotes = (command: NoteCommand, target: NoteTarget): NoteOutcome | nu
 // run a command on the notes in `target`. null when it does nothing: the
 // Piano Roll isn't focused, nothing's selected to copy, cut, repeat or
 // delete, there's nothing to paste, or every copy would be past the
-// pattern's end (and what's selected stays as it was). copy and cut fill
+// timeline's end (and what's selected stays as it was). copy and cut fill
 // the clipboard
 export const noteCommand = (command: NoteCommand, target: NoteTarget): NoteOutcome | null => {
   const outcome = changeNotes(command, target)

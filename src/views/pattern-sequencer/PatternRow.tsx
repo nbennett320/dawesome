@@ -50,8 +50,7 @@ const PatternRow = ({
     return steps && new Set(steps)
   }, [row, notes, length])
   const step = React.useCallback((s: number, on: boolean) => onStep(row.id, s, on), [onStep, row.id])
-  // (the Piano Roll edits synth rows' notes: a sample row's are only shown)
-  const open = row.instrument.kind === 'synth' ? () => onOpenNotes(row.id) : undefined
+  const open = React.useCallback(() => onOpenNotes(row.id), [onOpenNotes, row.id])
   const keys = { name, length, beatsPerBar, fromBar, toBar, paint, onStep: step }
 
   return (
