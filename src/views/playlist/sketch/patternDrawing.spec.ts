@@ -25,6 +25,24 @@ describe('patternLanes', () => {
     expect(patternLanes(played, rows)).toEqual([{ kind: 'sample', ticks: [0, 0.5, 4] }])
   })
 
+  it('is the lit steps of each row when every row’s notes are plain steps, as the sequencer shows them', () => {
+    // (a one-shot sample row's steps may be any length; the synth's are a step long)
+    const beat = pattern(0, { notes: { 0: [step(0), { ...step(8), length: 3 }], 1: [step(4)], 3: [step(16)] } })
+    expect(patternLanes(beat, rows)).toEqual([{ kind: 'steps', steps: [0, 8] }, { kind: 'steps', steps: [4] }])
+  })
+
+  it('is worked out again when a row’s step pitch or gate changes what its notes are', () => {
+    const beat = pattern(0, { notes: { 0: [step(0), { ...step(8), length: 3 }], 1: [step(4)] } })
+    expect(patternLanes(beat, rows)[0].kind).toBe('steps')
+    // gated, a 3-step note isn't a plain step: the notes' look for every row
+    const gated = rows.map(row => (row.id === 0 && row.instrument.kind === 'sample'
+      ? { ...row, instrument: { ...row.instrument, gated: true } } : row))
+    expect(patternLanes(beat, gated).map(lane => lane.kind)).toEqual(['sample', 'synth'])
+    // the synth's step pitch moved: its notes aren't at it any more
+    const repitched = rows.map(row => (row.id === 1 ? { ...row, stepPitch: 62 } : row))
+    expect(patternLanes(beat, repitched).map(lane => lane.kind)).toEqual(['sample', 'synth'])
+  })
+
   it('is worked out once for a pattern and its rows', () => {
     const first = patternLanes(mixed, rows)
     expect(patternLanes(mixed, rows)).toBe(first)

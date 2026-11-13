@@ -232,13 +232,16 @@ export const withTrim = (pattern: Pattern, stepsPerBar: number): Pattern => {
   return length === pattern.length ? pattern : { ...pattern, rev: UNCONFIRMED, length }
 }
 
+// what of a row decides whether its notes are plain steps (see stepView)
+export type StepRow = Pick<Row, 'stepPitch'> & { instrument: { kind: Instrument['kind'], gated?: boolean } }
+
 // a row's notes in a pattern `length` steps long, as the steps they light,
 // in order. null when they aren't plain steps, and the row shows them as
 // notes instead. only notes starting inside the pattern count: each must
 // start on a whole step, at the row's step pitch, and be a step long (on a
 // one-shot sample row, any length). velocity doesn't matter, and two notes
 // on one step light it once. a view never changes the notes
-export const stepView = (row: Row, notes: Note[], length: number): number[] | null => {
+export const stepView = (row: StepRow, notes: Note[], length: number): number[] | null => {
   const anyLength = row.instrument.kind === 'sample' && !row.instrument.gated
   const lit: number[] = []
   for(const note of notes) {

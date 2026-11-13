@@ -10,7 +10,7 @@ import { mixRgba } from '../../../theme/color'
 import type { SectionKey } from '../../../theme/keys'
 import { Pass, Pattern, clipPasses, patternLabel } from '../../../types/sequencer'
 import { hiddenBeyond, patternHiddenBeyond } from './edges'
-import { SampleLane, SynthLane, firstFrom, patternLanes } from './patternDrawing'
+import { SampleLane, StepLane, SynthLane, firstFrom, patternLanes } from './patternDrawing'
 import { drawEdgeBar } from '../../../editing/look'
 
 interface Props extends PlaylistComponentProps {
@@ -312,10 +312,12 @@ class PlaylistObject extends PlaylistComponent<State> {
 
   // a pattern clip's body: its pattern, played end to end from where the
   // clip starts in it, each time through after the first marked with a
-  // faint repeat line (see clipPasses). a lane for
-  // each row that plays notes in it, in the rows' order: a sample row's
-  // notes are short ticks where they start, and a synth row's small bars on
-  // rows of their pitches, each cut at the end of its time through. only
+  // faint repeat line (see clipPasses). a lane for each row that plays
+  // notes in it, in the rows' order. when every row's notes are plain steps,
+  // each lane is a cell a step wide on each lit step; otherwise a sample
+  // row's notes are short ticks where they start, and a synth row's small
+  // bars on rows of their pitches, each cut at the end of its time through.
+  // only
   // the times through that are on the canvas are drawn, and of those, only
   // the notes that start on it
   drawPattern = () => {
@@ -339,7 +341,8 @@ class PlaylistObject extends PlaylistComponent<State> {
     this.p.fill(...ink.hit)
     lanes.forEach((lane, n) => {
       const laneTop = bodyTop + n * laneHeight
-      if(lane.kind === 'sample') this.#drawTicks(body, lane, laneTop, laneHeight)
+      if(lane.kind === 'steps') this.#drawCells(body, lane, laneTop, laneHeight)
+      else if(lane.kind === 'sample') this.#drawTicks(body, lane, laneTop, laneHeight)
       else this.#drawBars(body, lane, laneTop, laneHeight)
     })
   }
@@ -373,6 +376,25 @@ class PlaylistObject extends PlaylistComponent<State> {
       if(pass.at <= from) return
       const x = stepX(pass, 0)
       this.p.line(x, top, x, top + height)
+    })
+  }
+
+  // a row's lit steps: a cell on each, a step wide, with a little gap
+  // around it unless it would vanish
+  #drawCells = (body: PatternBody, { steps }: StepLane, top: number, height: number) => {
+    const { passes, stepX, stepWidth, shownFrom } = body
+    const gapX = Math.min(stepWidth * .15, 1 / this.currentScale)
+    const gapY = Math.min(height * .15, 1)
+    passes.forEach(pass => {
+      // (a cell starting a step before the canvas can still show)
+      const first = Math.max(pass.from, shownFrom - pass.at - 1)
+      const last = lastShown(body, pass)
+      const end = stepX(pass, pass.to)
+      for(let i = firstFrom(steps, step => step, first); i < steps.length && steps[i] < last; i += 1) {
+        const x = stepX(pass, steps[i])
+        const cell = Math.min(stepWidth, end - x)
+        if(cell > gapX * 2) this.p.rect(x + gapX, top + gapY, cell - gapX * 2, height - gapY * 2)
+      }
     })
   }
 

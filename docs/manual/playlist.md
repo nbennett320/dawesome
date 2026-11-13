@@ -25,9 +25,11 @@ Open it with **Window ▸ Playlist**.
    bar 3, beat 2. Click or drag here to move the playhead.
 3. **Tracks** — Each track has its own mixer strip.
 4. **Clips** — Sample clips show their waveform. Pattern clips show a lane
-   for each row with notes in the pattern: short ticks for a sample row's
-   notes, bars for a synth row's. A pattern clip longer than its pattern
-   shows faint lines where the pattern starts over.
+   for each row with notes in the pattern. When every row's notes are plain
+   steps (as the Pattern Sequencer shows them), each lit step is a block a
+   step wide. Otherwise a sample row's notes are short ticks and a synth
+   row's are bars. A pattern clip longer than its pattern shows faint lines
+   where the pattern starts over.
 5. **New track area** — Below the last track. Drop a clip here to put it on
    a new track.
 
