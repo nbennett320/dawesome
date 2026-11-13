@@ -30,23 +30,18 @@ import './steps.scss'
 // the scroller's padding: the rows start this far into what it scrolls
 const SCROLLER_PAD = 8
 
-// the rows shown: every row, or with "Used only" those with notes in the
-// pattern
-const useShownRows = (pattern: Pattern | null): Row[] => {
-  const rows = useAppSelector(selectRows)
-  const usedOnly = useAppSelector(selectUsedOnly)
-  return React.useMemo(
-    () => (usedOnly && pattern ? rows.filter(row => pattern.notes[row.id] !== undefined) : rows),
-    [rows, usedOnly, pattern],
-  )
-}
-
 // painting steps ends wherever the mouse is let go. kept here, not in the
-// rows, so a stroke carries on into bars that come into view as it goes
+// rows, so a stroke carries on into bars that come into view as it goes.
+// the tab renders when a stroke ends (see useShownRows)
 const usePaint = () => {
   const paint = React.useRef<Paint | null>(null)
+  const [, ended] = React.useReducer((strokes: number) => strokes + 1, 0)
   React.useEffect(() => {
-    const end = () => { paint.current = null }
+    const end = () => {
+      if(!paint.current) return
+      paint.current = null
+      ended()
+    }
     window.addEventListener('mouseup', end)
     window.addEventListener('blur', end)
     return () => {
@@ -55,6 +50,23 @@ const usePaint = () => {
     }
   }, [])
   return paint
+}
+
+// the rows shown: every row, or with "Used only" those with notes in the
+// pattern. while a stroke paints steps (`paint`), they stay as they were
+// when it started, and are worked out again when it ends: a row whose last
+// note it clears stays under the mouse, rather than going and sliding the
+// rows below up under it, to have their steps cleared too
+const useShownRows = (pattern: Pattern | null, paint: React.RefObject<Paint | null>): Row[] => {
+  const rows = useAppSelector(selectRows)
+  const usedOnly = useAppSelector(selectUsedOnly)
+  const used = React.useMemo(
+    () => (usedOnly && pattern ? rows.filter(row => pattern.notes[row.id] !== undefined) : rows),
+    [rows, usedOnly, pattern],
+  )
+  const shown = React.useRef(used)
+  if(!paint.current) shown.current = used
+  return shown.current
 }
 
 // what the box under the rows says
@@ -83,7 +95,8 @@ const PatternSequencer = () => {
   const pattern = useAppSelector(selectSelectedPattern)
   const run = useAppSelector(selectPatternRun)
   const allRows = useAppSelector(selectRows)
-  const rows = useShownRows(pattern)
+  const paint = usePaint()
+  const rows = useShownRows(pattern, paint)
   const { transport } = useTransport()
   const beatsPerBar = transport?.beatsPerBar ?? 4
   const bar = stepsPerBar(beatsPerBar)
@@ -100,7 +113,6 @@ const PatternSequencer = () => {
   const shownSteps = length + greyedSteps(length, bar)
   const view = useVisibleBars(scrollerRef, SCROLLER_PAD + GRID_LEFT, beatsPerBar, Math.ceil(shownSteps / bar))
   const drop = useRowDrops(tabRef)
-  const paint = usePaint()
 
   const patternId = pattern?.id
   const onStep = React.useCallback((rowId: number, step: number, on: boolean) => {

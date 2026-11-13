@@ -474,8 +474,8 @@ fn test_patterns_saved_and_loaded() {
       let mut seq = audiograph.sequencer.lock().unwrap();
       let row = seq.add_row(kick.to_str().unwrap()).unwrap();
       let pattern = seq.add_pattern(2, 4).unwrap();
-      seq.set_step(pattern, row, 0, true).unwrap();
-      seq.set_step(pattern, row, 12, true).unwrap();
+      seq.set_pattern_step(pattern, row, 0, true, 4).unwrap();
+      seq.set_pattern_step(pattern, row, 12, true, 4).unwrap();
       seq.rename_pattern(pattern, "intro").unwrap();
       seq.set_row_volume(row, 0.5).unwrap();
       (row, pattern)
@@ -536,7 +536,7 @@ fn add_pattern_clip(state: &daw::InnerState, bars: u32, beat: f64) -> (u64, u64)
     let mut seq = state.playlist.sequencer.lock().unwrap();
     let row = seq.add_row("assets/assets_66-bd-01.wav").unwrap();
     let pattern = seq.add_pattern(bars, 4).unwrap();
-    seq.set_step(pattern, row, 0, true).unwrap();
+    seq.set_pattern_step(pattern, row, 0, true, 4).unwrap();
     pattern
   };
   let mut audiograph = state.playlist.audiograph.lock().unwrap();
@@ -939,7 +939,7 @@ fn test_synth_rows_saved_and_loaded() {
   state.playlist.effects.keep_window_position(slot, crate::effects::WindowPosition { x: 5., y: 6. });
   let pattern = state.playlist.sequencer.lock().unwrap().add_pattern(8, 4).unwrap();
   let note = daw::PatternNote { pitch: 64, start: 2., length: 3., velocity: 0.5 };
-  crate::commands::sequencer::set_notes(&state, pattern, synth, vec![note], None).unwrap();
+  crate::commands::sequencer::set_pattern_notes_in(&state, pattern, synth, vec![note], None, false).unwrap();
   let folder = state.playlist.sequencer.lock().unwrap().add_folder("Keys", None).unwrap();
   state.playlist.sequencer.lock().unwrap().move_pattern(pattern, Some(folder)).unwrap();
   crate::commands::sequencer::add_pattern_clip_for_tests(&state, pattern, 3, Some(0.));
@@ -1139,4 +1139,83 @@ fn test_clips_in_another_order_are_no_change() {
   assert!(has_unsaved_changes(&state));
   crate::history::undo(&state).unwrap();
   assert!(!has_unsaved_changes(&state));
+}
+
+// a project file as version 3 wrote it, with a pattern (and so read as
+// version 4 now), and a clip of `take` when given
+fn write_v3(file: &Path, take: Option<&str>) -> String {
+  let clips = take.map_or(String::new(), |take| format!(
+    r#""clips": [{{ "path": "{}", "trackNumber": 0, "startBeat": 0.0 }}],"#, take));
+  let json = format!(r#"{{
+    "version": 3, {}
+    "sequencer": {{ "patterns": [{{ "id": 0, "name": "Beat", "length": 16, "steps": {{}} }}] }}
+  }}"#, clips);
+  fs::write(file, &json).unwrap();
+  json
+}
+
+fn version_of(file: &Path) -> u64 {
+  let json: serde_json::Value = serde_json::from_str(&fs::read_to_string(file).unwrap()).unwrap();
+  json["version"].as_u64().unwrap_or(1)
+}
+
+#[test]
+fn test_an_older_project_file_is_kept_as_it_was_before_its_first_save_as_version_4() {
+  let dir = test_dir("backup-on-save");
+  let file = dir.join("song.dawesome");
+  let backup = dir.join("song.v3.dawesome");
+  let old = write_v3(&file, None);
+
+  let state = daw::InnerState::default();
+  load_from(&state, &file).unwrap();
+  save_to(&state, &file).unwrap();
+  assert_eq!(version_of(&file), u64::from(PROJECT_VERSION));
+  assert_eq!(fs::read_to_string(&backup).unwrap(), old);
+
+  // once: a later save (of a version 4 file now) leaves the copy alone, and
+  // so does one over another older file with a copy already there
+  fs::write(&backup, "the user's").unwrap();
+  save_to(&state, &file).unwrap();
+  write_v3(&file, None);
+  save_to(&state, &file).unwrap();
+  assert_eq!(fs::read_to_string(&backup).unwrap(), "the user's");
+
+  // a file from before versions (1) is kept as version 1
+  let first = dir.join("first.dawesome");
+  fs::write(&first, r#"{ "clips": [] }"#).unwrap();
+  save_to(&state, &first).unwrap();
+  assert_eq!(fs::read_to_string(dir.join("first.v1.dawesome")).unwrap(), r#"{ "clips": [] }"#);
+
+  // nothing's kept when what's written isn't version 4 (an older app
+  // still reads it), or there was no file
+  let plain = dir.join("plain.dawesome");
+  write_v3(&plain, None);
+  save_to(&daw::InnerState::default(), &plain).unwrap();
+  assert!(version_of(&plain) < u64::from(PROJECT_VERSION));
+  save_to(&state, &dir.join("new.dawesome")).unwrap();
+  let names: std::collections::BTreeSet<String> = fs::read_dir(&dir).unwrap()
+    .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+    .collect();
+  assert_eq!(names, ["first.dawesome", "first.v1.dawesome", "new.dawesome", "plain.dawesome", "song.dawesome", "song.v3.dawesome"]
+    .into_iter().map(String::from).collect());
+
+  let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_an_older_project_file_rewritten_for_a_moved_take_is_kept_as_it_was() {
+  let dir = test_dir("backup-on-move");
+  let file = dir.join("song.dawesome");
+  let take = record_take(&dir.join(project_files::RECORDINGS_FOLDER), "take.wav");
+  fs::create_dir_all(dir.join(project_files::RECORDINGS_FOLDER).join("kept")).unwrap();
+  let old = write_v3(&file, Some("recordings/take.wav"));
+
+  let moved = dir.join(project_files::RECORDINGS_FOLDER).join("kept").join("take.wav");
+  fs::rename(&take, &moved).unwrap();
+  follow_moved_recording(&file, Path::new(&take), &moved).unwrap();
+  assert_eq!(saved_json(&file.to_string_lossy()).clips[0].path, "recordings/kept/take.wav");
+  assert_eq!(version_of(&file), u64::from(PROJECT_VERSION));
+  assert_eq!(fs::read_to_string(dir.join("song.v3.dawesome")).unwrap(), old);
+
+  let _ = fs::remove_dir_all(&dir);
 }

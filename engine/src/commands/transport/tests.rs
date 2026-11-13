@@ -328,6 +328,31 @@ fn test_song_end_in_transport() {
 }
 
 #[test]
+fn test_a_pattern_reports_its_length_and_the_step_it_counts_from() {
+  let state = daw::InnerState::default();
+  let pattern = state.playlist.sequencer.lock().unwrap().add_pattern(1, 4).unwrap();
+  *state.playlist.mode.lock().unwrap() = daw::PlayMode::Pattern(pattern);
+  state.playlist.set_playing(true);
+  let wall = || SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs_f64() * 1000.;
+
+  // counted from step 20 (it was two bars long then), heard just now: step
+  // 0 of that time round was heard 20 steps (2.5s) before. not from the
+  // pattern's start, though step 20 is past its end now: the run carries on
+  // where step 20 falls in one bar (see daw::next_pattern_slice)
+  *state.playlist.pattern_start.lock().unwrap() = 20.;
+  *state.playlist.started_time.lock().unwrap() = Some(Instant::now());
+  let t = playlist_transport(&state);
+  assert_eq!(t.pattern_length, 16);
+  let ago = wall() - t.start_time_ms.unwrap();
+  assert!((ago - 2_500.).abs() < 50., "{}ms ago", ago);
+
+  // nothing playing on its own: no length
+  state.playlist.set_playing(false);
+  *state.playlist.mode.lock().unwrap() = daw::PlayMode::Playlist;
+  assert_eq!(playlist_transport(&state).pattern_length, 0);
+}
+
+#[test]
 fn test_a_pattern_started_part_way_in_reports_when_its_start_was_heard() {
   let state = daw::InnerState::default();
   let pattern = state.playlist.sequencer.lock().unwrap().add_pattern(1, 4).unwrap();

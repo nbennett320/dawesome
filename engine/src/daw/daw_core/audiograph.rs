@@ -750,13 +750,18 @@ impl PatternNode {
     beat: Duration,
     slice: &Slice,
   ) -> Vec<(Duration, daw::SampleVoice)> {
-    // (on a resume, every time through from the clip's start: a note from
-    // any of them may still be sounding)
-    let from = if slice.resume { i128::MIN } else { slice.start };
-    let (passes, heard) = (self.passes_heard(pattern.length, beat, from, slice.end), self.heard(beat));
+    let (in_slice, heard) = (self.passes_heard(pattern.length, beat, slice.start, slice.end), self.heard(beat));
     let mut voices = Vec::new();
     for (instrument, notes) in sequencer.sample_notes(pattern) {
-      for pass in passes.clone() {
+      // (on a resume, the times through as far back as one of the row's
+      // notes can still be sounding: none, for a clip over by then)
+      let passes = if slice.resume {
+        let back = instrument.longest(notes).as_nanos() as i128;
+        self.passes_heard(pattern.length, beat, slice.start - back, slice.end)
+      } else {
+        in_slice.clone()
+      };
+      for pass in passes {
         let (before, starting) = Self::notes_around(notes, &pass, heard, slice.start, slice.end);
         let resumed = if slice.resume { before } else { &[] };
         for note in resumed.iter().chain(starting) {
@@ -926,7 +931,6 @@ pub struct AudioGraph<'a> {
   pub current_offset: Option<Duration>,
   sample_rate: u32,
   tempo: f32,
-  max_beats: u64,
   next_id: u64,
   // every clip plays through its track's strip (shared with the playlist
   // state, so the mixer's controls don't need the graph's lock)
@@ -941,11 +945,7 @@ pub struct AudioGraph<'a> {
 }
 
 impl AudioGraph<'static> {
-  pub fn new(
-    sample_rate: u32, 
-    tempo: f32,
-    max_beats: u64,
-  ) -> Self {
+  pub fn new(sample_rate: u32, tempo: f32) -> Self {
     AudioGraph {
       nodes: Vec::<AudioNode>::new(),
       pattern_nodes: Vec::new(),
@@ -953,7 +953,6 @@ impl AudioGraph<'static> {
       current_offset: Some(Duration::ZERO),
       sample_rate,
       tempo,
-      max_beats,
       next_id: 0,
       mixer: Arc::new(daw::Mixer::default()),
       sequencer: Arc::new(Mutex::new(daw::Sequencer::default())),
@@ -1110,9 +1109,9 @@ impl AudioGraph<'static> {
   // the notes that start in the next `dur` of a run of the graph, for the
   // synths' copies on the pattern clips' tracks: each pattern clip's synth
   // rows' notes that start in the part of its pattern it plays, each ending
-  // where it ends or at the clip's end, whichever comes first. a note that started before the
-  // slice isn't played (an instrument can't start partway through a note),
-  // so a run from the middle of one leaves it out
+  // where it ends or at the clip's end, whichever comes first. a note that
+  // started before the slice isn't played (an instrument can't start
+  // partway through a note), so a run from the middle of one leaves it out
   //
   // - loop_end: where the playlist jumps back to its start, when it loops.
   //   a note still sounding there ends there, so it doesn't run on into the
@@ -1180,15 +1179,6 @@ impl AudioGraph<'static> {
 
   pub fn tempo(&self) -> f32 {
     self.tempo
-  }
-
-  #[cfg(test)]
-  pub fn set_max_beats(&mut self, max_beats: u64) {
-    self.max_beats = max_beats;
-  }
-
-  pub fn max_beats(&self) -> u64 {
-    self.max_beats
   }
 
   pub fn sample_rate(&self) -> u32 {
@@ -1639,10 +1629,6 @@ impl AudioGraph<'static> {
 
     self.add_pattern_node_with_id(right);
     Ok(Some(new_id))
-  }
-
-  pub fn duration_max(&self) -> Duration {
-    self.beat_interval() * self.max_beats as u32
   }
 
   // count number of nodes

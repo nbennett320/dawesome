@@ -40,7 +40,7 @@ const recordingP5 = (width: number, height: number) => {
 
 const stopped: PlaylistTransport = {
   playing: false, startTimeMs: null, startOffsetMs: 0, positionMs: 0, beatIntervalMs: 500, loopBeats: 12,
-  beatsDisplayed: 384, loopEnabled: false, songEndMs: 0, beatsPerBar: 4, patternId: null, patternLengthMs: 0,
+  beatsDisplayed: 384, loopEnabled: false, songEndMs: 0, beatsPerBar: 4, patternId: null, patternLength: 0,
 }
 
 describe('the playlist in 3/4', () => {

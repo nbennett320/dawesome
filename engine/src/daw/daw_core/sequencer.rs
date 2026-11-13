@@ -1097,12 +1097,6 @@ impl Sequencer {
     Ok(())
   }
 
-  // remove_row_and_trim without the trim, for tests
-  #[cfg(test)]
-  pub fn remove_row(&mut self, id: u64) -> Result<(), String> {
-    self.take_row(id).map(drop)
-  }
-
   // take a row out, and its notes out of every pattern. returns the
   // patterns that held them
   fn take_row(&mut self, id: u64) -> Result<Vec<u64>, String> {
@@ -1417,12 +1411,6 @@ impl Sequencer {
     let length = trimmed_length(pattern.length, pattern.floor, pattern.last_end(), steps_in_bars(1, beats_per_bar));
     if length != pattern.length { self.pattern_mut(id)?.length = length; }
     Ok(())
-  }
-
-  // set_pattern_step in 4/4, for tests building patterns
-  #[cfg(test)]
-  pub fn set_step(&mut self, pattern_id: u64, row_id: u64, step: u32, on: bool) -> Result<(), String> {
-    self.set_pattern_step(pattern_id, row_id, step, on, 4)
   }
 
   // how long a pattern plays for, at the beat length given

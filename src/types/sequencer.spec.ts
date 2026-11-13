@@ -16,7 +16,6 @@ import {
   patternLabel,
   patternSeconds,
   patternStepAt,
-  repeatLines,
   rowName,
   rowNotes,
   sortNotes,
@@ -425,16 +424,19 @@ describe('clipPasses', () => {
     expect(clipPasses(20.5, 15.5, 16)).toEqual([{ from: 4.5, to: 16, at: 16 }, { from: 0, to: 4, at: 32 }])
     expect(clipPasses(0, 16, 0)).toEqual([])
   })
-})
 
-describe('repeatLines', () => {
-  it('is where the pattern starts over, in steps from the clip\'s start', () => {
-    expect(repeatLines(0, 16, 16)).toEqual([])
-    expect(repeatLines(0, 64, 16)).toEqual([16, 32, 48])
-    expect(repeatLines(4, 36, 16)).toEqual([12, 28])
-    expect(repeatLines(20.5, 15.5, 16)).toEqual([11.5])
-    // ending where it would start over: no line on its edge
-    expect(repeatLines(8, 24, 16)).toEqual([8])
+  it('is only the times through that reach into the steps asked for, found straight away', () => {
+    // round a bar 128 times, steps 1000 to 1040 (counted as its start is)
+    const passes = clipPasses(4, 2_048, 16, 1_000, 1_040)
+    expect(passes).toEqual([
+      { from: 0, to: 16, at: 992 }, { from: 0, to: 16, at: 1_008 }, { from: 0, to: 16, at: 1_024 },
+    ])
+    // the same as every pass, of those that reach in, for any steps
+    const every = clipPasses(4, 2_048, 16)
+    for(const [from, to] of [[0, 3], [3, 4], [-50, 10], [15.5, 16], [16, 32.5], [2_000, 3_000], [3_000, 4_000]]) {
+      expect(clipPasses(4, 2_048, 16, from, to)).toEqual(every.filter(p => p.at + p.to > from && p.at + p.from < to))
+    }
+    expect(clipPasses(20.5, 15.5, 16, 33, 40)).toEqual([{ from: 0, to: 4, at: 32 }])
   })
 })
 

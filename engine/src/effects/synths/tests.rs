@@ -20,7 +20,7 @@ fn synth_with_notes(rig: &Rig, gain: f32) -> (u64, u64) {
   let slot = rig.slot_of(row);
   rig.turn(slot, gain);
   let pattern = rig.state.playlist.sequencer.lock().unwrap().add_pattern(1, 4).unwrap();
-  crate::commands::sequencer::set_notes(&rig.state, pattern, row, vec![note(60, 0., 4.)], None).unwrap();
+  crate::commands::sequencer::set_pattern_notes_in(&rig.state, pattern, row, vec![note(60, 0., 4.)], None, false).unwrap();
   (slot, pattern)
 }
 
@@ -292,7 +292,7 @@ fn test_removing_a_synth_and_undoing_it_brings_back_its_notes_and_settings() {
   let had = steps(&rig);
   let row = row_of(&rig, synth);
 
-  let seq = edit(&rig.state, None, |seq| seq.remove_row(row)).unwrap();
+  let seq = edit(&rig.state, None, |seq| seq.remove_row_and_trim(row, 4)).unwrap();
   assert!(seq.rows.iter().all(|r| r.synth().is_none()));
   assert!(seq.pattern(pattern).unwrap().notes.is_empty());
   assert_eq!(steps(&rig), had + 1);
@@ -388,7 +388,7 @@ fn test_adding_a_synth_on_a_track_is_one_step() {
 
   // its first note makes the track's copy
   let slot = rig.slot_of(added.row_id);
-  crate::commands::sequencer::set_notes(&rig.state, added.pattern_id, added.row_id, vec![note(60, 0., 1.)], None).unwrap();
+  crate::commands::sequencer::set_pattern_notes_in(&rig.state, added.pattern_id, added.row_id, vec![note(60, 0., 1.)], None, false).unwrap();
   assert!(rig.effects().copy_ids().contains_key(&(slot, Some(4))));
   crate::history::undo(&rig.state).unwrap();
 

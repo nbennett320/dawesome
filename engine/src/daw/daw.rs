@@ -13,7 +13,7 @@ use std::sync::{
 };
 use std::sync::atomic::{Ordering};
 use std::thread;
-use std::time::{Duration};
+use std::time::{Duration, Instant};
 use rodio::{Decoder, Source};
 
 
@@ -244,9 +244,13 @@ pub fn run_playlist(
 
     // the run plays from the playhead, or a pattern from the step it was
     // started from
-    let start = match mode {
-      state::PlayMode::Playlist => *state.playlist.start_offset.lock().unwrap(),
-      state::PlayMode::Pattern(id) => pattern_start(&state, id),
+    let first_step = match mode {
+      state::PlayMode::Playlist => None,
+      state::PlayMode::Pattern(id) => Some(pattern_start_step(&state, id)),
+    };
+    let start = match first_step {
+      None => *state.playlist.start_offset.lock().unwrap(),
+      Some(step) => steps_time(step, tempo_interval),
     };
     // the sounds of the slice `dur` long, `at` into the run, as voices, and
     // its notes. while the playlist loops (`loop_len`), its notes end by the
@@ -306,6 +310,11 @@ pub fn run_playlist(
       state::PlayMode::Playlist => loop_len(&state),
       state::PlayMode::Pattern(_) => None,
     };
+    // a pattern's length as the last slice played it
+    let mut played_len = match mode {
+      state::PlayMode::Playlist => Duration::ZERO,
+      state::PlayMode::Pattern(id) => pattern_len(&state, id).unwrap_or_default(),
+    };
     let (voices, first_notes) = slice_voices(count_in, slice, lead.is_zero(), true, first_loop);
     first.extend(voices);
 
@@ -346,8 +355,13 @@ pub fn run_playlist(
     // (and the frontend cursor, which uses the same time) follows what's
     // heard. it's set before flagging the playlist as playing, so anything
     // that sees `playing == true` also sees this run's start time
-    // (after a count-in, when the playlist's first frame is heard)
-    *state.playlist.started_time.lock().unwrap() = Some(anchor.heard + count_in);
+    // (after a count-in, when the playlist's first frame is heard). a
+    // pattern counts its steps from the one it starts on
+    {
+      let mut from = state.playlist.pattern_start.lock().unwrap();
+      if let Some(step) = first_step { *from = step; }
+      *state.playlist.started_time.lock().unwrap() = Some(anchor.heard + count_in);
+    }
     // the counters follow the playlist, which a pattern doesn't move
     let counts_beats = mode == state::PlayMode::Playlist;
     if counts_beats { set_beat_counters(&state, start, tempo_interval); }
@@ -356,9 +370,7 @@ pub fn run_playlist(
 
     // still the run that should be playing: not stopped, and not replaced by
     // a newer run (a seek while playing stops this one and starts another)
-    let current = || {
-      state.playlist.run_id.load(Ordering::SeqCst) == run && state.playlist.playing()
-    };
+    let current = || is_current(&state, run);
     // the engine's frame `at` into the run, and when it's sent ahead / heard
     let frame_at = |at: Duration| anchor.frame + engine.frames_in(at);
     let send_by = |at: Duration| {
@@ -393,7 +405,14 @@ pub fn run_playlist(
         },
       };
       let current_offset = state.playlist.audiograph.lock().unwrap().current_offset.unwrap_or_default();
-      let next = state::advance(current_offset, slice, loop_len);
+      let next = match (mode, loop_len) {
+        (state::PlayMode::Pattern(_), Some(len)) => {
+          let next = next_pattern_slice(&state, run, current_offset, slice, len, played_len, anchor.heard + next_at);
+          played_len = len;
+          next
+        }
+        _ => state::advance(current_offset, slice, loop_len),
+      };
 
       // without looping, the tape runs out at the end of the song: stop
       // there, once the last clip has been heard. not while recording,
@@ -561,27 +580,85 @@ fn start_run(state: &Arc<state::InnerState>, count_in: Duration) {
   }
 }
 
-// where a pattern playing on its own starts, at this tempo: the step it was
-// started from, or its start if that's past its end (it was made shorter)
-pub fn pattern_start(state: &state::InnerState, id: u64) -> Duration {
-  let step = *state.playlist.pattern_start.lock().unwrap();
-  let per_beat = daw_core::STEPS_PER_BEAT as f64;
-  let at = Duration::from_secs_f64(beat_interval(state).as_secs_f64() * step.max(0.) / per_beat);
-  match pattern_len(state, id) {
-    Some(len) if at < len => at,
-    _ => Duration::ZERO,
-  }
+// how long a number of steps (fractional) lasts, and how many steps a time
+// is, with beats `beat` long
+fn steps_time(steps: f64, beat: Duration) -> Duration {
+  Duration::from_secs_f64(beat.as_secs_f64() * steps.max(0.) / daw_core::STEPS_PER_BEAT as f64)
 }
 
-// the step (fractional) a pattern playing on its own has got to: from the
-// step its run started from, wrapped at its length. None before it's heard
+fn time_steps(time: Duration, beat: Duration) -> f64 {
+  offset_beats(time, beat) * daw_core::STEPS_PER_BEAT as f64
+}
+
+// the step a run of pattern `id` starts on: the step it was started from
+// (the Piano Roll's start marker), or its start if that's past its end (it
+// was made shorter)
+pub fn pattern_start_step(state: &state::InnerState, id: u64) -> f64 {
+  let step = state.playlist.pattern_start.lock().unwrap().max(0.);
+  let length = state.playlist.sequencer.lock().unwrap().pattern(id).map_or(0, |p| p.length);
+  if step < length as f64 { step } else { 0. }
+}
+
+// the step a pattern playing on its own counts from, and when that step is
+// (or was) heard: None before its run has started. read together, as
+// they're moved together (see next_pattern_slice)
+pub fn pattern_anchor(state: &state::InnerState) -> (f64, Option<Instant>) {
+  let step = state.playlist.pattern_start.lock().unwrap();
+  let heard = *state.playlist.started_time.lock().unwrap();
+  (*step, heard)
+}
+
+// the step (fractional) a pattern playing on its own has got to: counted
+// from its anchor (see pattern_anchor), wrapped at its length now. None
+// before it's started
 pub fn pattern_step(state: &state::InnerState, id: u64) -> Option<f64> {
-  let len = pattern_len(state, id)?;
-  let started = (*state.playlist.started_time.lock().unwrap())?;
-  if len.is_zero() { return None; }
-  let at = (pattern_start(state, id) + started.elapsed()).as_secs_f64() % len.as_secs_f64();
-  let step = beat_interval(state).as_secs_f64() / daw_core::STEPS_PER_BEAT as f64;
-  Some(at / step)
+  let length = state.playlist.sequencer.lock().unwrap().pattern(id)?.length;
+  let (from, heard) = pattern_anchor(state);
+  let heard = heard?;
+  if length == 0 { return None; }
+  // (the anchor can be a moment ahead: it's moved as a slice is sent)
+  let now = Instant::now();
+  let beat = beat_interval(state);
+  let since = if now >= heard { time_steps(now - heard, beat) } else { -time_steps(heard - now, beat) };
+  Some((from + since).rem_euclid(length as f64))
+}
+
+// whether run `run` is still the one playing: not stopped, and not replaced
+// by a newer run (a seek while playing stops one and starts another)
+fn is_current(state: &state::InnerState, run: u64) -> bool {
+  state.playlist.run_id.load(Ordering::SeqCst) == run && state.playlist.playing()
+}
+
+// a pattern playing on its own in run `run`, after a slice `slice` long
+// from `offset`: where the next slice starts, at the pattern's length now
+// (`len`: it can be changed while it plays), going round to its start at
+// its end (see state::advance_round). when it goes round, or its length
+// isn't what the last slice's was (`was`), it counts its steps from there,
+// heard at `heard`. the cursors (pattern_step, and the frontend's from
+// get_playlist_transport) work out the step from that and its length now,
+// so they stay on the step heard: a pattern grown while it plays carries
+// on from the same step
+pub fn next_pattern_slice(
+  state: &state::InnerState,
+  run: u64,
+  offset: Duration,
+  slice: Duration,
+  len: Duration,
+  was: Duration,
+  heard: Instant,
+) -> Duration {
+  let next = state::advance_round(offset, slice, len);
+  if next != offset + slice || len != was {
+    let step = time_steps(next, beat_interval(state));
+    // (moved only by the run that's still playing: a seek or a tempo change
+    // that got in first has already put its own step there)
+    let mut from = state.playlist.pattern_start.lock().unwrap();
+    if is_current(state, run) {
+      *from = step;
+      *state.playlist.started_time.lock().unwrap() = Some(heard);
+    }
+  }
+  next
 }
 
 // loop a pattern on its own (Play in a sequencer tab, or the Piano Roll),
@@ -594,7 +671,6 @@ pub fn start_pattern(state: &Arc<state::InnerState>, id: u64, from_step: f64) ->
   if pattern_len(state, id).is_none() {
     return Err(format!("no pattern with id {}", id));
   }
-  *state.playlist.pattern_start.lock().unwrap() = if from_step.is_finite() { from_step.max(0.) } else { 0. };
 
   if state.playlist.playing() {
     if state.playlist.playing_playlist() {
@@ -604,6 +680,8 @@ pub fn start_pattern(state: &Arc<state::InnerState>, id: u64, from_step: f64) ->
       end_run(state);
     }
   }
+  // (once the run before has ended, so it can't move the step on)
+  *state.playlist.pattern_start.lock().unwrap() = if from_step.is_finite() { from_step.max(0.) } else { 0. };
   *state.playlist.mode.lock().unwrap() = state::PlayMode::Pattern(id);
   start_run(state, Duration::ZERO);
   Ok(())

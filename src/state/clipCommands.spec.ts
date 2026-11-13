@@ -10,7 +10,7 @@ vi.mock('@tauri-apps/api/path', () => ({ dirname: vi.fn(), documentDir: vi.fn(),
 
 const mockInvoke = invoke as Mock
 // get_playlist_data's answer: a new project's length in beats, and 4 tracks
-const playlistData = [16, DEFAULT_PLAYLIST_BEATS, 240, 4]
+const playlistData = { beats: DEFAULT_PLAYLIST_BEATS, trackCount: 4 }
 const target = (over: Partial<ClipTarget> = {}): ClipTarget => ({
   selected: [3, 4], all: [3, 4, 5], pasteBeat: 8, focused: true, ...over,
 })

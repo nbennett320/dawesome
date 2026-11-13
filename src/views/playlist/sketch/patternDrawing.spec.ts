@@ -41,6 +41,26 @@ describe('patternLanes', () => {
     expect(patternLanes(mixed, moved)).not.toBe(first)
     expect(patternLanes(mixed, moved).map(lane => lane.kind)).toEqual(['synth', 'sample', 'synth'])
   })
+
+  it('is kept while the rows change only in ways it doesn\'t draw (a knob, a mute, a name)', () => {
+    const first = patternLanes(mixed, rows)
+    const turned = rows.map(row => (row.id === 0 ? { ...row, volume: 0.5, muted: true, label: 'Kick' } : row))
+    expect(patternLanes(mixed, turned)).toBe(first)
+    expect(patternLanes(mixed, [...turned])).toBe(first)
+  })
+
+  it('is worked out again when a row moves, or plays another kind of instrument', () => {
+    const first = patternLanes(mixed, rows)
+    const swapped = [rows[1], rows[0], ...rows.slice(2)]
+    expect(patternLanes(mixed, swapped)).not.toBe(first)
+    expect(patternLanes(mixed, swapped).map(lane => lane.kind)).toEqual(['synth', 'sample', 'synth'])
+
+    const back = patternLanes(mixed, rows)
+    // (row 0 playing a synth: its notes are bars)
+    const replaced = rows.map(row => (row.id === 0 ? synthRow(0) : row))
+    expect(patternLanes(mixed, replaced)).not.toBe(back)
+    expect(patternLanes(mixed, replaced)[0].kind).toBe('synth')
+  })
 })
 
 describe('firstFrom', () => {

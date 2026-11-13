@@ -34,7 +34,9 @@ const calls = (command: string) => mockInvoke.mock.calls.filter(([name]) => name
 
 // a pattern playing on its own, its cursor on `step` now
 const play = (store: Store, step: number, patternId = 0) => {
-  store.dispatch(setRun({ patternId, startTimeMs: Date.now() - step * STEP_MS, beatIntervalMs: STEP_MS * 4 }))
+  store.dispatch(setRun({
+    patternId, startTimeMs: Date.now() - step * STEP_MS, beatIntervalMs: STEP_MS * 4, length: lengthShown(store, patternId) ?? 0,
+  }))
 }
 // the time `steps` steps take, a frame at a time
 const pass = (n: number) => vi.advanceTimersByTime(n * STEP_MS)
@@ -138,6 +140,37 @@ describe('a trim held for the play cursor', () => {
     dropHeldTrim()
     pass(20)
     expect(calls('trim_pattern')).toEqual([])
+  })
+
+  it('follows the cursor the engine counts afresh when the pattern grows while it plays', async () => {
+    // a bar long, and gone round three times: on step 5
+    const store = configureStore({ reducer: { sequencer: sequencerReducer } })
+    store.dispatch(setSequencer(sequencerOf({ rows: [sampleRow(1)], patterns: [pattern(0, { notes: { 1: steps(0) } })] })))
+    play(store, 53)
+    // grown to two bars by step 20: the engine carries on from step 5, and
+    // counts from there
+    const grown = pattern(0, { length: 2 * BAR, floor: BAR, notes: { 1: steps(0, 20) } })
+    mockInvoke.mockImplementation(async (command: string, args: { on?: boolean }) => {
+      if(command === 'set_pattern_step') return args.on ? { pattern: grown } : new Promise(() => {})
+      if(command === 'get_playlist_transport') {
+        return { playing: true, patternId: 0, startTimeMs: Date.now() - 5 * STEP_MS, beatIntervalMs: STEP_MS * 4, patternLength: 32 }
+      }
+      return undefined
+    })
+    await store.dispatch(setPatternStep(0, 1, 20, true, BAR))
+
+    // on step 20, in bar 2, when it's cleared: the trim waits (counted from
+    // the run's start, the cursor would be on step 4, and take bar 2 away
+    // from under it)
+    pass(15)
+    clear(store)
+    expect(calls('set_pattern_step')[1]).toMatchObject({ on: false, trim: false })
+    expect(lengthShown(store)).toBe(2 * BAR)
+    pass(11)
+    expect(calls('trim_pattern')).toEqual([])
+    // round to the start
+    pass(2)
+    expect(calls('trim_pattern')).toEqual([{ patternId: 0, gesture: expect.any(Number) }])
   })
 
   it('is sent before another pattern’s is held', () => {

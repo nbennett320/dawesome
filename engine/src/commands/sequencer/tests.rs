@@ -95,17 +95,14 @@ fn test_a_pattern_starts_from_its_marker_kept_inside_it() {
   let pattern = add_pattern_of(&state, 1).unwrap().id;
   let from = |step: f64| {
     *state.playlist.pattern_start.lock().unwrap() = step;
-    daw::pattern_start(&state, pattern).as_secs_f64() * 1000.
+    daw::pattern_start_step(&state, pattern)
   };
   assert_eq!(from(0.), 0.);
-  assert_eq!(from(4.), 500.);
-  assert_eq!(from(2.5), 312.5);
+  assert_eq!(from(4.), 4.);
+  assert_eq!(from(2.5), 2.5);
   // past the end (the pattern was made shorter): from its start
   assert_eq!(from(16.), 0.);
   assert_eq!(from(-3.), 0.);
-  // another tempo: the same step
-  daw::retime(&state, 60.).unwrap();
-  assert_eq!(from(4.), 1000.);
 }
 
 #[test]
@@ -156,6 +153,120 @@ fn test_a_tempo_change_carries_a_pattern_on_from_its_step() {
   daw::retime(&state, 90.).unwrap();
   let step = *state.playlist.pattern_start.lock().unwrap();
   assert!(close(step, 12.), "step {}", step);
+}
+
+// a pattern playing on its own from `ago` back, its slices (a beat each,
+// 500ms at 120bpm) sent as run_playlist sends them, up to the one playing
+// now, `steps_in` steps into its run. returns where that slice starts in
+// the pattern
+fn play_slices(state: &daw::InnerState, pattern: u64, steps_in: u32) -> (Duration, std::time::Instant) {
+  let step = Duration::from_millis(125);
+  let beat = step * 4;
+  let started = std::time::Instant::now() - step * steps_in;
+  fake_pattern_run(state, pattern, 0., step * steps_in);
+  *state.playlist.started_time.lock().unwrap() = Some(started);
+  let run = state.playlist.run_id.load(std::sync::atomic::Ordering::SeqCst);
+  let len = daw::pattern_len(state, pattern).unwrap();
+  let mut offset = Duration::ZERO;
+  for k in 1..=steps_in / 4 {
+    offset = daw::next_pattern_slice(state, run, offset, beat, len, len, started + beat * k);
+  }
+  (offset, started)
+}
+
+fn set_bars(state: &daw::InnerState, pattern: u64, bars: u32) {
+  state.playlist.sequencer.lock().unwrap().set_pattern_bars(pattern, bars, 4).unwrap();
+}
+
+fn step_now(state: &daw::InnerState, pattern: u64) -> f64 {
+  daw::pattern_step(state, pattern).unwrap()
+}
+
+#[test]
+fn test_a_pattern_grown_while_it_plays_carries_on_from_its_step() {
+  let state = daw::InnerState::default();
+  // one bar of 4/4 at 120bpm: 16 steps, 125ms a step. it's played 53
+  // steps, going round three times: it's on step 5
+  let pattern = add_pattern_of(&state, 1).unwrap().id;
+  let (offset, started) = play_slices(&state, pattern, 53);
+  let beat = Duration::from_millis(500);
+  assert_eq!(offset, beat);
+  let close = |a: f64, b: f64| (a - b).abs() < 0.5;
+  assert!(close(step_now(&state, pattern), 5.), "{}", step_now(&state, pattern));
+
+  // grown to two bars: still step 5 (not the 53rd step of a 32-step
+  // pattern, 21)
+  set_bars(&state, pattern, 2);
+  assert!(close(step_now(&state, pattern), 5.), "{}", step_now(&state, pattern));
+
+  // its next slices carry on into bar 2, and go round at its end
+  let run = state.playlist.run_id.load(std::sync::atomic::Ordering::SeqCst);
+  let (one, two) = (daw::pattern_len(&state, pattern).map(|l| l / 2).unwrap(), daw::pattern_len(&state, pattern).unwrap());
+  let mut at = offset;
+  let mut starts = Vec::new();
+  for k in 14..=21 {
+    at = daw::next_pattern_slice(&state, run, at, beat, two, if k == 14 { one } else { two }, started + beat * k);
+    starts.push(at.as_millis());
+  }
+  assert_eq!(starts, vec![1_000, 1_500, 2_000, 2_500, 3_000, 3_500, 0, 500]);
+  assert!(close(step_now(&state, pattern), 5.), "{}", step_now(&state, pattern));
+
+  // and a tempo change carries on from that step
+  daw::retime(&state, 60.).unwrap();
+  let step = *state.playlist.pattern_start.lock().unwrap();
+  assert!(close(step, 5.), "step {}", step);
+}
+
+#[test]
+fn test_a_pattern_made_shorter_while_it_plays_goes_round_at_its_new_end() {
+  let state = daw::InnerState::default();
+  let beat = Duration::from_millis(500);
+  let close = |a: f64, b: f64| (a - b).abs() < 0.5;
+  let run = |state: &daw::InnerState| state.playlist.run_id.load(std::sync::atomic::Ordering::SeqCst);
+
+  // two bars, on step 5 of its third time round: trimmed to one, it plays
+  // on to its new end, and round
+  let pattern = add_pattern_of(&state, 2).unwrap().id;
+  let (offset, started) = play_slices(&state, pattern, 64 + 5);
+  let two = daw::pattern_len(&state, pattern).unwrap();
+  set_bars(&state, pattern, 1);
+  let one = daw::pattern_len(&state, pattern).unwrap();
+  assert!(close(step_now(&state, pattern), 5.), "{}", step_now(&state, pattern));
+  let mut at = offset;
+  let mut starts = Vec::new();
+  for k in 18..=21 {
+    at = daw::next_pattern_slice(&state, run(&state), at, beat, one, if k == 18 { two } else { one }, started + beat * k);
+    starts.push(at.as_millis());
+  }
+  assert_eq!(starts, vec![1_000, 1_500, 0, 500]);
+  assert!(close(step_now(&state, pattern), 5.), "{}", step_now(&state, pattern));
+
+  // on step 20 (bar 2) when it's made a bar long: it carries on where step
+  // 20 falls in one bar, on its beat, as the cursor has it
+  let state = daw::InnerState::default();
+  let pattern = add_pattern_of(&state, 2).unwrap().id;
+  let (offset, started) = play_slices(&state, pattern, 32 + 21);
+  assert_eq!(offset, beat * 5);
+  set_bars(&state, pattern, 1);
+  let one = daw::pattern_len(&state, pattern).unwrap();
+  assert!(close(step_now(&state, pattern), 5.), "{}", step_now(&state, pattern));
+  let next = daw::next_pattern_slice(&state, run(&state), offset, beat, one, beat * 8, started + beat * 14);
+  assert_eq!(next, beat * 2);
+  assert!(close(step_now(&state, pattern), 5.), "{}", step_now(&state, pattern));
+}
+
+#[test]
+fn test_only_the_run_playing_counts_a_pattern_on() {
+  let state = daw::InnerState::default();
+  let pattern = add_pattern_of(&state, 1).unwrap().id;
+  play_slices(&state, pattern, 8);
+  let beat = Duration::from_millis(500);
+  let len = daw::pattern_len(&state, pattern).unwrap();
+  // a seek has replaced the run: its step stays
+  *state.playlist.pattern_start.lock().unwrap() = 3.;
+  let replaced = state.playlist.run_id.load(std::sync::atomic::Ordering::SeqCst) + 7;
+  daw::next_pattern_slice(&state, replaced, beat * 3, beat, len, len, std::time::Instant::now());
+  assert_eq!(*state.playlist.pattern_start.lock().unwrap(), 3.);
 }
 
 fn change_tempo_mid_pattern() -> (Arc<daw::InnerState>, u64) {
@@ -215,8 +326,8 @@ fn drums() -> (Arc<daw::InnerState>, u64, u64, u64, u64, u64) {
   let kick = add_sample(&state, KICK).unwrap().row_id;
   let snare = add_sample(&state, SNARE).unwrap().row_id;
   let pattern = add_pattern_of(&state, 1).unwrap().id;
-  set_step(&state, pattern, kick, 0, true, None).unwrap();
-  set_step(&state, pattern, snare, 4, true, None).unwrap();
+  set_pattern_step_in(&state, pattern, kick, 0, true, None, false).unwrap();
+  set_pattern_step_in(&state, pattern, snare, 4, true, None, false).unwrap();
   let folder = add_pattern_folder_to(&state, "Drums", None).unwrap().id;
   edit(&state, None, |seq| seq.move_pattern(pattern, Some(folder))).unwrap();
   let clip = add_pattern_clip_to(&state, pattern, 1, Some(4.)).unwrap().id;
@@ -248,14 +359,14 @@ fn test_every_sequencer_edit_can_be_undone_and_redone() {
     ("label a row", Box::new(|| edit(s, None, |seq| seq.rename_row(snare, "Snare")).map(|_| ()))),
     ("move a row", Box::new(|| edit(s, None, |seq| seq.move_row(snare, 0)).map(|_| ()))),
     ("replace a row's sample", Box::new(|| replace_sample(s, kick, SNARE).map(|_| ()))),
-    ("light a step", Box::new(|| set_step(s, pattern, kick, 8, true, None).map(|_| ()))),
-    ("clear a step", Box::new(|| set_step(s, pattern, kick, 0, false, None).map(|_| ()))),
-    ("grow with a step past the end", Box::new(|| set_step(s, pattern, snare, 20, true, None).map(|_| ()))),
+    ("light a step", Box::new(|| set_pattern_step_in(s, pattern, kick, 8, true, None, false).map(|_| ()))),
+    ("clear a step", Box::new(|| set_pattern_step_in(s, pattern, kick, 0, false, None, false).map(|_| ()))),
+    ("grow with a step past the end", Box::new(|| set_pattern_step_in(s, pattern, snare, 20, true, None, false).map(|_| ()))),
     ("rename a pattern", Box::new(|| edit(s, None, |seq| seq.rename_pattern(pattern, "verse")).map(|_| ()))),
-    ("set the notes", Box::new(|| set_notes(s, notes, synth, vec![note(60, 1.), note(64, 2.)], None).map(|_| ()))),
-    ("set a sample row's notes", Box::new(|| set_notes(s, pattern, snare, vec![note(48, 2.5)], None).map(|_| ()))),
+    ("set the notes", Box::new(|| set_pattern_notes_in(s, notes, synth, vec![note(60, 1.), note(64, 2.)], None, false).map(|_| ()))),
+    ("set a sample row's notes", Box::new(|| set_pattern_notes_in(s, pattern, snare, vec![note(48, 2.5)], None, false).map(|_| ()))),
     ("a long pattern", Box::new(|| edit(s, None, |seq| seq.set_pattern_bars(notes, 128, 4)).map(|_| ()))),
-    ("grow with notes past the end", Box::new(|| set_notes(s, notes, synth, vec![note(60, 1.), note(64, 40.)], None).map(|_| ()))),
+    ("grow with notes past the end", Box::new(|| set_pattern_notes_in(s, notes, synth, vec![note(60, 1.), note(64, 40.)], None, false).map(|_| ()))),
     ("synth volume", Box::new(|| edit(s, None, |seq| seq.set_row_volume(synth, 0.5)).map(|_| ()))),
     ("replace a synth's plugin", Box::new(|| crate::commands::synth::replace(s, synth, &crate::effects::testing::synth().id).map(|_| ()))),
     ("mute a synth", Box::new(|| edit(s, None, |seq| seq.set_row_muted(synth, true)).map(|_| ()))),
@@ -270,11 +381,11 @@ fn test_every_sequencer_edit_can_be_undone_and_redone() {
     ("move a pattern", Box::new(|| edit(s, None, |seq| seq.move_pattern(pattern, None)).map(|_| ()))),
     ("remove a folder", Box::new(|| remove_pattern_folder_of(s, folder).map(|_| ()))),
     // with its notes in every pattern
-    ("remove a row", Box::new(|| edit(s, None, |seq| seq.remove_row(snare)).map(|_| ()))),
+    ("remove a row", Box::new(|| edit(s, None, |seq| seq.remove_row_and_trim(snare, 4)).map(|_| ()))),
     // with its clip in the playlist
     ("remove a pattern", Box::new(|| remove_pattern_of(s, pattern).map(|_| ()))),
     // with its notes and its plugin
-    ("remove a synth row", Box::new(|| edit(s, None, |seq| seq.remove_row(synth)).map(|_| ()))),
+    ("remove a synth row", Box::new(|| edit(s, None, |seq| seq.remove_row_and_trim(synth, 4)).map(|_| ()))),
   ];
 
   let start = saved(&state);
@@ -312,7 +423,7 @@ fn test_a_drag_of_notes_is_one_step() {
 
   // a note drawn, then dragged along, without letting go of the mouse
   for n in 0..10 {
-    let change = set_notes(&state, pattern, synth, vec![note(60, 0.), note(62, n as f64 * 0.5)], Some(31)).unwrap();
+    let change = set_pattern_notes_in(&state, pattern, synth, vec![note(60, 0.), note(62, n as f64 * 0.5)], Some(31), false).unwrap();
     let notes = &change.pattern.notes[&synth];
     assert_eq!(notes.iter().map(|note| note.start).fold(0., f64::max), n as f64 * 0.5);
   }
@@ -326,10 +437,10 @@ fn test_a_drag_of_notes_is_one_step() {
   assert_eq!(saved(&state), after);
 
   // the next drag is a step of its own; one that changes nothing isn't one
-  set_notes(&state, pattern, synth, vec![note(60, 0.)], Some(32)).unwrap();
-  set_notes(&state, pattern, synth, vec![note(60, 0.)], Some(33)).unwrap();
+  set_pattern_notes_in(&state, pattern, synth, vec![note(60, 0.)], Some(32), false).unwrap();
+  set_pattern_notes_in(&state, pattern, synth, vec![note(60, 0.)], Some(33), false).unwrap();
   assert_eq!(steps(&state), had + 2);
-  assert!(set_notes(&state, 99, synth, vec![], None).is_err());
+  assert!(set_pattern_notes_in(&state, 99, synth, vec![], None, false).is_err());
   assert_eq!(steps(&state), had + 2);
 }
 
@@ -358,12 +469,12 @@ fn test_placing_a_pattern_is_one_step() {
 fn test_an_edit_that_fails_is_no_step() {
   let (state, kick, _, pattern, _, _) = drums();
   let had = steps(&state);
-  assert!(set_step(&state, pattern, 99, 0, true, None).is_err());
-  assert!(set_step(&state, pattern, kick, 2048, true, None).is_err());
+  assert!(set_pattern_step_in(&state, pattern, 99, 0, true, None, false).is_err());
+  assert!(set_pattern_step_in(&state, pattern, kick, 2048, true, None, false).is_err());
   assert!(remove_pattern_of(&state, 99).is_err());
   assert!(add_sample(&state, "assets/nope.wav").is_err());
   // nor is one that changes nothing: the step was lit already
-  set_step(&state, pattern, kick, 0, true, None).unwrap();
+  set_pattern_step_in(&state, pattern, kick, 0, true, None, false).unwrap();
   assert_eq!(steps(&state), had);
 }
 
@@ -375,7 +486,7 @@ fn test_a_stroke_of_steps_is_one_step() {
 
   // eight steps painted without letting go of the mouse
   for step in 1..=8 {
-    set_step(&state, pattern, kick, step, true, Some(21)).unwrap();
+    set_pattern_step_in(&state, pattern, kick, step, true, Some(21), false).unwrap();
   }
   assert_eq!(steps(&state), had + 1);
   let after = saved(&state);
@@ -386,7 +497,7 @@ fn test_a_stroke_of_steps_is_one_step() {
   assert_eq!(saved(&state), after);
 
   // the next stroke, and a knob's drag, are steps of their own
-  set_step(&state, pattern, kick, 12, true, Some(22)).unwrap();
+  set_pattern_step_in(&state, pattern, kick, 12, true, Some(22), false).unwrap();
   for i in 1..=20 {
     edit(&state, Some(23), |seq| seq.set_row_volume(kick, 1. - 0.02 * i as f32)).unwrap();
   }
@@ -399,7 +510,7 @@ fn test_a_stroke_of_steps_is_one_step() {
 fn test_a_removed_row_and_pattern_come_back_as_themselves() {
   let (state, _, snare, pattern, _, clip) = drums();
 
-  edit(&state, None, |seq| seq.remove_row(snare)).unwrap();
+  edit(&state, None, |seq| seq.remove_row_and_trim(snare, 4)).unwrap();
   history::undo(&state).unwrap();
   {
     let seq = state.playlist.sequencer.lock().unwrap();
@@ -421,7 +532,7 @@ fn test_a_removed_row_and_pattern_come_back_as_themselves() {
   // still come back by redo
   history::undo(&state).unwrap();
   history::redo(&state).unwrap();
-  edit(&state, None, |seq| seq.remove_row(snare)).unwrap();
+  edit(&state, None, |seq| seq.remove_row_and_trim(snare, 4)).unwrap();
   history::undo(&state).unwrap();
   let rows = add_sample(&state, KICK).unwrap().sequencer.rows;
   let ids: std::collections::BTreeSet<u64> = rows.iter().map(|row| row.id).collect();
@@ -456,7 +567,7 @@ fn test_an_undone_pattern_plays_as_it_did() {
   let before = render();
   assert!(before.iter().any(|&sample| sample != 0.));
 
-  set_step(&state, pattern, kick, 2, true, None).unwrap();
+  set_pattern_step_in(&state, pattern, kick, 2, true, None, false).unwrap();
   assert!(render() != before);
   history::undo(&state).unwrap();
   assert!(render() == before);
@@ -619,7 +730,7 @@ fn test_explode_skips_sample_clips() {
   let state = daw::InnerState::default();
   let pattern = add_pattern_of(&state, 1).unwrap().id;
   let row = add_sample(&state, KICK).unwrap().row_id;
-  state.playlist.sequencer.lock().unwrap().set_step(pattern, row, 4, true).unwrap();
+  state.playlist.sequencer.lock().unwrap().set_pattern_step(pattern, row, 4, true, 4).unwrap();
   let clip = add_pattern_clip_to(&state, pattern, 2, Some(4.)).unwrap().id;
   let sample = state.playlist.audiograph.lock().unwrap()
     .construct_and_add_node(KICK.to_string(), Duration::ZERO, 0).unwrap();
@@ -650,8 +761,8 @@ fn test_an_exploded_synth_row_plays_through_a_copy_on_its_own_track() {
   let (synth, pattern) = synth_and_pattern(&state);
   let slot = rig.slot_of(synth);
   rig.turn(slot, 0.25);
-  set_step(&state, pattern, kick, 0, true, None).unwrap();
-  set_notes(&state, pattern, synth, vec![note(60, 2.)], None).unwrap();
+  set_pattern_step_in(&state, pattern, kick, 0, true, None, false).unwrap();
+  set_pattern_notes_in(&state, pattern, synth, vec![note(60, 2.)], None, false).unwrap();
   // on track 1, round its one bar pattern two and a half times
   let clip = add_pattern_clip_to(&state, pattern, 1, Some(0.)).unwrap().id;
   let looping = ClipWindow { start: 0., end: Some(40.) };
@@ -781,11 +892,11 @@ fn test_a_row_edit_replies_with_the_row_and_undo_puts_its_rev_back() {
 fn test_a_pattern_edit_replies_with_the_pattern_and_undo_puts_its_rev_back() {
   let (state, kick, snare, pattern, _, _) = drums();
   let other = add_pattern_of(&state, 1).unwrap().id;
-  set_step(&state, other, kick, 0, true, None).unwrap();
+  set_pattern_step_in(&state, other, kick, 0, true, None, false).unwrap();
   let s: &daw::InnerState = &state;
   let edits: Vec<(&str, Box<dyn Fn() -> Result<daw::PatternChange, String> + '_>)> = vec![
-    ("set_pattern_step", Box::new(|| set_step(s, pattern, kick, 8, true, Some(3)))),
-    ("set_pattern_notes", Box::new(|| set_notes(s, pattern, snare, vec![note(48, 2.5)], Some(4)))),
+    ("set_pattern_step", Box::new(|| set_pattern_step_in(s, pattern, kick, 8, true, Some(3), false))),
+    ("set_pattern_notes", Box::new(|| set_pattern_notes_in(s, pattern, snare, vec![note(48, 2.5)], Some(4), false))),
     ("set_pattern_bars", Box::new(|| edit_pattern(s, None, pattern, |seq| seq.set_pattern_bars(pattern, 2, 4)))),
   ];
 
@@ -806,12 +917,12 @@ fn test_a_pattern_edit_replies_with_the_pattern_and_undo_puts_its_rev_back() {
   }
 
   // the reply is the one pattern, and is all the frontend needs of it
-  let json = serde_json::to_value(set_step(s, pattern, kick, 12, true, None).unwrap()).unwrap();
+  let json = serde_json::to_value(set_pattern_step_in(s, pattern, kick, 12, true, None, false).unwrap()).unwrap();
   assert_eq!(json.as_object().unwrap().keys().collect::<Vec<_>>(), vec!["pattern"]);
   assert_eq!(json["pattern"]["id"], pattern);
   assert_eq!(json["pattern"]["rev"], revs(s).1[&pattern]);
   assert_eq!(json["pattern"]["notes"][kick.to_string()][2]["start"], 12.);
-  assert!(set_step(s, 99, kick, 0, true, None).is_err());
+  assert!(set_pattern_step_in(s, 99, kick, 0, true, None, false).is_err());
 }
 
 #[test]
@@ -823,17 +934,17 @@ fn test_a_step_or_notes_past_the_end_grow_the_pattern_in_bars_of_the_time_signat
 
   // a greyed step: the pattern of one 4/4 bar grows to the end of the 3/4
   // bar holding it, with its floor where it was
-  let grown = set_step(s, pattern, kick, 30, true, Some(5)).unwrap().pattern;
+  let grown = set_pattern_step_in(s, pattern, kick, 30, true, Some(5), false).unwrap().pattern;
   assert_eq!((grown.length, grown.floor), (36, 16));
   assert!(grown.notes[&kick].iter().any(|n| n.start == 30.));
   assert_eq!(steps(s), had + 1);
   history::undo(&state).unwrap();
   assert_eq!(sequencer_state(s).pattern(pattern).unwrap().length, 16);
   // past the longest it can be: refused, with no step
-  assert!(set_step(s, pattern, kick, 128 * 12, true, None).unwrap_err().contains("there's no step 1536"));
+  assert!(set_pattern_step_in(s, pattern, kick, 128 * 12, true, None, false).unwrap_err().contains("there's no step 1536"));
 
   // notes: to fit the ones added
-  let grown = set_notes(s, pattern, kick, vec![note(60, 0.), note(60, 40.)], None).unwrap().pattern;
+  let grown = set_pattern_notes_in(s, pattern, kick, vec![note(60, 0.), note(60, 40.)], None, false).unwrap().pattern;
   assert_eq!(grown.length, 48);
 }
 
@@ -853,14 +964,14 @@ fn test_a_rows_step_pitch_moves_its_notes_where_all_are_at_the_old_one() {
   let s: &daw::InnerState = &state;
   // steps (one of them past the pattern's end): moved with it
   edit(s, None, |seq| seq.set_pattern_bars(pattern, 2, 4)).unwrap();
-  set_step(s, pattern, kick, 20, true, None).unwrap();
+  set_pattern_step_in(s, pattern, kick, 20, true, None, false).unwrap();
   edit(s, None, |seq| seq.set_pattern_bars(pattern, 1, 4)).unwrap();
   // a chord on the step pitch and another: left as it is
   let chords = add_pattern_of(s, 1).unwrap().id;
-  set_notes(s, chords, kick, vec![note(60, 0.), note(64, 0.)], None).unwrap();
+  set_pattern_notes_in(s, chords, kick, vec![note(60, 0.), note(64, 0.)], None, false).unwrap();
   // only the snare's notes: not the kick's to move
   let snares = add_pattern_of(s, 1).unwrap().id;
-  set_step(s, snares, snare, 2, true, None).unwrap();
+  set_pattern_step_in(s, snares, snare, 2, true, None, false).unwrap();
 
   let before = revs(s);
   let had = steps(s);
@@ -876,7 +987,7 @@ fn test_a_rows_step_pitch_moves_its_notes_where_all_are_at_the_old_one() {
   assert_eq!(kick_notes(chords), vec![(60, 0.), (64, 0.)]);
   assert_eq!(reply.rows.iter().find(|r| r.id == kick).unwrap().step_pitch, 48);
   // a step clicked now is at it
-  set_step(s, chords, kick, 4, true, None).unwrap();
+  set_pattern_step_in(s, chords, kick, 4, true, None, false).unwrap();
   assert!(sequencer_state(s).pattern(chords).unwrap().notes[&kick].iter().any(|n| (n.pitch, n.start) == (48, 4.)));
   history::undo(&state).unwrap();
 
@@ -924,7 +1035,7 @@ fn test_a_clear_and_its_trim_are_one_step() {
   let s: &daw::InnerState = &state;
   let length = || sequencer_state(s).pattern(pattern).unwrap().length;
   // a step in bar 3 grew the pattern
-  set_step(s, pattern, kick, 40, true, None).unwrap();
+  set_pattern_step_in(s, pattern, kick, 40, true, None, false).unwrap();
   assert_eq!(length(), 48);
   let had = steps(s);
   let before = saved(s);
@@ -938,7 +1049,7 @@ fn test_a_clear_and_its_trim_are_one_step() {
   assert_eq!(length(), 16);
 
   // notes deleted in the Piano Roll, the same
-  set_notes(s, pattern, kick, vec![note(60, 0.), note(60, 40.)], None).unwrap();
+  set_pattern_notes_in(s, pattern, kick, vec![note(60, 0.), note(60, 40.)], None, false).unwrap();
   let had = steps(s);
   let before = saved(s);
   assert_eq!(set_pattern_notes_in(s, pattern, kick, vec![note(60, 0.)], None, true).unwrap().pattern.length, 16);
@@ -951,7 +1062,7 @@ fn test_a_clear_and_its_trim_are_one_step() {
 fn test_a_held_trim_joins_the_clears_step() {
   let (state, kick, _, pattern, _, _) = drums();
   let s: &daw::InnerState = &state;
-  set_step(s, pattern, kick, 40, true, None).unwrap();
+  set_pattern_step_in(s, pattern, kick, 40, true, None, false).unwrap();
   let had = steps(s);
   let before = saved(s);
 
@@ -969,10 +1080,10 @@ fn test_a_held_trim_joins_the_clears_step() {
 fn test_a_trim_with_nothing_to_trim_is_no_step() {
   let (state, kick, _, pattern, _, _) = drums();
   let s: &daw::InnerState = &state;
-  set_step(s, pattern, kick, 40, true, None).unwrap();
+  set_pattern_step_in(s, pattern, kick, 40, true, None, false).unwrap();
   set_pattern_step_in(s, pattern, kick, 40, false, Some(9), false).unwrap();
   // a step lit in those bars meanwhile
-  set_step(s, pattern, kick, 44, true, Some(10)).unwrap();
+  set_pattern_step_in(s, pattern, kick, 44, true, Some(10), false).unwrap();
   let had = steps(s);
   let before = revs(s);
 
@@ -988,8 +1099,8 @@ fn test_removing_a_row_trims_its_patterns_and_one_undo_brings_it_all_back() {
   let (state, _, snare, pattern, _, _) = drums();
   let s: &daw::InnerState = &state;
   let other = add_pattern_of(s, 1).unwrap().id;
-  set_step(s, pattern, snare, 40, true, None).unwrap();
-  set_step(s, other, snare, 20, true, None).unwrap();
+  set_pattern_step_in(s, pattern, snare, 40, true, None, false).unwrap();
+  set_pattern_step_in(s, other, snare, 20, true, None, false).unwrap();
   let had = steps(s);
   let before = saved(s);
 

@@ -383,21 +383,27 @@ export interface Pass {
 
 // every time through its pattern, `patternLength` steps long, that a clip
 // plays, in order: from `start` steps into the pattern (not wrapped), for
-// `length` steps. PatternNode::passes in engine/src/daw/daw_core/audiograph.rs
-export const clipPasses = (start: number, length: number, patternLength: number): Pass[] => {
+// `length` steps. or only those that reach into steps `reachFrom` up to
+// `reachTo` (counted as `start` is), found straight away rather than by
+// going through those before them: a clip can go round its pattern a
+// couple of thousand times. PatternNode::passes and passes_heard in
+// engine/src/daw/daw_core/audiograph.rs
+export const clipPasses = (
+  start: number, length: number, patternLength: number, reachFrom = -Infinity, reachTo = Infinity,
+): Pass[] => {
   if(!(patternLength > 0)) return []
   const end = start + length
+  // (the first time through starts a whole number of patterns in)
+  const first = start - patternStepAt(start, 0, patternLength)
+  const skipped = Math.max(0, Math.floor((reachFrom - first) / patternLength))
   const passes: Pass[] = []
-  for(let at = start - patternStepAt(start, 0, patternLength); at < end; at += patternLength) {
-    passes.push({ from: Math.max(start - at, 0), to: Math.min(end - at, patternLength), at })
+  for(let at = first + skipped * patternLength; at < end; at += patternLength) {
+    const pass = { from: Math.max(start - at, 0), to: Math.min(end - at, patternLength), at }
+    if(at + pass.from >= reachTo) break
+    if(at + pass.to > reachFrom) passes.push(pass)
   }
   return passes
 }
-
-// where a clip starts its pattern over, in steps from the clip's start (for
-// the faint repeat lines): k·L − s for every whole k with s < k·L < s + c
-export const repeatLines = (start: number, length: number, patternLength: number): number[] =>
-  clipPasses(start, length, patternLength).slice(1).map(pass => pass.at - start)
 
 export interface NoteBars {
   rows: number

@@ -26,7 +26,7 @@ const transport = (t: Partial<PlaylistTransport> = {}): PlaylistTransport => ({
   songEndMs: 0,
   beatsPerBar: 4,
   patternId: null,
-  patternLengthMs: 0,
+  patternLength: 0,
   ...t,
 })
 

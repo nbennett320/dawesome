@@ -65,6 +65,8 @@ const makeSequencer = (change: Partial<SequencerState> = {}): SequencerState => 
 const stopped = { playing: false, patternId: null, startTimeMs: null, beatIntervalMs: 500, beatsPerBar: 4 }
 
 let sequencer: SequencerState
+// what get_playlist_transport answers
+let transport: object
 
 const makeStore = () => configureStore({
   reducer: {
@@ -117,10 +119,11 @@ beforeEach(() => {
   mockInvoke.mockReset()
   rowRenders = 0
   sequencer = makeSequencer()
+  transport = stopped
   const row = (id: unknown) => sequencer.rows.find(r => r.id === id) as Row
   mockInvoke.mockImplementation(async (command: string, args: Record<string, unknown>) => {
     if(command === 'get_sequencer') return sequencer
-    if(command === 'get_playlist_transport') return stopped
+    if(command === 'get_playlist_transport') return transport
     if(command === 'add_synth_row') {
       sequencer = { ...sequencer, rows: [...sequencer.rows, synthRow(9, { name: 'Keys' })] }
       return { rowId: 9, sequencer }
@@ -305,7 +308,7 @@ describe('the Pattern Sequencer', () => {
     expect(column.hidden).toBe(true)
 
     // Beat plays from 10s, a step every 125ms
-    act(() => { store.dispatch(sequencerSlice.actions.setRun({ patternId: 0, startTimeMs: 10_000, beatIntervalMs: 500 })) })
+    act(() => { store.dispatch(sequencerSlice.actions.setRun({ patternId: 0, startTimeMs: 10_000, beatIntervalMs: 500, length: 16 })) })
     expect(column.hidden).toBe(false)
     expect(column.style.left).toBe(`${GRID_LEFT}px`)
     rowRenders = 0
@@ -318,6 +321,39 @@ describe('the Pattern Sequencer', () => {
 
     act(() => { store.dispatch(sequencerSlice.actions.setRun(null)) })
     expect(column.hidden).toBe(true)
+    raf.mockRestore()
+    now.mockRestore()
+  })
+
+  it('keeps the playing step on the step heard when the pattern grows while it plays', async () => {
+    const frames: FrameRequestCallback[] = []
+    const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(f => frames.push(f))
+    const now = vi.spyOn(Date, 'now').mockReturnValue(10_000)
+    const { store, container } = await setup()
+    const column = container.querySelector('.seq-now') as HTMLElement
+    const show = () => act(() => { frames.splice(0).forEach(f => f(0)) })
+
+    // Beat (a bar) has played 53 steps, a step every 125ms: it's on step 5
+    act(() => {
+      store.dispatch(sequencerSlice.actions.setRun({ patternId: 0, startTimeMs: 10_000 - 53 * 125, beatIntervalMs: 500, length: 16 }))
+    })
+    show()
+    expect(column.style.transform).toBe(`translateX(${stepX(5, 4)}px)`)
+
+    // a greyed step grows it to two bars. the engine carries on from step 5
+    // and counts from there: the column stays on it (not on step 21, the
+    // 53rd step of 32)
+    transport = { ...stopped, playing: true, patternId: 0, startTimeMs: 10_000 - 5 * 125, beatIntervalMs: 500, patternLength: 32 }
+    fireEvent.mouseDown(keysOf('kick')[20], { button: 0 })
+    fireEvent.mouseUp(window)
+    await act(async () => {})
+    expect(store.getState().sequencer.patterns[0].length).toBe(32)
+    show()
+    expect(column.style.transform).toBe(`translateX(${stepX(5, 4)}px)`)
+    // and on into bar 2
+    now.mockReturnValue(10_000 + 12 * 125 + 1)
+    show()
+    expect(column.style.transform).toBe(`translateX(${stepX(17, 4)}px)`)
     raf.mockRestore()
     now.mockRestore()
   })
@@ -372,6 +408,27 @@ describe('the Pattern Sequencer', () => {
     pick('Used only')
     expect(shownRows(container)).toEqual([0, 3, 1, 2])
     expect(store.getState().sequencer.usedOnly).toBe(false)
+  })
+
+  it('keeps a row whose last step a stroke clears while Used only is on, until the stroke ends', async () => {
+    // Beat: the kick's step 0, and the snare's 0 and 1
+    sequencer = makeSequencer({ patterns: [pattern(0, { name: 'Beat', notes: { 0: steps(0), 2: steps(0, 1) } })] })
+    const { container } = await setup()
+    pick('Used only')
+    expect(shownRows(container)).toEqual([0, 2])
+
+    // the kick's only step cleared: its row stays under the mouse, so the
+    // stroke can't carry on into the snare's row as it slides up
+    fireEvent.mouseDown(keysOf('kick')[0], { button: 0 })
+    await act(async () => {})
+    expect(shownRows(container)).toEqual([0, 2])
+    fireEvent.mouseEnter(keysOf('kick')[1])
+    expect(calls('set_pattern_step')).toEqual([{ patternId: 0, rowId: 0, step: 0, on: false, gesture: null, trim: true }])
+
+    // and it goes once the stroke ends
+    act(() => { fireEvent.mouseUp(window) })
+    expect(shownRows(container)).toEqual([2])
+    expect(keysOf('snare')[0].getAttribute('aria-pressed')).toBe('true')
   })
 
   it('drags a row of either kind to any place among them', async () => {

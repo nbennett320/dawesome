@@ -21,7 +21,7 @@ vi.mock('./projectSlice', async () => {
 vi.mock('@tauri-apps/api/path', () => ({ dirname: vi.fn(), documentDir: vi.fn(), join: vi.fn() }))
 
 // get_playlist_data's answer: a new project's length in beats, and 4 tracks
-const playlistData = [16, DEFAULT_PLAYLIST_BEATS, 240, 4]
+const playlistData = { beats: DEFAULT_PLAYLIST_BEATS, trackCount: 4 }
 
 const loaded: LoadedProject = {
   tempo: 90,

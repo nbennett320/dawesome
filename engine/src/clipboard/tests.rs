@@ -28,7 +28,7 @@ fn pattern_clip(state: &daw::InnerState, track: u32, beat: f64) -> (u64, u64) {
     let mut sequencer = state.playlist.sequencer.lock().unwrap();
     let row = sequencer.add_row(KICK).unwrap();
     let pattern = sequencer.add_pattern(1, 4).unwrap();
-    sequencer.set_step(pattern, row, 0, true).unwrap();
+    sequencer.set_pattern_step(pattern, row, 0, true, 4).unwrap();
     pattern
   };
   let mut audiograph = state.playlist.audiograph.lock().unwrap();

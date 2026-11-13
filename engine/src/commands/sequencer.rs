@@ -377,19 +377,6 @@ fn set_pattern_step_in(
   })
 }
 
-// set_pattern_step without a trim, for tests
-#[cfg(test)]
-fn set_step(
-  state: &daw::InnerState,
-  pattern_id: u64,
-  row_id: u64,
-  step: u32,
-  on: bool,
-  gesture: Option<u64>,
-) -> Result<daw::PatternChange, String> {
-  set_pattern_step_in(state, pattern_id, row_id, step, on, gesture, false)
-}
-
 // replace a row's notes in a pattern (the Piano Roll), sorted, growing it to
 // fit the notes added (see Sequencer::edit_pattern_notes). one drag of the
 // mouse (the same gesture) is one step to undo. `trim` (notes deleted;
@@ -407,7 +394,7 @@ pub fn set_pattern_notes(
   set_pattern_notes_in(&state, pattern_id, row_id, notes, gesture, trim.unwrap_or(false))
 }
 
-fn set_pattern_notes_in(
+pub(crate) fn set_pattern_notes_in(
   state: &daw::InnerState,
   pattern_id: u64,
   row_id: u64,
@@ -421,18 +408,6 @@ fn set_pattern_notes_in(
     if trim { seq.trim_pattern(pattern_id, beats)?; }
     Ok(())
   })
-}
-
-// set_pattern_notes without a trim, for tests
-#[cfg(test)]
-pub(crate) fn set_notes(
-  state: &daw::InnerState,
-  pattern_id: u64,
-  row_id: u64,
-  notes: Vec<daw::PatternNote>,
-  gesture: Option<u64>,
-) -> Result<daw::PatternChange, String> {
-  set_pattern_notes_in(state, pattern_id, row_id, notes, gesture, false)
 }
 
 // the trim a clear held back while the play cursor was in the bars it takes

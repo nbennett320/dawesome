@@ -1,34 +1,18 @@
-use std::sync::atomic::Ordering;
-
 use crate::{app, daw};
 
+// the playlist's length, and how many tracks it has
+#[derive(serde::Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistData {
+  // in beats (see daw::playlist_beats)
+  beats: u64,
+  track_count: u32,
+}
+
 #[tauri::command]
-pub fn get_playlist_data(
-  state: daw::TState<'_>,
-) -> Result<(u64, u64, f32, u32), String> {
-  let audiograph = state
-    .playlist
-    .audiograph
-    .lock()
-    .unwrap();
-  let max_playlist_beats = state
-    .playlist
-    .max_beats
-    .load(Ordering::SeqCst);
-  let max_beats_displayed = daw::playlist_beats(&state);
-  let track_count = audiograph.track_count();
-  let max_playlist_duration = audiograph
-    .duration_max()
-    .as_secs_f32();
-
-  println!("max dur: {}s, track count: {}", max_playlist_duration, track_count);
-
-  Ok((
-    max_playlist_beats,
-    max_beats_displayed,
-    max_playlist_duration,
-    track_count
-  ))
+pub fn get_playlist_data(state: daw::TState<'_>) -> PlaylistData {
+  let track_count = state.playlist.audiograph.lock().unwrap().track_count();
+  PlaylistData { beats: daw::playlist_beats(&state), track_count }
 }
 
 #[tauri::command]

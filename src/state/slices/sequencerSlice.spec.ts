@@ -194,7 +194,7 @@ describe('sequencerSlice', () => {
 
   it('forgets the run once the engine stops', () => {
     const { setRun } = sequencerSlice.actions
-    let state = reducer(init(), setRun({ patternId: 0, startTimeMs: 1, beatIntervalMs: 500 }))
+    let state = reducer(init(), setRun({ patternId: 0, startTimeMs: 1, beatIntervalMs: 500, length: 16 }))
     state = reducer(state, setPlaying(true))
     expect(state.run).not.toBeNull()
     state = reducer(state, setPlaying(false))
@@ -225,7 +225,7 @@ describe('changeTempo', () => {
   // a pattern playing on its own, as the engine reports it after starting
   // it over at the new tempo
   const transport = {
-    playing: true, patternId: 4, startTimeMs: 5_000, beatIntervalMs: 666,
+    playing: true, patternId: 4, startTimeMs: 5_000, beatIntervalMs: 666, patternLength: 32,
   }
 
   it('follows a pattern that started over at the new tempo', async () => {
@@ -240,7 +240,7 @@ describe('changeTempo', () => {
     expect(await changeTempo(90)(a => { actions.push(a as { type: string }); return a })).toBe(true)
 
     const state = actions.reduce(reducer, init())
-    expect(state.run).toEqual({ patternId: 4, startTimeMs: 5_000, beatIntervalMs: 666 })
+    expect(state.run).toEqual({ patternId: 4, startTimeMs: 5_000, beatIntervalMs: 666, length: 32 })
   })
 
   it('asks nothing more when the tempo was not changed', async () => {
@@ -453,7 +453,7 @@ describe('adding rows', () => {
     }
     mockInvoke.mockImplementation(async (command: string) => {
       if(command === 'explode_pattern_clips') return exploded
-      if(command === 'get_playlist_data') return [0, 0, 0, 3]
+      if(command === 'get_playlist_data') return { beats: 0, trackCount: 3 }
       return undefined
     })
     const store = makeStore()

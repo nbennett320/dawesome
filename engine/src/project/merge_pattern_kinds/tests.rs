@@ -241,14 +241,58 @@ fn test_a_clips_part_is_frozen_as_the_old_app_played_it() {
       clip(Value::Null),
       clip(json!({ "start": -4, "end": 8 })),
       clip(json!({ "start": 6, "end": 3 })),
-      clip(json!({ "start": 15.5, "end": null })),
-      // past the pattern's end: a step long, which plays nothing
-      clip(json!({ "start": 20, "end": 30 })),
     ],
   }));
   let parts: Vec<(f64, f64)> = clips.iter().map(|c| (c.start, c.length)).collect();
-  assert_eq!(parts, vec![(0., 16.), (0., 8.), (6., 10.), (15.5, 1.), (20., 1.)]);
+  assert_eq!(parts, vec![(0., 16.), (0., 8.), (6., 10.)]);
   assert!(clips.iter().all(|c| c.start_beat == 1.));
+}
+
+#[test]
+fn test_a_clip_that_played_nothing_past_its_patterns_end_is_left_out_and_said() {
+  let clip = |pattern: u64, start: f64| json!({ "patternId": pattern, "trackNumber": 0, "startBeat": 1, "window": { "start": start } });
+  let mut project = json!({
+    "version": 3,
+    "sequencer": {
+      "rows": [{ "id": 0, "path": "kick.wav" }],
+      "synths": [{ "id": 0, "pluginId": "vst3:x", "name": "Keys" }],
+      "patterns": [
+        { "id": 0, "name": "Beat", "length": 16, "steps": { "0": [0, 15] } },
+        { "id": 1, "name": "Line", "kind": "note", "length": 16, "steps": {},
+          "notes": { "0": [{ "pitch": 60, "start": 15.75, "length": 0.25, "velocity": 1.0 }] } },
+      ],
+    },
+    "patternClips": [
+      // the old app played these as a step-long stub, of nothing: from version
+      // 4 they'd go round into the pattern's start
+      clip(0, 16.), clip(0, 20.), clip(0, 15.5),
+      // these played something
+      clip(0, 15.), clip(1, 15.5),
+    ],
+  });
+  let dropped = merge_pattern_kinds(&mut project).unwrap();
+  assert_eq!(dropped, vec!["3 empty pattern clips from an older version were left out: they played nothing".to_string()]);
+  let clips: Vec<ProjectPatternClip> = serde_json::from_value(project["patternClips"].clone()).unwrap();
+  let parts: Vec<(u64, f64, f64)> = clips.iter().map(|c| (c.pattern_id, c.start, c.length)).collect();
+  assert_eq!(parts, vec![(0, 15., 1.), (1, 15.5, 1.)]);
+
+  // one is one
+  let mut project = json!({
+    "version": 3,
+    "sequencer": { "patterns": [{ "id": 0, "name": "a", "length": 16, "steps": {} }] },
+    "patternClips": [clip(0, 16.)],
+  });
+  assert_eq!(merge_pattern_kinds(&mut project).unwrap(),
+    vec!["1 empty pattern clip from an older version was left out: it played nothing".to_string()]);
+  // and the project says so when it's opened
+  let project = json!({
+    "version": 3,
+    "sequencer": { "patterns": [{ "id": 0, "name": "a", "length": 16, "steps": {} }] },
+    "patternClips": [clip(0, 16.), clip(0, 0.)],
+  });
+  let opened = Project::from_json(&project.to_string()).unwrap();
+  assert_eq!(opened.pattern_clips.len(), 1);
+  assert_eq!(opened.dropped, vec!["1 empty pattern clip from an older version was left out: it played nothing".to_string()]);
 }
 
 // the project tests/fixtures/v3-patterns.dawesome, written by the app at

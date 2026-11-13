@@ -76,6 +76,9 @@ harness = false
 # turned on by `tauri build`, which embeds ../dist. without it (`tauri dev`,
 # `cargo run`, `cargo test`) the app loads the dev server instead
 custom-protocol = ["tauri/custom-protocol"]
+# the timings in src/perf.rs: turns on the allocator that counts what
+# perf_history holds (see context/pattern-merge-project/perf/measure.md)
+perf = []
 
 [profile.release]
 codegen-units = 1

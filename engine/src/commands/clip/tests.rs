@@ -31,8 +31,8 @@ fn clips() -> (Arc<daw::InnerState>, u64, u64) {
     let mut sequencer = state.playlist.sequencer.lock().unwrap();
     let row = sequencer.add_row(KICK).unwrap();
     let pattern = sequencer.add_pattern(1, 4).unwrap();
-    sequencer.set_step(pattern, row, 0, true).unwrap();
-    sequencer.set_step(pattern, row, 10, true).unwrap();
+    sequencer.set_pattern_step(pattern, row, 0, true, 4).unwrap();
+    sequencer.set_pattern_step(pattern, row, 10, true, 4).unwrap();
     pattern
   };
   let clip = state.playlist.audiograph.lock().unwrap()

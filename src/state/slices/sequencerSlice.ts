@@ -30,9 +30,13 @@ import { EditSend, SequencerRoot, sendClear } from '../pendingTrim'
 // a pattern playing on its own, and when it started, for the step highlight
 export interface PatternRun {
   patternId: number
-  // ms since the unix epoch, like Date.now()
+  // when step 0 of its time round was heard: ms since the unix epoch, like
+  // Date.now()
   startTimeMs: number
   beatIntervalMs: number
+  // its length, in steps, as the engine counts it from startTimeMs. when the
+  // engine has another length for it, the run is read again (see followRun)
+  length: number
 }
 
 export interface SequencerSliceState extends SequencerState {
@@ -212,6 +216,24 @@ const sequencerError = (what: string) => (e: unknown) =>
   // eslint-disable-next-line no-console
   console.error(`could not ${what}:`, e)
 
+// the pattern playing on its own, as the engine counts it now, if any
+const readRun = async (dispatch: Dispatch) => {
+  const t = await invoke<PlaylistTransport>('get_playlist_transport', {})
+  dispatch(setRun(t.playing && t.patternId !== null && t.startTimeMs !== null
+    ? { patternId: t.patternId, startTimeMs: t.startTimeMs, beatIntervalMs: t.beatIntervalMs, length: t.patternLength }
+    : null))
+}
+
+// a pattern playing on its own whose length changes is counted afresh from
+// the step it's on (see daw::next_pattern_slice in engine/src/daw/daw.rs).
+// once the engine has a new length for it, the run is read again, so the
+// playing step and a held trim (see pendingTrim.ts) stay on the step heard
+const followRun = (dispatch: Dispatch, getState: () => SequencerRoot): Promise<void> => {
+  const { run, patterns } = getState().sequencer
+  const playing = run && patterns.find(p => p.id === run.patternId)
+  return playing && playing.length !== run.length ? readRun(dispatch) : Promise.resolve()
+}
+
 // run a sequencer command that returns the whole sequencer, and keep it
 const edit = (what: string, command: string, args: Record<string, unknown>) =>
   (dispatch: Dispatch) =>
@@ -237,13 +259,14 @@ const editRow = (what: string, command: string, args: Record<string, unknown>) =
 // if it's refused, the sequencer is fetched again, so a change shown before
 // the engine answered (see setPatternStep) doesn't stay
 const editPattern = (what: string, command: string, args: Record<string, unknown>) =>
-  (dispatch: Dispatch) =>
+  (dispatch: Dispatch, getState: () => SequencerRoot) =>
     invoke<PatternChange>(command, args)
       .then(change => { dispatch(reducePattern(change)) })
       .catch(e => {
         sequencerError(what)(e)
         return loadSequencer()(dispatch)
       })
+      .then(() => followRun(dispatch, getState))
 
 // a new empty pattern at the end, selected
 export const addPattern = (bars: number) => (dispatch: Dispatch) =>
@@ -274,9 +297,9 @@ export const addSampleRow = (path: string) => async (dispatch: Dispatch, getStat
 }
 
 // its notes go from every pattern too, and a synth row's plugin with it
-// (one undo brings them all back)
-export const removeRow = (rowId: number) =>
-  edit('remove the row', 'remove_row', { rowId })
+// (one undo brings them all back). the patterns it emptied are trimmed
+export const removeRow = (rowId: number) => (dispatch: Dispatch, getState: () => SequencerRoot) =>
+  edit('remove the row', 'remove_row', { rowId })(dispatch).then(() => followRun(dispatch, getState))
 
 // (one drag of the knob is one step to undo: see state/gesture.ts)
 export const setRowVolume = (rowId: number, volume: number) =>
@@ -404,7 +427,7 @@ const trimPattern = (patternId: number, gesture: number) =>
 const sendOf = (
   cleared: Pattern | null, stepsPerBar: number, dispatch: Dispatch, getState: () => SequencerRoot,
 ): EditSend => (cleared
-  ? sendClear(cleared, stepsPerBar, getState, gesture => trimPattern(cleared.id, gesture)(dispatch))
+  ? sendClear(cleared, stepsPerBar, getState, gesture => trimPattern(cleared.id, gesture)(dispatch, getState))
   : { trim: false, gesture: currentGesture() })
 
 // light or clear a row's step (see withStep). a step past the end grows the
@@ -418,7 +441,7 @@ export const setPatternStep = (patternId: number, rowId: number, step: number, o
     const cleared = !on && row && pattern ? withStep(pattern, row, step, false, stepsPerBar) : null
     const { trim, gesture } = sendOf(cleared, stepsPerBar, dispatch, getState)
     dispatch(reduceStep({ patternId, rowId, step, on, stepsPerBar, trim }))
-    return editPattern('change the step', 'set_pattern_step', { patternId, rowId, step, on, gesture, trim })(dispatch)
+    return editPattern('change the step', 'set_pattern_step', { patternId, rowId, step, on, gesture, trim })(dispatch, getState)
   }
 
 // how often a pattern's notes are sent while they're being dragged
@@ -436,6 +459,7 @@ interface QueuedNotes {
   // whether the engine trims the pattern after (notes deleted: see sendOf)
   trim: boolean
   dispatch: Dispatch
+  getState: () => SequencerRoot
 }
 const queuedNotes = new Map<string, QueuedNotes | null>()
 
@@ -446,7 +470,7 @@ const queueKey = (patternId: number, rowId: number) => `${patternId}:${rowId}`
 // answer kept while newer notes are waiting to be sent
 let noteSends = 0
 
-const sendNotes = ({ patternId, rowId, notes, gesture, trim, dispatch }: QueuedNotes): Promise<void> => {
+const sendNotes = ({ patternId, rowId, notes, gesture, trim, dispatch, getState }: QueuedNotes): Promise<void> => {
   noteSends += 1
   const send = noteSends
   return invoke<PatternChange>('set_pattern_notes', { patternId, rowId, notes, gesture, trim })
@@ -458,6 +482,7 @@ const sendNotes = ({ patternId, rowId, notes, gesture, trim, dispatch }: QueuedN
       // and show the notes as the engine has them
       return loadSequencer()(dispatch)
     })
+    .then(() => followRun(dispatch, getState))
 }
 
 // replace a row's notes in a pattern. put in order first, as the engine
@@ -476,7 +501,7 @@ export const setPatternNotes = (patternId: number, rowId: number, notes: Note[],
     const { trim, gesture } = sendOf(cleared, stepsPerBar, dispatch, getState)
     dispatch(reduceNotes({ patternId, rowId, notes: sorted, stepsPerBar, trim }))
     const key = queueKey(patternId, rowId)
-    const change = { patternId, rowId, notes: sorted, gesture, trim, dispatch }
+    const change = { patternId, rowId, notes: sorted, gesture, trim, dispatch, getState }
 
     if(queuedNotes.has(key)) {
       // (a deletion waiting to be sent keeps its trim)
@@ -526,10 +551,7 @@ export const isPatternView = (view: View | undefined): boolean =>
 // after a transport command: whether the engine plays, and which pattern
 export const syncRun = async (dispatch: Dispatch) => {
   await syncPlayingFrom(dispatch)
-  const t = await invoke<PlaylistTransport>('get_playlist_transport', {})
-  dispatch(setRun(t.playing && t.patternId !== null && t.startTimeMs !== null
-    ? { patternId: t.patternId, startTimeMs: t.startTimeMs, beatIntervalMs: t.beatIntervalMs }
-    : null))
+  await readRun(dispatch)
 }
 
 // change the tempo (see setPlaylistTempo). a pattern playing on its own

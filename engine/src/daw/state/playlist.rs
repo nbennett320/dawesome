@@ -61,7 +61,6 @@ pub struct Playlist {
   pub run_id: AtomicU64,
   pub total_beats: AtomicU64,
   pub current_beat: AtomicU16,
-  pub max_beats: AtomicU64,
   pub time_signature: Arc<Mutex<timing::TimeSignature>>,
   pub loop_enabled: AtomicBool,
   // whether recording counts in a bar first
@@ -79,9 +78,11 @@ pub struct Playlist {
   pub held_keys: daw::HeldKeys,
   // what the current (or last) run plays. set before each run starts
   pub mode: Mutex<PlayMode>,
-  // the step a pattern playing on its own started from (the Piano Roll's
-  // start marker), in steps so it stays on its step if the tempo changes.
-  // it plays on from there, and loops the whole pattern from its start
+  // the step a pattern playing on its own counts from, with
+  // `started_time` when it's heard: the step its run started from (the
+  // Piano Roll's start marker), then the one it's on each time it comes
+  // round or its length changes (see daw::next_pattern_slice). in steps, so
+  // it stays on its step if the tempo changes
   pub pattern_start: Mutex<f64>,
   pub ui: Arc<Mutex<PlaylistUI>>,
 }
@@ -92,11 +93,7 @@ impl Playlist {
   }
 
   pub fn default() -> Self {
-    let audiograph = daw::AudioGraph::new(
-      daw::state::defaults::SAMPLE_RATE,
-      daw::state::defaults::TEMPO,
-      daw::state::defaults::MAX_BEATS
-    );
+    let audiograph = daw::AudioGraph::new(daw::state::defaults::SAMPLE_RATE, daw::state::defaults::TEMPO);
     let mixer = audiograph.mixer.clone();
     let sequencer = audiograph.sequencer.clone();
     let effects = Arc::new(crate::effects::Effects::new(mixer.clone()));
@@ -108,7 +105,6 @@ impl Playlist {
       run_id: AtomicU64::from(0),
       total_beats: AtomicU64::from(0),
       current_beat: AtomicU16::from(0),
-      max_beats: AtomicU64::from(daw::state::defaults::MAX_BEATS),
       time_signature: Arc::new(Mutex::new(
         timing::TimeSignature {
           numerator: 4,
@@ -236,6 +232,16 @@ pub fn advance(offset: Duration, slice: Duration, loop_len: Option<Duration>) ->
   }
 }
 
+// where a pattern playing on its own, `len` long now, has got to after
+// playing `slice` from `offset`: round to its start at its end. made longer,
+// it carries on into its new bars; made shorter than `offset`, it carries on
+// where that falls in its new length, as the cursors (which count its steps
+// the same way) have it
+pub fn advance_round(offset: Duration, slice: Duration, len: Duration) -> Duration {
+  if len.is_zero() { return Duration::ZERO; }
+  Duration::from_nanos(((offset + slice).as_nanos() % len.as_nanos()) as u64)
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -331,5 +337,17 @@ mod tests {
   fn test_advance_past_loop_end_starts_over() {
     assert_eq!(advance(ms(9_000), BEAT, Some(ms(8_000))), ms(0));
     assert_eq!(advance(ms(9_000), BEAT, None), ms(9_500));
+  }
+
+  #[test]
+  fn test_a_pattern_goes_round_at_its_length_now() {
+    // a bar is 2s: round at its end
+    assert_eq!(advance_round(ms(1_000), BEAT, ms(2_000)), ms(1_500));
+    assert_eq!(advance_round(ms(1_500), BEAT, ms(2_000)), ms(0));
+    // made two bars long, it carries on into the second
+    assert_eq!(advance_round(ms(1_500), BEAT, ms(4_000)), ms(2_000));
+    // made a bar long from the second: where that falls in the first
+    assert_eq!(advance_round(ms(2_500), BEAT, ms(2_000)), ms(1_000));
+    assert_eq!(advance_round(ms(500), BEAT, Duration::ZERO), ms(0));
   }
 }

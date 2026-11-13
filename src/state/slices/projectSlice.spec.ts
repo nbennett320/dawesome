@@ -63,7 +63,7 @@ const engine = (overrides: Record<string, unknown> = {}) => {
       return saved(args?.somewhereNew ? projectFileFor(path) : path)
     }
     if(cmd === 'project_file_for') return projectFileFor(args?.path as string)
-    if(cmd === 'get_playlist_data') return [16, 16, 0, 4]
+    if(cmd === 'get_playlist_data') return { beats: 16, trackCount: 4 }
     if(cmd === 'get_snap_setting') return { enabled: true, note: 'QuarterNote', beats: 1 }
     if(cmd === 'new_project' || cmd === 'load_project') return emptyProject
     return undefined

@@ -84,13 +84,13 @@ fn test_a_pattern_is_1_to_128_bars() {
 #[test]
 fn test_hits_follow_the_steps() {
   let (mut seq, kick, snare, pattern) = kit();
-  for s in [8, 0] { seq.set_step(pattern, kick, s, true).unwrap(); }
-  seq.set_step(pattern, snare, 4, true).unwrap();
+  for s in [8, 0] { seq.set_pattern_step(pattern, kick, s, true, 4).unwrap(); }
+  seq.set_pattern_step(pattern, snare, 4, true, 4).unwrap();
 
   assert_eq!(hit_starts(&seq, pattern), vec![0., 8., 4.]);
 
   // turning a step off takes its hit out
-  seq.set_step(pattern, kick, 8, false).unwrap();
+  seq.set_pattern_step(pattern, kick, 8, false, 4).unwrap();
   assert_eq!(hit_starts(&seq, pattern), vec![0., 4.]);
 }
 
@@ -105,8 +105,8 @@ fn test_every_note_of_a_sample_row_is_a_hit() {
 #[test]
 fn test_muted_rows_dont_play() {
   let (mut seq, kick, snare, pattern) = kit();
-  seq.set_step(pattern, kick, 0, true).unwrap();
-  seq.set_step(pattern, snare, 4, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 0, true, 4).unwrap();
+  seq.set_pattern_step(pattern, snare, 4, true, 4).unwrap();
   seq.set_row_muted(kick, true).unwrap();
   assert_eq!(hit_starts(&seq, pattern), vec![4.]);
 }
@@ -115,7 +115,7 @@ fn test_muted_rows_dont_play() {
 fn test_notes_past_the_end_come_back() {
   let (mut seq, kick, _, pattern) = kit();
   seq.set_pattern_bars(pattern, 2, 4).unwrap();
-  seq.set_step(pattern, kick, 20, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 20, true, 4).unwrap();
 
   // shortened: the note is kept, but doesn't play
   seq.set_pattern_bars(pattern, 1, 4).unwrap();
@@ -128,37 +128,37 @@ fn test_notes_past_the_end_come_back() {
 #[test]
 fn test_a_step_is_a_note_at_the_rows_step_pitch() {
   let (mut seq, kick, _, pattern) = kit();
-  seq.set_step(pattern, kick, 4, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 4, true, 4).unwrap();
   assert_eq!(seq.pattern(pattern).unwrap().notes_of(kick), &[step(4.)]);
   // on again: nothing changes
-  seq.set_step(pattern, kick, 4, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 4, true, 4).unwrap();
   assert_eq!(seq.pattern(pattern).unwrap().notes_of(kick).len(), 1);
 
   // the new note goes in order
   let longer = PatternNote { length: 3., velocity: 0.5, ..step(2.) };
   let higher = note(72, 2., 1.);
   seq.set_pattern_notes(pattern, kick, vec![higher, step(4.)]).unwrap();
-  seq.set_step(pattern, kick, 2, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 2, true, 4).unwrap();
   assert_eq!(seq.pattern(pattern).unwrap().notes_of(kick), &[step(2.), higher, step(4.)]);
 
   // off takes out every note on the step at the step pitch, whatever its
   // length or velocity. one at another pitch stays
   seq.set_pattern_notes(pattern, kick, vec![longer, step(2.), higher, step(4.)]).unwrap();
-  seq.set_step(pattern, kick, 2, false).unwrap();
+  seq.set_pattern_step(pattern, kick, 2, false, 4).unwrap();
   assert_eq!(seq.pattern(pattern).unwrap().notes_of(kick), &[higher, step(4.)]);
-  seq.set_step(pattern, kick, 4, false).unwrap();
+  seq.set_pattern_step(pattern, kick, 4, false, 4).unwrap();
   assert_eq!(seq.pattern(pattern).unwrap().notes_of(kick), &[higher]);
 
   // the last note gone: the row isn't in the pattern
   seq.set_pattern_notes(pattern, kick, vec![]).unwrap();
-  seq.set_step(pattern, kick, 0, true).unwrap();
-  seq.set_step(pattern, kick, 0, false).unwrap();
+  seq.set_pattern_step(pattern, kick, 0, true, 4).unwrap();
+  seq.set_pattern_step(pattern, kick, 0, false, 4).unwrap();
   assert!(seq.pattern(pattern).unwrap().notes.is_empty());
 
-  assert!(seq.set_step(pattern, 99, 0, true).unwrap_err().contains("no row with id 99"));
-  assert!(seq.set_step(99, kick, 0, true).is_err());
+  assert!(seq.set_pattern_step(pattern, 99, 0, true, 4).unwrap_err().contains("no row with id 99"));
+  assert!(seq.set_pattern_step(99, kick, 0, true, 4).is_err());
   // past the longest the pattern can grow to
-  assert_eq!(seq.set_step(pattern, kick, 2048, true).unwrap_err(), format!("pattern {} has 16 steps, there's no step 2048", pattern));
+  assert_eq!(seq.set_pattern_step(pattern, kick, 2048, true, 4).unwrap_err(), format!("pattern {} has 16 steps, there's no step 2048", pattern));
 }
 
 #[test]
@@ -184,13 +184,13 @@ fn test_a_step_past_the_end_grows_the_pattern_to_its_bar() {
 fn test_a_lit_step_past_the_end_grows_the_pattern_back() {
   let (mut seq, kick, _, pattern) = kit();
   seq.set_pattern_bars(pattern, 2, 4).unwrap();
-  seq.set_step(pattern, kick, 20, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 20, true, 4).unwrap();
   seq.set_pattern_bars(pattern, 1, 4).unwrap();
   let rev = seq.pattern(pattern).unwrap().rev.get();
 
   // shown unlit in the greyed bar, and clicked: it was on already, and the
   // pattern grows to show it
-  seq.set_step(pattern, kick, 20, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 20, true, 4).unwrap();
   let grown = seq.pattern(pattern).unwrap();
   assert_eq!((grown.length, grown.floor), (32, 16));
   assert_eq!(grown.notes_of(kick), &[step(20.)]);
@@ -198,13 +198,13 @@ fn test_a_lit_step_past_the_end_grows_the_pattern_back() {
 
   // turned off past the end: taken out, and nothing grows
   seq.set_pattern_bars(pattern, 1, 4).unwrap();
-  seq.set_step(pattern, kick, 20, false).unwrap();
+  seq.set_pattern_step(pattern, kick, 20, false, 4).unwrap();
   let cleared = seq.pattern(pattern).unwrap();
   assert_eq!(cleared.length, 16);
   assert!(cleared.notes.is_empty());
   // and with nothing to do, nothing changes
   let rev = cleared.rev.get();
-  seq.set_step(pattern, kick, 20, false).unwrap();
+  seq.set_pattern_step(pattern, kick, 20, false, 4).unwrap();
   assert_eq!(seq.pattern(pattern).unwrap().rev.get(), rev);
 }
 
@@ -212,9 +212,9 @@ fn test_a_lit_step_past_the_end_grows_the_pattern_back() {
 fn test_a_pattern_never_grows_past_the_longest() {
   let (mut seq, kick, _, pattern) = kit();
   seq.set_pattern_bars(pattern, 127, 4).unwrap();
-  seq.set_step(pattern, kick, 2047, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 2047, true, 4).unwrap();
   assert_eq!(seq.pattern(pattern).unwrap().length, 2048);
-  assert!(seq.set_step(pattern, kick, 2048, true).is_err());
+  assert!(seq.set_pattern_step(pattern, kick, 2048, true, 4).is_err());
   seq.edit_pattern_notes(pattern, kick, vec![note(60, 2047., 8.)], 4).unwrap();
   assert_eq!(seq.pattern(pattern).unwrap().length, 2048);
 
@@ -305,23 +305,23 @@ fn test_a_trim_takes_the_empty_bars_at_the_end() {
   let (mut seq, kick, snare, pattern) = kit();
   let length = |seq: &Sequencer| seq.pattern(pattern).unwrap().length;
   // grown to 4 bars, with steps in bars 1, 3 and 4
-  seq.set_step(pattern, kick, 0, true).unwrap();
-  seq.set_step(pattern, kick, 40, true).unwrap();
-  seq.set_step(pattern, snare, 50, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 0, true, 4).unwrap();
+  seq.set_pattern_step(pattern, kick, 40, true, 4).unwrap();
+  seq.set_pattern_step(pattern, snare, 50, true, 4).unwrap();
   assert_eq!(length(&seq), 64);
 
   // bar 4 cleared: to the end of bar 3, the empty bar 2 kept
-  seq.set_step(pattern, snare, 50, false).unwrap();
+  seq.set_pattern_step(pattern, snare, 50, false, 4).unwrap();
   seq.trim_pattern(pattern, 4).unwrap();
   assert_eq!(length(&seq), 48);
   // bar 3 too: to bar 1, the floor where it was
-  seq.set_step(pattern, kick, 40, false).unwrap();
+  seq.set_pattern_step(pattern, kick, 40, false, 4).unwrap();
   seq.trim_pattern(pattern, 4).unwrap();
   assert_eq!((length(&seq), seq.pattern(pattern).unwrap().floor), (16, 16));
   // in bars of the time signature now
-  seq.set_step(pattern, kick, 40, true).unwrap();
-  seq.set_step(pattern, kick, 40, false).unwrap();
-  seq.set_step(pattern, kick, 14, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 40, true, 4).unwrap();
+  seq.set_pattern_step(pattern, kick, 40, false, 4).unwrap();
+  seq.set_pattern_step(pattern, kick, 14, true, 4).unwrap();
   seq.trim_pattern(pattern, 3).unwrap();
   assert_eq!(length(&seq), 24);
   assert!(seq.trim_pattern(99, 4).is_err());
@@ -333,8 +333,8 @@ fn test_a_trim_never_goes_below_the_floor() {
   let length = |seq: &Sequencer| seq.pattern(pattern).unwrap().length;
   // the bars counter set 2 bars, and a step in bar 4 grew it
   seq.set_pattern_bars(pattern, 2, 4).unwrap();
-  seq.set_step(pattern, kick, 50, true).unwrap();
-  seq.set_step(pattern, kick, 50, false).unwrap();
+  seq.set_pattern_step(pattern, kick, 50, true, 4).unwrap();
+  seq.set_pattern_step(pattern, kick, 50, false, 4).unwrap();
   seq.trim_pattern(pattern, 4).unwrap();
   assert_eq!(length(&seq), 32);
 
@@ -348,7 +348,7 @@ fn test_a_trim_never_goes_below_the_floor() {
   // a pattern whose floor is its length (the counter's, or an old
   // project's) keeps its empty bars
   let set = seq.add_pattern(4, 4).unwrap();
-  seq.set_step(set, kick, 0, true).unwrap();
+  seq.set_pattern_step(set, kick, 0, true, 4).unwrap();
   seq.trim_pattern(set, 4).unwrap();
   assert_eq!(seq.pattern(set).unwrap().length, 64);
 }
@@ -356,7 +356,7 @@ fn test_a_trim_never_goes_below_the_floor() {
 #[test]
 fn test_notes_past_the_end_count_for_the_last_end() {
   let (mut seq, kick, _, pattern) = kit();
-  seq.set_step(pattern, kick, 40, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 40, true, 4).unwrap();
   // bar 3's step cleared, a note kept past the end (not heard) in its place
   seq.set_pattern_notes(pattern, kick, vec![step(0.), note(60, 52., 1.)]).unwrap();
   seq.trim_pattern(pattern, 4).unwrap();
@@ -374,13 +374,13 @@ fn test_removing_a_row_trims_every_pattern_it_emptied() {
   let kept = seq.add_pattern(1, 4).unwrap();
   let untouched = seq.add_pattern(1, 4).unwrap();
   // the snare's steps in the last bars of two patterns, grown for them
-  seq.set_step(pattern, kick, 0, true).unwrap();
-  seq.set_step(pattern, snare, 40, true).unwrap();
-  seq.set_step(other, snare, 20, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 0, true, 4).unwrap();
+  seq.set_pattern_step(pattern, snare, 40, true, 4).unwrap();
+  seq.set_pattern_step(other, snare, 20, true, 4).unwrap();
   // a pattern still long for the kick, and one without the snare
-  seq.set_step(kept, kick, 40, true).unwrap();
-  seq.set_step(kept, snare, 4, true).unwrap();
-  seq.set_step(untouched, kick, 20, true).unwrap();
+  seq.set_pattern_step(kept, kick, 40, true, 4).unwrap();
+  seq.set_pattern_step(kept, snare, 4, true, 4).unwrap();
+  seq.set_pattern_step(untouched, kick, 20, true, 4).unwrap();
   let (_, before) = revs(&seq);
 
   seq.remove_row_and_trim(snare, 4).unwrap();
@@ -395,31 +395,31 @@ fn test_removing_a_row_trims_every_pattern_it_emptied() {
 fn test_a_step_follows_the_rows_step_pitch() {
   let (mut seq, kick, _, pattern) = kit();
   seq.row_mut(kick).unwrap().step_pitch = 36;
-  seq.set_step(pattern, kick, 0, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 0, true, 4).unwrap();
   assert_eq!(seq.pattern(pattern).unwrap().notes_of(kick), &[PatternNote { pitch: 36, ..step(0.) }]);
   // a note at the old pitch isn't on the step
   seq.set_pattern_notes(pattern, kick, vec![step(0.)]).unwrap();
-  seq.set_step(pattern, kick, 0, false).unwrap();
+  seq.set_pattern_step(pattern, kick, 0, false, 4).unwrap();
   assert_eq!(seq.pattern(pattern).unwrap().notes_of(kick), &[step(0.)]);
 }
 
 #[test]
 fn test_removing_a_row_takes_its_notes() {
   let (mut seq, kick, snare, pattern) = kit();
-  seq.set_step(pattern, kick, 0, true).unwrap();
-  seq.set_step(pattern, snare, 4, true).unwrap();
-  seq.remove_row(kick).unwrap();
+  seq.set_pattern_step(pattern, kick, 0, true, 4).unwrap();
+  seq.set_pattern_step(pattern, snare, 4, true, 4).unwrap();
+  seq.remove_row_and_trim(kick, 4).unwrap();
 
   assert_eq!(seq.rows().len(), 1);
   assert!(!seq.pattern(pattern).unwrap().notes.contains_key(&kick));
-  assert!(seq.set_step(pattern, kick, 0, true).is_err());
-  assert!(seq.remove_row(kick).is_err());
+  assert!(seq.set_pattern_step(pattern, kick, 0, true, 4).is_err());
+  assert!(seq.remove_row_and_trim(kick, 4).is_err());
 }
 
 #[test]
 fn test_rename_and_duplicate() {
   let (mut seq, kick, _, pattern) = kit();
-  seq.set_step(pattern, kick, 3, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 3, true, 4).unwrap();
   seq.rename_pattern(pattern, "  verse ").unwrap();
   assert_eq!(seq.pattern(pattern).unwrap().name.as_deref(), Some("verse"));
   seq.set_pattern_bars(pattern, 2, 4).unwrap();
@@ -435,7 +435,7 @@ fn test_rename_and_duplicate() {
   assert!(duplicate.lit(kick, 3));
 
   // the copy is its own pattern
-  seq.set_step(copy, kick, 3, false).unwrap();
+  seq.set_pattern_step(copy, kick, 3, false, 4).unwrap();
   assert!(seq.pattern(pattern).unwrap().lit(kick, 3));
 
   seq.rename_pattern(pattern, " ").unwrap();
@@ -445,7 +445,7 @@ fn test_rename_and_duplicate() {
 #[test]
 fn test_ids_arent_reused() {
   let (mut seq, kick, _, pattern) = kit();
-  seq.remove_row(kick).unwrap();
+  seq.remove_row_and_trim(kick, 4).unwrap();
   seq.remove_pattern(pattern).unwrap();
   assert_ne!(seq.add_row(KICK).unwrap(), kick);
   assert_ne!(seq.add_synth_row(synth(kick, "Synth")), kick);
@@ -472,8 +472,8 @@ fn test_a_missing_sample_is_an_error() {
 #[test]
 fn test_save_and_restore() {
   let (mut seq, kick, snare, pattern) = kit();
-  seq.set_step(pattern, kick, 0, true).unwrap();
-  seq.set_step(pattern, snare, 4, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 0, true, 4).unwrap();
+  seq.set_pattern_step(pattern, snare, 4, true, 4).unwrap();
   seq.set_row_volume(snare, 0.5).unwrap();
   seq.rename_pattern(pattern, "beat").unwrap();
 
@@ -637,7 +637,7 @@ fn test_broken_folders_are_mended_on_load() {
 fn test_state_names_match_the_frontend() {
   let (mut seq, kick, _, pattern) = kit();
   let keys = seq.add_synth_row(synth(500, "Keys"));
-  seq.set_step(pattern, kick, 2, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 2, true, 4).unwrap();
   let json = serde_json::to_value(seq.state(&())).unwrap();
   let rev = |rev: Rev| rev.get();
   assert_eq!(json["rows"][0], serde_json::json!({
@@ -670,12 +670,12 @@ fn test_state_names_match_the_frontend() {
 #[test]
 fn test_split_a_pattern_by_row() {
   let (mut seq, kick, snare, pattern) = kit();
-  for s in [0, 8] { seq.set_step(pattern, kick, s, true).unwrap(); }
-  seq.set_step(pattern, snare, 4, true).unwrap();
+  for s in [0, 8] { seq.set_pattern_step(pattern, kick, s, true, 4).unwrap(); }
+  seq.set_pattern_step(pattern, snare, 4, true, 4).unwrap();
   seq.rename_pattern(pattern, "verse").unwrap();
   // a note past the end, which isn't split off
   seq.set_pattern_bars(pattern, 2, 4).unwrap();
-  seq.set_step(pattern, kick, 20, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 20, true, 4).unwrap();
   seq.set_pattern_bars(pattern, 1, 4).unwrap();
   let after = seq.add_pattern(1, 4).unwrap();
 
@@ -713,7 +713,7 @@ fn test_a_split_needs_notes_it_plays() {
   seq.set_pattern_notes(pattern, kick, vec![note(60, 40., 1.)]).unwrap();
   assert!(!seq.pattern(pattern).unwrap().plays_notes());
   assert!(seq.split_pattern(pattern).unwrap_err().contains("no notes to explode"));
-  seq.set_step(pattern, kick, 0, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 0, true, 4).unwrap();
   assert!(seq.pattern(pattern).unwrap().plays_notes());
 }
 
@@ -724,7 +724,7 @@ fn test_a_split_gives_synth_rows_a_pattern_each_too() {
   let bass = seq.add_synth_row(synth(501, "Bass"));
   // the synth row first, so the parts follow the rows' order
   seq.move_row(keys, 0).unwrap();
-  seq.set_step(pattern, kick, 0, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 0, true, 4).unwrap();
   seq.set_pattern_notes(pattern, keys, vec![note(60, 4., 2.), note(64, 40., 1.)]).unwrap();
   seq.set_pattern_notes(pattern, snare, vec![note(62, 6., 3.)]).unwrap();
   // only past the end: not played, so no part
@@ -747,9 +747,9 @@ fn test_a_split_gives_synth_rows_a_pattern_each_too() {
 #[test]
 fn test_a_split_is_named_after_a_rows_label() {
   let (mut seq, kick, snare, pattern) = kit();
-  seq.set_step(pattern, kick, 0, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 0, true, 4).unwrap();
   // (with the snare too, so the kick's is a new pattern)
-  seq.set_step(pattern, snare, 4, true).unwrap();
+  seq.set_pattern_step(pattern, snare, 4, true, 4).unwrap();
   seq.rename_row(kick, "Kick").unwrap();
   let split = seq.split_pattern(pattern).unwrap();
   assert_eq!(split[0].name, "Kick");
@@ -837,11 +837,11 @@ fn test_synth_rows_have_unique_names_and_take_their_notes_when_they_go() {
   seq.set_pattern_notes(pattern, first, vec![note(60, 0., 1.)]).unwrap();
   seq.set_pattern_notes(pattern, second, vec![note(62, 0., 1.)]).unwrap();
   seq.set_pattern_notes(other, first, vec![note(64, 0., 1.)]).unwrap();
-  seq.set_step(other, kick, 0, true).unwrap();
-  seq.remove_row(first).unwrap();
+  seq.set_pattern_step(other, kick, 0, true, 4).unwrap();
+  seq.remove_row_and_trim(first, 4).unwrap();
   assert_eq!(seq.pattern(pattern).unwrap().notes.keys().copied().collect::<Vec<_>>(), vec![second]);
   assert_eq!(seq.pattern(other).unwrap().notes.keys().copied().collect::<Vec<_>>(), vec![kick]);
-  assert!(seq.remove_row(first).is_err());
+  assert!(seq.remove_row_and_trim(first, 4).is_err());
 
   // a synth row's volume and mute are its plugin's
   seq.set_row_volume(second, 9.).unwrap();
@@ -855,7 +855,7 @@ fn test_synth_notes_go_by_slot_and_sample_rows_have_none() {
   let (mut seq, kick, _, pattern) = kit();
   let keys = seq.add_synth_row(synth(500, "Keys"));
   let bass = seq.add_synth_row(synth(400, "Bass"));
-  seq.set_step(pattern, kick, 0, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 0, true, 4).unwrap();
   seq.set_pattern_notes(pattern, bass, vec![note(40, 0., 1.)]).unwrap();
   seq.set_pattern_notes(pattern, keys, vec![note(72, 2., 1.)]).unwrap();
   let p = seq.pattern(pattern).unwrap();
@@ -954,7 +954,7 @@ fn test_rows_are_labelled() {
 #[test]
 fn test_rows_of_both_instruments_are_moved() {
   let (mut seq, kick, snare, pattern) = kit();
-  seq.set_step(pattern, kick, 0, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 0, true, 4).unwrap();
   let keys = seq.add_synth_row(synth(500, "Keys"));
   let order = |seq: &Sequencer| seq.rows().iter().map(|r| r.id).collect::<Vec<_>>();
 
@@ -973,7 +973,7 @@ fn test_rows_of_both_instruments_are_moved() {
 #[test]
 fn test_a_replaced_sample_keeps_the_row() {
   let (mut seq, kick, _, pattern) = kit();
-  seq.set_step(pattern, kick, 0, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 0, true, 4).unwrap();
   seq.rename_row(kick, "Boom").unwrap();
   seq.set_row_pan(kick, 0.25).unwrap();
   seq.set_row_muted(kick, true).unwrap();
@@ -1063,13 +1063,13 @@ fn test_unnamed_patterns_are_shown_by_their_number() {
 fn test_a_copy_shares_and_an_edit_copies_only_what_it_changes() {
   let (mut seq, kick, snare, pattern) = kit();
   let other = seq.add_pattern(1, 4).unwrap();
-  seq.set_step(pattern, kick, 0, true).unwrap();
-  seq.set_step(pattern, snare, 4, true).unwrap();
-  seq.set_step(other, kick, 0, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 0, true, 4).unwrap();
+  seq.set_pattern_step(pattern, snare, 4, true, 4).unwrap();
+  seq.set_pattern_step(other, kick, 0, true, 4).unwrap();
   let before = seq.clone();
   assert!(seq.same_as(&before));
 
-  seq.set_step(pattern, kick, 8, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 8, true, 4).unwrap();
   assert!(!seq.same_as(&before));
   // the other pattern, the snare's notes and the rows are still shared
   assert!(Arc::ptr_eq(&seq.patterns()[1], &before.patterns()[1]));
@@ -1080,7 +1080,7 @@ fn test_a_copy_shares_and_an_edit_copies_only_what_it_changes() {
 
   // a step that's already so, or an edit refused, copies nothing
   let before = seq.clone();
-  seq.set_step(pattern, kick, 8, true).unwrap();
+  seq.set_pattern_step(pattern, kick, 8, true, 4).unwrap();
   assert!(seq.set_row_volume(99, 0.5).is_err());
   assert!(Arc::ptr_eq(&seq.patterns()[0], &before.patterns()[0]));
   assert!(Arc::ptr_eq(&seq.rows, &before.rows));
@@ -1128,7 +1128,7 @@ fn test_revs_arent_part_of_what_a_row_or_pattern_holds() {
 fn test_each_change_gives_what_it_changed_a_new_rev() {
   let (mut seq, kick, snare, pattern) = kit();
   let other = seq.add_pattern(1, 4).unwrap();
-  seq.set_step(other, snare, 0, true).unwrap();
+  seq.set_pattern_step(other, snare, 0, true, 4).unwrap();
   let folder = seq.add_folder("Drums", None).unwrap();
   let next = seq.add_pattern(1, 4).unwrap() + 1;
 
@@ -1143,7 +1143,7 @@ fn test_each_change_gives_what_it_changed_a_new_rev() {
       vec![kick], vec![]),
     ("a sample moved", Box::new(|seq| { seq.move_row_samples(&[(SNARE.into(), "moved.wav".into())]); }),
       vec![kick, snare], vec![]),
-    ("a step", Box::new(move |seq| seq.set_step(pattern, kick, 4, true).unwrap()), vec![], vec![pattern]),
+    ("a step", Box::new(move |seq| seq.set_pattern_step(pattern, kick, 4, true, 4).unwrap()), vec![], vec![pattern]),
     ("notes", Box::new(move |seq| seq.set_pattern_notes(pattern, snare, vec![note(62, 2., 1.)]).unwrap()),
       vec![], vec![pattern]),
     ("bars", Box::new(move |seq| seq.set_pattern_bars(pattern, 2, 4).unwrap()), vec![], vec![pattern]),
@@ -1162,7 +1162,7 @@ fn test_each_change_gives_what_it_changed_a_new_rev() {
     ("a move", Box::new(move |seq| seq.move_row(snare, 0).unwrap()), vec![], vec![]),
     // and its notes go from the patterns that had them (the copy and a
     // part of the split too)
-    ("a row removed", Box::new(move |seq| seq.remove_row(snare).unwrap()), vec![], vec![pattern, other, next, next + 2]),
+    ("a row removed", Box::new(move |seq| seq.remove_row_and_trim(snare, 4).unwrap()), vec![], vec![pattern, other, next, next + 2]),
     ("a folder renamed", Box::new(move |seq| seq.rename_folder(folder, "Kit").unwrap()), vec![], vec![]),
   ];
 

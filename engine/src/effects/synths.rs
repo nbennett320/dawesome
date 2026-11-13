@@ -281,7 +281,8 @@ impl Effects {
   // to the list (with the settings they had, if they've been in it before),
   // let go of ones that have left it (keeping their settings), make the
   // copies that are needed and put aside the ones that aren't, and set
-  // every copy's volume
+  // every copy's volume, pan and mute (and the synth's name) as its row has
+  // them
   pub fn follow_synths(&self, list: &[daw::Synth], needed: &BTreeSet<(u64, u32)>) {
     if self.synth_pauses.load(Ordering::SeqCst) > 0 { return; }
     {

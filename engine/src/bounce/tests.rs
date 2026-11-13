@@ -363,7 +363,7 @@ fn test_a_pattern_clip_becomes_a_sample_clip_of_what_it_played() {
     let pattern = sequencer.add_pattern(1, 4).unwrap();
     sequencer.rename_pattern(pattern, "Verse: A").unwrap();
     for (row, step) in [(kick, 0), (kick, 6), (snare, 4), (snare, 15), (muted, 2)] {
-      sequencer.set_step(pattern, row, step, true).unwrap();
+      sequencer.set_pattern_step(pattern, row, step, true, 4).unwrap();
     }
     // (quiet enough that nothing they add up to is over full scale,
     // which the file would cut off)

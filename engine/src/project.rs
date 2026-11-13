@@ -168,8 +168,8 @@ impl Project {
   pub fn from_json(json: &str) -> Result<Self, String> {
     let mut value: serde_json::Value = serde_json::from_str(json)
       .map_err(|e| format!("not a valid project file: {}", e))?;
-    let dropped = drop_stage_one(&mut value);
-    merge_pattern_kinds(&mut value)?;
+    let mut dropped = drop_stage_one(&mut value);
+    dropped.extend(merge_pattern_kinds(&mut value)?);
     let mut project: Project = serde_json::from_value(value)
       .map_err(|e| format!("not a valid project file: {}", e))?;
     project.validate()?;
@@ -688,10 +688,12 @@ pub fn has_unsaved_changes(state: &daw::InnerState) -> bool {
 }
 
 // write a project file, all at once: a file that's half written is never
-// left in its place
+// left in its place. an older version's file is kept first (see
+// keep_older_file)
 fn write_project(project: &Project, project_path: &Path) -> Result<(), String> {
   let json = serde_json::to_string_pretty(project)
     .map_err(|e| format!("could not write the project: {}", e))?;
+  keep_older_file(project_path, project.version)?;
 
   let mut tmp = project_path.as_os_str().to_owned();
   tmp.push(".tmp");
@@ -703,6 +705,50 @@ fn write_project(project: &Project, project_path: &Path) -> Result<(), String> {
       let _ = fs::remove_file(&tmp);
       format!("could not save '{}': {}", project_path.display(), e)
     })
+}
+
+// the first time a project file an older version wrote (format 1 to 3) is
+// written over in a newer format (`writing`: a save, or following a moved
+// take), it's copied beside it first, named for its format
+// ("song.v3.dawesome"), unless a copy of that name is there already. the
+// older app still opens the copy, and nothing in it is lost should the new
+// format read it wrongly. a copy that can't be made stops the write: the
+// project stays open, and can be saved elsewhere
+fn keep_older_file(project_path: &Path, writing: u32) -> Result<(), String> {
+  if writing < PROJECT_VERSION { return Ok(()); }
+  let Some(version) = saved_version(project_path) else { return Ok(()) };
+  if version >= u64::from(PROJECT_VERSION) { return Ok(()); }
+
+  let copy = older_copy_path(project_path, version);
+  if copy.exists() { return Ok(()); }
+  fs::copy(project_path, &copy).map(drop).map_err(|e| format!(
+    "could not keep the older project file '{}' as '{}' before saving over it: {}",
+    project_path.display(), copy.display(), e))
+}
+
+// the format a project file was written in (no version is 1), or None when
+// there's no file, or it isn't a project
+fn saved_version(project_path: &Path) -> Option<u64> {
+  #[derive(Deserialize)]
+  struct Saved {
+    #[serde(default = "first_version")]
+    version: u64,
+  }
+  fn first_version() -> u64 { u64::from(PROJECT_VERSION_WITHOUT_WINDOWS) }
+
+  let json = fs::read_to_string(project_path).ok()?;
+  serde_json::from_str::<Saved>(&json).ok().map(|saved| saved.version)
+}
+
+// where a copy of a project file in format `version` is kept: beside it,
+// "song.dawesome" as "song.v3.dawesome"
+fn older_copy_path(project_path: &Path, version: u64) -> PathBuf {
+  let stem = project_path.file_stem().map_or_else(|| "project".into(), |stem| stem.to_string_lossy());
+  let name = match project_path.extension() {
+    Some(extension) => format!("{}.v{}.{}", stem, version, extension.to_string_lossy()),
+    None => format!("{}.v{}", stem, version),
+  };
+  project_path.with_file_name(name)
 }
 
 // a path that may not be there any more, with its folder resolved (links

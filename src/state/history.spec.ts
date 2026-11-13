@@ -50,7 +50,7 @@ const travelled: Travelled = {
 const engine = (result: Travelled) => {
   mockInvoke.mockImplementation(async (command: string) => {
     if(command === 'undo' || command === 'redo') return result
-    if(command === 'get_playlist_data') return [16, DEFAULT_PLAYLIST_BEATS, 240, 4]
+    if(command === 'get_playlist_data') return { beats: DEFAULT_PLAYLIST_BEATS, trackCount: 4 }
     if(command === 'get_playlist_playing') return false
     if(command === 'get_playlist_transport') return { playing: false, patternId: null, startTimeMs: null, beatIntervalMs: 645 }
     return undefined

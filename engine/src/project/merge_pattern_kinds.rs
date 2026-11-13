@@ -17,7 +17,10 @@
 //   3"), and can't shrink below its length (its floor)
 // - a note folder named like a drum folder beside it gets a number ("Verse
 //   2"), as the two trees become one
-// - a pattern clip's part of its pattern is frozen as a start and a length
+// - a pattern clip's part of its pattern is frozen as a start and a length.
+//   one that played nothing, starting less than a step from its pattern's
+//   end, is left out (and said): a step long, it would go round into the
+//   pattern's start, as clips loop now
 //
 // see context/pattern-merge-project/04-api.md, section 6
 use std::collections::{BTreeMap, BTreeSet};
@@ -141,13 +144,13 @@ fn invalid(e: serde_json::Error) -> String {
 
 // rewrite a project saved before version 4 as version 4 (see the top of the
 // file). one that's version 4 already, or has no sequencer or pattern clips,
-// is left as it is
-pub(super) fn merge_pattern_kinds(project: &mut Value) -> Result<(), String> {
+// is left as it is. gives a sentence for what was left out, if anything
+pub(super) fn merge_pattern_kinds(project: &mut Value) -> Result<Vec<String>, String> {
   // (a version that isn't a number is refused when it's deserialised)
-  let Some(version) = project.get("version").map_or(Some(1), Value::as_u64) else { return Ok(()) };
-  let Some(fields) = project.as_object_mut() else { return Ok(()) };
+  let Some(version) = project.get("version").map_or(Some(1), Value::as_u64) else { return Ok(Vec::new()) };
+  let Some(fields) = project.as_object_mut() else { return Ok(Vec::new()) };
   if version >= MERGED || !(fields.contains_key("sequencer") || fields.contains_key("patternClips")) {
-    return Ok(());
+    return Ok(Vec::new());
   }
 
   let old: OldSequencer = match fields.remove("sequencer") {
@@ -165,7 +168,7 @@ pub(super) fn merge_pattern_kinds(project: &mut Value) -> Result<(), String> {
   let patterns: Vec<daw::SavedPattern> = old.patterns.into_iter()
     .map(|pattern| merged_pattern(pattern, &ids, &kinds))
     .collect();
-  let clips = frozen_clips(old_clips, &patterns);
+  let (clips, empty) = frozen_clips(old_clips, &patterns);
 
   let sequencer = daw::SavedSequencer {
     rows,
@@ -175,7 +178,12 @@ pub(super) fn merge_pattern_kinds(project: &mut Value) -> Result<(), String> {
   fields.insert("patternSequencer".into(), serde_json::to_value(sequencer).map_err(invalid)?);
   fields.insert("patternClips".into(), serde_json::to_value(clips).map_err(invalid)?);
   fields.insert("version".into(), MERGED.into());
-  Ok(())
+
+  Ok(match empty {
+    0 => Vec::new(),
+    1 => vec!["1 empty pattern clip from an older version was left out: it played nothing".into()],
+    n => vec![format!("{} empty pattern clips from an older version were left out: they played nothing", n)],
+  })
 }
 
 // the new row id of each old row, and of each old synth
@@ -321,12 +329,21 @@ fn step_note(step: u32) -> daw::PatternNote {
 // a start and a length, the old app's way: a start that makes no sense is
 // the pattern's start, and an end that's left out, makes no sense, or is past
 // the pattern's end is its end. a clip of a pattern that isn't there is
-// left out, as the old app left it out
-fn frozen_clips(old: Vec<OldPatternClip>, patterns: &[daw::SavedPattern]) -> Vec<ProjectPatternClip> {
-  old.into_iter().filter_map(|clip| {
-    let length = patterns.iter().find(|p| p.id == clip.pattern_id)?.length as f64;
+// left out, as the old app left it out. so is one that starts less than the
+// shortest clip from its pattern's end, or past it, and played no notes
+// there: kept the shortest clip's length, it would go round into its
+// pattern's start. returns the clips, and how many of those were left out
+fn frozen_clips(old: Vec<OldPatternClip>, patterns: &[daw::SavedPattern]) -> (Vec<ProjectPatternClip>, usize) {
+  let mut empty = 0;
+  let clips = old.into_iter().filter_map(|clip| {
+    let pattern = patterns.iter().find(|p| p.id == clip.pattern_id)?;
+    let length = pattern.length as f64;
     let start = clip.window.map(|w| w.start).filter(|start| start.is_finite() && *start > 0.).unwrap_or(0.);
     let end = clip.window.and_then(|w| w.end).filter(|end| end.is_finite() && *end > start);
+    if start + daw::MIN_PATTERN_CLIP > length && !plays_from(pattern, start) {
+      empty += 1;
+      return None;
+    }
     let to = end.unwrap_or(length).min(length).max(start + daw::MIN_PATTERN_CLIP);
     Some(ProjectPatternClip {
       pattern_id: clip.pattern_id,
@@ -335,7 +352,14 @@ fn frozen_clips(old: Vec<OldPatternClip>, patterns: &[daw::SavedPattern]) -> Vec
       start,
       length: to - start,
     })
-  }).collect()
+  }).collect();
+  (clips, empty)
+}
+
+// whether any note of a pattern starts from `step` up to its end
+fn plays_from(pattern: &daw::SavedPattern, step: f64) -> bool {
+  let length = pattern.length as f64;
+  pattern.notes.values().flatten().any(|note| note.start >= step && note.start < length)
 }
 
 #[cfg(test)]

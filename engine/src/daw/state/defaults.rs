@@ -2,7 +2,6 @@ use crate::daw;
 
 pub static SAMPLE_RATE: u32 = 44_100;
 pub static TEMPO: f32 = 120.;
-pub static MAX_BEATS: u64 = 16;
 // the playlist's length, in bars of its time signature. clips start within
 // it. it's longer when clips reach further (see daw::fit_playlist)
 pub static PLAYLIST_BARS: u64 = 128;

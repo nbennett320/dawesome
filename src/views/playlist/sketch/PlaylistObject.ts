@@ -356,8 +356,7 @@ class PlaylistObject extends PlaylistComponent<State> {
     const shownTo = stepAt((ctx.canvas.width - offsetX) / scaleX)
     return {
       from,
-      passes: clipPasses(from, to - from, pattern.length)
-        .filter(pass => pass.at + pass.to > shownFrom && pass.at + pass.from < shownTo),
+      passes: clipPasses(from, to - from, pattern.length, shownFrom, shownTo),
       stepWidth,
       stepX: (pass, step) => left + (pass.at + step - from) * stepWidth,
       shownFrom,

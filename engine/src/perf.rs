@@ -3,17 +3,18 @@
 // they measure and check nothing, as timings change from machine to machine,
 // so they only run when asked, in a release build, one at a time:
 //
-//   cargo test --release --no-default-features --bin app perf_ -- --ignored --show-output --test-threads=1
+//   cargo test --release --no-default-features --features perf --bin app perf_ -- --ignored --show-output --test-threads=1
+//
+// (the `perf` feature counts every allocation, for perf_history's memory:
+// without it, perf_history isn't built, and other test builds allocate as
+// the app does)
 //
 // the project they time is made in `big_project`, through the sequencer's
 // own commands: the one place to change when the pattern model does
-use std::alloc::{GlobalAlloc, Layout, System};
 use std::hint::black_box;
-use std::sync::atomic::{AtomicIsize, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::daw;
-use crate::history::{History, Step};
 
 // the engine's own drum samples, for the rows
 const SAMPLES: [&str; 8] = [
@@ -56,7 +57,7 @@ fn big_project(seq: &mut daw::Sequencer) -> Big {
   let length = seq.pattern(drums).unwrap().length;
   for &row in &samples {
     for step in 0..length {
-      seq.set_step(drums, row, step, true).unwrap();
+      seq.set_pattern_step(drums, row, step, true, 4).unwrap();
     }
   }
 
@@ -79,7 +80,7 @@ fn big_project(seq: &mut daw::Sequencer) -> Big {
 
 // a graph holding project (b), with these clips: (pattern, bar, track)
 fn big_graph(clips: impl Fn(&Big) -> Vec<(u64, u32, u32)>) -> (daw::AudioGraph<'static>, Big) {
-  let mut graph = daw::AudioGraph::new(RATE, TEMPO, 1_024);
+  let mut graph = daw::AudioGraph::new(RATE, TEMPO);
   let big = big_project(&mut graph.sequencer.lock().unwrap());
   let bar = graph.beat_interval() * 4;
   for (pattern, at, track) in clips(&big) {
@@ -186,6 +187,33 @@ fn perf_slice() {
   report(&format!("slice pattern alone, long ({} bars)", LONG_BARS), &times, scheduled);
 }
 
+// a run's first slice, from bar 120 of a clip going round the drums (4
+// bars) for 128 bars: a resume, so the notes still sounding then are
+// picked up from the times round before it
+#[test]
+#[ignore]
+fn perf_resume() {
+  let (engine, _renderer) = daw::Engine::new(RATE);
+  let (mut graph, _) = big_graph(|big| vec![(big.drums, 0, 0)]);
+  let clip = graph.pattern_nodes[0].id;
+  graph.set_pattern_window(clip, 0., Some((128 * 4 * daw::STEPS_PER_BEAT) as f64)).unwrap();
+  let beat = graph.beat_interval();
+  graph.set_current_offset(Some(beat * 4 * 120));
+
+  let mut times = Vec::new();
+  let mut scheduled = 0;
+  for _ in 0..100 {
+    let start = Instant::now();
+    let voices: Vec<_> = graph.run_sounds_at(Duration::ZERO, RATE, beat, false, true).into_iter()
+      .map(|(delay, source, route)| engine.boxed_voice(source, Some(1), engine.frames_in(delay), route))
+      .collect();
+    black_box(&voices);
+    times.push(start.elapsed());
+    scheduled += voices.len();
+  }
+  report("resume: the first slice at bar 120 of a 128-bar loop of the drums", &times, scheduled);
+}
+
 // what a step edit sends the frontend on (b), and how long the engine takes
 // to make it: the pattern it changed (stage 1b on), against the whole
 // sequencer (every edit's reply before then). tauri sends a reply as JSON
@@ -194,7 +222,7 @@ fn perf_slice() {
 fn perf_replies() {
   let mut seq = daw::Sequencer::default();
   let big = big_project(&mut seq);
-  seq.set_step(big.drums, big.samples[0], 0, false).unwrap();
+  seq.set_pattern_step(big.drums, big.samples[0], 0, false, 4).unwrap();
 
   let whole = seq.state(&());
   let step = seq.pattern_change(big.drums).unwrap();
@@ -219,44 +247,54 @@ fn perf_replies() {
   report("reply: a step's pattern, as JSON", &time(&|| serde_json::to_string(&step)), 0);
 }
 
-// the bytes held on the heap, for perf_history. (a test build's allocator:
-// the app's is the system's, as it is)
-static HELD: AtomicIsize = AtomicIsize::new(0);
+// the bytes held on the heap, for perf_history: the global allocator, with
+// the `perf` feature (the app's is the system's, as it is)
+#[cfg(feature = "perf")]
+mod counting {
+  use std::alloc::{GlobalAlloc, Layout, System};
+  use std::sync::atomic::{AtomicIsize, Ordering};
 
-struct Counting;
+  static HELD: AtomicIsize = AtomicIsize::new(0);
 
-unsafe impl GlobalAlloc for Counting {
-  unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-    HELD.fetch_add(layout.size() as isize, Ordering::Relaxed);
-    System.alloc(layout)
+  struct Counting;
+
+  unsafe impl GlobalAlloc for Counting {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+      HELD.fetch_add(layout.size() as isize, Ordering::Relaxed);
+      System.alloc(layout)
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+      HELD.fetch_add(layout.size() as isize, Ordering::Relaxed);
+      System.alloc_zeroed(layout)
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
+      HELD.fetch_add(size as isize - layout.size() as isize, Ordering::Relaxed);
+      System.realloc(ptr, layout, size)
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+      HELD.fetch_sub(layout.size() as isize, Ordering::Relaxed);
+      System.dealloc(ptr, layout)
+    }
   }
 
-  unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-    HELD.fetch_add(layout.size() as isize, Ordering::Relaxed);
-    System.alloc_zeroed(layout)
-  }
+  #[global_allocator]
+  static COUNTING: Counting = Counting;
 
-  unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-    HELD.fetch_add(size as isize - layout.size() as isize, Ordering::Relaxed);
-    System.realloc(ptr, layout, size)
-  }
-
-  unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-    HELD.fetch_sub(layout.size() as isize, Ordering::Relaxed);
-    System.dealloc(ptr, layout)
+  pub fn held() -> isize {
+    HELD.load(Ordering::Relaxed)
   }
 }
 
-#[global_allocator]
-static COUNTING: Counting = Counting;
-
-fn held() -> isize {
-  HELD.load(Ordering::Relaxed)
-}
-
+#[cfg(feature = "perf")]
 #[test]
 #[ignore]
 fn perf_history() {
+  use crate::history::{History, Step};
+  use counting::held;
+
   let mut seq = daw::Sequencer::default();
   let big = big_project(&mut seq);
   let rows = big.samples.clone();
@@ -264,7 +302,7 @@ fn perf_history() {
   // the n-th step edit: a different step cleared each time
   let edit = |seq: &mut daw::Sequencer, n: u32| {
     let (row, step) = (rows[n as usize % rows.len()], (n / rows.len() as u32) % drum_steps);
-    seq.set_step(big.drums, row, step, false).unwrap();
+    seq.set_pattern_step(big.drums, row, step, false, 4).unwrap();
   };
 
   const N: u32 = 200;

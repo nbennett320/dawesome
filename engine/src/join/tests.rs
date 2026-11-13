@@ -210,7 +210,7 @@ fn test_what_join_refuses() {
     let mut sequencer = state.playlist.sequencer.lock().unwrap();
     let row = sequencer.add_row(KICK).unwrap();
     let pattern = sequencer.add_pattern(1, 4).unwrap();
-    sequencer.set_step(pattern, row, 0, true).unwrap();
+    sequencer.set_pattern_step(pattern, row, 0, true, 4).unwrap();
     pattern
   };
   let p = state.playlist.audiograph.lock().unwrap()
@@ -241,7 +241,7 @@ fn two_patterns(state: &daw::InnerState) -> (u64, u64, u64, u64) {
   let b = sequencer.add_pattern(1, 4).unwrap();
   sequencer.rename_pattern(a, "a").unwrap();
   for (pattern, row, step) in [(a, kick, 0), (a, kick, 8), (b, snare, 4), (b, snare, 12), (b, kick, 15)] {
-    sequencer.set_step(pattern, row, step, true).unwrap();
+    sequencer.set_pattern_step(pattern, row, step, true, 4).unwrap();
   }
   (kick, snare, a, b)
 }

@@ -10,7 +10,8 @@ export const DEFAULT_PLAYLIST_BEATS = PLAYLIST_BARS * DEFAULT_BEATS_PER_BAR
 export interface PlaylistTransport {
   playing: boolean
   // engine start time of the current run, ms since the unix epoch (null
-  // before the first run)
+  // before the first run). for a pattern playing on its own, when step 0
+  // of its time round was (or would have been) heard
   startTimeMs: number | null
   // where on the timeline the current run started
   startOffsetMs: number
@@ -28,8 +29,10 @@ export interface PlaylistTransport {
   // the pattern playing on its own (Play in the Sequencer tab), or null.
   // while one plays, the playlist's playhead stays still
   patternId: number | null
-  // how long that pattern is. it started at startTimeMs and loops at this
-  patternLengthMs: number
+  // how long that pattern is, in steps (0 for none). it loops at this
+  // length, counted from startTimeMs, which moves when its length changes:
+  // the engine counts its steps afresh from the one it's on then
+  patternLength: number
 }
 
 // a wind (holding rewind or fast forward) in progress: which way, where it

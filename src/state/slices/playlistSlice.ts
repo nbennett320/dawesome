@@ -545,12 +545,19 @@ export const {
   removePlaylistItem
 } = playlistSlice.actions
 
+// get_playlist_data's answer: the playlist's length in beats, and how many
+// tracks it has
+interface PlaylistData {
+  beats: number
+  trackCount: number
+}
+
 // the engine has as many tracks as the highest one with a clip on it (and
 // at least its default number). ask it after clips are added, moved or
 // removed
 export const refreshTrackCount = () => async (dispatch: Dispatch) => {
   try {
-    const [, , , trackCount] = await invoke<[number, number, number, number]>('get_playlist_data', {})
+    const { trackCount } = await invoke<PlaylistData>('get_playlist_data', {})
     dispatch(playlistSlice.actions.setTrackCount(trackCount))
   } catch(e) {
     // eslint-disable-next-line no-console
@@ -1142,11 +1149,10 @@ export const {
   setPlaylistUI,
 } = playlistSlice.actions
 
-// the playlist's length and tracks. (the engine's first and third numbers
-// aren't used)
+// the playlist's length and tracks
 export const initPlaylist = () => async (dispatch: Dispatch) => {
-  const [, maxBeatsDisplayed, , trackCount] = await invoke<[number, number, number, number]>('get_playlist_data', {})
-  dispatch(setPlaylistUI({ maxBeatsDisplayed, trackCount }))
+  const { beats, trackCount } = await invoke<PlaylistData>('get_playlist_data', {})
+  dispatch(setPlaylistUI({ maxBeatsDisplayed: beats, trackCount }))
 
   // the engine owns the snap defaults
   const snap = await invoke<SnapSetting>('get_snap_setting', {})
