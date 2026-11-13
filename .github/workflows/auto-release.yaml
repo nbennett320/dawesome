@@ -1,0 +1,63 @@
+name: Auto release
+
+# When a change to VERSION lands on main, publish release v{VERSION} with
+# GitHub's generated notes, then run the Release workflow on the new tag to
+# build the apps and attach them. A release made with GITHUB_TOKEN doesn't
+# trigger other workflows by itself, so the builds are started explicitly.
+on:
+  push:
+    branches: [main]
+    paths: [VERSION]
+
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release v{VERSION}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # creating the tag and release
+      actions: write # starting the Release workflow
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # the apps are named from tauri.conf.json, so it has to agree with VERSION
+      - name: Read the version
+        id: version
+        run: |
+          version=$(tr -d '[:space:]' < VERSION)
+          if ! echo "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::VERSION should be major.minor.patch, not '$version'"
+            exit 1
+          fi
+          app_version=$(node -p "require('./engine/tauri.conf.json').version")
+          if [ "$version" != "$app_version" ]; then
+            echo "::error::VERSION $version doesn't match $app_version in engine/tauri.conf.json"
+            exit 1
+          fi
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      # a revert, or an edit that keeps the version, shouldn't release again
+      - name: Check it isn't released yet
+        id: check
+        run: |
+          if gh release view "${{ steps.version.outputs.tag }}" > /dev/null 2>&1; then
+            echo "${{ steps.version.outputs.tag }} is already released"
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish the release
+        if: steps.check.outputs.new == 'true'
+        run: |
+          tag="${{ steps.version.outputs.tag }}"
+          gh release create "$tag" --title "$tag" --generate-notes --target "$GITHUB_SHA"
+
+      - name: Start the app builds
+        if: steps.check.outputs.new == 'true'
+        run: gh workflow run release.yaml --ref "${{ steps.version.outputs.tag }}"

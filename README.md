@@ -205,6 +205,7 @@ Lints the frontend with ESLint (`eslint.config.mjs`).
 #### `pnpm version:bump --to {x.y.z}`
 
 Bump the version to what's passed as the parameter.
+Once a new version hits `main`, a new release will kick off.
 
 ## Resources
 

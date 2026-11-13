@@ -3,6 +3,8 @@ name: Release
 # Push a tag like v0.2.0 to build the macOS and Linux apps and attach them to
 # a draft release; publish the draft by hand once it looks right. "Run
 # workflow" on the Actions tab builds the same apps without a tag, as a test.
+# Run on a tag instead (as auto-release.yaml does), it attaches the apps to
+# that tag's published release.
 on:
   push:
     tags: ['v*']
