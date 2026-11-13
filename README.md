@@ -8,7 +8,7 @@ An awesome, libre, and cross-platform DAW
 built with Rust, Tauri, React, and Typescript.
 
 <img 
-  src="./notes/sc10.png" 
+  src="./notes/sc11.png" 
   alt="an early screenshot of Dawesome in its current state" 
 />
 
@@ -225,12 +225,16 @@ See `notes/` for more.
 
 ## Gallery
 <img 
-  src="./notes/sc7.png" 
-  alt="the playlist ui interface can no be zoomed in" 
+  src="./notes/sc12.png" 
+  alt="vst3 support" 
 />
 <img 
-  src="./notes/sc9.png" 
-  alt="the playlist ui interface can no be zoomed in" 
+  src="./notes/sc13.png" 
+  alt="functional piano roll" 
+/>
+<img 
+  src="./notes/sc14.png" 
+  alt="playlist view with colored tracks" 
 />
 
 ## License
