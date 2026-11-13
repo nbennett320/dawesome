@@ -4,8 +4,7 @@ import type { RootState } from '../../state/store'
 import { selectFocusedView } from '../../state/slices/windowSlice'
 import { gestureActive } from '../../state/gesture'
 import { SnapNote } from '../../editing/snap'
-import { TOOL_LABELS, Tool, toolKey } from '../../editing/tools'
-import { View } from '../../types/ui'
+import { TOOL_LABELS, Tool, ToolView, toolKey } from '../../editing/tools'
 import { isTextTarget } from '../../util/keys'
 import LatchKey from '../topbar/LatchKey'
 import SnapButton from './SnapButton'
@@ -30,7 +29,7 @@ export interface TraySnap {
 interface Props {
   // the view this tray belongs to: its keys work while that view is the
   // focused pane's tab
-  view: View
+  view: ToolView
   // the tools the view has, in the order their keys are shown
   tools: ReadonlyArray<Tool>
   tool: Tool
@@ -71,7 +70,7 @@ const ToolTray = ({ view, tools, tool, onTool, snap }: Props) => {
   return (
     <div className='ft-tray rounded-md flex flex-row items-end gap-1.5 px-2 py-1'>
       {tools.map(each => (
-        <LatchKey key={each} label={TOOL_LABELS[each]} on={tool === each} onToggle={() => onTool(each)}>
+        <LatchKey key={each} label={TOOL_LABELS[view][each]} on={tool === each} onToggle={() => onTool(each)}>
           {ICONS[each]}
         </LatchKey>
       ))}
