@@ -1,7 +1,7 @@
 // undo and redo
 //
-// every change to the project (clips, the mixer, the sequencer, the tempo,
-// the effects racks) is kept as a step: what it changed, as it was before and as it was after.
+// every change to the project (clips, the tracks, the mixer, the sequencer,
+// the tempo, the effects racks) is kept as a step: what it changed, as it was before and as it was after.
 // undoing a step puts back the "before", redoing it the "after". steps hold
 // whole snapshots of what they touched, rather than how to reverse each
 // command, so a step can't drift from what it describes
@@ -106,6 +106,8 @@ pub struct Step {
   sequencer: Option<(daw::Sequencer, daw::Sequencer)>,
   tempo: Option<(f32, f32)>,
   effects: Option<(crate::effects::RackSnap, crate::effects::RackSnap)>,
+  // the playlist's fewest tracks (see AudioGraph::min_tracks)
+  tracks: Option<(u32, u32)>,
 }
 
 impl Step {
@@ -153,6 +155,11 @@ impl Step {
     self
   }
 
+  pub fn with_tracks(mut self, before: u32, after: u32) -> Self {
+    self.tracks = Some((before, after));
+    self
+  }
+
   // drop the parts that didn't change anything
   fn tidy(&mut self) {
     self.clips.retain(|_, (before, after)| match (before, after) {
@@ -164,11 +171,12 @@ impl Step {
     if matches!(&self.sequencer, Some((before, after)) if before.same_as(after)) { self.sequencer = None; }
     if matches!(self.tempo, Some((before, after)) if before == after) { self.tempo = None; }
     if matches!(&self.effects, Some((before, after)) if before.same(after)) { self.effects = None; }
+    if matches!(self.tracks, Some((before, after)) if before == after) { self.tracks = None; }
   }
 
   fn is_empty(&self) -> bool {
     self.clips.is_empty() && self.mixer.is_none() && self.sequencer.is_none() && self.tempo.is_none()
-      && self.effects.is_none()
+      && self.effects.is_none() && self.tracks.is_none()
   }
 
   // fold a later change of the same gesture into this step: what was before
@@ -191,6 +199,9 @@ impl Step {
     }
     if let Some((before, after)) = later.effects {
       self.effects = Some((self.effects.take().map_or(before, |mine| mine.0), after));
+    }
+    if let Some((before, after)) = later.tracks {
+      self.tracks = Some((self.tracks.take().map_or(before, |mine| mine.0), after));
     }
   }
 
@@ -371,6 +382,10 @@ fn apply(state: &Arc<daw::InnerState>, step: &mut Step, way: Way) -> Applied {
   }
 
   let mut audiograph = state.playlist.audiograph.lock().unwrap();
+
+  if let Some((before, after)) = step.tracks {
+    audiograph.min_tracks = if pick(true) { before } else { after };
+  }
 
   if let Some((before, after)) = &step.sequencer {
     let mut sequencer = state.playlist.sequencer.lock().unwrap();

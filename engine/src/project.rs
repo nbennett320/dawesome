@@ -100,6 +100,10 @@ pub struct Project {
   #[serde(flatten)]
   pub settings: ProjectSettings,
   pub clips: Vec<ProjectClip>,
+  // the fewest tracks the playlist shows (tracks added below the last clip),
+  // left out when it's the default number
+  #[serde(skip_serializing_if = "is_default_track_count")]
+  pub tracks: u32,
   // only tracks changed from their defaults, or named, are saved
   pub mixer: daw::MixerSettings,
   // the Sequencer tab's rows (with their sample paths saved like clips') and
@@ -120,12 +124,21 @@ pub struct Project {
   pub dropped: Vec<String>,
 }
 
+fn is_default_track_count(tracks: &u32) -> bool {
+  *tracks == daw::defaults::NUM_OF_TRACKS
+}
+
+// the most tracks a project file can ask for, so a bad one can't make the
+// playlist (and mixer) endless
+const MAX_SAVED_TRACKS: u32 = 1024;
+
 impl Default for Project {
   fn default() -> Self {
     Project {
       version: PROJECT_VERSION_WITHOUT_PATTERNS,
       settings: ProjectSettings::default(),
       clips: Vec::new(),
+      tracks: daw::defaults::NUM_OF_TRACKS,
       mixer: daw::MixerSettings::default(),
       sequencer: daw::SavedSequencer::default(),
       pattern_clips: Vec::new(),
@@ -348,7 +361,7 @@ fn tidy_beat(beat: f64) -> f64 {
 // the current playlist as a project, with sample paths relative to
 // `project_dir` where they can be
 pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
-  let (tempo, clips, pattern_clips, sequencer) = {
+  let (tempo, clips, pattern_clips, sequencer, tracks) = {
     let audiograph = state.playlist.audiograph.lock().unwrap();
     let interval = audiograph.beat_interval().as_secs_f64();
     // a trimmed clip's beat isn't rounded: the two halves of a cut clip only
@@ -389,7 +402,7 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
       row.path = stored_path(&row.path, project_dir);
     }
 
-    (audiograph.tempo(), clips, pattern_clips, sequencer)
+    (audiograph.tempo(), clips, pattern_clips, sequencer, audiograph.min_tracks)
   };
 
   let ui = *state.playlist.ui.lock().unwrap();
@@ -430,6 +443,7 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
       count_in: state.playlist.count_in.load(Ordering::SeqCst),
     },
     clips,
+    tracks,
     mixer,
     sequencer,
     pattern_clips,
@@ -510,6 +524,7 @@ pub fn apply(
 
   let mut audiograph = state.playlist.audiograph.lock().unwrap();
   audiograph.clear();
+  audiograph.min_tracks = project.tracks.clamp(daw::defaults::NUM_OF_TRACKS, MAX_SAVED_TRACKS);
   audiograph.set_tempo(settings.tempo);
   let interval = audiograph.beat_interval();
 

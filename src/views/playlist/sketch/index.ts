@@ -93,6 +93,8 @@ export interface CanvasProps extends SketchProps {
   onClipsCut: (ids: number[], beat: number) => Promise<unknown>
   // clips were painted with the Draw tool (see Renderer.onPaint)
   onPaint: (patternId: number | null, trackNumber: number, startBeat: number, endBeat: number) => Promise<unknown>
+  // the plus below the last track was clicked (see Renderer.onAddTrack)
+  onAddTrack: () => Promise<unknown>
   // the grid's step changed, in beats
   onGridStep?: (beats: number) => void
 }
@@ -471,6 +473,8 @@ export class Renderer extends RendererBase {
   // clips were painted with the Draw tool: clips of `patternId` (null for a
   // new note pattern) on trackNumber from startBeat to endBeat, snapped
   onPaint!: (patternId: number | null, trackNumber: number, startBeat: number, endBeat: number) => Promise<unknown>
+  // the plus below the last track was clicked: an empty track goes under it
+  onAddTrack!: () => Promise<unknown>
   // the grid's step changed, in beats (see adaptiveStep): for the readout
   // by the snap control
   onGridStep?: (beats: number) => void
@@ -1537,22 +1541,34 @@ export class Renderer extends RendererBase {
     else if(y > this.height - zone) this.scrollTo(this.scrollY + maxSpeed * depth(y - (this.height - zone)))
   }
 
-  // the area below the last track, with a plus: drop a clip here for a new
-  // track. highlighted while a dragged clip would land there
-  #drawNewTrackArea = (p: P5CanvasInstance<CanvasProps>, canvas: p5.Renderer) => {
-    // in canvas pixels, matching the tracks' translate in draw
+  // the plus in the area below the last track, in canvas pixels (matching
+  // the tracks' translate in draw). centred in what's visible, so it doesn't
+  // stretch with zoom or scroll away
+  #newTrackPlus = () => {
     const top = this.newTrackAreaTop() - this.scrollY + 1
+    return { top, cx: this.width / 2, cy: top + NEW_TRACK_AREA_HEIGHT / 2, radius: 10 }
+  }
+
+  // whether a point on the canvas is over the plus (which adds a track when
+  // clicked). a little past its circle, as it's small
+  overNewTrackPlus = (x: number, y: number): boolean => {
+    const { cx, cy, radius } = this.#newTrackPlus()
+    return y >= staticDefaults.timelineHeight && Math.hypot(x - cx, y - cy) <= radius + 4
+  }
+
+  // the area below the last track, with a plus: drop a clip here for a new
+  // track, or click the plus for an empty one. highlighted while a dragged
+  // clip would land there, and the plus while the mouse is over it
+  #drawNewTrackArea = (p: P5CanvasInstance<CanvasProps>, canvas: p5.Renderer) => {
+    const { top, cx, cy, radius } = this.#newTrackPlus()
     if(top > this.height) return
 
     const drag = this.draggedClip(p, canvas)
     const targeted = (!!drag && this.landings(drag).some(landing => landing.track === this.trackCount))
       || this.#paint?.track === this.trackCount
+    const hovered = !targeted && !drag && !this.isMouseDown && this.overNewTrackPlus(p.mouseX, p.mouseY)
 
     const h = NEW_TRACK_AREA_HEIGHT
-    // centred in what's visible, so it doesn't stretch with zoom or scroll away
-    const cx = this.width / 2
-    const cy = top + h / 2
-    const radius = 10
     const arm = 5
 
     p.push()
@@ -1562,7 +1578,7 @@ export class Renderer extends RendererBase {
       p.rect(0, top, this.width, h)
       paint.stroke(p, 'accent')
     } else {
-      paint.stroke(p, 'idle')
+      paint.stroke(p, hovered ? 'accent' : 'idle')
     }
 
     p.strokeWeight(1.5)
@@ -1860,6 +1876,12 @@ export class Renderer extends RendererBase {
           }
           if(this.lipAt(ev.offsetX, ev.offsetY) !== null) return
 
+          // the plus below the last track adds an empty track, whatever the tool
+          if(this.overNewTrackPlus(ev.offsetX, ev.offsetY)) {
+            void this.onAddTrack?.()
+            return
+          }
+
           const item = this.clipUnderMouse()
 
           // shift+click a clip adds it to the selection, or takes it out.
@@ -2152,6 +2174,7 @@ export class Renderer extends RendererBase {
       this.onClipsStretch = props.onClipsStretch
       this.onClipsCut = props.onClipsCut
       this.onPaint = props.onPaint
+      this.onAddTrack = props.onAddTrack
       if(props.onGridStep !== this.onGridStep) {
         this.onGridStep = props.onGridStep
         // (so a new listener hears the step there is now)
@@ -2418,6 +2441,8 @@ export class Renderer extends RendererBase {
         p.cursor(p.HAND)
       } else if(this.#hoverEdge) {
         p.cursor('ew-resize')
+      } else if(!this.clipDrag?.active && !this.sampleDrag && this.overNewTrackPlus(p.mouseX, p.mouseY)) {
+        p.cursor(p.HAND)
       } else if(this.clipDrag?.active || this.sampleDrag) {
         p.cursor('grabbing')
       } else if(this.tool === 'cut') {

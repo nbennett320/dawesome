@@ -605,6 +605,13 @@ export const addToPlaylist = (
   }
 }
 
+// an empty track below the last one (the plus under the tracks). it can be
+// undone
+export const addTrack = () => async (dispatch: Dispatch) => {
+  const trackCount = await invoke<number>('add_track', {})
+  dispatch(playlistSlice.actions.setTrackCount(trackCount))
+}
+
 // place a pattern in the playlist (dragged from the Sequencer's pattern
 // strip). the clip stays linked to the pattern
 export const addPatternToPlaylist = (

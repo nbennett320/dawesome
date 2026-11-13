@@ -131,6 +131,7 @@ fn init_tauri() {
       redo,
       get_node_data,
       get_playlist_data,
+      add_track,
       toggle_loop_enabled,
       get_loop_enabled,
       toggle_snap_enabled,
