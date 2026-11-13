@@ -3,6 +3,7 @@ import { Renderer } from './index'
 import { P5BoundingBox } from '../../../render/P5Component'
 import { paint, theme } from './theme'
 import { MIN_LABEL_GAP, gridSteps, visibleBeats } from './grid'
+import { lineLevel } from '../../../editing/beatGrid'
 
 class Timeline extends PlaylistComponent {
   boundingBox = (): P5BoundingBox => {
@@ -27,8 +28,9 @@ class Timeline extends PlaylistComponent {
     const renderer = this.renderer as Renderer
     const limit = renderer.beatsDisplayed
     const beatWidth = this.timelineWidth * this.currentScale / limit
-    // zoomed out, ticks and then numbers thin out so they never overlap,
-    // and only the beats on screen are drawn
+    // a tick on each grid line (see adaptiveStep), and numbers on whole
+    // beats that thin out so they never overlap. only the beats on screen
+    // are drawn
     const { lineEvery, labelEvery } = gridSteps(beatWidth, theme.beatsPerBar)
     // (a number is drawn to the right of its beat, so one just off the left
     // edge may still show)
@@ -37,14 +39,17 @@ class Timeline extends PlaylistComponent {
     // unscaled, so the numbers and ticks don't stretch when zoomed
     p.push()
     p.scale(1 / this.currentScale, 1)
-    for(let i = Math.ceil(first / lineEvery) * lineEvery; i < last; i += lineEvery) {
+    // (counted in steps, so a fine step doesn't drift)
+    for(let n = Math.ceil(first / lineEvery); n * lineEvery < last; n++) {
+      const i = n * lineEvery
       const x = i * beatWidth
-      const bar = i % theme.beatsPerBar === 0
+      const level = lineLevel(i, theme.beatsPerBar)
+      const bar = level === 2
 
-      // a tick up from the bottom, taller on each bar
-      paint.stroke(p, 'rulerLine')
+      // a tick up from the bottom: tallest on each bar, short between beats
+      paint.stroke(p, 'rulerLine', level === 0 ? 0.6 : 1)
       p.strokeWeight(1)
-      p.line(x, this.timelineHeight - (bar ? 10 : 5), x, this.timelineHeight)
+      p.line(x, this.timelineHeight - [3, 5, 10][level], x, this.timelineHeight)
 
       if(i % labelEvery === 0) {
         p.noStroke()

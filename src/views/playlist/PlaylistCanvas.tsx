@@ -26,6 +26,7 @@ import {
   selectPlaylistUI,
   selectTransportRevision,
   setClipWindows,
+  setGridStep,
   splitClips,
   stretchClips,
 } from '../../state/slices/playlistSlice'
@@ -240,6 +241,8 @@ const PlaylistCanvas = () => {
   const transportRevision = useAppSelector(selectTransportRevision)
   const loopEnabled = useAppSelector(selectLoopEnabled)
   const handleSeek = React.useCallback((beat: number) => { dispatch(seekPlaylist(beat)) }, [dispatch])
+  // the grid's step changed with the zoom: for the readout in the tray
+  const handleGridStep = React.useCallback((beats: number) => { dispatch(setGridStep(beats)) }, [dispatch])
   const tempo = useAppSelector(selectPlaylistTempo)
   const playlistTrackBoxRef = React.useRef<HTMLDivElement>(null)
   const items = useAppSelector(selectPlaylistItems)
@@ -636,6 +639,7 @@ const PlaylistCanvas = () => {
           onClipsStretch={handleClipsStretch}
           onClipsCut={handleClipsCut}
           onPaint={handlePaint}
+          onGridStep={handleGridStep}
         />
       </div>}
       <ClipMenuHost opener={openMenu} />

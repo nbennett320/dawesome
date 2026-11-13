@@ -1,9 +1,12 @@
 import { BEATS_IN_VIEW, gridSteps, openingScale, panForWidth, visibleBeats } from './grid'
+import { MIN_LINE_GAP } from '../../../editing/beatGrid'
 
 describe('gridSteps', () => {
-  it('draws every beat when there is room', () => {
-    // a 960px playlist showing 16 beats: 60px a beat
-    expect(gridSteps(60, 4)).toEqual({ lineEvery: 1, labelEvery: 1 })
+  it('splits beats into finer lines when there is room', () => {
+    // a 960px playlist showing 16 beats: 60px a beat, a line every 1/16 note
+    expect(gridSteps(60, 4)).toEqual({ lineEvery: 1 / 4, labelEvery: 1 })
+    // zoomed in further: 1/32 notes
+    expect(gridSteps(160, 4).lineEvery).toBe(1 / 8)
   })
 
   it('thins the numbers before the lines', () => {
@@ -21,16 +24,17 @@ describe('gridSteps', () => {
     const steps = gridSteps(960 / 256, 4)
     expect(steps.lineEvery).toBe(4)
     expect(steps.labelEvery).toBe(8)
-    // and on a narrow canvas: every bar line stays, the numbers thin out
-    expect(gridSteps(300 / 256, 4)).toEqual({ lineEvery: 4, labelEvery: 32 })
+    // and on a narrow canvas: bar lines thin out too, to every 4 bars
+    expect(gridSteps(300 / 256, 4)).toEqual({ lineEvery: 16, labelEvery: 32 })
   })
 
   it('always numbers a beat that has a line', () => {
-    [0.5, 1, 3, 7, 9, 20, 27, 29, 60].forEach(pixelsPerBeat => {
+    [0.5, 1, 3, 7, 9, 20, 27, 29, 60, 200].forEach(pixelsPerBeat => {
       [3, 4].forEach(beatsPerBar => {
         const { lineEvery, labelEvery } = gridSteps(pixelsPerBeat, beatsPerBar)
         expect(labelEvery % lineEvery).toBe(0)
-        expect(lineEvery).toBeLessThanOrEqual(beatsPerBar)
+        expect(Number.isInteger(labelEvery)).toBe(true)
+        expect(lineEvery * pixelsPerBeat).toBeGreaterThanOrEqual(MIN_LINE_GAP)
       })
     })
   })

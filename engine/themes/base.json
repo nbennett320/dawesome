@@ -34,6 +34,7 @@
   "playlist": {
     "background": "surface",
     "laneAlt": "surfaceAlt",
+    "gridTile": "alpha(ink, 0.035)",
     "laneLine": "line",
     "beatLine": "line",
     "barLine": "lineStrong",
