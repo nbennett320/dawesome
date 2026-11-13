@@ -9,7 +9,7 @@ import projectReducer from '../../state/slices/projectSlice'
 import mixerReducer from '../../state/slices/mixerSlice'
 import windowReducer, { openTab, selectFocusedView } from '../../state/slices/windowSlice'
 import effectsReducer from '../../state/slices/effectsSlice'
-import appearanceReducer from '../../state/slices/appearanceSlice'
+import appearanceReducer, { setPreferences } from '../../state/slices/appearanceSlice'
 import sequencerReducer from '../../state/slices/sequencerSlice'
 import { DragItem, beginSampleDrag } from '../../state/sampleDrag'
 import { Note, SequencerState, Synth } from '../../types/sequencer'
@@ -205,6 +205,21 @@ describe('the Drum Sequencer', () => {
     await setup(Sequencer, View.Sequencer)
     fireEvent.click(screen.getByRole('button', { name: 'New pattern' }))
     await waitFor(() => expect(calls('add_pattern')).toEqual([{ bars: 1, kind: 'drum' }]))
+  })
+
+  it('draws its step keys in the style the preferences pick', async () => {
+    const { store, container } = await setup(Sequencer, View.Sequencer)
+    const steps = () => container.querySelector('.seq-steps') as HTMLElement
+    // a TR-909's by default
+    expect(steps().dataset.keys).toBe('tr909')
+    const lit = screen.getAllByRole('button', { name: /kick\.wav, step/ })
+    expect(lit[0].classList.contains('is-lit')).toBe(true)
+    expect(lit[1].classList.contains('is-lit')).toBe(false)
+    // in beats of four, coloured by their place in the bar
+    expect(Array.from(container.querySelectorAll('.seq-beat')).map(b => b.classList.contains(`is-beat-0`))).toEqual([true, false, false, false])
+
+    act(() => { store.dispatch(setPreferences({ ...store.getState().appearance.preferences, stepKeys: 'tr808' })) })
+    expect(steps().dataset.keys).toBe('tr808')
   })
 
   it('replaces the sample of a row a sample is dropped on', async () => {

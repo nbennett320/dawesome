@@ -1,0 +1,189 @@
+// the Drum Sequencer's step keys, after Roland's drum machines. which look
+// is a preference (StepKeys), set on the row as data-keys:
+// - tr808: each beat's caps in its own colour, a red LED on each
+// - tr909: plain caps with an amber LED, over a coloured strip per beat
+// - tr8s: plain pads that light up in the accent
+// the colours are the theme's own: four-track caps and LEDs, and for the
+// beats its accent, then accent and LED colour mixed, then its LED colour,
+// then plain
+
+.seq-steps {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+}
+
+.seq-beat {
+  // the beat's colour: 808 caps, 909 strips
+  --beat: var(--ft-cap-top);
+  &.is-beat-0 { --beat: rgb(var(--c-accent)); }
+  &.is-beat-1 { --beat: color-mix(in srgb, rgb(var(--c-accent)) 50%, rgb(var(--c-led))); }
+  &.is-beat-2 { --beat: rgb(var(--c-led)); }
+
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.seq-keys {
+  display: flex;
+  flex-direction: row;
+  gap: 3px;
+}
+
+.seq-strip {
+  display: none;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--beat);
+}
+
+.seq-key {
+  // how far the key sits above the tray
+  --depth: 2px;
+  --cap-top: var(--ft-cap-top);
+  --cap-bottom: var(--ft-cap-bottom);
+  --led: var(--ft-led-amber-on);
+  --led-glow: var(--ft-led-amber-glow);
+  --led-off: var(--ft-led-amber-off);
+
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 22px;
+  height: 28px;
+  margin: 0 0 var(--depth);
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  background: linear-gradient(180deg, var(--cap-top), var(--cap-bottom));
+  box-shadow:
+    0 0 0 1px var(--ft-line-strong),
+    0 var(--depth) 0 var(--ft-line-strong),
+    0 calc(var(--depth) + 1px) 3px rgb(var(--c-shadow) / .12);
+  transition: transform .05s ease, box-shadow .05s ease;
+
+  &:active {
+    transform: translateY(1px);
+    box-shadow:
+      0 0 0 1px var(--ft-line-strong),
+      0 1px 0 var(--ft-line-strong);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ft-focus);
+    outline-offset: 2px;
+  }
+}
+
+// the LED window at the top of the key
+.seq-led {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  width: 10px;
+  height: 4px;
+  margin-left: -5px;
+  border-radius: 2px;
+  background: var(--led-off);
+  box-shadow: inset 0 1px 1px rgb(var(--c-shadow) / .3);
+  transition: background .06s, box-shadow .06s, opacity .06s;
+  pointer-events: none;
+
+  .is-lit > & {
+    background: var(--led);
+    box-shadow: 0 0 6px 1px var(--led-glow);
+  }
+
+  // the running light: brighter on a lit step, a faint glow on one that isn't
+  .is-now > & {
+    background: var(--led);
+    box-shadow: 0 0 9px 2px var(--led-glow);
+  }
+  .is-now:not(.is-lit) > & {
+    opacity: .5;
+  }
+
+  // a muted row's lit steps are dim
+  .is-muted .is-lit:not(.is-now) > & {
+    opacity: .45;
+    box-shadow: none;
+  }
+}
+
+// ── TR-808: coloured caps, red LEDs ──
+// the caps are moulded plastic: lighter at the top, darker at the bottom,
+// with a shine along the top edge and a shadow in the dish of the cap. (the
+// light and shade are plain white and black, mixed into the beat's colour,
+// so they work the same in light and dark themes)
+[data-keys='tr808'] {
+  .seq-key {
+    --led: var(--ft-led-red-on);
+    --led-glow: var(--ft-led-red-glow);
+    --led-off: color-mix(in srgb, var(--ft-led-red-on) 35%, rgb(var(--c-shadow)));
+
+    background:
+      // the dish: a soft shine high up, fading out
+      radial-gradient(ellipse 90% 55% at 50% 22%, color-mix(in srgb, var(--beat) 82%, white) 0%, transparent 70%),
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--beat) 93%, white) 0%,
+        var(--beat) 45%,
+        color-mix(in srgb, var(--beat) 89%, black) 100%);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--beat) 76%, white),
+      inset 0 -3px 3px -1px color-mix(in srgb, var(--beat) 82%, black),
+      0 0 0 1px color-mix(in srgb, var(--beat) 80%, black),
+      0 var(--depth) 0 color-mix(in srgb, var(--beat) 78%, black),
+      0 calc(var(--depth) + 1px) 4px rgb(var(--c-shadow) / .16);
+
+    &:active {
+      box-shadow:
+        inset 0 1px 2px color-mix(in srgb, var(--beat) 80%, black),
+        0 0 0 1px color-mix(in srgb, var(--beat) 80%, black),
+        0 1px 0 color-mix(in srgb, var(--beat) 78%, black);
+    }
+  }
+}
+
+// ── TR-909: plain caps, amber LEDs, a strip under each beat ──
+[data-keys='tr909'] {
+  .seq-strip {
+    display: block;
+  }
+  .is-beat-3 .seq-strip {
+    background: var(--ft-line-strong);
+  }
+}
+
+// ── TR-8S: pads that light up in the accent, no LED ──
+[data-keys='tr8s'] {
+  .seq-led {
+    display: none;
+  }
+  // every other beat a little darker, so the beats read at a glance
+  .is-alt .seq-key {
+    --cap-top: var(--ft-cap-bottom);
+    --cap-bottom: color-mix(in srgb, var(--ft-cap-bottom) 85%, rgb(var(--c-shadow)));
+  }
+  .seq-key.is-lit {
+    --cap-top: color-mix(in srgb, rgb(var(--c-accent)) 80%, var(--ft-cap-top));
+    --cap-bottom: rgb(var(--c-accent));
+    box-shadow:
+      0 0 0 1px rgb(var(--c-accent-strong)),
+      0 var(--depth) 0 rgb(var(--c-accent-strong)),
+      0 0 10px -1px rgb(var(--c-accent) / .7);
+  }
+  .is-muted .seq-key.is-lit {
+    --cap-top: color-mix(in srgb, rgb(var(--c-accent)) 35%, var(--ft-cap-top));
+    --cap-bottom: color-mix(in srgb, rgb(var(--c-accent)) 35%, var(--ft-cap-bottom));
+    box-shadow:
+      0 0 0 1px var(--ft-line-strong),
+      0 var(--depth) 0 var(--ft-line-strong);
+  }
+  // the running light: an amber ring
+  .seq-key.is-now {
+    outline: 2px solid rgb(var(--c-led));
+    outline-offset: 1px;
+  }
+}

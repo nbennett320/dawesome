@@ -4,6 +4,7 @@ import { ROW_VOLUME_MAX } from '../../types/sequencer'
 import { formatPan } from '../../types/mixer'
 import { AnalogButton, Knob, Led } from '../../components/fourtrack'
 import { NameInput } from '../../components/common'
+import { PanIcon, VolumeIcon } from '../../components/icons'
 import ClipMenu from '../playlist/ClipMenu'
 
 // the longest a row's name can be (as the engine keeps it)
@@ -44,14 +45,6 @@ interface Props {
 // a volume as a percentage of the sample's (or synth's) own level
 const percent = (volume: number) => `${Math.round(volume * 100)}%`
 
-// a small knob with its caption under it
-const CaptionedKnob = ({ caption, ...knob }: React.ComponentProps<typeof Knob> & { caption: string }) => (
-  <div className='flex flex-col items-center gap-0.5'>
-    <Knob size={24} {...knob} />
-    <span className='ft-label text-[8px] leading-none tracking-normal'>{caption}</span>
-  </div>
-)
-
 // the left end of a sequencer's row, the same for a sample and a synth: its
 // name, mute, volume, pan (samples) and, set apart, remove. right-click it
 // for a menu (rename, remove)
@@ -66,7 +59,7 @@ const RowControls = ({
 
   return (
     <div
-      className={`ft-strip shrink-0 w-80 h-11 flex flex-row items-center px-1.5 ${disabled ? 'opacity-60' : ''}`}
+      className={`ft-strip ft-strip--module shrink-0 w-80 h-11 flex flex-row items-center pl-1.5 pr-1 ${disabled ? 'opacity-60' : ''}`}
       onContextMenu={ev => {
         ev.preventDefault()
         setMenu({ x: ev.clientX, y: ev.clientY })
@@ -88,7 +81,7 @@ const RowControls = ({
           aria-label='Row name'
           placeholder={rename.placeholder}
           maxLength={MAX_NAME_CHARS}
-          className='flex-1 min-w-0 h-7 mr-3'
+          className='flex-1 min-w-0 h-7 mr-2'
           onDone={text => {
             if(text !== null) rename.onRename(text)
             setRenaming(false)
@@ -98,17 +91,17 @@ const RowControls = ({
         <button
           type='button'
           disabled={disabled}
-          className={`ft-scribble flex-1 min-w-0 mr-3 flex flex-row items-baseline gap-1.5 text-left text-xs font-medium px-1 py-0.5 enabled:hover:bg-surface-alt ${muted || disabled ? 'text-ink-faint italic' : ''}`}
+          className={`ft-scribble ft-scribble--name flex-1 min-w-0 mr-2 flex flex-row items-baseline gap-1.5 text-left px-1 py-1 rounded-sm enabled:hover:bg-surface-alt ${muted || disabled ? 'ft-scribble--quiet' : ''}`}
           title={nameTitle}
           onClick={onName}
         >
           <span className='truncate'>{name}</span>
-          {note && <span className='truncate text-[10px] font-normal text-ink-faint shrink-[2]'>{note}</span>}
+          {note && <span className='truncate normal-case tracking-normal font-normal text-ink-faint shrink-[2]'>{note}</span>}
         </button>
       )}
 
-      <div className='flex flex-row items-center gap-3'>
-        <div className='flex flex-col items-center gap-0.5'>
+      <div className='ft-well shrink-0 flex flex-row items-center gap-2.5 px-2 py-1'>
+        <div className='flex flex-row items-center gap-1'>
           <Led color='amber' state={muted ? 'on' : 'off'} />
           <AnalogButton
             variant='text'
@@ -121,8 +114,9 @@ const RowControls = ({
             M
           </AnalogButton>
         </div>
-        <CaptionedKnob
-          caption='Vol'
+        <Knob
+          size={24}
+          icon={<VolumeIcon />}
           min={0}
           max={ROW_VOLUME_MAX}
           center={1}
@@ -134,8 +128,9 @@ const RowControls = ({
           title={`Volume ${percent(volume)}. Double-click for 100%`}
         />
         {pan !== undefined && onPan && (
-          <CaptionedKnob
-            caption='Pan'
+          <Knob
+            size={24}
+            icon={<PanIcon />}
             min={-1}
             max={1}
             center={0}
@@ -149,7 +144,7 @@ const RowControls = ({
         )}
       </div>
 
-      <div className='self-stretch w-px my-2 mx-2.5 bg-line-strong' aria-hidden='true' />
+      <div className='self-stretch w-px my-2.5 mx-1.5 bg-line' aria-hidden='true' />
       <AnalogButton
         variant='text'
         size='xs'

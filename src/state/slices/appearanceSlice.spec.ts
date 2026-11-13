@@ -91,3 +91,18 @@ describe('changePreferences', () => {
     expect(reducer(undefined, setSystemDark(true)).systemDark).toBe(true)
   })
 })
+
+describe('settings an older engine leaves out', () => {
+  it('are their defaults: step keys look like a TR-909', () => {
+    setThemes(all)
+    const store = configureStore({ reducer: { appearance: reducer } })
+    const { stepKeys: _, ...older } = defaultPreferences
+    store.dispatch(hydrateAppearance({
+      preferences: { ...older, appearance: 'dark' } as Preferences,
+      systemDark: false,
+      themes: [],
+    }))
+    expect(store.getState().appearance.preferences).toEqual({ ...defaultPreferences, appearance: 'dark' })
+    expect(store.getState().appearance.preferences.stepKeys).toBe('tr909')
+  })
+})

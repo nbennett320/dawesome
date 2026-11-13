@@ -1,5 +1,5 @@
 import React from 'react'
-import { useAppDispatch } from '../../hooks/redux'
+import { useAppDispatch, useAppSelector } from '../../hooks/redux'
 import {
   previewSequencerRow,
   removeSequencerRow,
@@ -16,6 +16,7 @@ import {
 } from '../../types/sequencer'
 import { fileName } from '../../util/helpers'
 import RowControls from './RowControls'
+import './steps.scss'
 
 // a step being painted: pressing a step lights it (or clears it), and every
 // step the mouse moves over while held is set the same way
@@ -49,23 +50,12 @@ const SequencerRow = ({
   const dispatch = useAppDispatch()
   const sample = fileName(row.path)
   const name = row.label ?? sample
-  const stepsPerBar = Math.max(1, beatsPerBar) * STEPS_PER_BEAT
+  // how the step keys look (a preference, see steps.scss)
+  const keys = useAppSelector(state => state.appearance.preferences.stepKeys)
+  const bar = Math.max(1, beatsPerBar)
 
-  const steps = Array.from({ length: pattern.length }, (_, step) => {
+  const key = (step: number) => {
     const lit = isLit(pattern, row.id, step)
-    const beat = Math.floor(step / STEPS_PER_BEAT)
-    const firstOfBeat = step % STEPS_PER_BEAT === 0
-    const firstOfBar = step % stepsPerBar === 0
-
-    let tone = 'bg-raised'
-    if(lit) tone = row.muted ? 'bg-accent-soft' : 'bg-accent'
-    // every other beat a little darker, so the beats read at a glance
-    else if(beat % 2 === 1) tone = 'bg-panel'
-
-    let gap = ''
-    if(step > 0 && firstOfBar) gap = 'ml-3'
-    else if(step > 0 && firstOfBeat) gap = 'ml-1.5'
-
     return (
       <button
         key={step}
@@ -73,13 +63,7 @@ const SequencerRow = ({
         aria-label={`${name}, step ${step + 1}`}
         aria-pressed={lit}
         title={`Step ${step + 1}`}
-        className={[
-          'shrink-0 w-5 h-7 rounded-sm border',
-          lit ? 'border-accent-strong shadow-inner' : 'border-line-strong hover:border-ink-faint',
-          step === playingStep ? 'ring-2 ring-led' : '',
-          tone,
-          gap,
-        ].join(' ')}
+        className={`seq-key ${lit ? 'is-lit' : ''} ${step === playingStep ? 'is-now' : ''}`}
         onMouseDown={ev => {
           if(ev.button !== 0) return
           ev.preventDefault()
@@ -98,7 +82,28 @@ const SequencerRow = ({
             onStep(row.id, step, !lit)
           }
         }}
-      />
+      >
+        <span className='seq-led' />
+      </button>
+    )
+  }
+
+  // the keys in beats of four, each beat coloured by its place in the bar
+  // (the first three in colour, the rest plain), with a wider gap between bars
+  const beats = Array.from({ length: Math.ceil(pattern.length / STEPS_PER_BEAT) }, (_, beat) => {
+    const first = beat * STEPS_PER_BEAT
+    const inBar = beat % bar
+    let gap = ''
+    if(beat > 0 && inBar === 0) gap = 'ml-3'
+    else if(beat > 0) gap = 'ml-1.5'
+
+    return (
+      <div key={beat} className={`seq-beat is-beat-${Math.min(inBar, 3)} ${inBar % 2 ? 'is-alt' : ''} ${gap}`}>
+        <div className='seq-keys'>
+          {Array.from({ length: Math.min(STEPS_PER_BEAT, pattern.length - first) }, (_, i) => key(first + i))}
+        </div>
+        <div className='seq-strip' />
+      </div>
     )
   })
 
@@ -137,8 +142,8 @@ const SequencerRow = ({
         removeTitle='Remove the row, and its steps from every pattern'
         onRemove={() => dispatch(removeSequencerRow(row.id))}
       />
-      <div className='relative flex flex-row items-center'>
-        {steps}
+      <div className={`seq-steps relative ${row.muted ? 'is-muted' : ''}`} data-keys={keys}>
+        {beats}
         {replacingWith && (
           <div
             aria-hidden='true'

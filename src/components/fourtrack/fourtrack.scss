@@ -34,6 +34,26 @@
   background: var(--ft-face);
   border-radius: 5px;
   box-shadow: 0 0 0 1px var(--ft-line);
+
+  // a module standing a little proud of the tray: a sequencer row's controls
+  &--module {
+    background: linear-gradient(180deg, var(--ft-cap-top), var(--ft-face));
+    box-shadow:
+      0 0 0 1px var(--ft-line),
+      0 1px 0 var(--ft-line-strong),
+      0 2px 4px rgb(var(--c-shadow) / .06);
+  }
+}
+
+// a recess in a strip that controls sit in (a row's mute and knobs)
+.ft-well {
+  // halfway between the tray and the strip's face: a shallow recess
+  background: color-mix(in srgb, var(--ft-tray) 50%, var(--ft-face));
+  border-radius: 6px;
+  box-shadow:
+    inset 0 1px 2px rgb(var(--c-shadow) / .08),
+    inset 0 0 0 1px rgb(var(--c-shadow) / .04),
+    0 1px 0 var(--ft-cap-top);
 }
 
 .ft-label {
@@ -448,6 +468,28 @@ $led-colors: 'red', 'amber', 'lime', 'blue';
     height: 34%;
     border-radius: 1px;
     background: var(--ft-accent);
+  }
+
+  // what the knob does, in the middle of the cap, turning with it. the
+  // pointer is shortened to the grip so the two don't meet
+  &__icon {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ft-ink-faint);
+    pointer-events: none;
+
+    svg {
+      width: 40%;
+      height: 40%;
+    }
+  }
+
+  &--icon .ft-knob__ptr {
+    top: 4%;
+    height: 18%;
   }
 }
 
