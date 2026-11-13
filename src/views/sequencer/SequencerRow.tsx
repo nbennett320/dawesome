@@ -3,7 +3,9 @@ import { useAppDispatch } from '../../hooks/redux'
 import {
   previewSequencerRow,
   removeSequencerRow,
+  renameSequencerRow,
   setSequencerRowMuted,
+  setSequencerRowPan,
   setSequencerRowVolume,
 } from '../../state/slices/sequencerSlice'
 import {
@@ -31,11 +33,12 @@ interface Props {
   onStep: (rowId: number, step: number, on: boolean) => void
 }
 
-// one sample: its name (click to hear it), mute, volume and remove, then a
-// key for each of the pattern's steps
+// one sample: its name (click to hear it, double-click to rename), mute,
+// volume, pan and remove, then a key for each of the pattern's steps
 const SequencerRow = ({ row, pattern, beatsPerBar, playingStep, paint, onStep }: Props) => {
   const dispatch = useAppDispatch()
-  const name = fileName(row.path)
+  const sample = fileName(row.path)
+  const name = row.label ?? sample
   const stepsPerBar = Math.max(1, beatsPerBar) * STEPS_PER_BEAT
 
   const steps = Array.from({ length: pattern.length }, (_, step) => {
@@ -93,12 +96,20 @@ const SequencerRow = ({ row, pattern, beatsPerBar, playingStep, paint, onStep }:
     <div className='flex flex-row items-center gap-2'>
       <RowControls
         name={name}
-        nameTitle={`${row.path}. Click to hear it`}
+        note={row.label ? sample : undefined}
+        nameTitle={`${row.path}. Click to hear it, double-click to rename`}
         onName={() => dispatch(previewSequencerRow(row.id))}
+        rename={{
+          initial: row.label ?? '',
+          placeholder: sample,
+          onRename: label => dispatch(renameSequencerRow(row.id, label)),
+        }}
         muted={row.muted}
         onMute={muted => dispatch(setSequencerRowMuted(row.id, muted))}
         volume={row.volume}
         onVolume={v => dispatch(setSequencerRowVolume(row.id, v))}
+        pan={row.pan}
+        onPan={p => dispatch(setSequencerRowPan(row.id, p))}
         removeTitle='Remove the row, and its steps from every pattern'
         onRemove={() => dispatch(removeSequencerRow(row.id))}
       />
