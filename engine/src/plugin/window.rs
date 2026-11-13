@@ -9,7 +9,7 @@
 // called anywhere else they do nothing
 //
 // floating windows (open_window):
-// - `parent_window` is the main NSWindow*, only used to centre a new window
+// - `parent_window` is the main NSWindow*, only used to center a new window
 //   over it (it may be null)
 // - `position` is where the window's top-left corner was, as position()
 //   gave it: macOS screen points with y going up. keep it and hand it back;

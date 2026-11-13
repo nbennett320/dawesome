@@ -109,7 +109,7 @@ beforeEach(() => {
   })
 
   // the placeholder sits further left once it has the interface's size
-  // (it's centred), so the engine has to be told it moved
+  // (it's centerd), so the engine has to be told it moved
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function rect(this: HTMLElement) {
     const placeholder = this.dataset.testid === 'docked-placeholder'
     const left = placeholder ? (this.style.width === '0px' ? 400 : 250) : 100

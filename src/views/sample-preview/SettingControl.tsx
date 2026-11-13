@@ -66,7 +66,7 @@ const SettingControl = ({
       </span>
 
       {/* double-clicking resets to the setting's default, rather than the
-          knob's centre */}
+          knob's center */}
       <div
         onDoubleClickCapture={e => {
           e.stopPropagation()

@@ -8,7 +8,7 @@ import { clamp } from '../util/helpers'
 export interface ClipSettings {
   // volume change in decibels, 0 is unchanged
   gainDb: number
-  // stereo position, -1 is hard left, 0 is centre, 1 is hard right
+  // stereo position, -1 is hard left, 0 is center, 1 is hard right
   pan: number
   // semitones up or down, which also changes the speed
   pitch: number

@@ -21,7 +21,7 @@ import { DraggedTab, PANE_TAB, useDraggingTab } from './dragTab'
 import { CloseIcon, SplitIcon } from '../icons'
 
 // where a tab dropped on a pane's body goes: an edge splits the pane there,
-// the centre moves the tab into the pane
+// the center moves the tab into the pane
 type DropZone = 'left' | 'right' | 'top' | 'bottom' | 'center'
 
 // how close to an edge (as a fraction of the pane) counts as that edge

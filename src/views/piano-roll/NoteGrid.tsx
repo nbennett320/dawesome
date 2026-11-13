@@ -28,7 +28,7 @@ import {
   contentHeight, contentWidth, drawCarried, drawGrid, drawKeys, drawRuler, fitCanvas, pitchAtY, playheadColour, rowAtY, rowTop, stepAtX, zoomGrid,
 } from './draw'
 import {
-  DEFAULT_LENGTH, carriedNotes, centrePitch, clampPitch, cutNotes, drawnLength, fitSelection, markerStep, moveNotes, newNote,
+  DEFAULT_LENGTH, carriedNotes, centerPitch, clampPitch, cutNotes, drawnLength, fitSelection, markerStep, moveNotes, newNote,
   noteBoxes,
   noteCut, pasteStep, pressKind, rollSnapping, sameNotes, snapStep, trimNotes,
 } from './notes'
@@ -228,13 +228,13 @@ const NoteGrid = ({ pattern, synthId, ghosts, stepsPerBar, run }: Props) => {
 
   // a pattern (or another synth's notes) opens with its notes in the
   // middle, or C3 to C5 when it has none
-  const centred = React.useRef<string | null>(null)
+  const centerd = React.useRef<string | null>(null)
   React.useEffect(() => {
     const scroller = scrollerRef.current
     const showing = `${pattern.id}:${synthId}`
-    if(!scroller || !size.height || centred.current === showing) return
-    centred.current = showing
-    scroller.scrollTop = Math.max(0, rowTop(centrePitch(notes)) + ROW_HEIGHT / 2 - size.height / 2)
+    if(!scroller || !size.height || centerd.current === showing) return
+    centerd.current = showing
+    scroller.scrollTop = Math.max(0, rowTop(centerPitch(notes)) + ROW_HEIGHT / 2 - size.height / 2)
     scroller.scrollLeft = 0
     setScroll({ x: scroller.scrollLeft, y: scroller.scrollTop })
   }, [pattern.id, synthId, size.height, notes])

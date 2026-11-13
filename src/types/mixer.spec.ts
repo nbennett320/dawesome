@@ -36,7 +36,7 @@ describe('formatting', () => {
     expect(formatDb(gainToDb(0))).toBe('-∞')
   })
 
-  it('shows pan as centre, left or right', () => {
+  it('shows pan as center, left or right', () => {
     expect(formatPan(0)).toBe('C')
     expect(formatPan(0.004)).toBe('C')
     expect(formatPan(-0.5)).toBe('L 50')

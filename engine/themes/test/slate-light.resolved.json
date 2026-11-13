@@ -121,7 +121,7 @@
   "track.yellow": "#e2a336",
   "waveform.background": "#ffffff",
   "waveform.beat": "#94a3b8",
-  "waveform.centre": "#cbd5e1",
+  "waveform.center": "#cbd5e1",
   "waveform.dimmed": "#cbd5e1",
   "waveform.envelope": "#f59e0b",
   "waveform.fade": "#f59e0b12",

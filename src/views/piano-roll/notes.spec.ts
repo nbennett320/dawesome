@@ -1,6 +1,6 @@
 import { Note, Pattern, clipNoteBars, stepsPerBar, synthNotes, withNotes } from '../../types/sequencer'
 import {
-  DEFAULT_LENGTH, NEW_VELOCITY, allIndices, carriedNotes, centrePitch, clampNote, copyNotes, cutNotes, deleteNotes, drawnLength,
+  DEFAULT_LENGTH, NEW_VELOCITY, allIndices, carriedNotes, centerPitch, clampNote, copyNotes, cutNotes, deleteNotes, drawnLength,
   fitSelection, inSteps, isBlackKey, markerStep, moveNotes, newNote, noteBoxes, noteCut, pasteNotes, pasteStep, pitchName,
   pressKind, repeatNotes, rollSnapping, sameNotes, snapStep, snapStepDown, trimNotes,
 } from './notes'
@@ -275,8 +275,8 @@ describe('the grid', () => {
   })
 
   it('opens on the middle of the notes, or middle C', () => {
-    expect(centrePitch([])).toBe(60)
-    expect(centrePitch([note(40, 0), note(50, 0)])).toBe(45)
+    expect(centerPitch([])).toBe(60)
+    expect(centerPitch([note(40, 0), note(50, 0)])).toBe(45)
   })
 
   it('turns pixels into steps, rows and pitches, and back, at any zoom', () => {

@@ -89,7 +89,7 @@
     "rulerLine": "lineStrong",
     "grid": "line",
     "beat": "inkFaint",
-    "centre": "lineStrong",
+    "center": "lineStrong",
     "wave": "accentStrong",
     "dimmed": "lineStrong",
     "wash": "alpha(panel, 0.6)",

@@ -1542,7 +1542,7 @@ export class Renderer extends RendererBase {
   }
 
   // the plus in the area below the last track, in canvas pixels (matching
-  // the tracks' translate in draw). centred in what's visible, so it doesn't
+  // the tracks' translate in draw). centerd in what's visible, so it doesn't
   // stretch with zoom or scroll away
   #newTrackPlus = () => {
     const top = this.newTrackAreaTop() - this.scrollY + 1

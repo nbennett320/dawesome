@@ -9,7 +9,7 @@ export const MAX_DB = 6
 export interface ChannelSettings {
   // fader position in decibels, MIN_DB (silent) to MAX_DB
   volumeDb: number
-  // -1 is hard left, 0 is centre, 1 is hard right
+  // -1 is hard left, 0 is center, 1 is hard right
   pan: number
   mute: boolean
   solo: boolean

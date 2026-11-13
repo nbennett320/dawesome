@@ -550,20 +550,20 @@ fn test_pan_is_kept_in_range() {
 #[test]
 fn test_a_row_is_panned_in_stereo() {
   let (mut seq, kick, _, _) = kit();
-  let centred: Vec<f32> = seq.row(kick).unwrap().source().collect();
+  let centerd: Vec<f32> = seq.row(kick).unwrap().source().collect();
   assert_eq!(seq.row(kick).unwrap().source().channels(), 2);
 
   // hard left: the left side as it was, the right silent
   seq.set_row_pan(kick, -1.).unwrap();
   let left: Vec<f32> = seq.row(kick).unwrap().source().collect();
-  assert_eq!(left.len(), centred.len());
-  assert!(left.chunks(2).zip(centred.chunks(2)).all(|(l, c)| l[0] == c[0] && l[1] == 0.));
-  assert!(centred.iter().any(|s| *s != 0.));
+  assert_eq!(left.len(), centerd.len());
+  assert!(left.chunks(2).zip(centerd.chunks(2)).all(|(l, c)| l[0] == c[0] && l[1] == 0.));
+  assert!(centerd.iter().any(|s| *s != 0.));
 
   // half right: the right as it was, the left at half
   seq.set_row_pan(kick, 0.5).unwrap();
   let right: Vec<f32> = seq.row(kick).unwrap().source().collect();
-  assert!(right.chunks(2).zip(centred.chunks(2)).all(|(r, c)| r[1] == c[1] && (r[0] - c[0] * 0.5).abs() < 1e-6));
+  assert!(right.chunks(2).zip(centerd.chunks(2)).all(|(r, c)| r[1] == c[1] && (r[0] - c[0] * 0.5).abs() < 1e-6));
 }
 
 #[test]
@@ -625,7 +625,7 @@ fn test_labels_and_pan_are_saved_and_restored() {
 
   let json = serde_json::to_value(seq.saved()).unwrap();
   assert_eq!(json["rows"][0]["label"], "Kick");
-  // left out when there's none, or it's centred: older projects look the same
+  // left out when there's none, or it's centerd: older projects look the same
   assert!(json["rows"][0].get("pan").is_none());
   assert!(json["rows"][1].get("label").is_none());
 
