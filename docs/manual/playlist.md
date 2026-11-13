@@ -5,7 +5,7 @@ title: Playlist
 # 6 Playlist
 
 The playlist is where you arrange the song. It has tracks, laid out top to
-bottom, and a ruler of bars and beats along the top. You place clips on the
+bottom, and a ruler numbered in bars along the top. You place clips on the
 tracks: **sample clips** play an audio file, and **pattern clips** play a
 pattern from the Sequencer.
 

@@ -4,7 +4,7 @@ import { MIN_LINE_GAP } from '../../../editing/beatGrid'
 describe('gridSteps', () => {
   it('splits beats into finer lines when there is room', () => {
     // a 960px playlist showing 16 beats: 60px a beat, a line every 1/16 note
-    expect(gridSteps(60, 4)).toEqual({ lineEvery: 1 / 4, labelEvery: 1 })
+    expect(gridSteps(60, 4)).toEqual({ lineEvery: 1 / 4, labelEvery: 4 })
     // zoomed in further: 1/32 notes
     expect(gridSteps(160, 4).lineEvery).toBe(1 / 8)
   })
@@ -33,9 +33,16 @@ describe('gridSteps', () => {
       [3, 4].forEach(beatsPerBar => {
         const { lineEvery, labelEvery } = gridSteps(pixelsPerBeat, beatsPerBar)
         expect(labelEvery % lineEvery).toBe(0)
-        expect(Number.isInteger(labelEvery)).toBe(true)
+        expect(labelEvery % beatsPerBar).toBe(0)
         expect(lineEvery * pixelsPerBeat).toBeGreaterThanOrEqual(MIN_LINE_GAP)
       })
+    })
+  })
+
+  it('numbers bars, not beats, however far it zooms in', () => {
+    [30, 60, 200, 2000].forEach(pixelsPerBeat => {
+      expect(gridSteps(pixelsPerBeat, 4).labelEvery).toBe(4)
+      expect(gridSteps(pixelsPerBeat, 3).labelEvery).toBe(3)
     })
   })
 
