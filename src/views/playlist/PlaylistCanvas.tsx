@@ -176,7 +176,7 @@ const ClipMenuHost = ({ opener }: { opener: React.MutableRefObject<((m: OpenMenu
       shortcut: '⇧E',
       onSelect: () => { dispatch(explodePatternClips(patternTargets)) },
     }, {
-      label: 'Open in Sequencer',
+      label: 'Open in Pattern Sequencer',
       onSelect: () => { dispatch(showPattern(patternId)) },
     }, 'divider' as const]),
     {

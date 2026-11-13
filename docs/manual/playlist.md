@@ -276,7 +276,7 @@ command acts on the whole selection; otherwise only on that clip.
 | Item | Shown | What it does |
 | --- | --- | --- |
 | **Explode into tracks** (⇧E) | Pattern clips | See [6-5-4](#_6-5-4-explode). |
-| **Open in Sequencer** | Pattern clips | Shows the clip's pattern in the Pattern Sequencer. |
+| **Open in Pattern Sequencer** | Pattern clips | Shows the clip's pattern in the Pattern Sequencer. |
 | **Cut** (⌘X) | Always | Copies to the clipboard and removes. |
 | **Copy** (⌘C) | Always | Copies to the clipboard. |
 | **Paste** (⌘V) | Clipboard not empty | Pastes at the playhead. |
