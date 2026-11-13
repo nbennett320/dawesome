@@ -23,7 +23,7 @@ import { paint, patternColors, theme, trackPaint } from './theme'
 import { painter } from '../../../theme/canvas'
 import { LIP, LipLook, drawLip, fitName, inBox, lipBox, lipWidth, onLed } from './lip'
 import { trackColorKey, defaultTrackColor, trackLabel } from '../../../types/mixer'
-import { PlaylistTransport } from '../../../types/transport'
+import { DEFAULT_BEATS_PER_BAR, DEFAULT_PLAYLIST_BEATS, PlaylistTransport } from '../../../types/transport'
 import { positionAt } from '../../transport/tape'
 import {
   Lasso, ShiftPress, itemAt, keepExisting, lassoFrom, lassoRect, lassoSelection, shiftRelease, startsLasso,
@@ -53,7 +53,6 @@ export interface CanvasProps extends SketchProps {
   playing: boolean,
   tempo: number
   beatsDisplayed: number
-  maxPlaylistBeats: number
   trackCount: number
   // colors given to tracks, by track number (see mixerSlice). tracks not
   // listed are their default color
@@ -139,7 +138,6 @@ export const staticDefaults = {
   // when the canvas renders
   height: 100,
   width: 200,
-  maxPlaylistBeats: 32,
   trackCount: 4,
   tempo: 120,
 
@@ -311,7 +309,6 @@ export class Renderer extends RendererBase {
   canvasEl = document.getElementById('playlist-canvas')
   height: number = staticDefaults.height
   width: number = staticDefaults.width
-  maxPlaylistBeats: number = staticDefaults.maxPlaylistBeats
   trackCount: number = staticDefaults.trackCount
   trackColors: Record<number, number> = {}
   trackMixes: Record<number, { mute: boolean, solo: boolean }> = {}
@@ -325,11 +322,11 @@ export class Renderer extends RendererBase {
   tempo: number = staticDefaults.tempo
   // the playlist's length in beats: the full canvas width (at scale 1)
   // spans this many
-  beatsDisplayed = 256
+  beatsDisplayed = DEFAULT_PLAYLIST_BEATS
   debugMode: boolean = staticDefaults.debugMode
 
   // the playlist opens zoomed in on its first bars (see openingScale)
-  currentScale = openingScale(256)
+  currentScale = openingScale(DEFAULT_PLAYLIST_BEATS)
   transformX = 0
   // how far the tracks are scrolled down, in pixels. the timeline stays at
   // the top. zoom only stretches x, so this isn't scaled
@@ -360,6 +357,9 @@ export class Renderer extends RendererBase {
   // draw the playback cursor
   transport: PlaylistTransport | null = null
   transportRevision: number | null = null
+  // the time signature's beats to the bar, which the grid and ruler count
+  // bars in
+  get beatsPerBar(): number { return this.transport?.beatsPerBar || DEFAULT_BEATS_PER_BAR }
   loopEnabled: boolean | null = null
   // counts transport fetches, so a slow one can't replace a newer one's
   #transportFetch = 0
@@ -776,8 +776,7 @@ export class Renderer extends RendererBase {
   // the pattern's, or one of the pattern it would make
   #paintSpans = (painting: Paint): Span[] => {
     const pattern = this.paintPatternId === null ? undefined : this.patternOf(this.paintPatternId)
-    const beatsPerBar = this.transport?.beatsPerBar || theme.beatsPerBar
-    return paintedSpans(painting.start, painting.end, pattern ? pattern.length : null, beatsPerBar)
+    return paintedSpans(painting.start, painting.end, pattern ? pattern.length : null, this.beatsPerBar)
   }
 
   // the mouse came up: the clips are painted where their phantoms were,
@@ -2146,7 +2145,6 @@ export class Renderer extends RendererBase {
       // width would turn the pan offset into NaN in draw
       if(props.height > 0) this.height = props.height
       if(props.width > 0) this.setWidth(props.width)
-      this.maxPlaylistBeats = props.maxPlaylistBeats
       const tracksChanged = props.trackCount !== this.trackCount
       this.trackCount = props.trackCount
       this.trackColors = props.trackColors ?? {}
@@ -2307,7 +2305,7 @@ export class Renderer extends RendererBase {
       if(!this.#animating() && performance.now() - this.#lastWake > IDLE_MS) p.noLoop()
 
       this.#clampZoom()
-      const { width, trackCount, currentScale, beatsDisplayed } = this
+      const { width, trackCount, currentScale, beatsDisplayed, beatsPerBar } = this
 
       const timeline = new Timeline(
         p,
@@ -2369,14 +2367,14 @@ export class Renderer extends RendererBase {
       // thinning to every few bars zoomed out. only what's on screen is drawn
       const gridBottom = trackTop(trackCount)
       const pixelsPerBeat = width * currentScale / beatsDisplayed
-      const { lineEvery } = gridSteps(pixelsPerBeat, theme.beatsPerBar)
+      const { lineEvery } = gridSteps(pixelsPerBeat, beatsPerBar)
       this.#reportGridStep(lineEvery)
       const [firstBeat, lastBeat] = visibleBeats(pixelsPerBeat, this.transformX, width, beatsDisplayed)
       const beatX = (beat: number) => beat * width / beatsDisplayed
 
       // every other band of a few lines is shaded, so where you are along
       // time reads at a glance whatever the zoom
-      const tile = tileStep(lineEvery, theme.beatsPerBar)
+      const tile = tileStep(lineEvery, beatsPerBar)
       p.noStroke()
       paint.fill(p, 'gridTile')
       for(let n = Math.floor(firstBeat / tile); n * tile < lastBeat; n++) {
@@ -2389,7 +2387,7 @@ export class Renderer extends RendererBase {
       p.strokeWeight(1 / currentScale)
       for(let n = Math.ceil(firstBeat / lineEvery); n * lineEvery < lastBeat; n++) {
         const beat = n * lineEvery
-        const level = lineLevel(beat, theme.beatsPerBar)
+        const level = lineLevel(beat, beatsPerBar)
         if(level === 2) paint.stroke(p, 'barLine')
         else paint.stroke(p, 'beatLine', level === 1 ? 1 : 0.55)
         const x = beatX(beat)

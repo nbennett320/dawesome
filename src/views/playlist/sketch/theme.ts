@@ -10,9 +10,6 @@ export const trackPaint = painter('track')
 
 export const theme = {
   font: 'system-ui',
-
-  // the grid: a line per beat, darker on each bar
-  beatsPerBar: 4,
 }
 
 // a pattern clip's colors in its track's color, worked out as the theme's

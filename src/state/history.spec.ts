@@ -6,6 +6,7 @@ import { beginGesture, resetGestures } from './gesture'
 import { setTrackVolume } from './slices/mixerSlice'
 import { Travelled } from '../types/project'
 import { defaultClipSettings } from '../types/clip'
+import { DEFAULT_PLAYLIST_BEATS } from '../types/transport'
 import { pattern, sampleRow, sequencerOf, steps } from '../types/sequencer.fixture'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
@@ -49,7 +50,7 @@ const travelled: Travelled = {
 const engine = (result: Travelled) => {
   mockInvoke.mockImplementation(async (command: string) => {
     if(command === 'undo' || command === 'redo') return result
-    if(command === 'get_playlist_data') return [16, 256, 8, 4]
+    if(command === 'get_playlist_data') return [16, DEFAULT_PLAYLIST_BEATS, 240, 4]
     if(command === 'get_playlist_playing') return false
     if(command === 'get_playlist_transport') return { playing: false, patternId: null, startTimeMs: null, beatIntervalMs: 645 }
     return undefined

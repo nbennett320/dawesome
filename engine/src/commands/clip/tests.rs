@@ -399,9 +399,9 @@ fn test_move_a_group_of_nodes() {
   move_audiograph_nodes_to(&state, &[a, c], c, 236., 3).unwrap();
   assert_eq!((beat(a), beat(c)), (231., 236.));
 
-  // dragged past the end of the playlist (256 beats): c stops at the end
-  move_audiograph_nodes_to(&state, &[a, c], c, 300., 3).unwrap();
-  assert_eq!((beat(a), beat(c)), (251., 256.));
+  // dragged past the end of the playlist (512 beats): c stops at the end
+  move_audiograph_nodes_to(&state, &[a, c], c, 600., 3).unwrap();
+  assert_eq!((beat(a), beat(c)), (507., 512.));
 
   // with snap off the grabbed clip lands exactly where it's dropped
   state.playlist.ui.lock().unwrap().snap_enabled = false;

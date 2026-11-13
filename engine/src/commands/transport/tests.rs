@@ -40,7 +40,7 @@ fn test_playlist_transport() {
   assert_eq!(t.beat_interval_ms, 500.); // 120bpm
   // nothing in the playlist: the loop is four bars
   assert_eq!(t.loop_beats, 16);
-  assert_eq!(t.beats_displayed, 256);
+  assert_eq!(t.beats_displayed, 512);
   assert!(t.loop_enabled);
 
   // start time is reported in wall clock ms, 1.5s in the past
@@ -149,11 +149,54 @@ fn test_seek_while_stopped() {
   // float noise lands on the beat
   assert_eq!(daw::seek_playlist(&state, 3.000_000_1), 3.);
 
-  // kept within the playlist (256 beats)
+  // kept within the playlist (512 beats)
   assert_eq!(daw::seek_playlist(&state, -3.), 0.);
   assert_eq!(daw::seek_playlist(&state, 40.), 40.);
-  assert_eq!(daw::seek_playlist(&state, 400.), 256.);
+  assert_eq!(daw::seek_playlist(&state, 600.), 512.);
   assert_eq!(daw::seek_playlist(&state, f64::NAN), 0.);
+}
+
+const THREE_FOUR: daw::timing::TimeSignature = daw::timing::TimeSignature { numerator: 3, denominator: 4 };
+const FOUR_FOUR: daw::timing::TimeSignature = daw::timing::TimeSignature { numerator: 4, denominator: 4 };
+
+#[test]
+fn test_the_playlist_is_128_bars_of_its_time_signature() {
+  let state = Arc::new(daw::InnerState::default());
+  let sample = daw::METRONOME_TICK_PATH.to_string();
+  assert_eq!(playlist_transport(&state).beats_displayed, 512);
+
+  // in 3/4 it ends sooner: the playhead and drops stop there
+  set_time_signature(&state, THREE_FOUR);
+  assert_eq!(playlist_transport(&state).beats_displayed, 384);
+  assert_eq!(daw::seek_playlist(&state, 500.), 384.);
+  let id = add_node_at_offset(&state, sample, 0, beat_to_offset(&state, Some(500.)), true).unwrap();
+  assert_eq!(node_beat(&state, id).unwrap(), 384.);
+
+  // back in 4/4, a move can go further again
+  set_time_signature(&state, FOUR_FOUR);
+  assert_eq!(playlist_transport(&state).beats_displayed, 512);
+  move_audiograph_node_to(&state, id, 0, beat_to_offset(&state, Some(600.))).unwrap();
+  assert_eq!(node_beat(&state, id).unwrap(), 512.);
+}
+
+#[test]
+fn test_a_shorter_bar_leaves_no_clip_past_the_end() {
+  let state = Arc::new(daw::InnerState::default());
+  let id = add_node_at_offset(&state, daw::METRONOME_TICK_PATH.to_string(), 0, beat_to_offset(&state, Some(500.)), true)
+    .unwrap();
+
+  // 128 bars of 3/4 are 384 beats, but the clip ends in beat 501
+  set_time_signature(&state, THREE_FOUR);
+  assert_eq!(playlist_transport(&state).beats_displayed, 501);
+  // so it can still be reached, and moved
+  assert_eq!(daw::seek_playlist(&state, 500.), 500.);
+  move_audiograph_node_to(&state, id, 0, beat_to_offset(&state, Some(300.))).unwrap();
+  assert_eq!(node_beat(&state, id).unwrap(), 300.);
+  // (moved back inside, it doesn't shorten the playlist until the signature
+  // is set again)
+  assert_eq!(playlist_transport(&state).beats_displayed, 501);
+  set_time_signature(&state, THREE_FOUR);
+  assert_eq!(playlist_transport(&state).beats_displayed, 384);
 }
 
 #[test]

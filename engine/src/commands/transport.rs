@@ -123,7 +123,7 @@ fn playlist_transport(state: &daw::InnerState) -> PlaylistTransport {
     position_ms: daw::playhead(state).as_secs_f64() * 1000.,
     beat_interval_ms: beat_interval.as_secs_f64() * 1000.,
     loop_beats,
-    beats_displayed: state.playlist.ui.lock().unwrap().max_beats_displayed,
+    beats_displayed: daw::playlist_beats(state),
     loop_enabled: state.playlist.loop_enabled.load(Ordering::SeqCst),
     song_end_ms: daw::song_end(state).unwrap_or_default().as_secs_f64() * 1000.,
     beats_per_bar: state.playlist.time_signature.lock().unwrap().numerator,
@@ -188,12 +188,13 @@ pub fn set_playlist_time_signature(
   numerator: u16,
   denominator: u16,
 ) {
-  let updated: daw::timing::TimeSignature = daw::timing::TimeSignature {
-    numerator,
-    denominator,
-  };
+  set_time_signature(&state, daw::timing::TimeSignature { numerator, denominator });
+}
 
-  *state.playlist.time_signature.lock().unwrap() = updated;
+// the playlist's length is counted in its bars, so it's worked out again
+pub fn set_time_signature(state: &daw::InnerState, signature: daw::timing::TimeSignature) {
+  *state.playlist.time_signature.lock().unwrap() = signature;
+  daw::fit_playlist(state);
 }
 
 #[tauri::command]

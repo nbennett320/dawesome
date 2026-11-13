@@ -22,12 +22,12 @@ describe('gridSteps', () => {
   })
 
   it('thins bars when the whole playlist is on screen', () => {
-    // 256 beats across 960px: 3.75px a beat, 15px a bar
-    const steps = gridSteps(960 / 256, 4)
-    expect(steps.lineEvery).toBe(4)
-    expect(steps.labelEvery).toBe(8)
-    // and on a narrow canvas: bar lines thin out too, to every 4 bars
-    expect(gridSteps(300 / 256, 4)).toEqual({ lineEvery: 16, labelEvery: 32 })
+    // 128 bars of 4/4 across 960px: 1.875px a beat, 7.5px a bar
+    const steps = gridSteps(960 / 512, 4)
+    expect(steps.lineEvery).toBe(8)
+    expect(steps.labelEvery).toBe(16)
+    // and on a narrow canvas: to every 8 bars
+    expect(gridSteps(300 / 512, 4)).toEqual({ lineEvery: 32, labelEvery: 64 })
   })
 
   it('always numbers a beat that has a line', () => {
@@ -81,34 +81,34 @@ describe('rulerLabel', () => {
 describe('visibleBeats', () => {
   it('covers the canvas, with a beat to spare', () => {
     // 60px a beat, 960px wide, not panned: beats 0 to 16
-    expect(visibleBeats(60, 0, 960, 256)).toEqual([0, 17])
+    expect(visibleBeats(60, 0, 960, 512)).toEqual([0, 17])
     // panned 8 bars along
-    expect(visibleBeats(60, -32 * 60, 960, 256)).toEqual([31, 49])
+    expect(visibleBeats(60, -32 * 60, 960, 512)).toEqual([31, 49])
   })
 
   it('keeps a number that still shows at the left edge', () => {
     // 7.5px a beat, panned to beat 6: the number at beat 4 (28px wide at
     // most) still reaches onto the canvas
-    const [first] = visibleBeats(7.5, -6 * 7.5, 960, 256, 28)
+    const [first] = visibleBeats(7.5, -6 * 7.5, 960, 512, 28)
     expect(first).toBeLessThanOrEqual(4)
-    expect(visibleBeats(7.5, -6 * 7.5, 960, 256)[0]).toBe(5)
+    expect(visibleBeats(7.5, -6 * 7.5, 960, 512)[0]).toBe(5)
   })
 
   it('stays within the playlist', () => {
-    expect(visibleBeats(60, -250 * 60, 960, 256)).toEqual([249, 256])
-    expect(visibleBeats(0, 0, 960, 256)).toEqual([0, 0])
+    expect(visibleBeats(60, -506 * 60, 960, 512)).toEqual([505, 512])
+    expect(visibleBeats(0, 0, 960, 512)).toEqual([0, 0])
   })
 })
 
 describe('maxScale', () => {
   it('stops where a beat is MAX_PIXELS_PER_BEAT wide', () => {
-    const scale = maxScale(960, 256)
-    expect(960 * scale / 256).toBeCloseTo(MAX_PIXELS_PER_BEAT)
-    expect(gridSteps(960 * scale / 256, 4).lineEvery).toBe(1 / 4)
+    const scale = maxScale(960, 512)
+    expect(960 * scale / 512).toBeCloseTo(MAX_PIXELS_PER_BEAT)
+    expect(gridSteps(960 * scale / 512, 4).lineEvery).toBe(1 / 4)
   })
 
   it('lets the playlist open where it does', () => {
-    expect(maxScale(960, 256)).toBeGreaterThan(openingScale(256))
+    expect(maxScale(960, 512)).toBeGreaterThan(openingScale(512))
   })
 
   it('never stops short of the whole playlist', () => {
@@ -117,14 +117,14 @@ describe('maxScale', () => {
   })
 
   it('has no limit without a width to work from', () => {
-    expect(maxScale(0, 256)).toBe(Infinity)
+    expect(maxScale(0, 512)).toBe(Infinity)
   })
 })
 
 describe('openingScale', () => {
-  it('shows the first four bars of a 64 bar playlist', () => {
-    expect(openingScale(256)).toBe(256 / BEATS_IN_VIEW)
-    expect(openingScale(256)).toBe(16)
+  it('shows the first four bars of a 128 bar playlist', () => {
+    expect(openingScale(512)).toBe(512 / BEATS_IN_VIEW)
+    expect(openingScale(512)).toBe(32)
   })
 
   it('never zooms out past the whole playlist', () => {

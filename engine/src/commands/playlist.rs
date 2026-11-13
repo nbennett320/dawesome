@@ -15,12 +15,7 @@ pub fn get_playlist_data(
     .playlist
     .max_beats
     .load(Ordering::SeqCst);
-  let max_beats_displayed = state
-    .playlist
-    .ui
-    .lock()
-    .unwrap()
-    .max_beats_displayed;
+  let max_beats_displayed = daw::playlist_beats(&state);
   let track_count = audiograph.track_count();
   let max_playlist_duration = audiograph
     .duration_max()
@@ -124,7 +119,7 @@ pub(crate) fn displayed_beats_and_duration(
   state: &daw::InnerState,
 ) -> (f32, std::time::Duration) {
   let tempo = state.playlist.audiograph.lock().unwrap().tempo();
-  let beats = state.playlist.ui.lock().unwrap().max_beats_displayed;
+  let beats = daw::playlist_beats(state);
   let dur = daw::timing::n_beat_duration_from_tempo(tempo, beats as u32);
 
   (beats as f32, dur)
@@ -217,7 +212,7 @@ mod tests {
   fn test_beat_to_offset() {
     let state = daw::InnerState::default();
 
-    // default: 120bpm, a playlist of 256 beats (64 bars)
+    // default: 120bpm, a playlist of 512 beats (128 bars)
     let ms = |b: Option<f32>| beat_to_offset(&state, b).as_millis();
     assert_eq!(ms(Some(0.)), 0);
     assert_eq!(ms(Some(1.)), 500);
@@ -228,7 +223,7 @@ mod tests {
     // drops outside the playlist are clamped to its start/end
     assert_eq!(ms(Some(-2.)), 0);
     assert_eq!(ms(Some(40.)), 20_000);
-    assert_eq!(ms(Some(300.)), 128_000);
+    assert_eq!(ms(Some(600.)), 256_000);
 
     // a beat is longer at a slower tempo
     state.set_tempo(60.);

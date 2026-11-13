@@ -1,3 +1,11 @@
+// the playlist's length, in bars of its time signature (PLAYLIST_BARS in
+// engine/src/daw/state/defaults.rs). the engine works out how many beats
+// that is, longer when clips reach further, and reports it as beatsDisplayed
+export const PLAYLIST_BARS = 128
+// a new project's time signature is 4/4. these stand in until the engine says
+export const DEFAULT_BEATS_PER_BAR = 4
+export const DEFAULT_PLAYLIST_BEATS = PLAYLIST_BARS * DEFAULT_BEATS_PER_BAR
+
 // mirrors PlaylistTransport in engine/src/event_dispatch.rs
 export interface PlaylistTransport {
   playing: boolean

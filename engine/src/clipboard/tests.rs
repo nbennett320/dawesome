@@ -113,14 +113,14 @@ fn test_a_paste_past_the_end_pastes_nothing() {
   state.history.lock().unwrap().clear();
   let before = saved(&state);
 
-  // the second clip would start on beat 258, past bar 64
-  let refused = paste(&state, 250., None).unwrap_err();
+  // the second clip would start on beat 514, past bar 128
+  let refused = paste(&state, 506., None).unwrap_err();
   assert!(refused.contains("past the end of the playlist"), "{}", refused);
   assert_eq!(saved(&state), before);
   assert_eq!(steps(&state), 0);
 
   // the last beat itself is still the playlist
-  assert!(paste(&state, 248., None).is_ok());
+  assert!(paste(&state, 504., None).is_ok());
   assert!(paste(&state, f64::NAN, None).is_err());
   assert!(paste(&state, -1., None).is_err());
 }
@@ -227,15 +227,27 @@ fn test_a_clip_given_twice_is_copied_once() {
 }
 
 #[test]
+fn test_a_paste_stops_at_the_end_of_a_three_four_playlist() {
+  let state = state();
+  let a = sample(&state, 0, 2.);
+  copy(&state, &[a]);
+  crate::commands::transport::set_time_signature(&state, daw::timing::TimeSignature { numerator: 3, denominator: 4 });
+
+  // 128 bars of three beats: beat 384 is the last
+  assert!(paste(&state, 384., None).is_ok());
+  assert!(paste(&state, 385., None).unwrap_err().contains(PAST_THE_END));
+}
+
+#[test]
 fn test_the_last_beat_is_still_the_playlist_at_any_tempo() {
   let state = state();
   let (a, b) = (sample(&state, 0, 2.), sample(&state, 1, 5.));
   for tempo in [97., 133.3, 61.7] {
     crate::commands::transport::change_tempo(&state, tempo, None).unwrap();
     copy(&state, &[a, b]);
-    // the second clip lands on beat 256, the last
-    assert!(paste(&state, 253., None).is_ok(), "at {}bpm", tempo);
-    assert!(paste(&state, 253.01, None).is_err(), "at {}bpm", tempo);
+    // the second clip lands on beat 512, the last
+    assert!(paste(&state, 509., None).is_ok(), "at {}bpm", tempo);
+    assert!(paste(&state, 509.01, None).is_err(), "at {}bpm", tempo);
   }
 }
 
@@ -300,11 +312,11 @@ fn test_repeat_starts_exactly_where_the_span_ends() {
 #[test]
 fn test_a_repeat_past_the_end_repeats_nothing() {
   let state = state();
-  let (a, b) = (sample(&state, 0, 130.), sample(&state, 1, 250.));
+  let (a, b) = (sample(&state, 0, 260.), sample(&state, 1, 500.));
   state.history.lock().unwrap().clear();
   let before = saved(&state);
 
-  // from beat 130 to past beat 250: the second duplicate would be past bar 64
+  // from beat 260 to past beat 500: the second duplicate would be past bar 128
   let refused = repeat(&state, &[a, b]).unwrap_err();
   assert!(refused.contains("past the end of the playlist"), "{}", refused);
   assert_eq!(saved(&state), before);

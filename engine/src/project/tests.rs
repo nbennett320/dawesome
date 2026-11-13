@@ -393,6 +393,32 @@ fn test_new_project_clears_the_playlist() {
 }
 
 #[test]
+fn test_the_playlist_is_128_bars_of_the_projects_time_signature() {
+  let state = daw::InnerState::default();
+  let mut three_four = Project::default();
+  three_four.settings.time_signature = daw::timing::TimeSignature { numerator: 3, denominator: 4 };
+
+  apply(&state, &three_four, None);
+  assert_eq!(daw::playlist_beats(&state), 384);
+
+  // a clip past bar 128 of 3/4 (it was placed in 4/4): the playlist reaches
+  // the beat it ends in, so it can still be seen and moved
+  three_four.clips.push(ProjectClip {
+    path: daw::METRONOME_TICK_PATH.to_string(),
+    track_number: 0,
+    start_beat: 500.,
+    settings: daw::ClipSettings::default(),
+    window: None,
+  });
+  apply(&state, &three_four, None);
+  assert_eq!(daw::playlist_beats(&state), 501);
+
+  // a new project is 4/4 again
+  apply(&state, &Project::default(), None);
+  assert_eq!(daw::playlist_beats(&state), 512);
+}
+
+#[test]
 fn test_mixer_saved_and_loaded() {
   let dir = test_dir("mixer");
   let project_path = dir.join("mix.dawesome");

@@ -77,7 +77,7 @@ fn end_of(audiograph: &daw::AudioGraph<'static>, clip: &ClipSnap) -> Duration {
 
 // the playlist's last beat, as a time: a clip can start there, and no later
 fn playlist_end(state: &daw::InnerState, audiograph: &daw::AudioGraph<'static>) -> Duration {
-  let beats = state.playlist.ui.lock().unwrap().max_beats_displayed;
+  let beats = daw::playlist_beats(state);
   audiograph.beat_interval().mul_f64(beats as f64)
 }
 

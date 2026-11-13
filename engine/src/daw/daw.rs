@@ -163,6 +163,24 @@ pub fn song_end(state: &state::InnerState) -> Option<Duration> {
   if end.is_zero() { None } else { Some(end) }
 }
 
+// how many beats long the playlist is: clips start within it, and the
+// playhead stays within it
+pub fn playlist_beats(state: &state::InnerState) -> u64 {
+  state.playlist.ui.lock().unwrap().beats
+}
+
+// work out the playlist's length again (see state::playlist_beats_for), when
+// the time signature changes or a project is loaded. moving or pasting clips
+// doesn't change it: a clip can only start within it, and one that ends past
+// it hangs over the end. (takes the graph's and sequencer's locks: call it
+// holding none)
+pub fn fit_playlist(state: &state::InnerState) {
+  let beats_per_bar = state.playlist.time_signature.lock().unwrap().numerator;
+  let song_end = song_end(state).unwrap_or_default();
+  let beats = state::playlist_beats_for(song_end, beat_interval(state), beats_per_bar);
+  state.playlist.ui.lock().unwrap().beats = beats;
+}
+
 // the beat counters (total beats in, and the beat of the bar) at an offset
 fn set_beat_counters(state: &state::InnerState, offset: Duration, interval: Duration) {
   let total = if interval.is_zero() { 0 } else { (offset.as_nanos() / interval.as_nanos()) as u64 };
@@ -603,7 +621,7 @@ pub fn seek_pattern(state: &Arc<state::InnerState>, id: u64, step: f64) -> Resul
 // playback carries on from there. returns the beat it moved to
 pub fn seek_playlist(state: &Arc<state::InnerState>, beat: f64) -> f64 {
   let interval = beat_interval(state);
-  let end = state.playlist.ui.lock().unwrap().max_beats_displayed as f64;
+  let end = playlist_beats(state) as f64;
   let beat = if beat.is_finite() { beat.clamp(0., end) } else { 0. };
   let offset = state::snap_to_beat(interval.mul_f64(beat), interval);
 

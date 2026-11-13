@@ -20,7 +20,7 @@ import {
   ChangedClips, LoadedClip, LoadedPatternClip, LoadedProject, Joined, MissingEffect, MissingSample, MovedClip, Placed, ProjectView, SavedProject, splitMissing,
 } from '../../types/project'
 import { currentGesture } from '../gesture'
-import { Wind } from '../../types/transport'
+import { DEFAULT_PLAYLIST_BEATS, Wind } from '../../types/transport'
 import { SequencerState, SynthInstrument } from '../../types/sequencer'
 import { MixerSettings } from '../../types/mixer'
 import { openTab } from './windowSlice'
@@ -73,9 +73,8 @@ export interface PlaylistState {
   // clips without an entry play all of it
   clipWindows: Record<number, ClipWindow>
   ui: {
-    maxPlaylistBeats: number,
+    // the playlist's length in beats, from the engine (see PLAYLIST_BARS)
     maxBeatsDisplayed: number,
-    maxPlaylistDuration: number,
     trackCount: number,
   },
 }
@@ -103,10 +102,7 @@ const initialState = {
   clipSampleDurations: {},
   clipWindows: {},
   ui: {
-    maxPlaylistBeats: 16,
-    // the playlist's length: 64 bars
-    maxBeatsDisplayed: 256,
-    maxPlaylistDuration: 120*2,
+    maxBeatsDisplayed: DEFAULT_PLAYLIST_BEATS,
     trackCount: 4,
   },
 } as PlaylistState
@@ -1153,20 +1149,11 @@ export const {
   setPlaylistUI,
 } = playlistSlice.actions
 
+// the playlist's length and tracks. (the engine's first and third numbers
+// aren't used)
 export const initPlaylist = () => async (dispatch: Dispatch) => {
-  const [
-    maxPlaylistBeats,
-    maxBeatsDisplayed,
-    maxPlaylistDuration,
-    trackCount
-  ] = await invoke<[number, number, number, number]>('get_playlist_data', {})
-  
-  dispatch(setPlaylistUI({
-    maxPlaylistBeats,
-    maxBeatsDisplayed,
-    maxPlaylistDuration,
-    trackCount,
-  }))
+  const [, maxBeatsDisplayed, , trackCount] = await invoke<[number, number, number, number]>('get_playlist_data', {})
+  dispatch(setPlaylistUI({ maxBeatsDisplayed, trackCount }))
 
   // the engine owns the snap defaults
   const snap = await invoke<SnapSetting>('get_snap_setting', {})

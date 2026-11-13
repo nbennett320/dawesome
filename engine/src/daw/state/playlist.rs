@@ -17,7 +17,9 @@ use std::time::{Duration, Instant};
 #[derive(Clone, Copy)]
 pub struct PlaylistUI {
   pub viewport: app::workspaces::WorkspaceViewport,
-  pub max_beats_displayed: u64,
+  // the playlist's length, in beats (read with daw::playlist_beats, worked
+  // out by daw::fit_playlist)
+  pub beats: u64,
   pub snap_enabled: bool,
   pub snap_subdivision: daw::timing::Note,
 }
@@ -26,7 +28,8 @@ impl UI for PlaylistUI {
   fn new() -> Self {
     PlaylistUI {
       viewport: app::workspaces::WorkspaceViewport::new(),
-      max_beats_displayed: daw::state::defaults::MAX_BEATS_DISPLAYED,
+      // a new playlist's: in 4/4, with no clips
+      beats: daw::state::defaults::PLAYLIST_BARS * 4,
       snap_enabled: daw::state::defaults::SNAP_ENABLED,
       snap_subdivision: daw::state::defaults::SNAP_SUBDIVISION,
     }
@@ -167,6 +170,20 @@ pub fn loop_end_after(song_end: Duration, beat_interval: Duration, beats_per_bar
   bar * bars
 }
 
+// how many beats long the playlist is: PLAYLIST_BARS bars, or up to the beat
+// the last clip ends on (or in) when that's later, so a change to a shorter
+// bar leaves no clip past the end
+// - song_end: where the last clip finishes (zero with no clips)
+pub fn playlist_beats_for(song_end: Duration, beat_interval: Duration, beats_per_bar: u16) -> u64 {
+  let bars = daw::state::defaults::PLAYLIST_BARS * beats_per_bar.max(1) as u64;
+  if beat_interval.is_zero() { return bars; }
+
+  // a clip ending a hair past a beat (float noise) ends on it
+  let end = song_end.saturating_sub(ON_BEAT_TOLERANCE).as_nanos();
+  let song_beats = end.div_ceil(beat_interval.as_nanos()) as u64;
+  bars.max(song_beats)
+}
+
 // positions closer than this to a beat count as on it, so a playhead set from
 // a beat number (and float rounding) doesn't leave a sliver before the beat
 const ON_BEAT_TOLERANCE: Duration = Duration::from_millis(1);
@@ -253,6 +270,24 @@ mod tests {
     // three beats to the bar
     assert_eq!(loop_end_after(ms(5_000), BEAT, 3), ms(6_000));
     assert_eq!(loop_end_after(ms(0), BEAT, 3), ms(6_000));
+  }
+
+  #[test]
+  fn test_playlist_beats_for() {
+    // 120bpm: a beat is 500ms
+    let beats = |song_ms: u64, beats_per_bar: u16| playlist_beats_for(ms(song_ms), BEAT, beats_per_bar);
+
+    // 128 bars, of four beats or three
+    assert_eq!(beats(0, 4), 512);
+    assert_eq!(beats(0, 3), 384);
+    // a clip ending inside the 128 bars changes nothing
+    assert_eq!(beats(150_000, 3), 384);
+    // one ending past them: up to the beat it ends in, or on
+    assert_eq!(beats(200_100, 3), 401);
+    assert_eq!(beats(200_000, 3), 400);
+    assert_eq!(playlist_beats_for(Duration::from_micros(200_000_400), BEAT, 3), 400);
+    // (no beat length to measure the clips by: just the bars)
+    assert_eq!(playlist_beats_for(ms(900_000), Duration::ZERO, 4), 512);
   }
 
   #[test]
