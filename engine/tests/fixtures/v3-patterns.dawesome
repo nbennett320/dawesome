@@ -1,0 +1,288 @@
+{
+  "version": 3,
+  "tempo": 97.0,
+  "timeSignature": {
+    "numerator": 4,
+    "denominator": 4
+  },
+  "metronomeEnabled": true,
+  "loopEnabled": true,
+  "snapEnabled": true,
+  "snapNote": "QuarterNote",
+  "countIn": false,
+  "clips": [
+    {
+      "path": "samples/assets_66-hh-01-or.wav",
+      "trackNumber": 4,
+      "startBeat": 2.0,
+      "settings": {
+        "gainDb": 0.0,
+        "pan": 0.0,
+        "pitch": 0.0,
+        "attackMs": 0.0,
+        "decayMs": 0.0
+      },
+      "window": {
+        "start": 0.0,
+        "end": 0.05
+      }
+    }
+  ],
+  "mixer": {
+    "tracks": [],
+    "master": {
+      "volumeDb": 0.0,
+      "pan": 0.0,
+      "mute": false,
+      "solo": false
+    }
+  },
+  "sequencer": {
+    "rows": [
+      {
+        "id": 0,
+        "path": "samples/assets_66-bd-01.wav",
+        "label": "Kick",
+        "volume": 1.0,
+        "muted": false
+      },
+      {
+        "id": 1,
+        "path": "samples/assets_66-sd-01.wav",
+        "volume": 1.0,
+        "muted": false
+      },
+      {
+        "id": 3,
+        "path": "samples/assets_66-hh-01-or.wav",
+        "volume": 0.5,
+        "pan": -0.4,
+        "muted": true
+      }
+    ],
+    "synths": [
+      {
+        "id": 1,
+        "pluginId": "vst3:00000000000000000000000000BADBAD",
+        "name": "Synth 1",
+        "vendor": "Nobody",
+        "path": "",
+        "volume": 1.0,
+        "muted": false,
+        "state": ""
+      },
+      {
+        "id": 2,
+        "pluginId": "vst3:00000000000000000000000000BADBAD",
+        "name": "Synth 2",
+        "vendor": "Nobody",
+        "path": "",
+        "volume": 1.0,
+        "muted": false,
+        "state": ""
+      }
+    ],
+    "patterns": [
+      {
+        "id": 0,
+        "name": "Loop 1",
+        "length": 16,
+        "steps": {
+          "0": [
+            0,
+            4,
+            8,
+            12
+          ],
+          "1": [
+            4,
+            12
+          ]
+        },
+        "folder": 0
+      },
+      {
+        "id": 1,
+        "name": null,
+        "length": 16,
+        "steps": {
+          "0": [
+            0,
+            6,
+            10
+          ],
+          "3": [
+            2,
+            6,
+            10,
+            14
+          ]
+        }
+      },
+      {
+        "id": 2,
+        "name": "Fill",
+        "length": 32,
+        "steps": {
+          "0": [
+            0,
+            16
+          ],
+          "1": [
+            24,
+            26,
+            28,
+            30
+          ],
+          "3": [
+            0,
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24,
+            26,
+            28,
+            30
+          ]
+        },
+        "folder": 2
+      },
+      {
+        "id": 3,
+        "name": "Bass",
+        "kind": "note",
+        "length": 32,
+        "steps": {},
+        "folder": 1,
+        "notes": {
+          "1": [
+            {
+              "pitch": 36,
+              "start": 0.0,
+              "length": 2.0,
+              "velocity": 0.8
+            },
+            {
+              "pitch": 43,
+              "start": 8.0,
+              "length": 1.5,
+              "velocity": 0.6
+            },
+            {
+              "pitch": 41,
+              "start": 16.25,
+              "length": 3.0,
+              "velocity": 0.8
+            }
+          ]
+        }
+      },
+      {
+        "id": 4,
+        "name": null,
+        "kind": "note",
+        "length": 64,
+        "steps": {},
+        "folder": 3,
+        "notes": {
+          "1": [
+            {
+              "pitch": 60,
+              "start": 0.0,
+              "length": 16.0,
+              "velocity": 0.8
+            }
+          ],
+          "2": [
+            {
+              "pitch": 64,
+              "start": 0.0,
+              "length": 16.0,
+              "velocity": 0.8
+            },
+            {
+              "pitch": 67,
+              "start": 32.0,
+              "length": 8.0,
+              "velocity": 1.0
+            }
+          ]
+        }
+      }
+    ],
+    "folders": [
+      {
+        "id": 0,
+        "name": "Verse"
+      },
+      {
+        "id": 1,
+        "name": "Verse",
+        "kind": "note"
+      },
+      {
+        "id": 2,
+        "name": "Fills",
+        "parent": 0
+      },
+      {
+        "id": 3,
+        "name": "Pads",
+        "kind": "note",
+        "parent": 1
+      }
+    ]
+  },
+  "patternClips": [
+    {
+      "patternId": 0,
+      "trackNumber": 0,
+      "startBeat": 0.0
+    },
+    {
+      "patternId": 3,
+      "trackNumber": 2,
+      "startBeat": 0.0,
+      "window": {
+        "start": 8.0,
+        "end": null
+      }
+    },
+    {
+      "patternId": 0,
+      "trackNumber": 0,
+      "startBeat": 4.0,
+      "window": {
+        "start": 4.0,
+        "end": 12.0
+      }
+    },
+    {
+      "patternId": 1,
+      "trackNumber": 1,
+      "startBeat": 8.0
+    },
+    {
+      "patternId": 2,
+      "trackNumber": 1,
+      "startBeat": 12.0,
+      "window": {
+        "start": 8.0,
+        "end": null
+      }
+    },
+    {
+      "patternId": 4,
+      "trackNumber": 3,
+      "startBeat": 16.0
+    }
+  ]
+}

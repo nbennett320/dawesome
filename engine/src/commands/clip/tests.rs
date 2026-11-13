@@ -30,9 +30,9 @@ fn clips() -> (Arc<daw::InnerState>, u64, u64) {
   let pattern = {
     let mut sequencer = state.playlist.sequencer.lock().unwrap();
     let row = sequencer.add_row(KICK).unwrap();
-    let pattern = sequencer.add_pattern(1, 4, daw::PatternKind::Drum).unwrap();
-    sequencer.set_step(pattern, row, 0, true).unwrap();
-    sequencer.set_step(pattern, row, 10, true).unwrap();
+    let pattern = sequencer.add_pattern(1, 4).unwrap();
+    sequencer.set_pattern_step(pattern, row, 0, true, 4).unwrap();
+    sequencer.set_pattern_step(pattern, row, 10, true, 4).unwrap();
     pattern
   };
   let clip = state.playlist.audiograph.lock().unwrap()
@@ -65,7 +65,7 @@ fn test_trimming_clips_of_both_kinds_is_one_step() {
   // 20ms later than beat 4, at 120bpm
   assert!((changed.clips[0].start_beat - 4.04).abs() < 1e-5);
   assert_eq!(changed.pattern_clips.len(), 1);
-  assert_eq!(changed.pattern_clips[0].window, Some(ClipWindow { start: 4., end: Some(12.) }));
+  assert_eq!(changed.pattern_clips[0].window, ClipWindow { start: 4., end: Some(12.) });
   // a step later for each of the four steps hidden: a beat
   assert_eq!(changed.pattern_clips[0].start_beat, 9.);
 
@@ -76,10 +76,11 @@ fn test_trimming_clips_of_both_kinds_is_one_step() {
   assert!(history::redo(&state).unwrap().is_some());
   assert_eq!(saved(&state), after);
 
-  // a window that's the whole source again is no window
+  // a window that's the whole sample again is no window. a pattern clip
+  // always has one: its own length
   let whole = set_windows(&state, &[edit(sample, 0., None), edit(pattern, 0., Some(16.))]).unwrap();
   assert_eq!(whole.clips[0].info.window, None);
-  assert_eq!(whole.pattern_clips[0].window, None);
+  assert_eq!(whole.pattern_clips[0].window, ClipWindow { start: 0., end: Some(16.) });
   assert_eq!(saved(&state), before);
 }
 
@@ -140,8 +141,8 @@ fn test_cutting_a_selection_is_one_step() {
   assert_eq!((right.info.settings.attack_ms, right.info.settings.decay_ms), (0., 30.));
   let (first, second) = (&changed.pattern_clips[0], &changed.pattern_clips[1]);
   assert_eq!(first.id, pattern);
-  assert_eq!(first.window, Some(ClipWindow { start: 0., end: Some(4.4) }));
-  assert_eq!(second.window, Some(ClipWindow { start: 4.4, end: None }));
+  assert_eq!(first.window, ClipWindow { start: 0., end: Some(4.4) });
+  assert_eq!(second.window, ClipWindow { start: 4.4, end: Some(16.) });
   assert_eq!((first.start_beat, second.track_number), (3., 1));
   assert!((second.start_beat - 4.1).abs() < 1e-5);
 
@@ -238,7 +239,7 @@ fn test_a_cut_lands_where_it_is_asked_for_whatever_the_snap_setting() {
   assert!((changed.clips[1].start_beat - 4.0537).abs() < 1e-5);
   assert!((changed.pattern_clips[1].start_beat - 4.0537).abs() < 1e-5);
   // the pattern clip started on beat 3: 4.2148 steps in
-  assert!((changed.pattern_clips[1].window.unwrap().start - 4.2148).abs() < 1e-6);
+  assert!((changed.pattern_clips[1].window.start - 4.2148).abs() < 1e-6);
   // and both halves still play the pattern
   assert_eq!(changed.pattern_clips[0].pattern_id, changed.pattern_clips[1].pattern_id);
 }
@@ -399,9 +400,9 @@ fn test_move_a_group_of_nodes() {
   move_audiograph_nodes_to(&state, &[a, c], c, 236., 3).unwrap();
   assert_eq!((beat(a), beat(c)), (231., 236.));
 
-  // dragged past the end of the playlist (256 beats): c stops at the end
-  move_audiograph_nodes_to(&state, &[a, c], c, 300., 3).unwrap();
-  assert_eq!((beat(a), beat(c)), (251., 256.));
+  // dragged past the end of the playlist (512 beats): c stops at the end
+  move_audiograph_nodes_to(&state, &[a, c], c, 600., 3).unwrap();
+  assert_eq!((beat(a), beat(c)), (507., 512.));
 
   // with snap off the grabbed clip lands exactly where it's dropped
   state.playlist.ui.lock().unwrap().snap_enabled = false;

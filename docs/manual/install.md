@@ -14,8 +14,8 @@ project's `README.md`.
 
 ## 2-2 First launch
 
-When Dawesome starts, it opens one window with the **Playlist**, **Mixer**,
-**Transport** and **Sequencer** tabs, and the sidebar open on the samples
+When Dawesome starts, it opens one window with the **Playlist**, **Mixer**
+and **Pattern Sequencer** tabs, and the sidebar open on the samples
 browser. The window's title bar shows **Untitled — Dawesome** until you save
 the project. See [Names and functions of parts](./parts.md).
 

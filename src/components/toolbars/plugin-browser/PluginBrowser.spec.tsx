@@ -168,7 +168,7 @@ describe('the Instruments page', () => {
     expect(screen.getByText('No instruments match.')).toBeTruthy()
   })
 
-  it('drags an instrument as an instrument, for the Note Sequencer', async () => {
+  it('drags an instrument as an instrument, for the Pattern Sequencer', async () => {
     answers = [both()]
     await setup('instrument')
     fireEvent.click(screen.getByRole('treeitem', { name: /Synth/ }))

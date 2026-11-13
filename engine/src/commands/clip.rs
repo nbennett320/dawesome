@@ -50,9 +50,11 @@ pub struct WindowEdit {
 
 // trim clips: set the part of its sample or pattern each one plays. the
 // sound stays where it is in the playlist, so a clip whose start is
-// trimmed starts later. every window is kept within its source and no
-// shorter than a clip can be. all the clips are trimmed, as one step to
-// undo, or (when an id names no clip) none are
+// trimmed starts later. every window is kept within its sample, or for a
+// pattern clip from its pattern's start (its end can be past the pattern's,
+// where the clip plays it again), and no shorter than a clip can be. all
+// the clips are trimmed, as one step to undo, or (when an id names no clip)
+// none are
 #[tauri::command]
 pub fn set_clip_windows(state: daw::TState<'_>, edits: Vec<WindowEdit>) -> Result<ChangedClips, String> {
   set_windows(&state, &edits)
@@ -435,12 +437,14 @@ pub struct ClipInfo {
 
 // the part of its source a clip plays, as the frontend and project files
 // have it: seconds of the sample for a sample clip, steps of the pattern
-// for a pattern clip
+// for a pattern clip (whose end can be past its pattern's: see
+// PatternNode::start)
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipWindow {
   pub start: f64,
-  // None: to the source's end
+  // None: to the sample's end. (a pattern clip's is never None, and one
+  // sent as None keeps the clip's end)
   #[serde(default)]
   pub end: Option<f64>,
 }
@@ -450,8 +454,11 @@ impl ClipWindow {
     ClipWindow { start: window.start.as_secs_f64(), end: window.end.map(|end| end.as_secs_f64()) }
   }
 
-  pub fn of_pattern(window: daw::PatternWindow) -> Self {
-    ClipWindow { start: window.start, end: window.end }
+  // where in its pattern a pattern clip starts and ends (see
+  // PatternNode::start). the end is never None, and can be past the
+  // pattern's end
+  pub fn of_pattern(node: &daw::PatternNode) -> Self {
+    ClipWindow { start: node.start, end: Some(node.end()) }
   }
 
   // as lengths of a sample, a number that makes no sense read as the

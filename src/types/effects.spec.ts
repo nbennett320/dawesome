@@ -3,6 +3,7 @@ import {
   parseChannelKey, PluginInfo, pluginTabLabel, Racks, reorderIndex, slotsOf, tabSlotIds, toChannel, toTrack,
 } from './effects'
 import { dragItemKey, isEffectItem, isPlaceable } from '../state/sampleDrag'
+import { synthRow } from './sequencer.fixture'
 
 const slot = (id: number, change: Partial<EffectSlot> = {}): EffectSlot => ({
   id,
@@ -109,6 +110,12 @@ describe('a plugin’s tab', () => {
     const chain = [slot(1), slot(2, { hasEditor: false }), slot(3, { missing: true }), slot(4, { bypassed: true })]
     expect(chain.filter(hasTab).map(s => s.id)).toEqual([1, 4])
     expect(tabSlotIds([{ track: 0, slots: chain }, { track: null, slots: [slot(9)] }])).toEqual([1, 4, 9])
+  })
+
+  it('is had by synths by their slot, with an interface that loaded', () => {
+    const synths = [synthRow(0, { slot: 12 }), synthRow(1, { slot: 13, missing: true }), synthRow(2, { slot: 14 })]
+      .map(row => row.instrument)
+    expect(tabSlotIds([{ track: 0, slots: [slot(1)] }], synths)).toEqual([1, 12, 14])
   })
 
   it('names channels as the mixer does', () => {

@@ -3,9 +3,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import RowControls from './RowControls'
 
-const setup = (withRename = true) => {
+const setup = () => {
   const onName = vi.fn()
   const onRename = vi.fn()
+  const onGated = vi.fn()
   const onPan = vi.fn()
   const onRemove = vi.fn()
   render(
@@ -14,21 +15,28 @@ const setup = (withRename = true) => {
       note='assets_66-sd-01'
       nameTitle='Click to hear it'
       onName={onName}
-      rename={withRename ? { initial: 'Snare', placeholder: 'assets_66-sd-01', onRename } : undefined}
+      menu={[
+        {
+          label: 'Rename…',
+          field: { label: 'Row name', initial: 'Snare', placeholder: 'assets_66-sd-01', maxLength: 40, onDone: onRename },
+        },
+        { label: 'Gated', onSelect: onGated },
+      ]}
       muted={false}
       onMute={() => {}}
       volume={1}
       onVolume={() => {}}
       pan={-0.4}
       onPan={onPan}
+      onGripDown={() => {}}
       removeTitle='Remove'
       onRemove={onRemove}
     />,
   )
-  return { onName, onRename, onPan, onRemove, name: screen.getByTitle('Click to hear it') }
+  return { onName, onRename, onGated, onPan, onRemove, name: screen.getByTitle('Click to hear it') }
 }
 
-describe("a sequencer row's controls", () => {
+describe("a Pattern Sequencer row's controls", () => {
   it('shows the name, then the sample faintly', () => {
     const { name } = setup()
     expect(name.textContent).toBe('Snareassets_66-sd-01')
@@ -40,7 +48,7 @@ describe("a sequencer row's controls", () => {
     expect(onName).toHaveBeenCalledOnce()
   })
 
-  it('renames from the right-click menu', () => {
+  it('opens a field in place of the name from the right-click menu', () => {
     const { onName, onRename, name } = setup()
     fireEvent.contextMenu(name)
     fireEvent.click(screen.getByRole('menuitem', { name: 'Rename…' }))
@@ -49,6 +57,7 @@ describe("a sequencer row's controls", () => {
 
     const input = screen.getByLabelText('Row name') as HTMLInputElement
     expect(input.value).toBe('Snare')
+    expect(input.placeholder).toBe('assets_66-sd-01')
     fireEvent.change(input, { target: { value: 'Rim' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(onRename).toHaveBeenCalledExactlyOnceWith('Rim')
@@ -63,18 +72,15 @@ describe("a sequencer row's controls", () => {
     expect(onRename).not.toHaveBeenCalled()
   })
 
-  it('removes from the right-click menu', () => {
-    const { onRemove, name } = setup()
+  it('does what the other items of the menu say, then Remove', () => {
+    const { onGated, onRemove, name } = setup()
+    fireEvent.contextMenu(name)
+    expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual(['Rename…', 'Gated', 'Remove'])
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Gated' }))
+    expect(onGated).toHaveBeenCalledOnce()
     fireEvent.contextMenu(name)
     fireEvent.click(screen.getByRole('menuitem', { name: 'Remove' }))
     expect(onRemove).toHaveBeenCalledOnce()
-  })
-
-  it('has no Rename when it cannot be renamed', () => {
-    const { name } = setup(false)
-    fireEvent.contextMenu(name)
-    expect(screen.queryByRole('menuitem', { name: 'Rename…' })).toBeNull()
-    expect(screen.getByRole('menuitem', { name: 'Remove' })).toBeTruthy()
   })
 
   it('has a pan knob', () => {

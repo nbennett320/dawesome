@@ -2,7 +2,7 @@
 // stretched, on top of the editing rules the playlist shares with the Piano
 // Roll (src/editing). kept free of p5 so it can be tested on its own
 import { ClipWindow } from '../../../types/clip'
-import { STEPS_PER_BEAT } from '../../../types/sequencer'
+import { STEPS_PER_BEAT, patternStepAt } from '../../../types/sequencer'
 import { Edge, Span, TrimItem } from '../../../editing/edges'
 import { clampLowWins } from '../../../util/helpers'
 
@@ -17,11 +17,18 @@ export const MIN_CLIP_SECONDS = 0.01
 // and a pattern clip, in steps
 export const MIN_PATTERN_CLIP_STEPS = 1
 
-// a clip, as far as trimming goes. everything is in beats of the playlist
+// a clip, as far as trimming goes. everything is in beats of the playlist,
+// but its source's length
 export interface TrimClip extends TrimItem {
   // how much of its source goes by in a beat: seconds of the sample (at
   // the clip's speed), or steps of the pattern
   perBeat: number
+  // all of its source, in its own unit: the sample's seconds, or the
+  // pattern's steps
+  sourceLength: number
+  // whether it plays its source again past its end (a pattern clip): its
+  // right edge goes on past it, and its window's end is always given
+  loops: boolean
 }
 
 
@@ -111,7 +118,7 @@ export const windowOf = (clip: TrimClip, span: Span): ClipWindow => {
 
   return {
     start: span.start - clip.sourceStart < close ? 0 : start,
-    end: span.end > clip.sourceEnd - close
+    end: !clip.loops && span.end > clip.sourceEnd - close
       ? null
       : (span.end - clip.sourceStart) * clip.perBeat,
   }
@@ -156,48 +163,49 @@ export const sampleTrimClip = (
     end: start + (to - from) / perBeat,
     sourceStart,
     sourceEnd: sourceStart + sampleSeconds / perBeat,
+    sourceLength: sampleSeconds,
+    loops: false,
     minLength: MIN_CLIP_SECONDS / beatSeconds,
     perBeat,
   }
 }
 
-// the steps a pattern clip spans, in a pattern `length` steps long: from,
-// to. the window is kept as it was set, so a clip of a pattern made shorter
-// ends with the pattern, and one whose window is past the pattern's end is
-// a step long (PatternNode::span in engine/src/daw/daw_core/audiograph.rs)
-export const patternSpan = (window: ClipWindow | null | undefined, length: number): [number, number] => {
-  if(!window) return [0, length]
-
-  const end = Math.min(window.end ?? length, length)
-  return [window.start, Math.max(end, window.start + MIN_PATTERN_CLIP_STEPS)]
-}
-
-// a pattern clip, for trimming
-// - length: its pattern's length, in steps
+// a pattern clip, for trimming. it has a length of its own, and plays its
+// pattern over and over when it's longer (see clipPasses in
+// types/sequencer.ts), so its left edge goes back as far as its pattern's
+// first step (its window's start is never under 0), and its right edge on
+// past the pattern's end, as far as the playlist's
+// - window: where it starts and ends in its pattern, in steps
+// - patternLength: its pattern's steps
+// - playlistEnd: the playlist's end, in beats (a clip already past it can
+//   be trimmed back, not made longer)
 export const patternTrimClip = (
   id: number,
   start: number,
-  length: number,
-  window: ClipWindow | null | undefined,
+  window: ClipWindow,
+  patternLength: number,
+  playlistEnd: number,
 ): TrimClip => {
-  const [from, to] = patternSpan(window, length)
-  const sourceStart = start - from / STEPS_PER_BEAT
+  const from = window.start
+  const end = start + ((window.end ?? from + patternLength) - from) / STEPS_PER_BEAT
 
   return {
     id,
     start,
-    end: start + (to - from) / STEPS_PER_BEAT,
-    sourceStart,
-    sourceEnd: sourceStart + length / STEPS_PER_BEAT,
+    end,
+    sourceStart: start - from / STEPS_PER_BEAT,
+    sourceEnd: Math.max(playlistEnd, end),
+    sourceLength: patternLength,
+    loops: true,
     minLength: MIN_PATTERN_CLIP_STEPS / STEPS_PER_BEAT,
     perBeat: STEPS_PER_BEAT,
   }
 }
 
-// which of a clip's edges hide some of its source beyond them (and get a
-// triangle, see PlaylistObject)
-// - from, to: the part of its source the clip shows
-// - sourceLength: all of it: the sample's seconds, or the pattern's steps
+// which of a sample clip's edges hide some of its sample beyond them (and
+// get a triangle, see PlaylistObject)
+// - from, to: the part of its sample the clip shows
+// - sourceLength: all of it, in seconds
 export const hiddenBeyond = (
   from: number,
   to: number,
@@ -207,4 +215,20 @@ export const hiddenBeyond = (
   // (a billionth of it is rounding, not trimming)
   const close = sourceLength * 1e-9
   return { left: from > close, right: to < sourceLength - close }
+}
+
+// the same for a pattern clip, which can play its pattern more than once:
+// the edges that cut into a time through it, rather than being where the
+// pattern starts or starts over
+// - from, to: where the clip starts and ends in its pattern, in steps (not
+//   wrapped: see PatternNode::start in engine/src/daw/daw_core/audiograph.rs)
+export const patternHiddenBeyond = (
+  from: number,
+  to: number,
+  patternLength: number,
+): { left: boolean, right: boolean } => {
+  if(!(patternLength > 0)) return { left: false, right: false }
+  const close = patternLength * 1e-9
+  const inside = (step: number) => step > close && step < patternLength - close
+  return { left: inside(patternStepAt(from, 0, patternLength)), right: inside(patternStepAt(from, to - from, patternLength)) }
 }

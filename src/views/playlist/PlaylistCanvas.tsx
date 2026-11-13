@@ -176,7 +176,7 @@ const ClipMenuHost = ({ opener }: { opener: React.MutableRefObject<((m: OpenMenu
       shortcut: '⇧E',
       onSelect: () => { dispatch(explodePatternClips(patternTargets)) },
     }, {
-      label: 'Open in Sequencer',
+      label: 'Open in Pattern Sequencer',
       onSelect: () => { dispatch(showPattern(patternId)) },
     }, 'divider' as const]),
     {
@@ -249,12 +249,7 @@ const PlaylistCanvas = () => {
   const items = useAppSelector(selectPlaylistItems)
   // the playlist's length and tracks, from the engine. refreshed when the
   // playlist first shows and whenever a project is loaded (see initPlaylist)
-  const {
-    maxPlaylistBeats: limit,
-    maxBeatsDisplayed: beatsDisplayed,
-    maxPlaylistDuration: duration,
-    trackCount,
-  } = useAppSelector(selectPlaylistUI)
+  const { maxBeatsDisplayed: beatsDisplayed, trackCount } = useAppSelector(selectPlaylistUI)
   // each lane is labelled with its track's name and color
   const trackColors = useAppSelector(selectTrackColors)
   const trackNames = useAppSelector(selectTrackNames)
@@ -337,7 +332,11 @@ const PlaylistCanvas = () => {
         && (playlist.snapEnabled !== last.snapEnabled || playlist.snapNote !== last.snapNote)
       last = playlist
 
-      if(opened) playlistRenderer.resetView()
+      if(opened) {
+        playlistRenderer.resetView()
+        // and its time signature, which the grid counts bars in
+        playlistRenderer.syncTransport()
+      }
       if(snapped) playlistRenderer.syncSnapSetting()
       if(travelled) playlistRenderer.select(playlist.travelled.ids)
       if(changed) playlistRenderer.setClipOverrides(selectClipOverrides(store.getState()))
@@ -619,8 +618,6 @@ const PlaylistCanvas = () => {
           playing={playing}
           tempo={tempo}
           beatsDisplayed={beatsDisplayed}
-          maxPlaylistBeats={limit}
-          duration={duration}
           trackCount={trackCount}
           trackColors={trackColors}
           trackMixes={trackMixes}

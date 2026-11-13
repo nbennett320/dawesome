@@ -23,7 +23,7 @@ import { paint, patternColors, theme, trackPaint } from './theme'
 import { painter } from '../../../theme/canvas'
 import { LIP, LipLook, drawLip, fitName, inBox, lipBox, lipWidth, onLed } from './lip'
 import { trackColorKey, defaultTrackColor, trackLabel } from '../../../types/mixer'
-import { PlaylistTransport } from '../../../types/transport'
+import { DEFAULT_BEATS_PER_BAR, DEFAULT_PLAYLIST_BEATS, PlaylistTransport } from '../../../types/transport'
 import { positionAt } from '../../transport/tape'
 import {
   Lasso, ShiftPress, itemAt, keepExisting, lassoFrom, lassoRect, lassoSelection, shiftRelease, startsLasso,
@@ -53,7 +53,6 @@ export interface CanvasProps extends SketchProps {
   playing: boolean,
   tempo: number
   beatsDisplayed: number
-  maxPlaylistBeats: number
   trackCount: number
   // colors given to tracks, by track number (see mixerSlice). tracks not
   // listed are their default color
@@ -122,7 +121,8 @@ export interface ClipView {
   // how long it is
   seconds: number
   // the part of its source it shows, and the source's whole length: in
-  // seconds of the sample, or steps of the pattern
+  // seconds of the sample, or steps of the pattern (where a pattern clip
+  // starts and ends in its pattern, which can be past its end: it loops)
   from: number
   to: number
   length: number
@@ -139,7 +139,6 @@ export const staticDefaults = {
   // when the canvas renders
   height: 100,
   width: 200,
-  maxPlaylistBeats: 32,
   trackCount: 4,
   tempo: 120,
 
@@ -311,7 +310,6 @@ export class Renderer extends RendererBase {
   canvasEl = document.getElementById('playlist-canvas')
   height: number = staticDefaults.height
   width: number = staticDefaults.width
-  maxPlaylistBeats: number = staticDefaults.maxPlaylistBeats
   trackCount: number = staticDefaults.trackCount
   trackColors: Record<number, number> = {}
   trackMixes: Record<number, { mute: boolean, solo: boolean }> = {}
@@ -325,11 +323,11 @@ export class Renderer extends RendererBase {
   tempo: number = staticDefaults.tempo
   // the playlist's length in beats: the full canvas width (at scale 1)
   // spans this many
-  beatsDisplayed = 256
+  beatsDisplayed = DEFAULT_PLAYLIST_BEATS
   debugMode: boolean = staticDefaults.debugMode
 
   // the playlist opens zoomed in on its first bars (see openingScale)
-  currentScale = openingScale(256)
+  currentScale = openingScale(DEFAULT_PLAYLIST_BEATS)
   transformX = 0
   // how far the tracks are scrolled down, in pixels. the timeline stays at
   // the top. zoom only stretches x, so this isn't scaled
@@ -360,6 +358,9 @@ export class Renderer extends RendererBase {
   // draw the playback cursor
   transport: PlaylistTransport | null = null
   transportRevision: number | null = null
+  // the time signature's beats to the bar, which the grid and ruler count
+  // bars in
+  get beatsPerBar(): number { return this.transport?.beatsPerBar || DEFAULT_BEATS_PER_BAR }
   loopEnabled: boolean | null = null
   // counts transport fetches, so a slow one can't replace a newer one's
   #transportFetch = 0
@@ -422,13 +423,13 @@ export class Renderer extends RendererBase {
   #cutHover: { ids: number[], beat: number } | null = null
   // clips being painted with the Draw tool, while the mouse is held
   #paint: Paint | null = null
-  // the pattern the Draw tool paints: the one last selected in either
-  // sequencer. null paints a new empty note pattern
+  // the pattern the Draw tool paints: the one last selected in a
+  // sequencer. null paints a new empty pattern
   paintPatternId: number | null = null
 
-  // the sequencers' rows and patterns, which pattern clips draw. read every
+  // the sequencer's rows and patterns, which pattern clips draw. read every
   // frame, so editing a pattern shows straight away without rebuilding
-  sequencer: SequencerState = { rows: [], synths: [], patterns: [], folders: [] }
+  sequencer: SequencerState = { rows: [], patterns: [], folders: [] }
 
   // the clips picked with shift+click or a shift+drag box, by id
   selectedIds: Set<number> = new Set()
@@ -471,7 +472,7 @@ export class Renderer extends RendererBase {
   // in two at `beat`
   onClipsCut!: (ids: number[], beat: number) => Promise<unknown>
   // clips were painted with the Draw tool: clips of `patternId` (null for a
-  // new note pattern) on trackNumber from startBeat to endBeat, snapped
+  // new pattern) on trackNumber from startBeat to endBeat, snapped
   onPaint!: (patternId: number | null, trackNumber: number, startBeat: number, endBeat: number) => Promise<unknown>
   // the plus below the last track was clicked: an empty track goes under it
   onAddTrack!: () => Promise<unknown>
@@ -773,11 +774,10 @@ export class Renderer extends RendererBase {
   }
 
   // the clips the paint would lay down if let go now (see paintedSpans):
-  // the pattern's, or one of the note pattern it would make
+  // the pattern's, or one of the pattern it would make
   #paintSpans = (painting: Paint): Span[] => {
     const pattern = this.paintPatternId === null ? undefined : this.patternOf(this.paintPatternId)
-    const beatsPerBar = this.transport?.beatsPerBar || theme.beatsPerBar
-    return paintedSpans(painting.start, painting.end, pattern ? pattern.length : null, beatsPerBar)
+    return paintedSpans(painting.start, painting.end, pattern ? pattern.length : null, this.beatsPerBar)
   }
 
   // the mouse came up: the clips are painted where their phantoms were,
@@ -892,7 +892,11 @@ export class Renderer extends RendererBase {
     const window = this.clipWindows[id]
     if(patternId !== undefined) {
       const pattern = this.patternOf(patternId)
-      return pattern ? patternTrimClip(id, startBeat, pattern.length, window) : null
+      if(!pattern) return null
+      // (the engine gives every pattern clip a window: until it has, the
+      // clip is all of its pattern, as a new clip is)
+      const own = window ?? { start: 0, end: pattern.length }
+      return patternTrimClip(id, startBeat, own, pattern.length, this.beatsDisplayed)
     }
 
     const override = this.clipOverrides[id]
@@ -919,7 +923,7 @@ export class Renderer extends RendererBase {
       seconds: (span.end - span.start) * this.#beatSeconds(),
       from: (shows.start - clip.sourceStart) * perBeat,
       to: (shows.end - clip.sourceStart) * perBeat,
-      length: (clip.sourceEnd - clip.sourceStart) * perBeat,
+      length: clip.sourceLength,
     }
   }
 
@@ -1261,11 +1265,7 @@ export class Renderer extends RendererBase {
   // (called on every store update, so only a change wakes the playlist)
   setSequencer = (sequencer: SequencerState) => {
     if(sequencer === this.sequencer) return
-    // a pattern's length changes where its clips (and so the loop) end
-    const lengths = (s: SequencerState) => s.patterns.map(p => `${p.id}:${p.length}`).join()
-    const resized = lengths(sequencer) !== lengths(this.sequencer)
     this.sequencer = sequencer
-    if(resized) this.syncTransport()
     this.wake()
   }
 
@@ -2146,7 +2146,6 @@ export class Renderer extends RendererBase {
       // width would turn the pan offset into NaN in draw
       if(props.height > 0) this.height = props.height
       if(props.width > 0) this.setWidth(props.width)
-      this.maxPlaylistBeats = props.maxPlaylistBeats
       const tracksChanged = props.trackCount !== this.trackCount
       this.trackCount = props.trackCount
       this.trackColors = props.trackColors ?? {}
@@ -2225,7 +2224,7 @@ export class Renderer extends RendererBase {
       // a clip's waveform and length (seconds)
       const clipData = async (item: PlaylistItem) => {
         // a pattern clip has no sample: it draws its pattern, and is as long
-        // as the pattern is (see PlaylistObject)
+        // as its window says (see viewOf), or its pattern until it has one
         if(item.patternId !== undefined) {
           return { wf: new Float32Array(0), dur: this.patternSecondsOf(item.patternId) }
         }
@@ -2307,7 +2306,7 @@ export class Renderer extends RendererBase {
       if(!this.#animating() && performance.now() - this.#lastWake > IDLE_MS) p.noLoop()
 
       this.#clampZoom()
-      const { width, trackCount, currentScale, beatsDisplayed } = this
+      const { width, trackCount, currentScale, beatsDisplayed, beatsPerBar } = this
 
       const timeline = new Timeline(
         p,
@@ -2369,14 +2368,14 @@ export class Renderer extends RendererBase {
       // thinning to every few bars zoomed out. only what's on screen is drawn
       const gridBottom = trackTop(trackCount)
       const pixelsPerBeat = width * currentScale / beatsDisplayed
-      const { lineEvery } = gridSteps(pixelsPerBeat, theme.beatsPerBar)
+      const { lineEvery } = gridSteps(pixelsPerBeat, beatsPerBar)
       this.#reportGridStep(lineEvery)
       const [firstBeat, lastBeat] = visibleBeats(pixelsPerBeat, this.transformX, width, beatsDisplayed)
       const beatX = (beat: number) => beat * width / beatsDisplayed
 
       // every other band of a few lines is shaded, so where you are along
       // time reads at a glance whatever the zoom
-      const tile = tileStep(lineEvery, theme.beatsPerBar)
+      const tile = tileStep(lineEvery, beatsPerBar)
       p.noStroke()
       paint.fill(p, 'gridTile')
       for(let n = Math.floor(firstBeat / tile); n * tile < lastBeat; n++) {
@@ -2389,7 +2388,7 @@ export class Renderer extends RendererBase {
       p.strokeWeight(1 / currentScale)
       for(let n = Math.ceil(firstBeat / lineEvery); n * lineEvery < lastBeat; n++) {
         const beat = n * lineEvery
-        const level = lineLevel(beat, theme.beatsPerBar)
+        const level = lineLevel(beat, beatsPerBar)
         if(level === 2) paint.stroke(p, 'barLine')
         else paint.stroke(p, 'beatLine', level === 1 ? 1 : 0.55)
         const x = beatX(beat)

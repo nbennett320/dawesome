@@ -21,6 +21,8 @@ mod effects;
 mod effect_windows;
 #[cfg(test)]
 mod test_support;
+#[cfg(test)]
+mod perf;
 
 use std::env;
 use std::sync::Arc;
@@ -175,15 +177,22 @@ fn init_tauri() {
       listen_to_input,
       get_input_levels,
       get_sequencer,
-      add_sequencer_row,
-      remove_sequencer_row,
-      set_sequencer_row_volume,
-      set_sequencer_row_muted,
-      set_sequencer_row_pan,
-      rename_sequencer_row,
-      move_sequencer_row,
-      replace_sequencer_row_sample,
-      preview_sequencer_row,
+      add_sample_row,
+      add_synth_row,
+      remove_row,
+      move_row,
+      rename_row,
+      set_row_volume,
+      set_row_pan,
+      set_row_muted,
+      replace_row_sample,
+      replace_row_synth,
+      preview_row,
+      set_row_step_pitch,
+      set_row_sample_pitch,
+      set_row_gated,
+      play_row_note,
+      stop_row_note,
       add_pattern,
       duplicate_pattern,
       remove_pattern,
@@ -195,6 +204,7 @@ fn init_tauri() {
       remove_pattern_folder,
       set_pattern_bars,
       set_pattern_step,
+      trim_pattern,
       play_pattern,
       toggle_pattern,
       seek_pattern,
@@ -229,13 +239,7 @@ fn init_tauri() {
       move_effect,
       set_effect_bypassed,
       set_pattern_notes,
-      add_synth,
-      remove_synth,
-      set_synth_volume,
-      set_synth_muted,
       add_synth_on_track,
-      play_note,
-      stop_note,
       project_has_unsaved_changes,
       quit
     ])

@@ -7,7 +7,7 @@ import { setProjectNotice } from '../../../state/slices/projectSlice'
 import {
   selectRecording, selectTakesRevision, takesChanged,
 } from '../../../state/slices/recordingSlice'
-import { selectSequencerRows, setSequencer } from '../../../state/slices/sequencerSlice'
+import { selectSampleRows, setSequencer } from '../../../state/slices/sequencerSlice'
 import { beginSampleDrag } from '../../../state/sampleDrag'
 import { allItems, buildTree } from '../../../types/folderTree'
 import {
@@ -114,7 +114,7 @@ const RecordingsBrowser = ({ library = 'recordings' }: BrowserProps) => {
   // only takes are recorded into
   const recording = useAppSelector(selectRecording) && library === 'recordings'
   const items = useAppSelector(selectPlaylistItems)
-  const rows = useAppSelector(selectSequencerRows)
+  const sampleRows = useAppSelector(selectSampleRows)
   const [listing, setListing] = React.useState<RecordingsListing | null>(null)
   // the take heard last
   const [selected, setSelected] = React.useState<string | null>(null)
@@ -134,8 +134,8 @@ const RecordingsBrowser = ({ library = 'recordings' }: BrowserProps) => {
 
   const uses = React.useMemo(() => takeUses(
     items.filter(item => item.patternId === undefined).map(item => item.path),
-    rows.map(row => row.path),
-  ), [items, rows])
+    sampleRows.map(row => row.instrument.path),
+  ), [items, sampleRows])
 
   // the clips and rows that play what moved follow it
   const applyMoved = (moved: MovedRecording) => {

@@ -69,7 +69,7 @@ pub fn snapshot(state: &daw::InnerState, rate: u32) -> Result<Snapshot, String> 
   let time_signature = *state.playlist.time_signature.lock().unwrap();
   let graph = {
     let live = state.playlist.audiograph.lock().unwrap();
-    let mut graph = daw::AudioGraph::new(live.sample_rate(), live.tempo(), live.max_beats());
+    let mut graph = daw::AudioGraph::new(live.sample_rate(), live.tempo());
     graph.nodes = live.nodes.clone();
     graph.pattern_nodes = live.pattern_nodes.clone();
     graph.sequencer = Arc::new(Mutex::new(live.sequencer.lock().unwrap().clone()));

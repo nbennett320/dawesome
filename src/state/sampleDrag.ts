@@ -1,19 +1,19 @@
-// dragging a sample from the sidebar into the playlist or the Drum
-// Sequencer, a pattern from a sequencer's pattern strip into the playlist,
-// an effect onto a mixer channel, or an instrument into the Note Sequencer
+// dragging a sample from the sidebar into the playlist or the Pattern
+// Sequencer, a pattern from its pattern strip into the playlist, an effect
+// onto a mixer channel, or an instrument into the Pattern Sequencer
 //
 // this uses plain mouse events instead of HTML drag and drop (react-dnd):
 // during an HTML drag the playlist canvas couldn't draw the clip following
 // the mouse, while mouse events keep p5's draw loop running as normal
 
 // the sidebar browsers that have folders
-export type FolderScope = 'recordings' | 'clips' | 'patterns' | 'note-patterns'
+export type FolderScope = 'recordings' | 'clips' | 'patterns'
 
 // what's being dragged. a folder only moves within its browser: it can't be
-// placed in the playlist or a sequencer. an effect (from the sidebar) and a
-// slot (a row of the Effects Rack) go onto a mixer channel or the rack. an
-// instrument (from the sidebar) goes into the Note Sequencer, or onto a
-// track's mixer strip
+// placed in the playlist or the Pattern Sequencer. an effect (from the
+// sidebar) and a slot (a row of the Effects Rack) go onto a mixer channel or
+// the rack. an instrument (from the sidebar) goes into the Pattern
+// Sequencer, or onto a track's mixer strip
 export type DragItem =
   | { kind: 'sample', path: string }
   | { kind: 'pattern', patternId: number, label: string }
@@ -22,7 +22,8 @@ export type DragItem =
   | { kind: 'instrument', pluginId: string, label: string }
   | { kind: 'slot', slotId: number, label: string }
 
-// what can be dropped into the playlist (or, for samples, the Sequencer)
+// what can be dropped into the playlist (or, for samples, the Pattern
+// Sequencer)
 export type PlaceableItem = Extract<DragItem, { kind: 'sample' | 'pattern' }>
 
 export const isPlaceable = (item: DragItem): item is PlaceableItem =>

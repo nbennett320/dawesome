@@ -7,7 +7,8 @@ import { Tool } from '../../editing/tools'
 import { View } from '../../types/ui'
 import ToolTray from '../../components/editing/ToolTray'
 import { stepLabel } from '../../editing/beatGrid'
-import { theme } from './sketch/theme'
+import { DEFAULT_BEATS_PER_BAR } from '../../types/transport'
+import { useTransport } from '../transport/useTransport'
 
 // the playlist's tools
 const TOOLS: ReadonlyArray<Tool> = ['select', 'draw', 'cut']
@@ -18,6 +19,9 @@ const PlaylistTray = () => {
   const snapEnabled = useAppSelector(selectSnapEnabled)
   const snapNote = useAppSelector(selectSnapNote)
   const gridStep = useAppSelector(selectGridStep)
+  // (a step of whole bars is named in bars of the time signature)
+  const { transport } = useTransport()
+  const beatsPerBar = transport?.beatsPerBar ?? DEFAULT_BEATS_PER_BAR
   const dispatch = useAppDispatch()
 
   return (
@@ -39,7 +43,7 @@ const PlaylistTray = () => {
       <div className='flex flex-row items-center gap-1.5' title='Grid: follows the zoom'>
         <span className='ft-label'>Grid</span>
         <span className='ft-readout text-sm tabular-nums' aria-live='polite'>
-          {stepLabel(gridStep, theme.beatsPerBar)}
+          {stepLabel(gridStep, beatsPerBar)}
         </span>
       </div>
     </div>

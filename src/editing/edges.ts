@@ -34,9 +34,10 @@ export interface Span {
 // an item, as far as trimming goes
 export interface TrimItem extends Span {
   id: number
-  // as far as its edges can go: where a clip's sample or pattern would
-  // start and end, were all of it played; where a note's pattern does.
-  // (the start can be before 0, where no edge can follow it)
+  // as far as its edges can go: where a sample clip's sample would start
+  // and end, were all of it played; where a pattern clip's pattern would
+  // start, and the playlist's end; where a note's pattern does. (the start
+  // can be before 0, where no edge can follow it)
   sourceStart: number
   sourceEnd: number
   // the shortest it can be
@@ -55,10 +56,6 @@ export const trimmed = (item: TrimItem, edge: Edge, delta: number): Span => {
       end: item.end,
     }
   }
-
-  // (a pattern clip whose pattern now ends before the clip starts has no
-  // end to drag: it stays a step long, and keeps the window it had)
-  if(item.sourceEnd <= item.start) return { start: item.start, end: item.end }
 
   const earliest = Math.min(item.start + item.minLength, item.sourceEnd)
   return {

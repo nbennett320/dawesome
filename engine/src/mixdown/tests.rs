@@ -27,9 +27,9 @@ fn pattern_clip(state: &daw::InnerState, track: u32, at: Duration) -> u64 {
     let mut sequencer = state.playlist.sequencer.lock().unwrap();
     let kick = sequencer.add_row(KICK).unwrap();
     let long = sequencer.add_row(LONG).unwrap();
-    let pattern = sequencer.add_pattern(1, 4, daw::PatternKind::Drum).unwrap();
+    let pattern = sequencer.add_pattern(1, 4).unwrap();
     for (row, step) in [(kick, 0), (kick, 6), (long, 15)] {
-      sequencer.set_step(pattern, row, step, true).unwrap();
+      sequencer.set_pattern_step(pattern, row, step, true, 4).unwrap();
     }
     sequencer.set_row_volume(long, 0.3).unwrap();
     pattern
@@ -55,6 +55,44 @@ fn test_a_mixdown_is_what_playback_plays() {
     assert_eq!(mixed.len(), played.len());
     assert!(peak(&mixed) > 0.1);
     // (the same voices, summed in another order: as near as f32 gets)
+    let off = worst(&mixed, &played);
+    assert!(off < 1e-5, "off by {} at {} bpm, {}Hz", off, tempo, rate);
+  }
+}
+
+// a pattern of notes off the grid at other pitches and velocities: kicks
+// (one-shot, so they ring out whatever their length) and the long sample
+// (gated, so it stops at each note's end), on track `track`, from `at`
+fn pitched_clip(state: &daw::InnerState, track: u32, at: Duration) -> u64 {
+  let note = |pitch, start, length, velocity| daw::PatternNote { pitch, start, length, velocity };
+  let pattern = {
+    let mut sequencer = state.playlist.sequencer.lock().unwrap();
+    let kick = sequencer.add_row(KICK).unwrap();
+    let long = sequencer.add_row(LONG).unwrap();
+    sequencer.set_row_gated(long, true).unwrap();
+    sequencer.set_row_sample_pitch(long, 62).unwrap();
+    sequencer.set_row_volume(long, 0.4).unwrap();
+    let pattern = sequencer.add_pattern(1, 4).unwrap();
+    sequencer.set_pattern_notes(pattern, kick, vec![note(60, 0., 0.25, 0.5), note(67, 5.5, 0.1, 1.), note(48, 9., 1., 0.8)]).unwrap();
+    sequencer.set_pattern_notes(pattern, long, vec![note(55, 2.3, 3.3, 0.9), note(74, 10.5, 0.4, 0.6), note(62, 13., 2., 1.)]).unwrap();
+    pattern
+  };
+  state.playlist.audiograph.lock().unwrap()
+    .add_pattern_node::<daw::timing::Note>(pattern, at, track, None).unwrap()
+}
+
+#[test]
+fn test_notes_at_any_pitch_velocity_and_gate_are_mixed_down_as_played() {
+  for (tempo, rate) in [(97., 48_000), (120., 44_100)] {
+    let state = daw::InnerState::default();
+    state.playlist.audiograph.lock().unwrap().set_tempo(tempo);
+    pitched_clip(&state, 2, Duration::from_nanos(1_234_567_891));
+    state.playlist.mixer.set_pan(2, -0.3);
+
+    let mixed = mixdown(&state, rate);
+    let played = play(&state, rate, Duration::from_secs_f64(mixed.len() as f64 / 2. / rate as f64));
+    assert_eq!(mixed.len(), played.len());
+    assert!(peak(&mixed) > 0.1);
     let off = worst(&mixed, &played);
     assert!(off < 1e-5, "off by {} at {} bpm, {}Hz", off, tempo, rate);
   }
@@ -257,17 +295,17 @@ fn sounding(samples: &[f32]) -> Vec<(usize, usize)> {
   runs
 }
 
-// a rig with the fake synth (its master copy playing at 0.25), and a one
-// bar note pattern of two notes for it: one from step 3 to 6, one from 14
-// to the end. (rig, synth, pattern)
+// a rig with the fake synth as a row (its master copy playing at 0.25), and
+// a one bar pattern of two notes for it: one from step 3 to 6, one from 14
+// to the end. (rig, synth row, pattern)
 fn synth_and_notes() -> (crate::effects::testing::Rig, u64, u64) {
   use crate::effects::testing::*;
   let rig = rig();
-  let synth = crate::commands::synth::add(&rig.state, &synth().id).unwrap().synth_id;
-  rig.turn(synth, 0.25);
+  let synth = crate::commands::synth::add(&rig.state, &synth().id).unwrap().row_id;
+  rig.turn(rig.slot_of(synth), 0.25);
   let pattern = {
     let mut sequencer = rig.state.playlist.sequencer.lock().unwrap();
-    let pattern = sequencer.add_pattern(1, 4, daw::PatternKind::Note).unwrap();
+    let pattern = sequencer.add_pattern(1, 4).unwrap();
     let note = |pitch, start, length| daw::PatternNote { pitch, start, length, velocity: 1. };
     sequencer.set_pattern_notes(pattern, synth, vec![note(62, 14., 4.), note(60, 3., 3.)]).unwrap();
     pattern
@@ -340,13 +378,29 @@ fn test_a_pattern_clips_notes_play_on_its_tracks_copy_and_are_mixed_down() {
 }
 
 #[test]
+fn test_a_looping_clips_notes_are_cut_each_time_round_and_mixed_down_the_same() {
+  let (mut rig, _, pattern) = synth_and_notes();
+  let state = rig.state.clone();
+  // on beat 1, round its one bar pattern two and a half times: the note
+  // from step 14 is cut at the end of each time round, and the last time
+  // round ends before it
+  let clip = note_clip(&state, pattern, 2, Duration::from_millis(500));
+  state.playlist.audiograph.lock().unwrap().set_pattern_window(clip, 0., Some(40.)).unwrap();
+  let at = |step: usize| 24_000 + step * 6_000;
+  let expected = vec![(at(3), at(6)), (at(14), at(16)), (at(19), at(22)), (at(30), at(32)), (at(35), at(38))];
+
+  assert_eq!(sounding(&play_on_rig(&mut rig, 100, Duration::ZERO, Duration::from_secs(6))), expected);
+  assert_eq!(sounding(&mixdown(&state, 48_000)), expected);
+}
+
+#[test]
 fn test_a_synth_on_two_tracks_is_mixed_down_through_each_tracks_fader() {
   let (rig, synth, pattern) = synth_and_notes();
   let state = rig.state.clone();
   // the other track's clip plays other notes: from step 8 to 10
   let other = {
     let mut sequencer = state.playlist.sequencer.lock().unwrap();
-    let other = sequencer.add_pattern(1, 4, daw::PatternKind::Note).unwrap();
+    let other = sequencer.add_pattern(1, 4).unwrap();
     sequencer.set_pattern_notes(other, synth, vec![daw::PatternNote { pitch: 70, start: 8., length: 2., velocity: 1. }]).unwrap();
     other
   };
@@ -362,13 +416,28 @@ fn test_a_synth_on_two_tracks_is_mixed_down_through_each_tracks_fader() {
   assert_eq!(rig.loader.alive.load(std::sync::atomic::Ordering::SeqCst), 3);
 
   // muted, it isn't heard on either; quieter, on both
-  crate::commands::synth::set_muted(&state, synth, true).unwrap();
+  use crate::commands::sequencer::edit;
+  edit(&state, None, |seq| seq.set_row_muted(synth, true)).unwrap();
   assert!(sounding(&mixdown(&state, 48_000)).is_empty());
-  crate::commands::synth::set_muted(&state, synth, false).unwrap();
-  crate::commands::synth::set_volume(&state, synth, 0.5, None).unwrap();
+  edit(&state, None, |seq| seq.set_row_muted(synth, false)).unwrap();
+  edit(&state, None, |seq| seq.set_row_volume(synth, 0.5)).unwrap();
   let quieter = mixdown(&state, 48_000);
   assert!((quieter[20_000 * 2] - mixed[20_000 * 2] * 0.5).abs() < 1e-6);
   assert!((quieter[50_000 * 2] - mixed[50_000 * 2] * 0.5).abs() < 1e-6);
+}
+
+#[test]
+fn test_a_synth_rows_pan_is_mixed_down() {
+  let (rig, synth, pattern) = synth_and_notes();
+  let state = rig.state.clone();
+  note_clip(&state, pattern, 1, Duration::ZERO);
+  crate::commands::sequencer::edit(&state, None, |seq| seq.set_row_pan(synth, -1.)).unwrap();
+
+  // hard left: the right side silent, the left as it was
+  let mixed = mixdown(&state, 48_000);
+  assert_eq!(sounding(&mixed), vec![(18_000, 36_000), (84_000, 96_000)]);
+  assert_eq!(mixed[20_000 * 2], 0.25);
+  assert!(mixed.chunks(2).all(|frame| frame[1] == 0.));
 }
 
 #[test]
@@ -382,27 +451,27 @@ fn test_a_synth_added_just_now_is_mixed_down_once_it_has_set_itself_up() {
   *rig.loader.settles_in.lock().unwrap() = settle;
   let state = rig.state.clone();
   let note = |pitch, start, length| daw::PatternNote { pitch, start, length, velocity: 1. };
-  let pattern = state.playlist.sequencer.lock().unwrap().add_pattern(1, 4, daw::PatternKind::Note).unwrap();
+  let pattern = state.playlist.sequencer.lock().unwrap().add_pattern(1, 4).unwrap();
   note_clip(&state, pattern, 2, Duration::ZERO);
 
   // mixed down as soon as it's added, without waiting for it: silent
-  let first = crate::commands::synth::add(&state, &synth().id).unwrap().synth_id;
-  crate::commands::sequencer::set_notes(&state, pattern, first, vec![note(60, 3., 3.), note(62, 14., 4.)], None).unwrap();
+  let first = crate::commands::synth::add(&state, &synth().id).unwrap().row_id;
+  crate::commands::sequencer::set_pattern_notes_in(&state, pattern, first, vec![note(60, 3., 3.), note(62, 14., 2.)], None, false).unwrap();
   assert!(sounding(&mixdown(&state, 48_000)).is_empty());
 
   // with the wait, the same, straight after another is added in its place:
   // the notes are there, from the song's start
   rig.effects().use_settle(settle);
-  crate::commands::synth::remove(&state, first).unwrap();
-  let second = crate::commands::synth::add(&state, &synth().id).unwrap().synth_id;
-  crate::commands::sequencer::set_notes(&state, pattern, second, vec![note(60, 3., 3.), note(62, 14., 4.)], None).unwrap();
+  crate::commands::sequencer::edit(&state, None, |seq| seq.remove_row_and_trim(first, 4)).unwrap();
+  let second = crate::commands::synth::add(&state, &synth().id).unwrap().row_id;
+  crate::commands::sequencer::set_pattern_notes_in(&state, pattern, second, vec![note(60, 3., 3.), note(62, 14., 2.)], None, false).unwrap();
   let mixed = mixdown(&state, 48_000);
   assert_eq!(sounding(&mixed), vec![(18_000, 36_000), (84_000, 96_000)]);
   assert_eq!(mixed[20_000 * 2], START_GAIN);
 }
 
 #[test]
-fn test_a_note_pattern_on_its_own_plays_on_the_master_copies() {
+fn test_a_pattern_on_its_own_plays_its_synth_notes_on_the_master_copies() {
   let (mut rig, _, pattern) = synth_and_notes();
   let engine = rig.engine.clone();
   // a clip on a track too: its copy doesn't play the pattern on its own

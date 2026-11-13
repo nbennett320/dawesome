@@ -8,7 +8,7 @@ const note = (pitch: number, start: number, length = 2): Note => ({ pitch, start
 const notes = [note(60, 4), note(64, 6), note(67, 12)]
 
 const target = (over: Partial<NoteTarget> = {}): NoteTarget => ({
-  notes, selected: new Set([0, 1]), patternLength: 16, pasteAt: 0, focused: true, ...over,
+  notes, selected: new Set([0, 1]), limit: 16, pasteAt: 0, focused: true, ...over,
 })
 
 beforeEach(() => clearNoteClipboard())
@@ -25,9 +25,10 @@ describe('the note commands', () => {
     expect(noteClipboard()).toEqual([notes[0], notes[1]])
 
     const pasted = noteCommand('paste', target({ pasteAt: 8, selected: new Set() }))
-    expect(pasted?.notes).toEqual([...notes, note(60, 8), note(64, 10)])
-    // the copies become the selection
-    expect([...pasted?.selected ?? []]).toEqual([3, 4])
+    // in order, by start: the copies before the note at 12
+    expect(pasted?.notes).toEqual([notes[0], notes[1], note(60, 8), note(64, 10), notes[2]])
+    // the copies become the selection, where they went
+    expect([...pasted?.selected ?? []]).toEqual([2, 3])
   })
 
   it('cut the selection to the clipboard, and keep it across patterns', () => {
@@ -35,21 +36,22 @@ describe('the note commands', () => {
     expect(cut?.notes).toEqual([notes[2]])
     expect(cut?.selected?.size).toBe(0)
 
-    // pasted into another pattern, past whose end the second copy would start
+    // pasted into another pattern, past whose timeline's end the second copy
+    // would start
     const other = [note(50, 0)]
-    const pasted = noteCommand('paste', target({ notes: other, selected: new Set(), patternLength: 8, pasteAt: 6 }))
+    const pasted = noteCommand('paste', target({ notes: other, selected: new Set(), limit: 8, pasteAt: 6 }))
     expect(pasted?.notes).toEqual([note(50, 0), note(60, 6)])
     expect([...pasted?.selected ?? []]).toEqual([1])
   })
 
   it('repeat the selection where it ends, the copies selected', () => {
     const repeated = noteCommand('repeat', target())
-    expect(repeated?.notes).toEqual([...notes, note(60, 8), note(64, 10)])
-    expect([...repeated?.selected ?? []]).toEqual([3, 4])
+    expect(repeated?.notes).toEqual([notes[0], notes[1], note(60, 8), note(64, 10), notes[2]])
+    expect([...repeated?.selected ?? []]).toEqual([2, 3])
   })
 
-  it('make nothing past the pattern’s end, leaving the selection as it was', () => {
-    expect(noteCommand('repeat', target({ selected: new Set([2]), patternLength: 14 }))).toBeNull()
+  it('make nothing past the timeline’s end, leaving the selection as it was', () => {
+    expect(noteCommand('repeat', target({ selected: new Set([2]), limit: 14 }))).toBeNull()
     expect(noteCommand('copy', target())).toEqual({})
     expect(noteCommand('paste', target({ pasteAt: 16 }))).toBeNull()
   })

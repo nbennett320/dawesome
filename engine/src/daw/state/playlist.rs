@@ -17,7 +17,9 @@ use std::time::{Duration, Instant};
 #[derive(Clone, Copy)]
 pub struct PlaylistUI {
   pub viewport: app::workspaces::WorkspaceViewport,
-  pub max_beats_displayed: u64,
+  // the playlist's length, in beats (read with daw::playlist_beats, worked
+  // out by daw::fit_playlist)
+  pub beats: u64,
   pub snap_enabled: bool,
   pub snap_subdivision: daw::timing::Note,
 }
@@ -26,7 +28,8 @@ impl UI for PlaylistUI {
   fn new() -> Self {
     PlaylistUI {
       viewport: app::workspaces::WorkspaceViewport::new(),
-      max_beats_displayed: daw::state::defaults::MAX_BEATS_DISPLAYED,
+      // a new playlist's: in 4/4, with no clips
+      beats: daw::state::defaults::PLAYLIST_BARS * 4,
       snap_enabled: daw::state::defaults::SNAP_ENABLED,
       snap_subdivision: daw::state::defaults::SNAP_SUBDIVISION,
     }
@@ -58,7 +61,6 @@ pub struct Playlist {
   pub run_id: AtomicU64,
   pub total_beats: AtomicU64,
   pub current_beat: AtomicU16,
-  pub max_beats: AtomicU64,
   pub time_signature: Arc<Mutex<timing::TimeSignature>>,
   pub loop_enabled: AtomicBool,
   // whether recording counts in a bar first
@@ -72,11 +74,15 @@ pub struct Playlist {
   pub sequencer: Arc<Mutex<daw::Sequencer>>,
   // each mixer channel's effects (see effects.rs)
   pub effects: Arc<crate::effects::Effects>,
+  // keys held on sample rows, auditioned (see commands/synth.rs)
+  pub held_keys: daw::HeldKeys,
   // what the current (or last) run plays. set before each run starts
   pub mode: Mutex<PlayMode>,
-  // the step a pattern playing on its own started from (the Piano Roll's
-  // start marker), in steps so it stays on its step if the tempo changes.
-  // it plays on from there, and loops the whole pattern from its start
+  // the step a pattern playing on its own counts from, with
+  // `started_time` when it's heard: the step its run started from (the
+  // Piano Roll's start marker), then the one it's on each time it comes
+  // round or its length changes (see daw::next_pattern_slice). in steps, so
+  // it stays on its step if the tempo changes
   pub pattern_start: Mutex<f64>,
   pub ui: Arc<Mutex<PlaylistUI>>,
 }
@@ -87,11 +93,7 @@ impl Playlist {
   }
 
   pub fn default() -> Self {
-    let audiograph = daw::AudioGraph::new(
-      daw::state::defaults::SAMPLE_RATE,
-      daw::state::defaults::TEMPO,
-      daw::state::defaults::MAX_BEATS
-    );
+    let audiograph = daw::AudioGraph::new(daw::state::defaults::SAMPLE_RATE, daw::state::defaults::TEMPO);
     let mixer = audiograph.mixer.clone();
     let sequencer = audiograph.sequencer.clone();
     let effects = Arc::new(crate::effects::Effects::new(mixer.clone()));
@@ -103,7 +105,6 @@ impl Playlist {
       run_id: AtomicU64::from(0),
       total_beats: AtomicU64::from(0),
       current_beat: AtomicU16::from(0),
-      max_beats: AtomicU64::from(daw::state::defaults::MAX_BEATS),
       time_signature: Arc::new(Mutex::new(
         timing::TimeSignature {
           numerator: 4,
@@ -116,6 +117,7 @@ impl Playlist {
       mixer,
       sequencer,
       effects,
+      held_keys: daw::HeldKeys::default(),
       mode: Mutex::new(PlayMode::Playlist),
       pattern_start: Mutex::new(0.),
 
@@ -162,6 +164,20 @@ pub fn loop_end_after(song_end: Duration, beat_interval: Duration, beats_per_bar
   let end = song_end.saturating_sub(ON_BEAT_TOLERANCE).as_nanos();
   let bars = (end / bar.as_nanos() + 1) as u32;
   bar * bars
+}
+
+// how many beats long the playlist is: PLAYLIST_BARS bars, or up to the beat
+// the last clip ends on (or in) when that's later, so a change to a shorter
+// bar leaves no clip past the end
+// - song_end: where the last clip finishes (zero with no clips)
+pub fn playlist_beats_for(song_end: Duration, beat_interval: Duration, beats_per_bar: u16) -> u64 {
+  let bars = daw::state::defaults::PLAYLIST_BARS * beats_per_bar.max(1) as u64;
+  if beat_interval.is_zero() { return bars; }
+
+  // a clip ending a hair past a beat (float noise) ends on it
+  let end = song_end.saturating_sub(ON_BEAT_TOLERANCE).as_nanos();
+  let song_beats = end.div_ceil(beat_interval.as_nanos()) as u64;
+  bars.max(song_beats)
 }
 
 // positions closer than this to a beat count as on it, so a playhead set from
@@ -216,6 +232,16 @@ pub fn advance(offset: Duration, slice: Duration, loop_len: Option<Duration>) ->
   }
 }
 
+// where a pattern playing on its own, `len` long now, has got to after
+// playing `slice` from `offset`: round to its start at its end. made longer,
+// it carries on into its new bars; made shorter than `offset`, it carries on
+// where that falls in its new length, as the cursors (which count its steps
+// the same way) have it
+pub fn advance_round(offset: Duration, slice: Duration, len: Duration) -> Duration {
+  if len.is_zero() { return Duration::ZERO; }
+  Duration::from_nanos(((offset + slice).as_nanos() % len.as_nanos()) as u64)
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -250,6 +276,24 @@ mod tests {
     // three beats to the bar
     assert_eq!(loop_end_after(ms(5_000), BEAT, 3), ms(6_000));
     assert_eq!(loop_end_after(ms(0), BEAT, 3), ms(6_000));
+  }
+
+  #[test]
+  fn test_playlist_beats_for() {
+    // 120bpm: a beat is 500ms
+    let beats = |song_ms: u64, beats_per_bar: u16| playlist_beats_for(ms(song_ms), BEAT, beats_per_bar);
+
+    // 128 bars, of four beats or three
+    assert_eq!(beats(0, 4), 512);
+    assert_eq!(beats(0, 3), 384);
+    // a clip ending inside the 128 bars changes nothing
+    assert_eq!(beats(150_000, 3), 384);
+    // one ending past them: up to the beat it ends in, or on
+    assert_eq!(beats(200_100, 3), 401);
+    assert_eq!(beats(200_000, 3), 400);
+    assert_eq!(playlist_beats_for(Duration::from_micros(200_000_400), BEAT, 3), 400);
+    // (no beat length to measure the clips by: just the bars)
+    assert_eq!(playlist_beats_for(ms(900_000), Duration::ZERO, 4), 512);
   }
 
   #[test]
@@ -293,5 +337,17 @@ mod tests {
   fn test_advance_past_loop_end_starts_over() {
     assert_eq!(advance(ms(9_000), BEAT, Some(ms(8_000))), ms(0));
     assert_eq!(advance(ms(9_000), BEAT, None), ms(9_500));
+  }
+
+  #[test]
+  fn test_a_pattern_goes_round_at_its_length_now() {
+    // a bar is 2s: round at its end
+    assert_eq!(advance_round(ms(1_000), BEAT, ms(2_000)), ms(1_500));
+    assert_eq!(advance_round(ms(1_500), BEAT, ms(2_000)), ms(0));
+    // made two bars long, it carries on into the second
+    assert_eq!(advance_round(ms(1_500), BEAT, ms(4_000)), ms(2_000));
+    // made a bar long from the second: where that falls in the first
+    assert_eq!(advance_round(ms(2_500), BEAT, ms(2_000)), ms(1_000));
+    assert_eq!(advance_round(ms(500), BEAT, Duration::ZERO), ms(0));
   }
 }

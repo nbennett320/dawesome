@@ -1,5 +1,4 @@
-use std::fs::File;
-use std::io::{self, Read};
+use std::io;
 use std::sync::Arc;
 use rodio::{Decoder, Source};
 use rodio::source::SamplesConverter;
@@ -14,13 +13,11 @@ impl AsRef<[u8]> for SampleBuffer {
 }
 
 impl SampleBuffer {
+  // (only the tests read a file this way: sample rows decode theirs once,
+  // see sample_voice.rs)
+  #[cfg(test)]
   pub fn load(path: &str) -> io::Result<SampleBuffer> {
-    let mut buf = Vec::new();
-    let mut file = File::open(path)?;
-
-    file.read_to_end(&mut buf)?;
-
-    Ok(SampleBuffer(Arc::new(buf)))
+    Ok(SampleBuffer(Arc::new(std::fs::read(path)?)))
   }
 
   pub fn from_bytes(bytes: &[u8]) -> SampleBuffer {

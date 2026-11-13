@@ -1,7 +1,7 @@
 import type { Mock } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import reducer, {
-  addToPlaylist, copyClips, moveNodeInPlaylist, moveNodesInPlaylist, cutClips, deepCopyClips, joinClips, NEEDS_SAVING, pasteClips, repeatClips, reduceLoadedProject, playlistSlice, removeManyFromPlaylist, selectClipOverrides, selectClipWindow, setClipWindows,
+  addPatternToPlaylist, addToPlaylist, copyClips, moveNodeInPlaylist, moveNodesInPlaylist, cutClips, deepCopyClips, joinClips, NEEDS_SAVING, pasteClips, repeatClips, reduceLoadedProject, playlistSlice, removeManyFromPlaylist, selectClipOverrides, selectClipWindow, setClipWindows,
   setPlaylistTempo,
   splitClips, stretchClips, updateClipSettings, validTempo, withWaitCursor,
 } from './playlistSlice'
@@ -9,6 +9,7 @@ import { beginGesture, resetGestures } from '../gesture'
 import { runProjectCommand, setProjectNotice } from './projectSlice'
 import { ChangedClips, LoadedProject, Placed, ProjectView } from '../../types/project'
 import { defaultClipSettings } from '../../types/clip'
+import { DEFAULT_PLAYLIST_BEATS } from '../../types/transport'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ ask: vi.fn(), open: vi.fn(), save: vi.fn() }))
@@ -18,6 +19,9 @@ vi.mock('./projectSlice', async () => {
   return { ...actual, runProjectCommand: vi.fn() }
 })
 vi.mock('@tauri-apps/api/path', () => ({ dirname: vi.fn(), documentDir: vi.fn(), join: vi.fn() }))
+
+// get_playlist_data's answer: a new project's length in beats, and 4 tracks
+const playlistData = { beats: DEFAULT_PLAYLIST_BEATS, trackCount: 4 }
 
 const loaded: LoadedProject = {
   tempo: 90,
@@ -40,7 +44,7 @@ const loaded: LoadedProject = {
   ],
   missing: [],
   mixer: { tracks: [], master: { volumeDb: 0, pan: 0, mute: false, solo: false } },
-  sequencer: { rows: [], synths: [], patterns: [], folders: [] },
+  sequencer: { rows: [], patterns: [], folders: [] },
   patternClips: [{ id: 9, patternId: 2, trackNumber: 1, startBeat: 8, window: { start: 4, end: null } }],
 }
 
@@ -65,7 +69,7 @@ describe('addToPlaylist', () => {
       if(command === 'get_clip') {
         return { settings: defaultClipSettings, sampleDuration: 1.5, playedDuration: 1.5, window: null }
       }
-      if(command === 'get_playlist_data') return [16, 256, 240, 4]
+      if(command === 'get_playlist_data') return playlistData
       return undefined
     })
     const dispatch = vi.fn()
@@ -94,8 +98,8 @@ describe('reduceExploded', () => {
     state = reducer(state, actions.reduceExploded({
       removed: [3],
       clips: [
-        { id: 10, patternId: 6, trackNumber: 0, startBeat: 4, window: null },
-        { id: 11, patternId: 7, trackNumber: 2, startBeat: 4, window: null },
+        { id: 10, patternId: 6, trackNumber: 0, startBeat: 4, window: { start: 0, end: 16 } },
+        { id: 11, patternId: 7, trackNumber: 2, startBeat: 4, window: { start: 0, end: 16 } },
       ],
     }))
 
@@ -193,7 +197,7 @@ describe('moving clips', () => {
     let answer: (value: unknown) => void = () => {}
     let refuse: (reason: unknown) => void = () => {}
     mockInvoke.mockImplementation((command: string) => {
-      if(command === 'get_playlist_data') return Promise.resolve([16, 256, 8, 4])
+      if(command === 'get_playlist_data') return Promise.resolve(playlistData)
       return new Promise((resolve, reject) => { answer = resolve; refuse = reject })
     })
     return { dispatch, getState, clip, answer: (v: unknown) => answer(v), refuse: (r: unknown) => refuse(r) }
@@ -245,7 +249,7 @@ describe('removeManyFromPlaylist', () => {
 
   it('removes a selection with one command, so it is undone as one step', async () => {
     mockInvoke.mockImplementation(async (command: string) =>
-      (command === 'get_playlist_data' ? [16, 256, 8, 4] : undefined))
+      (command === 'get_playlist_data' ? playlistData : undefined))
     const dispatch = vi.fn()
 
     await removeManyFromPlaylist([3, 4, 5])(dispatch)
@@ -294,9 +298,9 @@ describe('updateClipSettings', () => {
 })
 
 describe('the playlist view', () => {
-  it('is 64 bars long', () => {
+  it('is 128 bars of 4/4 long, until the engine says', () => {
     const state = reducer(undefined, { type: 'init' })
-    expect(state.ui.maxBeatsDisplayed).toBe(256)
+    expect(state.ui.maxBeatsDisplayed).toBe(512)
   })
 
   it('goes back to its first bars when a project is opened', () => {
@@ -401,7 +405,7 @@ describe('trimmed and cut clips', () => {
     ...loaded.clips[0], id: 7, startBeat: 4.5, window: null, ...overrides,
   })
   const patternClip = (overrides = {}) => ({
-    id: 9, patternId: 2, trackNumber: 1, startBeat: 8, window: null, ...overrides,
+    id: 9, patternId: 2, trackNumber: 1, startBeat: 8, window: { start: 0, end: 16 }, ...overrides,
   })
   const start = () => {
     let state = reducer(undefined, { type: 'init' })
@@ -459,13 +463,13 @@ describe('trimmed and cut clips', () => {
     expect(selectClipWindow()({ playlist: state } as never)).toBeNull()
   })
 
-  it('drops the window of a clip that comes back whole', () => {
+  it('drops the window of a sample clip that comes back whole (a pattern clip always has one)', () => {
     let state = start()
     expect(state.clipWindows[7]).toBeDefined()
     state = reducer(state, actions.reduceChangedClips({
       clips: [clip()], patternClips: [patternClip()],
     }))
-    expect(state.clipWindows).toEqual({})
+    expect(state.clipWindows).toEqual({ 9: { start: 0, end: 16 } })
   })
 
   it('forgets the window of a removed clip', () => {
@@ -494,7 +498,7 @@ describe('trimmed and cut clips', () => {
     beforeEach(() => {
       mockInvoke.mockReset()
       mockInvoke.mockImplementation(async (command: string) =>
-        command === 'get_playlist_data' ? [16, 256, 240, 4] : changed)
+        command === 'get_playlist_data' ? playlistData : changed)
     })
 
     it('trims clips', async () => {
@@ -517,7 +521,7 @@ describe('trimmed and cut clips', () => {
     it('stretches clips, and shows the pitch and place the engine gave them', async () => {
       const stretchedClip = clip({ id: 7, startBeat: 3, settings: { ...defaultClipSettings, pitch: -12 } })
       mockInvoke.mockImplementation(async (command: string) =>
-        (command === 'get_playlist_data' ? [16, 256, 240, 4] : { clips: [stretchedClip], patternClips: [] }))
+        (command === 'get_playlist_data' ? playlistData : { clips: [stretchedClip], patternClips: [] }))
       const edits = [{ id: 7, pitch: -12, keep: 'end' as const }]
       const { result, state } = await run(dispatch => stretchClips(edits)(dispatch))
 
@@ -525,6 +529,23 @@ describe('trimmed and cut clips', () => {
       expect(result?.clips[0].settings.pitch).toBe(-12)
       expect(state.clipSettings[7].pitch).toBe(-12)
       expect(state.playlistItems.find((item: { id: number }) => item.id === 7)?.startBeat).toBe(3)
+    })
+
+    it('places a pattern as long as the engine made it, which its pattern no longer changes', async () => {
+      const placed = { id: 30, patternId: 2, trackNumber: 1, startBeat: 12, window: { start: 0, end: 32 } }
+      mockInvoke.mockImplementation(async (command: string) =>
+        (command === 'get_playlist_data' ? playlistData : placed))
+      const dispatch = vi.fn()
+      await addPatternToPlaylist(2, 1, 12.3)(dispatch)
+      const state = dispatch.mock.calls.reduce(
+        (s, [action]) => typeof action === 'function' ? s : reducer(s, action),
+        start(),
+      )
+
+      expect(mockInvoke).toHaveBeenCalledWith('add_pattern_clip', { patternId: 2, trackNumber: 1, dropBeat: 12.3 })
+      expect(state.playlistItems.find((item: { id: number }) => item.id === 30))
+        .toMatchObject({ patternId: 2, trackNumber: 1, startBeat: 12, path: '' })
+      expect(state.clipWindows[30]).toEqual({ start: 0, end: 32 })
     })
 
     it('gives null when the engine refuses', async () => {
@@ -577,7 +598,7 @@ describe('the clip clipboard', () => {
   const start = () => reducer(undefined, reduceLoadedProject(loaded))
   const placed = (overrides = {}): Placed => ({
     clips: [clip({ id: 20 })],
-    patternClips: [{ id: 21, patternId: 2, trackNumber: 1, startBeat: 13, window: null }],
+    patternClips: [{ id: 21, patternId: 2, trackNumber: 1, startBeat: 13, window: { start: 0, end: 16 } }],
     leftOut: 0,
     ...overrides,
   })
@@ -596,11 +617,11 @@ describe('the clip clipboard', () => {
   beforeEach(() => {
     mockInvoke.mockReset()
     mockInvoke.mockImplementation(async (command: string) =>
-      command === 'get_playlist_data' ? [16, 256, 240, 4] : 0)
+      command === 'get_playlist_data' ? playlistData : 0)
   })
 
   it('copies clips, and keeps the count the engine gives', async () => {
-    mockInvoke.mockImplementation(async (command: string) => (command === 'copy_clips' ? 2 : [16, 256, 240, 4]))
+    mockInvoke.mockImplementation(async (command: string) => (command === 'copy_clips' ? 2 : playlistData))
     const { state } = await run(dispatch => copyClips([7, 9])(dispatch))
 
     expect(mockInvoke).toHaveBeenCalledWith('copy_clips', { ids: [7, 9] })
@@ -609,7 +630,7 @@ describe('the clip clipboard', () => {
   })
 
   it('cuts clips out of the playlist', async () => {
-    mockInvoke.mockImplementation(async (command: string) => (command === 'cut_clips' ? 1 : [16, 256, 240, 4]))
+    mockInvoke.mockImplementation(async (command: string) => (command === 'cut_clips' ? 1 : playlistData))
     const { state } = await run(dispatch => cutClips([7])(dispatch))
 
     expect(mockInvoke).toHaveBeenCalledWith('cut_clips', { ids: [7] })
@@ -629,7 +650,7 @@ describe('the clip clipboard', () => {
 
   it('pastes, and selects what it placed', async () => {
     mockInvoke.mockImplementation(async (command: string) =>
-      (command === 'paste_clips' ? placed() : [16, 256, 240, 4]))
+      (command === 'paste_clips' ? placed() : playlistData))
     const { result, state } = await run(dispatch => pasteClips(12, 3)(dispatch))
 
     expect(mockInvoke).toHaveBeenCalledWith('paste_clips', { beat: 12, track: 3 })
@@ -641,7 +662,7 @@ describe('the clip clipboard', () => {
 
   it('pastes on the original tracks by default', async () => {
     mockInvoke.mockImplementation(async (command: string) =>
-      (command === 'paste_clips' ? placed() : [16, 256, 240, 4]))
+      (command === 'paste_clips' ? placed() : playlistData))
     await run(dispatch => pasteClips(12)(dispatch))
     expect(mockInvoke).toHaveBeenCalledWith('paste_clips', { beat: 12, track: null })
   })
@@ -660,14 +681,14 @@ describe('the clip clipboard', () => {
 
   it('says how many clips were left out', async () => {
     mockInvoke.mockImplementation(async (command: string) =>
-      (command === 'paste_clips' ? placed({ leftOut: 1 }) : [16, 256, 240, 4]))
+      (command === 'paste_clips' ? placed({ leftOut: 1 }) : playlistData))
     const one = await run(dispatch => pasteClips(12)(dispatch))
     expect(noticeFrom(one.dispatch)).toEqual([
       setProjectNotice({ kind: 'info', message: '1 clip was left out: its pattern no longer exists.' }),
     ])
 
     mockInvoke.mockImplementation(async (command: string) =>
-      (command === 'paste_clips' ? placed({ leftOut: 2 }) : [16, 256, 240, 4]))
+      (command === 'paste_clips' ? placed({ leftOut: 2 }) : playlistData))
     const two = await run(dispatch => pasteClips(12)(dispatch))
     expect(noticeFrom(two.dispatch)).toEqual([
       setProjectNotice({ kind: 'info', message: '2 clips were left out: their patterns no longer exist.' }),
@@ -676,14 +697,14 @@ describe('the clip clipboard', () => {
 
   it('selects nothing when nothing was placed', async () => {
     mockInvoke.mockImplementation(async (command: string) =>
-      (command === 'paste_clips' ? placed({ clips: [], patternClips: [], leftOut: 1 }) : [16, 256, 240, 4]))
+      (command === 'paste_clips' ? placed({ clips: [], patternClips: [], leftOut: 1 }) : playlistData))
     const { state } = await run(dispatch => pasteClips(12)(dispatch))
     expect(state.travelled.count).toBe(0)
   })
 
   it('repeats clips, and selects the duplicates', async () => {
     mockInvoke.mockImplementation(async (command: string) =>
-      (command === 'repeat_clips' ? placed() : [16, 256, 240, 4]))
+      (command === 'repeat_clips' ? placed() : playlistData))
     const { result, state } = await run(dispatch => repeatClips([7, 9])(dispatch))
 
     expect(mockInvoke).toHaveBeenCalledWith('repeat_clips', { ids: [7, 9] })
@@ -768,7 +789,7 @@ describe('reduceChangedClips with a deep copy', () => {
     const base = reducer(undefined, reduceLoadedProject(loaded))
     const withPattern = reducer(base, playlistSlice.actions.reduceChangedClips({
       clips: [],
-      patternClips: [{ id: 30, patternId: 2, trackNumber: 1, startBeat: 3, window: null }],
+      patternClips: [{ id: 30, patternId: 2, trackNumber: 1, startBeat: 3, window: { start: 0, end: 16 } }],
     }))
     expect(withPattern.playlistItems.find(i => i.id === 30)?.patternId).toBe(2)
 
@@ -810,7 +831,7 @@ describe('deep copy and join', () => {
   // the engine's refusals are plain sentences, not Errors
   const refuse = (message: string) => vi.fn().mockRejectedValue(message)()
   const answers = (over: Record<string, unknown>) => async (command: string) =>
-    command in over ? over[command] : [16, 256, 240, 4]
+    command in over ? over[command] : playlistData
   const joined = (over = {}) => ({
     clips: [clip({ id: 7, path: '/project/joined.wav' })], patternClips: [], removed: [9], sequencer: null, ...over,
   })
@@ -862,7 +883,7 @@ describe('deep copy and join', () => {
     const changed = { clips: [clip()], patternClips: [] }
     let calls = 0
     mockInvoke.mockImplementation(async (command: string) => {
-      if(command !== 'deep_copy_clips') return [16, 256, 240, 4]
+      if(command !== 'deep_copy_clips') return playlistData
       if(++calls === 1) return refuse(NEEDS_SAVING)
       return changed
     })
@@ -880,7 +901,7 @@ describe('deep copy and join', () => {
   it('does nothing more when the save is cancelled', async () => {
     mockInvoke.mockImplementation(async (command: string) => {
       if(command === 'deep_copy_clips') return refuse(NEEDS_SAVING)
-      return [16, 256, 240, 4]
+      return playlistData
     })
     const { result, state, dispatch } = await run((d, g) => deepCopyClips([7])(d, g as never), false)
 
@@ -894,7 +915,7 @@ describe('deep copy and join', () => {
   it('treats a second failure after saving like any other', async () => {
     mockInvoke.mockImplementation(async (command: string) => {
       if(command === 'deep_copy_clips') return refuse(NEEDS_SAVING)
-      return [16, 256, 240, 4]
+      return playlistData
     })
     const { result, dispatch } = await run((d, g) => deepCopyClips([7])(d, g as never))
 
@@ -954,7 +975,7 @@ describe('deep copy and join', () => {
   it('saves first, then joins', async () => {
     let calls = 0
     mockInvoke.mockImplementation(async (command: string) => {
-      if(command !== 'join_clips') return [16, 256, 240, 4]
+      if(command !== 'join_clips') return playlistData
       if(++calls === 1) return refuse(NEEDS_SAVING)
       return joined()
     })
@@ -969,7 +990,7 @@ describe('deep copy and join', () => {
   it('leaves the clips alone when the save is cancelled', async () => {
     mockInvoke.mockImplementation(async (command: string) => {
       if(command === 'join_clips') return refuse(NEEDS_SAVING)
-      return [16, 256, 240, 4]
+      return playlistData
     })
     const { result, state, dispatch } = await run((d, g) => joinClips([7, 9])(d, g as never), false)
 

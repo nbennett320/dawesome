@@ -12,7 +12,7 @@ audio Dawesome makes for the project are kept in folders beside it.
 
 Choose **File ▸ New Project** (**⌘N (Ctrl+N)**).
 
-The playlist, Sequencer and mixer are cleared, and the window's title shows
+The playlist, Pattern Sequencer and mixer are cleared, and the window's title shows
 **Untitled — Dawesome**.
 
 If the current project has unsaved changes (see
@@ -173,15 +173,42 @@ A project saved as a single `.dawesome` file, without a folder of its own,
 still opens. **Save** writes it back where it is, with its recordings in a
 `recordings` folder next to the file. **Save As…** gives it a folder.
 
+A project with patterns from an earlier version of Dawesome opens with its
+drum and note patterns turned into one kind of pattern, and its pattern
+folders in one tree (see
+[7-8 Patterns from older versions](./patterns.md#_7-8-patterns-from-older-versions)).
+Opening it doesn't change the file. Saving it writes the new format.
+
+::: warning CAUTION
+A project with patterns, once saved by this version, can't be opened by
+older versions of Dawesome: they say it was saved by a newer version. To
+keep the original for an older version, copy the project's folder before
+you save, or save the opened project under a new name with **Save As…**
+(the original file is left as it was).
+
+Moving or renaming a take the project uses, in the **Recordings** browser,
+also updates the saved project file, and so saves it in the new format too.
+:::
+
+::: tip NOTE
+The first time an older project is written over in the new format, whether
+by **Save** or by moving a take, Dawesome keeps a copy of the original file
+beside it, named for its format: `song.dawesome` becomes `song.v3.dawesome`
+(`v1` or `v2` for the oldest formats). The copy is made once. If a copy of
+that name is already there, it is left as it is. An older version of
+Dawesome opens the copy. If the copy can't be made, the project isn't
+saved and stays open; save it elsewhere with **Save As…**.
+:::
+
 ## 4-6 What is saved
 
 | Saved with the project | Not saved |
 | --- | --- |
 | Tempo, time signature, metronome, loop, snap and snap length, count-in | The undo history (it starts again with each project) |
 | Playlist clips and pattern clips, with their trims and settings | The playlist's mouse tool (a project opens with the select tool) |
-| Sequencer rows and patterns | Mixdown settings |
+| Pattern Sequencer rows, patterns and pattern folders | Mixdown settings |
 | Mixer settings of changed or named tracks | Audio settings and preferences (see [2-5](./install.md#_2-5-where-settings-are-kept)) |
-| Armed tracks and their input channels | |
+| Armed tracks and their input channels | The Pattern Sequencer's **Used only** setting |
 | Each channel's effects and their settings <!-- PROVISIONAL --> | |
 <!-- VERIFY: whether the tab and pane layout, and plugin window positions (commit ba304a9), are saved with the project. -->
 

@@ -2,6 +2,7 @@
 // them. mirrors engine/src/commands/effect.rs (see
 // context/vst-project/04-api.md, the contract both sides keep to)
 import { trackLabel } from './mixer'
+import { SynthInstrument } from './sequencer'
 import { clamp } from '../util/helpers'
 
 // one plugin the scan found (engine/src/plugin/mod.rs PluginInfo)
@@ -137,10 +138,12 @@ export const fxLit = (slots: EffectSlot[]): boolean => slots.some(isActive)
 // window)
 export const hasTab = (slot: Pick<EffectSlot, 'hasEditor' | 'missing'>): boolean => slot.hasEditor && !slot.missing
 
-// every slot that can have a tab, in the project: the racks' effects, and
-// the synths (whose ids are slot ids too)
-export const tabSlotIds = (racks: Racks, synths: Array<Pick<EffectSlot, 'id' | 'hasEditor' | 'missing'>> = []): number[] =>
-  [...racks.flatMap(rack => rack.slots), ...synths].filter(hasTab).map(slot => slot.id)
+// every slot that can have a tab, in the project: the racks' effects', and
+// the synth rows' synths'
+export const tabSlotIds = (racks: Racks, synths: Array<Pick<SynthInstrument, 'slot' | 'hasEditor' | 'missing'>> = []): number[] => [
+  ...racks.flatMap(rack => rack.slots).filter(hasTab).map(slot => slot.id),
+  ...synths.filter(hasTab).map(synth => synth.slot),
+]
 
 // a plugin's tab's name: "Name" when it's the project's only one of that
 // plugin, "Name - Channel" when there are more but one to a channel, and

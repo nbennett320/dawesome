@@ -544,133 +544,321 @@ impl std::fmt::Display for AudioNode {
 }
 
 // a pattern placed in the playlist. it stays linked to its pattern, so it
-// plays whatever the pattern holds now, and is as long as the pattern is
-// (or as the part of it that it plays). its hits go to its track's bus, and
-// its notes to its track's copy of each synth (see run_notes)
+// plays whatever the pattern holds now, but it keeps a length of its own:
+// longer than its pattern, it plays the pattern over and over (see
+// pattern_step_at). its sample rows' notes go to its track's bus (see
+// sample_voice.rs), and its synth rows' notes to its track's copy of each
+// synth (see run_notes)
 #[derive(Clone, Debug, PartialEq)]
 pub struct PatternNode {
   pub id: u64,
   pub pattern_id: u64,
+  // where the clip starts in the playlist
   pub start_offset: Duration,
   pub track_number: u32,
-  // the part of the pattern the clip plays. None: all of it.
-  // `start_offset` is where that part starts in the playlist
-  pub window: Option<PatternWindow>,
-}
-
-// the part of a pattern a clip plays, in steps from the pattern's start
-// (not always whole steps: a clip can be cut between two)
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct PatternWindow {
+  // where in its pattern the clip starts, in steps. it isn't wrapped at the
+  // pattern's length, so the second half of a clip cut on its pattern's
+  // second time round still plays what the whole clip did there, whatever
+  // the pattern's length becomes later
   pub start: f64,
-  // None: to the pattern's end, wherever that is now
-  pub end: Option<f64>,
+  // how long the clip is, in steps
+  pub length: f64,
 }
 
 // the shortest a pattern clip can be trimmed or cut to, in steps
 pub const MIN_PATTERN_CLIP: f64 = 1.;
+// the longest a pattern clip can be, and the furthest into its pattern it
+// can start, in steps: as far as a note can start, past the longest
+// playlist there can be
+pub const MAX_PATTERN_CLIP: f64 = daw::MAX_NOTE_START;
 
 // how long a number of steps lasts
 fn steps_time(steps: f64, beat_interval: Duration) -> Duration {
   Duration::from_secs_f64(beat_interval.as_secs_f64() * steps.max(0.) / daw::STEPS_PER_BEAT as f64)
 }
 
+// a pattern clip's steps to a millionth, which is what they're kept to: the
+// end of the first half of a cut clip is then the very step the second half
+// starts on, however the two were worked out
+fn micro_steps(steps: f64) -> f64 {
+  (steps * 1e6).round() / 1e6
+}
+
+// the step of its pattern, `length` steps long, that a clip starting
+// `start` steps into it plays `t` steps after the clip's start: the clip
+// plays the pattern end to end, over and over. (the remainder is exact, so
+// the clip's step less this is a whole number of patterns to the bit: see
+// PatternNode::first_pass_at)
+pub fn pattern_step_at(start: f64, t: f64, length: u32) -> f64 {
+  let step = start + t;
+  // (most often in the pattern's first time round: no division then)
+  if (0. ..length as f64).contains(&step) { step } else { step.rem_euclid(length as f64) }
+}
+
+// one time through its pattern that a clip plays: the part of the pattern
+// it plays then, from `from` up to `to` (steps of the pattern, `to` no
+// further than its end), and where that time through starts, in steps from
+// the clip's origin (see PatternNode::origin): a whole number of patterns
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Pass {
+  pub from: f64,
+  pub to: f64,
+  pub at: f64,
+}
+
+impl Pass {
+  // which of a row's notes (sorted by start: see sort_notes) it plays: the
+  // ones that start in its part of the pattern. found by binary search, as a
+  // pattern can hold tens of thousands of notes
+  pub fn notes<'a>(&self, notes: &'a [daw::PatternNote]) -> &'a [daw::PatternNote] {
+    let first = notes.partition_point(|note| note.start < self.from);
+    let past = notes.partition_point(|note| note.start < self.to).max(first);
+    &notes[first..past]
+  }
+
+  // where one of those notes starts and ends as it plays it, in steps from
+  // the clip's origin: it ends at its own end, or at the end of the pass,
+  // whichever comes first
+  pub fn plays(&self, note: &daw::PatternNote) -> (f64, f64) {
+    (self.at + note.start, self.at + note.end().min(self.to))
+  }
+}
+
 impl PatternNode {
-  // a clip of a whole pattern
-  pub fn new(id: u64, pattern_id: u64, start_offset: Duration, track_number: u32) -> Self {
-    PatternNode { id, pattern_id, start_offset, track_number, window: None }
+  // a clip of all of a pattern `length` steps long
+  pub fn new(id: u64, pattern_id: u64, start_offset: Duration, track_number: u32, length: u32) -> Self {
+    PatternNode { id, pattern_id, start_offset, track_number, start: 0., length: length as f64 }
   }
 
-  // the steps the clip spans in a pattern `length` steps long: from, to.
-  // the window is kept as it was set, so a pattern made shorter and then
-  // longer again gives the clip its steps back. a window past the pattern's
-  // end leaves a clip one step long, which plays nothing
-  pub fn span(&self, length: u32) -> (f64, f64) {
-    let length = length as f64;
-    match self.window {
-      None => (0., length),
-      Some(window) => {
-        let end = window.end.map_or(length, |end| end.min(length));
-        (window.start, end.max(window.start + MIN_PATTERN_CLIP))
-      }
-    }
+  // a pattern played on its own, which plays as a clip of all of it at the
+  // playlist's start would (its id and track aren't used)
+  fn alone(pattern: &daw::Pattern) -> Self {
+    PatternNode::new(0, pattern.id, Duration::ZERO, 0, pattern.length)
   }
 
-  // play only part of the pattern (see AudioGraph::set_pattern_window,
-  // which keeps the hits where they are in the playlist). kept within the
-  // pattern, `length` steps long, and at least a step long. returns the
-  // window kept. a window that's the whole pattern is None
-  pub fn set_window(&mut self, start: f64, end: Option<f64>, length: u32) -> Option<PatternWindow> {
-    let length = length as f64;
-    // (a number that makes no sense is the pattern's start, or its end)
-    let start = if start.is_finite() { start } else { 0. };
-    // (an end too near the start is moved later, where there's room)
-    let start = start.min(length - MIN_PATTERN_CLIP).max(0.);
-    let end = end
-      .filter(|end| end.is_finite())
-      .map(|end| end.max(start + MIN_PATTERN_CLIP))
-      .filter(|end| *end < length);
+  // where in its pattern the clip ends, in steps (counted as `start` is)
+  pub fn end(&self) -> f64 {
+    micro_steps(self.start + self.length)
+  }
 
-    self.window = if start == 0. && end.is_none() { None } else { Some(PatternWindow { start, end }) };
-    self.window
+  // play `length` steps of the pattern from `start` steps into it, kept to
+  // what a clip can be: from step 0, at least MIN_PATTERN_CLIP long, no
+  // further than MAX_PATTERN_CLIP either way, and to a millionth of a step.
+  // a number that makes no sense is the pattern's start, or the shortest
+  // clip. (the clip's place in the playlist is the caller's: see
+  // AudioGraph::set_pattern_window)
+  pub fn set_span(&mut self, start: f64, length: f64) {
+    let start = if start.is_finite() { start.clamp(0., MAX_PATTERN_CLIP) } else { 0. };
+    let length = if length.is_finite() { length.clamp(MIN_PATTERN_CLIP, MAX_PATTERN_CLIP) } else { MIN_PATTERN_CLIP };
+    self.start = micro_steps(start);
+    self.length = micro_steps(length);
   }
 
   // where the pattern's first step would be heard, were all of it played,
   // in nanoseconds (it can be before the playlist's start). the halves of a
   // cut clip have the same origin, to the nanosecond
   pub fn origin(&self, beat_interval: Duration) -> i128 {
-    let before = self.window.map_or(0., |window| window.start);
-    self.start_offset.as_nanos() as i128 - steps_time(before, beat_interval).as_nanos() as i128
+    self.start_offset.as_nanos() as i128 - steps_time(self.start, beat_interval).as_nanos() as i128
   }
 
-  // where in the playlist a point of the pattern is heard
+  // where in the playlist each point of the clip is heard, given in steps
+  // from its origin. (the origin is worked out once, for all of a slice's
+  // notes)
+  fn heard(&self, beat_interval: Duration) -> impl Fn(f64) -> i128 + Copy {
+    let origin = self.origin(beat_interval);
+    move |steps| origin + steps_time(steps, beat_interval).as_nanos() as i128
+  }
+
+  // where in the playlist a point of the clip is heard, in steps from its
+  // origin
   fn heard_at(&self, steps: f64, beat_interval: Duration) -> i128 {
-    self.origin(beat_interval) + steps_time(steps, beat_interval).as_nanos() as i128
+    self.heard(beat_interval)(steps)
   }
 
-  // how long the clip is, for a pattern `length` steps long
-  pub fn duration(&self, length: u32, beat_interval: Duration) -> Duration {
-    let (from, to) = self.span(length);
-    steps_time(to, beat_interval).saturating_sub(steps_time(from, beat_interval))
+  // how long the clip is
+  pub fn duration(&self, beat_interval: Duration) -> Duration {
+    steps_time(self.end(), beat_interval).saturating_sub(steps_time(self.start, beat_interval))
   }
 
-  // whether the clip plays a hit on `step` of its pattern
-  pub fn plays(&self, step: u32, length: u32) -> bool {
-    let (from, to) = self.span(length);
-    step < length && step as f64 >= from && (step as f64) < to
+  // where the clip's first time through its pattern, `length` steps long,
+  // starts: the start of the pattern it starts in, in steps from its origin
+  // (a whole number of patterns)
+  fn first_pass_at(&self, length: u32) -> f64 {
+    self.start - pattern_step_at(self.start, 0., length)
   }
 
-  // when a hit on `step` is heard
-  pub fn hit_at(&self, step: u32, beat_interval: Duration) -> Duration {
-    let at = self.origin(beat_interval) + daw::step_offset(step, beat_interval).as_nanos() as i128;
-    Duration::from_nanos(at.max(0) as u64)
+  // the times through its pattern, `length` steps long, that the clip
+  // plays, in order, from the `k`th (the first is 0), the first of them
+  // starting `first` steps from its origin (see first_pass_at): the first
+  // starts where the clip does in the pattern, and the last ends where the
+  // clip ends
+  fn passes_from(&self, first: f64, k: u64, length: u32) -> impl Iterator<Item = Pass> + Clone {
+    let (start, end, whole) = (self.start, self.end(), length as f64);
+    (k..).map(move |k| first + k as f64 * whole)
+      .take_while(move |&at| length > 0 && at < end)
+      .map(move |at| Pass { from: (start - at).max(0.), to: (end - at).min(whole), at })
+  }
+
+  // every time through its pattern that the clip plays, in order
+  pub fn passes(&self, length: u32) -> impl Iterator<Item = Pass> + Clone {
+    self.passes_from(self.first_pass_at(length), 0, length)
+  }
+
+  // the times through it that are heard, if only in part, from `from` up to
+  // `to` (nanoseconds in the playlist), and one more either side: they're
+  // found from steps, which can be a hair out at a pass's edges, so which of
+  // their notes are heard then is worked out from when each one is (see
+  // notes_around). (cheap to go through again: clone it)
+  fn passes_heard(&self, length: u32, beat: Duration, from: i128, to: i128) -> impl Iterator<Item = Pass> + Clone {
+    let step = beat.as_secs_f64() * 1e9 / daw::STEPS_PER_BEAT as f64;
+    let (first, origin) = (self.first_pass_at(length), self.origin(beat));
+    let pass_of = |at: i128| ((at.saturating_sub(origin) as f64 / step - first) / length as f64).floor();
+    // (a float that's too big or isn't a number becomes the nearest whole
+    // number or 0, and the passes stop where the clip does)
+    let (low, high) = ((pass_of(from) - 1.).max(0.) as u64, (pass_of(to) + 1.).max(0.) as u64);
+    self.passes_from(first, low, length).take(high.saturating_sub(low).saturating_add(1) as usize)
+  }
+
+  // which of a row's notes (sorted by start: see sort_notes) the clip plays
+  // in a time through its pattern, split by when they're heard: those heard
+  // before `from`, and those heard from `from` up to `to` (nanoseconds in
+  // the playlist)
+  // - heard: where a point of the clip is heard (see PatternNode::heard)
+  fn notes_around<'a>(
+    notes: &'a [daw::PatternNote],
+    pass: &Pass,
+    heard: impl Fn(f64) -> i128,
+    from: i128,
+    to: i128,
+  ) -> (&'a [daw::PatternNote], &'a [daw::PatternNote]) {
+    let played = pass.notes(notes);
+    // (each is where the notes stop passing a test that a note later than
+    // one that fails it fails too)
+    let starting = played.partition_point(|note| heard(pass.plays(note).0) < from);
+    let past = played.partition_point(|note| heard(pass.plays(note).0) < to).max(starting);
+    (&played[..starting], &played[starting..past])
+  }
+
+  // the voices of the notes the clip plays on its pattern's sample rows
+  // that start in a slice of a run, each with how far into the slice it
+  // starts. on a resume, those that started before the slice and are still
+  // sounding are played from where it starts in them
+  fn sample_voices(
+    &self,
+    sequencer: &daw::Sequencer,
+    pattern: &daw::Pattern,
+    beat: Duration,
+    slice: &Slice,
+  ) -> Vec<(Duration, daw::SampleVoice)> {
+    let (in_slice, heard) = (self.passes_heard(pattern.length, beat, slice.start, slice.end), self.heard(beat));
+    let mut voices = Vec::new();
+    for (instrument, notes) in sequencer.sample_notes(pattern) {
+      // (on a resume, the times through as far back as one of the row's
+      // notes can still be sounding: none, for a clip over by then)
+      let passes = if slice.resume {
+        let back = instrument.longest(notes).as_nanos() as i128;
+        self.passes_heard(pattern.length, beat, slice.start - back, slice.end)
+      } else {
+        in_slice.clone()
+      };
+      for pass in passes {
+        let (before, starting) = Self::notes_around(notes, &pass, heard, slice.start, slice.end);
+        let resumed = if slice.resume { before } else { &[] };
+        for note in resumed.iter().chain(starting) {
+          voices.extend(Self::sample_voice(&instrument, note, &pass, heard, slice));
+        }
+      }
+    }
+    voices
+  }
+
+  // a sample row's note as the clip plays it in a slice: from its start, or
+  // from where the slice starts in it. a gated row's stops at the note's
+  // end, or at the end of the time through the pattern if that's sooner
+  // (see Pass::plays). none if it started before the slice and is over by
+  // then
+  fn sample_voice(
+    instrument: &daw::SampleInstrument,
+    note: &daw::PatternNote,
+    pass: &Pass,
+    heard: impl Fn(f64) -> i128,
+    slice: &Slice,
+  ) -> Option<(Duration, daw::SampleVoice)> {
+    let (from, to) = pass.plays(note);
+    let on = heard(from);
+    let stop = instrument.gated.then(|| heard(to));
+    if on < slice.start {
+      let played_out = on + instrument.played_len(note.pitch).as_nanos() as i128;
+      let sounds_until = stop.map_or(played_out, |stop| stop.min(played_out));
+      if sounds_until <= slice.start { return None; }
+    }
+
+    // in frames from the note's start, as the run has them
+    let first = slice.frame(on);
+    let starts = on.max(slice.start);
+    let lead = (slice.frame(starts) - first) as u64;
+    let end = stop.map(|stop| (slice.frame(stop) - first).max(0) as u64);
+    let voice = instrument.voice(note.pitch, note.velocity, slice.rate, lead, end);
+    Some((Duration::from_nanos((starts - slice.start) as u64), voice))
+  }
+
+  // the notes the clip plays on its pattern's synth rows that are heard
+  // from `from` up to `to` (nanoseconds in the playlist), for the synths'
+  // copies on `route` (none: the master's). each ends where it ends, at the
+  // end of its time through the pattern, or at `cut`, whichever comes first
+  #[allow(clippy::too_many_arguments)]
+  fn synth_slice_notes(
+    &self,
+    sequencer: &daw::Sequencer,
+    pattern: &daw::Pattern,
+    beat: Duration,
+    from: i128,
+    to: i128,
+    cut: i128,
+    route: Option<daw::TrackRoute>,
+  ) -> Vec<SliceNote> {
+    let (passes, heard) = (self.passes_heard(pattern.length, beat, from, to), self.heard(beat));
+    let mut notes = Vec::new();
+    for (slot, synth_notes) in sequencer.synth_notes(pattern) {
+      for pass in passes.clone() {
+        let (_, starting) = Self::notes_around(synth_notes, &pass, heard, from, to);
+        for note in starting {
+          let (starts, ends) = pass.plays(note);
+          let (on, off) = (heard(starts), heard(ends).min(cut));
+          notes.push(SliceNote::new(on - from, off - from, slot, route.clone(), note));
+        }
+      }
+    }
+    notes
   }
 }
 
-// when to play a sound at `at`, `len` long, in the slice of time from
-// `window_start`, `dur` long
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Scheduled {
-  // it starts in the slice, this far in
-  Delay(Duration),
-  // it started before the slice and is still sounding: play the rest, from
-  // this far in. only on a resume (a run's first slice)
-  Skip(Duration),
-}
-
-pub fn schedule_in_window(
-  at: Duration,
-  len: Duration,
-  window_start: Duration,
-  dur: Duration,
+// a slice of a run being scheduled: from `start` up to `end`, in
+// nanoseconds of the playlist (or of a pattern playing on its own). every
+// sound's frames are counted from where the run's frame 0 is (`run_zero`),
+// so two sounds worked out from the same time land on the same frame
+#[derive(Clone, Copy, Debug)]
+struct Slice {
+  start: i128,
+  end: i128,
+  run_zero: i128,
+  // the engine's rate
+  rate: u32,
+  // the run's first slice: sounds that started before it and are still
+  // sounding are played from where it starts in them
   resume: bool,
-) -> Option<Scheduled> {
-  if at >= window_start && at < window_start + dur {
-    Some(Scheduled::Delay(at - window_start))
-  } else if resume && at < window_start && at + len > window_start {
-    Some(Scheduled::Skip(window_start - at))
-  } else {
-    None
+}
+
+impl Slice {
+  // the slice `dur` long from `start`, which is `at` into the run
+  fn new(start: Duration, at: Duration, dur: Duration, rate: u32, resume: bool) -> Slice {
+    let start = start.as_nanos() as i128;
+    Slice { start, end: start + dur.as_nanos() as i128, run_zero: start - at.as_nanos() as i128, rate, resume }
+  }
+
+  // the frame of the run a time falls on
+  fn frame(&self, at: i128) -> i64 {
+    run_frame(at - self.run_zero, self.rate)
   }
 }
 
@@ -687,6 +875,7 @@ pub type SliceSound = (Duration, daw::VoiceSource, daw::Route);
 pub struct SliceNote {
   pub on: Duration,
   pub off: Duration,
+  // the synth row's slot
   pub synth: u64,
   pub route: Option<daw::TrackRoute>,
   pub pitch: u8,
@@ -742,7 +931,6 @@ pub struct AudioGraph<'a> {
   pub current_offset: Option<Duration>,
   sample_rate: u32,
   tempo: f32,
-  max_beats: u64,
   next_id: u64,
   // every clip plays through its track's strip (shared with the playlist
   // state, so the mixer's controls don't need the graph's lock)
@@ -757,11 +945,7 @@ pub struct AudioGraph<'a> {
 }
 
 impl AudioGraph<'static> {
-  pub fn new(
-    sample_rate: u32, 
-    tempo: f32,
-    max_beats: u64,
-  ) -> Self {
+  pub fn new(sample_rate: u32, tempo: f32) -> Self {
     AudioGraph {
       nodes: Vec::<AudioNode>::new(),
       pattern_nodes: Vec::new(),
@@ -769,7 +953,6 @@ impl AudioGraph<'static> {
       current_offset: Some(Duration::ZERO),
       sample_rate,
       tempo,
-      max_beats,
       next_id: 0,
       mixer: Arc::new(daw::Mixer::default()),
       sequencer: Arc::new(Mutex::new(daw::Sequencer::default())),
@@ -799,12 +982,7 @@ impl AudioGraph<'static> {
   // - at: how far into the run the slice starts
   // - rate: the engine's rate, which sample clips are read out at
   pub fn run_sounds_at(&self, at: Duration, rate: u32, dur: Duration, metronome: bool, resume: bool) -> Vec<SliceSound> {
-    if !self.has_clips() {
-      println!("Tried to run audio graph. No nodes in graph!");
-      return Vec::new();
-    }
-
-    if !self.running { return Vec::new(); }
+    if !self.has_clips() || !self.running { return Vec::new(); }
 
     let mut sounds = Vec::new();
     if metronome { sounds.push(metronome_tick()); }
@@ -859,15 +1037,11 @@ impl AudioGraph<'static> {
     };
 
     let window_start = self.current_offset.unwrap_or(Duration::ZERO);
-    println!("current offset: {}", window_start.as_millis());
-    // where the run's frame 0 is in the playlist
-    let run_zero = window_start.as_nanos() as i128 - at.as_nanos() as i128;
+    let slice = Slice::new(window_start, at, dur, rate, resume);
 
     if resume {
       for node in self.nodes_sounding_at(window_start) {
-        let played = window_start - node.start_offset;
-        println!("resumed node: {} ({}ms in)", node.sample_path, played.as_millis());
-        let voice = node.voice(rate, at.as_nanos() as i128, run_zero);
+        let voice = node.voice(rate, at.as_nanos() as i128, slice.run_zero);
         add(Duration::ZERO, Box::new(voice), node.track_number);
       }
     }
@@ -875,28 +1049,18 @@ impl AudioGraph<'static> {
     // every node that starts within this time slice
     for node in self.nodes_in_window(window_start, dur) {
       let delay_offset = node.start_offset - window_start;
-      println!("added node: {} (delay offset: {}ms)", node.sample_path, delay_offset.as_millis());
-      let voice = node.voice(rate, (at + delay_offset).as_nanos() as i128, run_zero);
+      let voice = node.voice(rate, (at + delay_offset).as_nanos() as i128, slice.run_zero);
       add(delay_offset, Box::new(voice), node.track_number);
     }
 
-    // and every pattern clip's hits, on their track's bus
+    // and every pattern clip's sample rows' notes, on their track's bus
     if !self.pattern_nodes.is_empty() {
       let sequencer = self.sequencer.lock().unwrap();
       let beat = self.beat_interval();
       for node in &self.pattern_nodes {
-        let length = sequencer.pattern(node.pattern_id).map_or(0, |pattern| pattern.length);
-        for (row, step) in sequencer.hit_steps(node.pattern_id) {
-          // only the hits in the part of the pattern the clip plays
-          if !node.plays(step, length) { continue; }
-          let at = node.hit_at(step, beat);
-          match schedule_in_window(at, row.duration(), window_start, dur, resume) {
-            Some(Scheduled::Delay(d)) =>
-              add(d, Box::new(row.source()), node.track_number),
-            Some(Scheduled::Skip(d)) =>
-              add(Duration::ZERO, Box::new(row.source().skip_duration(d)), node.track_number),
-            None => {}
-          }
+        let Some(pattern) = sequencer.pattern(node.pattern_id) else { continue };
+        for (delay, voice) in node.sample_voices(&sequencer, pattern, beat, &slice) {
+          add(delay, Box::new(voice), node.track_number);
         }
       }
     }
@@ -905,12 +1069,15 @@ impl AudioGraph<'static> {
   }
 
   // the sounds of the next `dur` of a pattern played on its own (in the
-  // Sequencer tab). the graph's current offset is where the run is in the
-  // pattern. like run_sounds, but the hits go straight to the master bus
+  // Sequencer tab), the slice starting `at` into the run, at the engine's
+  // `rate`. the graph's current offset is where the run is in the pattern.
+  // like run_sounds_at, but the notes go straight to the master bus
   // (there's no playlist track), and only the pattern plays
   pub fn pattern_sounds(
     &self,
     pattern_id: u64,
+    at: Duration,
+    rate: u32,
     dur: Duration,
     metronome: bool,
     resume: bool,
@@ -918,26 +1085,33 @@ impl AudioGraph<'static> {
     let mut sounds = Vec::new();
     if metronome { sounds.push(metronome_tick()); }
 
-    let window_start = self.current_offset.unwrap_or(Duration::ZERO);
     let sequencer = self.sequencer.lock().unwrap();
-    for (row, at) in sequencer.hits(pattern_id, self.beat_interval()) {
-      let sound: SliceSound = match schedule_in_window(at, row.duration(), window_start, dur, resume) {
-        Some(Scheduled::Delay(d)) => (d, Box::new(row.source()), daw::Route::Master),
-        Some(Scheduled::Skip(d)) => (Duration::ZERO, Box::new(row.source().skip_duration(d)), daw::Route::Master),
-        None => continue,
-      };
-      sounds.push(sound);
+    let Some(pattern) = sequencer.pattern(pattern_id) else { return sounds };
+    let slice = Slice::new(self.current_offset.unwrap_or(Duration::ZERO), at, dur, rate, resume);
+    let voices = PatternNode::alone(pattern).sample_voices(&sequencer, pattern, self.beat_interval(), &slice);
+    for (delay, voice) in voices {
+      sounds.push((delay, Box::new(voice), daw::Route::Master));
     }
-
     sounds
   }
 
+  // the voices of every note a pattern clip plays on its pattern's sample
+  // rows, as a run from the playlist's start at `rate` plays them, each with
+  // how far into the clip it starts (what Deep copy writes out)
+  pub fn pattern_clip_voices(&self, node: &PatternNode, rate: u32) -> Vec<(Duration, daw::SampleVoice)> {
+    let sequencer = self.sequencer.lock().unwrap();
+    let Some(pattern) = sequencer.pattern(node.pattern_id) else { return Vec::new() };
+    let start = node.start_offset.as_nanos() as i128;
+    let whole = Slice { start, end: i128::MAX, run_zero: 0, rate, resume: false };
+    node.sample_voices(&sequencer, pattern, self.beat_interval(), &whole)
+  }
+
   // the notes that start in the next `dur` of a run of the graph, for the
-  // synths' copies on the pattern clips' tracks: each pattern clip's notes
-  // that start in the part of its pattern it plays, each ending where it
-  // ends or at the clip's end, whichever comes first. a note that started before the
-  // slice isn't played (an instrument can't start partway through a note),
-  // so a run from the middle of one leaves it out
+  // synths' copies on the pattern clips' tracks: each pattern clip's synth
+  // rows' notes that start in the part of its pattern it plays, each ending
+  // where it ends or at the clip's end, whichever comes first. a note that
+  // started before the slice isn't played (an instrument can't start
+  // partway through a note), so a run from the middle of one leaves it out
   //
   // - loop_end: where the playlist jumps back to its start, when it loops.
   //   a note still sounding there ends there, so it doesn't run on into the
@@ -953,34 +1127,23 @@ impl AudioGraph<'static> {
     let sequencer = self.sequencer.lock().unwrap();
     let mut notes = Vec::new();
     for node in &self.pattern_nodes {
-      let pattern = match sequencer.pattern(node.pattern_id) {
-        Some(pattern) if !pattern.notes.is_empty() => pattern,
-        _ => continue,
-      };
-      let (from, to) = node.span(pattern.length);
-      let route = self.mixer.track_route(node.track_number);
-      for (&synth, synth_notes) in &pattern.notes {
-        for note in synth_notes.iter().filter(|note| note.start >= from && note.start < to) {
-          let on = node.heard_at(note.start, beat);
-          if on < window_start || on >= window_end || on >= loop_end { continue; }
-          let off = node.heard_at(note.end().min(to), beat).min(loop_end);
-          notes.push(SliceNote::new(on - window_start, off - window_start, synth, Some(route.clone()), note));
-        }
-      }
+      let Some(pattern) = sequencer.pattern(node.pattern_id) else { continue };
+      let route = Some(self.mixer.track_route(node.track_number));
+      notes.extend(node.synth_slice_notes(&sequencer, pattern, beat, window_start, window_end.min(loop_end), loop_end, route));
     }
     notes
   }
 
-  // which synths each track plays: (synth, track) for every pattern clip
-  // with notes of that synth that it plays some of (or would, were its
+  // which synths each track plays: (slot, track) for every pattern clip
+  // with notes of that synth row that it plays some of (or would, were its
   // pattern longer). each needs a copy of the synth on that track
   pub fn synth_tracks(&self) -> BTreeSet<(u64, u32)> {
     let sequencer = self.sequencer.lock().unwrap();
     let mut pairs = BTreeSet::new();
     for node in &self.pattern_nodes {
       let Some(pattern) = sequencer.pattern(node.pattern_id) else { continue };
-      for (&synth, notes) in &pattern.notes {
-        if !notes.is_empty() { pairs.insert((synth, node.track_number)); }
+      for (slot, _) in sequencer.synth_notes(pattern) {
+        pairs.insert((slot, node.track_number));
       }
     }
     pairs
@@ -991,23 +1154,10 @@ impl AudioGraph<'static> {
   pub fn pattern_notes(&self, pattern_id: u64, dur: Duration) -> Vec<SliceNote> {
     let window_start = self.current_offset.unwrap_or(Duration::ZERO).as_nanos() as i128;
     let window_end = window_start + dur.as_nanos() as i128;
-    let beat = self.beat_interval();
     let sequencer = self.sequencer.lock().unwrap();
-    let pattern = match sequencer.pattern(pattern_id) {
-      Some(pattern) => pattern,
-      None => return Vec::new(),
-    };
-    let end = pattern.length as f64;
-    pattern.notes.iter()
-      .flat_map(|(&synth, notes)| notes.iter().map(move |note| (synth, note)))
-      .filter(|(_, note)| note.start < end)
-      .filter_map(|(synth, note)| {
-        let on = steps_time(note.start, beat).as_nanos() as i128;
-        if on < window_start || on >= window_end { return None; }
-        let off = steps_time(note.end().min(end), beat).as_nanos() as i128;
-        Some(SliceNote::new(on - window_start, off - window_start, synth, None, note))
-      })
-      .collect()
+    let Some(pattern) = sequencer.pattern(pattern_id) else { return Vec::new() };
+    PatternNode::alone(pattern)
+      .synth_slice_notes(&sequencer, pattern, self.beat_interval(), window_start, window_end, i128::MAX, None)
   }
 
   // change the tempo. clips keep their beat: one on beat 9 is still on beat
@@ -1029,15 +1179,6 @@ impl AudioGraph<'static> {
 
   pub fn tempo(&self) -> f32 {
     self.tempo
-  }
-
-  #[cfg(test)]
-  pub fn set_max_beats(&mut self, max_beats: u64) {
-    self.max_beats = max_beats;
-  }
-
-  pub fn max_beats(&self) -> u64 {
-    self.max_beats
   }
 
   pub fn sample_rate(&self) -> u32 {
@@ -1215,8 +1356,8 @@ impl AudioGraph<'static> {
     Ok(())
   }
 
-  // place a pattern in the playlist, snapped when `subdivision` is given.
-  // returns the clip's id
+  // place a pattern in the playlist, snapped when `subdivision` is given: a
+  // clip as long as the pattern is now. returns the clip's id
   pub fn add_pattern_node<T: daw::timing::MusicalTiming>(
     &mut self,
     pattern_id: u64,
@@ -1224,15 +1365,15 @@ impl AudioGraph<'static> {
     track_number: u32,
     subdivision: Option<T>,
   ) -> Result<u64, String> {
-    if self.sequencer.lock().unwrap().pattern(pattern_id).is_none() {
-      return Err(format!("no pattern with id {}", pattern_id));
-    }
+    let length = self.sequencer.lock().unwrap().pattern(pattern_id)
+      .map(|pattern| pattern.length)
+      .ok_or_else(|| format!("no pattern with id {}", pattern_id))?;
     let start_offset = match subdivision {
       Some(s) => self.find_nearest_offset_subdivision(start_offset, s),
       None => start_offset,
     };
     let id = self.next_id;
-    self.add_pattern_node_with_id(PatternNode::new(id, pattern_id, start_offset, track_number));
+    self.add_pattern_node_with_id(PatternNode::new(id, pattern_id, start_offset, track_number, length));
     Ok(id)
   }
 
@@ -1265,48 +1406,48 @@ impl AudioGraph<'static> {
     ids
   }
 
-  // split a pattern clip into a clip per sample it plays: each plays a
-  // pattern holding just that sample's steps (see Sequencer::split_pattern),
-  // on a track of its own (see explode_tracks), so each sample gets its own
-  // mixer strip. unnamed tracks are named after their rows. returns the
-  // new clips' ids, in row order
+  // split a pattern clip into a clip per row it plays, sample or synth: each
+  // plays a pattern holding just that row's notes (see
+  // Sequencer::split_pattern), on a track of its own (see explode_tracks),
+  // so each row gets its own mixer strip. a synth row's copy on that track
+  // is made when the synths next follow the clips. unnamed tracks are named
+  // after their rows. returns the new clips' ids, in row order
   pub fn explode_pattern_node(&mut self, id: u64) -> Result<Vec<u64>, String> {
     let clip = self.get_pattern_node_by_id(id).cloned()
       .ok_or_else(|| format!("no pattern clip with id {}", id))?;
 
-    let (split, placed_patterns) = {
+    let (parts, tracks) = {
       let mut sequencer = self.sequencer.lock().unwrap();
-      let split = sequencer.split_pattern(clip.pattern_id)?;
-      // other pattern clips count as their sample's when they play just one
-      let placed: Vec<(u32, Option<String>)> = self.pattern_nodes.iter()
-        .filter(|n| n.id != id)
-        .map(|n| (n.track_number, sequencer.single_sample(n.pattern_id).map(str::to_string)))
+      let parts = sequencer.split_pattern(clip.pattern_id)?;
+      let sounds: Vec<daw::Sound> = parts.iter()
+        .map(|part| sequencer.row(part.row).expect("a row the split found").sound())
         .collect();
-      (split, placed)
+      // every other clip, with what it plays when that's one sound
+      let placed: Vec<(u32, Option<daw::Sound>)> = self.nodes.iter()
+        .map(|n| (n.track_number, Some(daw::Sound::Sample(n.sample_path()))))
+        .chain(self.pattern_nodes.iter()
+          .filter(|n| n.id != id)
+          .map(|n| (n.track_number, sequencer.sole_sound(n.pattern_id))))
+        .collect();
+      let tracks = explode_tracks(&sounds, clip.track_number, &placed);
+      (parts, tracks)
     };
-
-    let paths: Vec<&str> = split.iter().map(|(path, _, _)| path.as_str()).collect();
-    let placed: Vec<(u32, Option<&str>)> = self.nodes.iter()
-      .map(|n| (n.track_number, Some(n.sample_path())))
-      .chain(placed_patterns.iter().map(|(t, p)| (*t, p.as_deref())))
-      .collect();
-    let tracks = explode_tracks(&paths, clip.track_number, &placed);
 
     self.remove_node(id)?;
     let mut ids = Vec::new();
-    for ((_, name, pattern_id), &track) in split.iter().zip(&tracks) {
+    for (part, &track) in parts.iter().zip(&tracks) {
       let new_id = self.next_id;
-      // each plays the same part of its pattern as the clip did of its
+      // each plays the same steps of its pattern as the clip did of its,
+      // for as long (so a looping clip makes looping clips)
       self.add_pattern_node_with_id(PatternNode {
         id: new_id,
-        pattern_id: *pattern_id,
-        start_offset: clip.start_offset,
+        pattern_id: part.pattern,
         track_number: track,
-        window: clip.window,
+        ..clip.clone()
       });
       ids.push(new_id);
       if self.mixer.name(track).is_none() {
-        self.mixer.set_name(track, name);
+        self.mixer.set_name(track, &part.name);
       }
     }
 
@@ -1361,24 +1502,16 @@ impl AudioGraph<'static> {
     last.start_offset + last.duration()
   }
 
-  // where the last clip finishes playing (zero with no clips)
+  // where the last clip finishes playing (zero with no clips). a pattern
+  // clip ends where its own length takes it (its last hits ring past it)
   pub fn end(&self) -> Duration {
-    let clips = self.nodes
+    let beat = self.beat_interval();
+    self.nodes
       .iter()
       .map(|node| node.start_offset + node.duration())
+      .chain(self.pattern_nodes.iter().map(|node| node.start_offset + node.duration(beat)))
       .max()
-      .unwrap_or(Duration::ZERO);
-    if self.pattern_nodes.is_empty() { return clips; }
-
-    // a pattern clip ends with its pattern, or with the part of it that it
-    // plays (its last hits ring past it)
-    let sequencer = self.sequencer.lock().unwrap();
-    let beat = self.beat_interval();
-    self.pattern_nodes
-      .iter()
-      .filter_map(|node| sequencer.pattern(node.pattern_id)
-        .map(|pattern| node.start_offset + node.duration(pattern.length, beat)))
-      .fold(clips, Duration::max)
+      .unwrap_or(Duration::ZERO)
   }
 
   // play only part of a sample clip's sample: from `start` to `end` of it
@@ -1418,22 +1551,26 @@ impl AudioGraph<'static> {
     Ok(settings)
   }
 
-  // the same for a pattern clip, in steps of its pattern
+  // the same for a pattern clip, in steps of its pattern (counted as
+  // PatternNode::start is): from `start` to `end` (None: where it ends now).
+  // the end isn't kept to the pattern: past it, the clip plays the pattern
+  // again (see pattern_step_at)
   pub fn set_pattern_window(&mut self, id: u64, start: f64, end: Option<f64>) -> Result<(), String> {
     let beat = self.beat_interval();
     let node = self.pattern_nodes.iter_mut().find(|n| n.id == id)
       .ok_or_else(|| format!("no pattern clip with id {}", id))?;
-    let length = self.sequencer.lock().unwrap().pattern(node.pattern_id)
-      .map(|pattern| pattern.length)
-      .ok_or_else(|| format!("no pattern with id {}", node.pattern_id))?;
     let origin = node.origin(beat);
     // the steps before the playlist's start can't be played
     let earliest = if origin >= 0 || beat.is_zero() { 0. } else {
       (-origin) as f64 / 1e9 / beat.as_secs_f64() * daw::STEPS_PER_BEAT as f64
     };
 
-    let start = node.set_window(start.max(earliest), end, length).map_or(0., |window| window.start);
-    node.start_offset = Duration::from_nanos((origin + steps_time(start, beat).as_nanos() as i128).max(0) as u64);
+    // (an end that makes no sense is where it ends now, and one too near the
+    // start is moved later, where there's room)
+    let start = start.max(earliest);
+    let end = end.filter(|end| end.is_finite()).unwrap_or(node.end());
+    node.set_span(start, end - start);
+    node.start_offset = Duration::from_nanos((origin + steps_time(node.start, beat).as_nanos() as i128).max(0) as u64);
     Ok(())
   }
 
@@ -1473,32 +1610,25 @@ impl AudioGraph<'static> {
     let beat = self.beat_interval();
     let node = self.pattern_nodes.iter().find(|n| n.id == id)
       .ok_or_else(|| format!("no node with id {}", id))?;
-    let length = self.sequencer.lock().unwrap().pattern(node.pattern_id)
-      .map(|pattern| pattern.length)
-      .ok_or_else(|| format!("no pattern with id {}", node.pattern_id))?;
-    let (from, to) = node.span(length);
+    let (from, to) = (node.start, node.end());
     // (a step's length in seconds, not rounded to a whole nanosecond)
     let step = beat.as_secs_f64() / daw::STEPS_PER_BEAT as f64;
     if !(step > 0.) { return Ok(None); }
-    let cut = from + (at.as_secs_f64() - node.start_offset.as_secs_f64()) / step;
-    // (without the rounding noise, so a cut on a step is on it)
-    let cut = (cut * 1e6).round() / 1e6;
+    // (without the rounding noise, so a cut on a step is on it). it can be
+    // past the pattern's end: the second half goes on from there
+    let cut = micro_steps(from + (at.as_secs_f64() - node.start_offset.as_secs_f64()) / step);
     if cut < from + MIN_PATTERN_CLIP || cut + MIN_PATTERN_CLIP > to { return Ok(None); }
 
     let mut right = node.clone();
     right.id = new_id;
     right.start_offset = Duration::from_nanos(node.heard_at(cut, beat).max(0) as u64);
-    right.window = Some(PatternWindow { start: cut, end: node.window.and_then(|window| window.end) });
+    right.set_span(cut, to - cut);
 
     let left = self.pattern_nodes.iter_mut().find(|n| n.id == id).expect("the clip that was just found");
-    left.window = Some(PatternWindow { start: from, end: Some(cut) });
+    left.set_span(from, cut - from);
 
     self.add_pattern_node_with_id(right);
     Ok(Some(new_id))
-  }
-
-  pub fn duration_max(&self) -> Duration {
-    self.beat_interval() * self.max_beats as u32
   }
 
   // count number of nodes
@@ -1557,42 +1687,43 @@ impl AudioGraph<'static> {
 
 }
 
-// which track each sample of an exploded pattern goes on, so every sample
-// gets a track (and mixer strip) of its own
-// - paths: the pattern's samples, in row order
+// which track each sound of an exploded pattern goes on, so every sound
+// gets a track (and mixer strip) of its own. a sound is whatever tells them
+// apart (a Sound in the app, a name in the tests)
+// - sounds: the pattern's, in row order
 // - clip_track: the track the pattern clip was on
-// - placed: every other clip in the playlist, as (track, sample path), with
-//   None for pattern clips
+// - placed: every other clip in the playlist, as (track, sound), with None
+//   for a pattern clip of more than one
 //
-// a sample goes on the track already holding only clips of it (its track
-// from an earlier explode), if there is one. otherwise the first sample
-// stays on the clip's track, unless that has other samples on it, and the
+// a sound goes on the track already holding only clips of it (its track
+// from an earlier explode), if there is one. otherwise the first sound
+// stays on the clip's track, unless that has other sounds on it, and the
 // rest go on the next empty tracks below it (new ones past the last
 // track), so they stay together under the clip
-pub fn explode_tracks(
-  paths: &[&str],
+pub fn explode_tracks<S: Copy + PartialEq>(
+  sounds: &[S],
   clip_track: u32,
-  placed: &[(u32, Option<&str>)],
+  placed: &[(u32, Option<S>)],
 ) -> Vec<u32> {
-  let mut placed: Vec<(u32, Option<&str>)> = placed.to_vec();
+  let mut placed: Vec<(u32, Option<S>)> = placed.to_vec();
   let mut tracks = Vec::new();
 
-  for (i, &path) in paths.iter().enumerate() {
-    let has_other_sample = |placed: &[(u32, Option<&str>)], track: u32| placed.iter()
-      .any(|&(t, p)| t == track && p.map_or(false, |p| p != path));
+  for (i, &sound) in sounds.iter().enumerate() {
+    let has_other_sound = |placed: &[(u32, Option<S>)], track: u32| placed.iter()
+      .any(|&(t, s)| t == track && s.map_or(false, |s| s != sound));
     let dedicated = placed.iter()
-      .filter(|&&(_, p)| p == Some(path))
+      .filter(|&&(_, s)| s == Some(sound))
       .map(|&(t, _)| t)
-      .filter(|&t| !has_other_sample(&placed, t))
+      .filter(|&t| !has_other_sound(&placed, t))
       .min();
 
     let track = dedicated
-      .or_else(|| if i == 0 && !has_other_sample(&placed, clip_track) { Some(clip_track) } else { None })
+      .or_else(|| if i == 0 && !has_other_sound(&placed, clip_track) { Some(clip_track) } else { None })
       .unwrap_or_else(|| (clip_track + 1..)
         .find(|&t| !placed.iter().any(|&(pt, _)| pt == t))
         .expect("an empty track below the clip"));
 
-    placed.push((track, Some(path)));
+    placed.push((track, Some(sound)));
     tracks.push(track);
   }
 

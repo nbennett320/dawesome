@@ -10,6 +10,7 @@ import {
 } from './slices/playlistSlice'
 import { clearPendingMixerSends, flushMixerSends } from './slices/mixerSlice'
 import { clearPendingNoteSends, flushNoteSends, syncRun } from './slices/sequencerSlice'
+import { dropHeldTrim } from './pendingTrim'
 
 export type Way = 'undo' | 'redo'
 // where the command came from: the Edit menu (or its shortcut), or the key
@@ -45,6 +46,9 @@ export const travel = (way: Way, source: Source = 'menu') => (
   lastTravel = { way, source, at: now }
 
   if(gestureActive()) return Promise.resolve(false)
+  // a trim held for the play cursor is forgotten now, so it can't land after
+  // the undo, as a change of its own that ends redo (see pendingTrim.ts)
+  dropHeldTrim()
 
   const run = async (): Promise<boolean> => {
     try {

@@ -1,10 +1,10 @@
 import React from 'react'
 import { useAppDispatch, useAppSelector } from '../../hooks/redux'
 import { openEffectWindow, selectRacks, showInRack } from '../../state/slices/effectsSlice'
-import { selectSynths, setSynthMuted } from '../../state/slices/sequencerSlice'
+import { selectRows, setRowMuted } from '../../state/slices/sequencerSlice'
 import { openTab, selectTabShowing } from '../../state/slices/windowSlice'
 import { channelLabel, findSlot, hasTab } from '../../types/effects'
-import { Synth } from '../../types/sequencer'
+import { Row, SynthInstrument, synthRowBySlot } from '../../types/sequencer'
 import { tabKey, View } from '../../types/ui'
 import { AnalogButton, Led } from '../../components/fourtrack'
 import { useDraggingTab } from '../../components/panes/dragTab'
@@ -19,20 +19,20 @@ const WhereKey = ({ title, onPress, children }: { title: string, onPress: () => 
   </AnalogButton>
 )
 
-// a synth's mute: a light, and a key held down while it's muted
-const MuteKey = ({ synth }: { synth: Synth }) => {
+// a synth row's mute: a light, and a key held down while it's muted
+const MuteKey = ({ row }: { row: Row<SynthInstrument> }) => {
   const dispatch = useAppDispatch()
 
   return (
     <div className='flex flex-row items-center gap-1 shrink-0'>
-      <Led color='amber' state={synth.muted ? 'on' : 'off'} />
+      <Led color='amber' state={row.muted ? 'on' : 'off'} />
       <AnalogButton
         variant='text'
         size='xs'
-        latched={synth.muted}
-        aria-label={`Mute ${synth.name}`}
-        title={synth.muted ? 'Muted. Click to hear it again' : 'Mute it'}
-        onPress={() => { dispatch(setSynthMuted(synth.id, !synth.muted)).catch(() => {}) }}
+        latched={row.muted}
+        aria-label={`Mute ${row.instrument.name}`}
+        title={row.muted ? 'Muted. Click to hear it again' : 'Mute it'}
+        onPress={() => { dispatch(setRowMuted(row.id, !row.muted)).catch(() => {}) }}
       >
         M
       </AnalogButton>
@@ -42,22 +42,23 @@ const MuteKey = ({ synth }: { synth: Synth }) => {
 
 // one plugin's own interface, in a tab of its own: a thin bar, and the
 // interface docked below. an effect's bar has its On key and its channel
-// (to find it in the Effects Rack); a synth's, its mute and a key to find
-// it in the Note Sequencer. both pop out to a window
+// (to find it in the Effects Rack); a synth row's, its mute and a key to
+// find it in the Pattern Sequencer. both pop out to a window
 const PluginTab = ({ slotId }: { slotId: number }) => {
   const dispatch = useAppDispatch()
   const racks = useAppSelector(selectRacks)
-  const synths = useAppSelector(selectSynths)
+  const rows = useAppSelector(selectRows)
   const names = useAppSelector(state => state.mixer.names)
   // tabs stay mounted while hidden: it's only docked while showing
   const showing = useAppSelector(selectTabShowing(tabKey(View.Plugin, slotId)))
   // the native view would cover the drop zones of a tab being dragged
   const dragging = useDraggingTab()
 
-  // (its tab closes once the slot or synth is gone, or has nothing to show)
+  // (its tab closes once the slot or synth row is gone, or has nothing to
+  // show)
   const found = findSlot(racks, slotId)
-  const synth = found ? null : synths.find(s => s.id === slotId)
-  const plugin = found?.slot ?? synth
+  const synthRow = found ? undefined : synthRowBySlot(rows, slotId)
+  const plugin = found?.slot ?? synthRow?.instrument
   if(!plugin || !hasTab(plugin)) return null
 
   const active = showing && !dragging
@@ -73,11 +74,11 @@ const PluginTab = ({ slotId }: { slotId: number }) => {
             </WhereKey>
           </>
         )}
-        {synth && (
+        {synthRow && (
           <>
-            <MuteKey synth={synth} />
-            <WhereKey title='Show it in the Note Sequencer' onPress={() => dispatch(openTab(View.NoteSequencer))}>
-              Note Sequencer
+            <MuteKey row={synthRow} />
+            <WhereKey title='Show it in the Pattern Sequencer' onPress={() => dispatch(openTab(View.PatternSequencer))}>
+              Pattern Sequencer
             </WhereKey>
           </>
         )}
@@ -92,7 +93,7 @@ const PluginTab = ({ slotId }: { slotId: number }) => {
       </div>
 
       {/* afresh each time it's shown */}
-      <DockedEditor key={String(active)} slot={plugin} active={active} />
+      <DockedEditor key={String(active)} slot={{ id: slotId, name: plugin.name }} active={active} />
     </div>
   )
 }

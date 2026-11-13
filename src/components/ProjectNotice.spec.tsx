@@ -5,6 +5,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import projectReducer, { ProjectNotice as Notice, setProjectNotice } from '../state/slices/projectSlice'
 import { MissingEffect } from '../types/project'
 import ProjectNotice from './ProjectNotice'
+import { synthRow } from '../types/sequencer.fixture'
 
 const effect = (track: number | null, name: string): MissingEffect => ({
   track, name, vendor: 'Acme', path: `/x/${name}.vst3`, reason: 'not installed',
@@ -49,11 +50,11 @@ describe('the project notice', () => {
   })
 
   it('lists missing synths alongside missing effects', () => {
-    const synth = { id: 4, pluginId: 'vst3:pad', name: 'Pad 2', vendor: 'Acme', volume: 1, muted: false, missing: true, hasEditor: true }
+    const synth = synthRow(4, { pluginId: 'vst3:pad', name: 'Pad 2', missing: true }).instrument
     setup({ kind: 'missing', samples: [], effects: [effect(0, 'Verb')], synths: [synth] })
     expect(screen.getByText(PLUGINS)).toBeTruthy()
     expect(screen.getByText(/This instrument isn’t installed, so its notes are silent/)).toBeTruthy()
-    expect(screen.getByText('Pad 2 (Acme) in the Note Sequencer')).toBeTruthy()
+    expect(screen.getByText('Pad 2 (Acme) in the Pattern Sequencer')).toBeTruthy()
   })
 
   it('says what the project left out', () => {

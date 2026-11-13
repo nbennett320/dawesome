@@ -31,8 +31,8 @@ features:
   - title: Compose
     details: Trim, cut, repeat, and join audio clips, save your project and work on it tomorrow.
     link: /manual/playlist
-  - title: Drum sequencer and piano roll
-    details: Write rhythm sections with a drum sequencer and sketch melodies in piano roll.
+  - title: Pattern sequencer and piano roll
+    details: Step out beats on samples and synths in one pattern sequencer, and sketch melodies in the piano roll.
     link: /manual/patterns
   - title: Mixdown
     details: Export your projects to WAV or MP3.

@@ -88,7 +88,6 @@ The message names the plugin and the reason, for example:
   rate. Choose an output running at another rate.
 - **… can't process 32-bit audio**, **… has no audio output** — the plugin
   can't be used by Dawesome.
-- **Track N already has an instrument** — a track takes one instrument.
 
 **Plugin windows on Windows and Linux**
 
@@ -121,6 +120,27 @@ them: **N clips were left out because their samples couldn't be loaded**.
 Each line gives the file's path and the reason. Samples inside the project's
 folder are saved relative to it, so move the whole project folder together.
 Samples outside it are saved by their full path.
+
+**Clips from an older version were left out**
+
+When a project from an earlier version of Dawesome is opened, pattern clips
+that played nothing (past their pattern's end) are left out, and a banner
+says so:
+
+| Banner | Meaning |
+| --- | --- |
+| 1 empty pattern clip from an older version was left out: it played nothing | One such clip was dropped. |
+| N empty pattern clips from an older version were left out: they played nothing | N such clips were dropped. |
+
+Nothing you could hear is lost. See
+[7-8 Patterns from older versions](./patterns.md#_7-8-patterns-from-older-versions).
+
+**I need my project as it was before the update**
+
+When an older project is first saved in the new format, Dawesome keeps a
+copy of the original beside it as `<name>.v3.dawesome` (`v1` or `v2` for the
+oldest formats). Open that copy in an older version, or rename it to get the
+old file back. See [4-5-3](./projects.md#_4-5-3-projects-from-older-versions).
 
 Close a banner with **×**.
 

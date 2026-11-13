@@ -4,6 +4,7 @@ import {
   keyOf, PaneTab, SidebarPage, SplitDirection, TabKey, tabKey, View, viewLabels, WindowPane,
 } from '../../types/ui'
 import { pluginTabLabel } from '../../types/effects'
+import { synthRowBySlot } from '../../types/sequencer'
 import * as paneTree from '../paneTree'
 
 export interface WindowState {
@@ -35,8 +36,7 @@ const initialState = {
         // { component: View.SamplePreview },
         { component: View.Mixer },
         // { component: View.Transport },
-        { component: View.Sequencer },
-        { component: View.NoteSequencer },
+        { component: View.PatternSequencer },
       ],
       activeTab: tabKey(View.Playlist),
     },
@@ -227,10 +227,10 @@ export const selectTabShowing = (key: TabKey) => (state: RootState): boolean =>
 
 // a plugin's tab's name: an effect's is worked out from the racks each
 // time, since it depends on the other effects (see pluginTabLabel). a
-// synth's is its name, which is unique
+// synth row's is its synth's name, which is unique
 const pluginLabel = (state: RootState, slotId: number): string =>
   pluginTabLabel(state.effects.racks, state.mixer.names, slotId)
-  ?? state.sequencer.synths.find(synth => synth.id === slotId)?.name
+  ?? synthRowBySlot(state.sequencer.rows, slotId)?.instrument.name
   ?? viewLabels[View.Plugin]
 
 // a tab's name

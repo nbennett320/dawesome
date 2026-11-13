@@ -27,8 +27,8 @@ export const channelAt = (box: HTMLElement | null, clientX: number, clientY: num
 }
 
 // what dropping `item` on a channel's strip does: add an effect at the end
-// of the chain, move a slot there, or (an instrument, on a track) start a
-// synth with a note pattern on that track. null when it'd be refused or
+// of the chain, move a slot there, or (an instrument, on a track) add a
+// synth row, with a pattern of it on that track. null when it'd be refused or
 // change nothing: an instrument on the master, a slot already last there
 export const channelDrop = (
   racks: Racks,
@@ -45,7 +45,7 @@ export const channelDrop = (
 
 // plugins dropped on the mixer's strips: an effect from the sidebar goes at
 // the end of that channel's chain, a row of the Effects Rack moves there,
-// and an instrument starts a note pattern on that track (see
+// and an instrument starts a pattern of it on that track (see
 // addSynthOnTrack). returns the channel what's dragged would go on, to show
 // it
 export const useChannelDrop = (ref: React.RefObject<HTMLElement>): ChannelId | null => {

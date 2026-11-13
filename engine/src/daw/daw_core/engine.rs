@@ -27,12 +27,12 @@
 // instruments, each playing only the notes sent to it by its slot's id (see
 // play_notes). each note is timed to a frame of a run, as a voice is, and is
 // handed to its instrument in the block it falls in, with its offset in the
-// block. what each instrument plays, at its own gain, is added to the bus's
-// voices, and the sum goes through the effects after them:
+// block. what each instrument plays, at its own gain and pan, is added to the
+// bus's voices, and the sum goes through the effects after them:
 //
-//   bus voices ──────────────────────┐
-//   notes for a → instrument a × gain ┤
-//   notes for b → instrument b × gain ┴→ (+) → effects → strip
+//   bus voices ────────────────────────────┐
+//   notes for a → instrument a × gain, pan ┤
+//   notes for b → instrument b × gain, pan ┴→ (+) → effects → strip
 //
 // a run that stops (or is replaced) ends the notes it was holding, so none
 // hangs. notes played without a run (a key auditioned) are ended only by
@@ -83,8 +83,8 @@ pub enum Channel {
 
 // an effect or instrument in a chain: its processor, and whether it's
 // bypassed (a bypassed slot passes the signal through untouched, so a
-// bypassed instrument adds nothing). an instrument's output, times its gain,
-// is added to what comes into it, rather than replacing it
+// bypassed instrument adds nothing). an instrument's output, times its gain
+// and panned, is added to what comes into it, rather than replacing it
 //
 // the processor (and what an instrument is playing) is only ever touched by
 // the audio thread of the engine whose chain holds the slot, so it needs no
@@ -99,8 +99,9 @@ pub struct Slot {
   showing: AtomicBool,
   // something about it changed that its bus should run again for
   nudged: AtomicBool,
-  // an instrument's gain, as an f32's bits
+  // an instrument's gain and pan, as f32s' bits
   gain: AtomicU32,
+  pan: AtomicU32,
   processor: UnsafeCell<Box<dyn Processor>>,
   // what an instrument is playing (an effect has none)
   playing: Option<UnsafeCell<Playing>>,
@@ -122,9 +123,10 @@ struct Playing {
   held_by_audition: [u16; 128],
   // pitches a run that stopped held, to be ended at the next block's start
   released: [bool; 128],
-  // the gain it played at, at the end of the last block it ran (none before
-  // its first, which starts at its gain rather than ramping to it)
-  gain: Option<f32>,
+  // each side's gain it played at (its gain, panned), at the end of the
+  // last block it ran (none before its first, which starts at its gains
+  // rather than ramping to them)
+  gains: Option<[f32; 2]>,
 }
 
 impl Playing {
@@ -147,7 +149,7 @@ impl Slot {
       held_by_run: [0; 128],
       held_by_audition: [0; 128],
       released: [false; 128],
-      gain: None,
+      gains: None,
     };
     Slot::make(id, processor, Some(UnsafeCell::new(playing)))
   }
@@ -159,6 +161,7 @@ impl Slot {
       showing: AtomicBool::new(false),
       nudged: AtomicBool::new(false),
       gain: AtomicU32::new(1f32.to_bits()),
+      pan: AtomicU32::new(0f32.to_bits()),
       processor: UnsafeCell::new(processor),
       playing,
     })
@@ -199,6 +202,22 @@ impl Slot {
   pub fn set_gain(&self, gain: f32) {
     let gain = if gain.is_finite() { gain.max(0.) } else { 0. };
     self.gain.store(gain.to_bits(), Ordering::Relaxed);
+  }
+
+  // an instrument's pan, -1 (left) to 1 (right), with a clip's pan law (see
+  // pan_gains), ramped to as its gain is. (an effect's isn't used)
+  pub fn pan(&self) -> f32 {
+    f32::from_bits(self.pan.load(Ordering::Relaxed))
+  }
+
+  pub fn set_pan(&self, pan: f32) {
+    let pan = if pan.is_finite() { pan.clamp(-1., 1.) } else { 0. };
+    self.pan.store(pan.to_bits(), Ordering::Relaxed);
+  }
+
+  // each side's gain an instrument plays at: its gain, panned
+  fn gains(&self) -> [f32; 2] {
+    daw::pan_gains(self.pan()).map(|side| side * self.gain())
   }
 
   // only for the audio thread running the chain that holds the slot
@@ -514,15 +533,16 @@ impl Bus {
         transport,
       );
       // an instrument plays over the bus's voices (and the instruments
-      // before it), at its gain, ramped across the block from where it was
+      // before it), at its gain and pan, ramped across the block from where
+      // they were
       if let Some(playing) = playing {
-        let to = slot.gain();
-        let from = playing.gain.unwrap_or(to);
-        playing.gain = Some(to);
-        let step = (to - from) / frames.max(1) as f32;
-        for (out, input) in [(out_l, in_l), (out_r, in_r)] {
+        let to = slot.gains();
+        let from = playing.gains.unwrap_or(to);
+        playing.gains = Some(to);
+        for (side, (out, input)) in [(out_l, in_l), (out_r, in_r)].into_iter().enumerate() {
+          let step = (to[side] - from[side]) / frames.max(1) as f32;
           for (i, (o, s)) in out[..frames].iter_mut().zip(&input[..frames]).enumerate() {
-            *o = *o * (from + step * (i + 1) as f32) + s;
+            *o = *o * (from[side] + step * (i + 1) as f32) + s;
           }
         }
       }

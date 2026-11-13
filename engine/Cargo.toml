@@ -19,7 +19,7 @@ tauri-build = { version = "2", features = [] }
 base64 = "0.13"
 chrono = "0.4"
 rodio = "0.19"
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 svg = "0.10.0"
 # macos-private-api: lets the webview skip its own white background, so the
@@ -76,6 +76,9 @@ harness = false
 # turned on by `tauri build`, which embeds ../dist. without it (`tauri dev`,
 # `cargo run`, `cargo test`) the app loads the dev server instead
 custom-protocol = ["tauri/custom-protocol"]
+# the timings in src/perf.rs: turns on the allocator that counts what
+# perf_history holds (see context/pattern-merge-project/perf/measure.md)
+perf = []
 
 [profile.release]
 codegen-units = 1

@@ -6,6 +6,8 @@ import { beginGesture, resetGestures } from './gesture'
 import { setTrackVolume } from './slices/mixerSlice'
 import { Travelled } from '../types/project'
 import { defaultClipSettings } from '../types/clip'
+import { DEFAULT_PLAYLIST_BEATS } from '../types/transport'
+import { pattern, sampleRow, sequencerOf, steps } from '../types/sequencer.fixture'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 // the store's project slice opens dialogs and lists folders
@@ -32,17 +34,15 @@ const travelled: Travelled = {
       playedDuration: 1,
       window: null,
     }],
-    patternClips: [{ id: 9, patternId: 2, trackNumber: 1, startBeat: 8, window: null }],
+    patternClips: [{ id: 9, patternId: 2, trackNumber: 1, startBeat: 8, window: { start: 0, end: 16 } }],
     mixer: {
       tracks: [{ trackNumber: 0, name: 'drums', volumeDb: -6, pan: 0.25, mute: true, solo: false }],
       master: { volumeDb: -3, pan: 0, mute: false, solo: false },
     },
-    sequencer: {
-      rows: [{ id: 0, path: '/drums/kick.wav', label: null, volume: 1, pan: 0, muted: false }],
-      synths: [],
-      patterns: [{ id: 2, name: 'verse', length: 16, steps: { 0: [0, 8] } }],
-      folders: [],
-    },
+    sequencer: sequencerOf({
+      rows: [sampleRow(0, { path: '/drums/kick.wav' })],
+      patterns: [pattern(2, { name: 'verse', notes: { 0: steps(0, 8) } })],
+    }),
   },
 }
 
@@ -50,7 +50,7 @@ const travelled: Travelled = {
 const engine = (result: Travelled) => {
   mockInvoke.mockImplementation(async (command: string) => {
     if(command === 'undo' || command === 'redo') return result
-    if(command === 'get_playlist_data') return [16, 256, 8, 4]
+    if(command === 'get_playlist_data') return { beats: DEFAULT_PLAYLIST_BEATS, trackCount: 4 }
     if(command === 'get_playlist_playing') return false
     if(command === 'get_playlist_transport') return { playing: false, patternId: null, startTimeMs: null, beatIntervalMs: 645 }
     return undefined
@@ -82,7 +82,7 @@ describe('undo and redo', () => {
     expect(mixer.names[0]).toBe('drums')
     expect(mixer.master.volumeDb).toBe(-3)
     expect(sequencer.patterns.map(p => p.name)).toEqual(['verse'])
-    expect(sequencer.selected.drum).toBe(2)
+    expect(sequencer.selected).toBe(2)
   })
 
   it('leaves the selection alone when the step was not about clips', async () => {

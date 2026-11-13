@@ -1,6 +1,6 @@
 import {
-  EDGE_ZONE_PX, Snapping, StretchClip, TrimClip, edgeAt, hiddenBeyond, patternSpan, patternTrimClip, pitchOf,
-  sampleTrimClip, snapPoint, stretchAll, stretchSet, stretched, trimAll, trimmed, trimmedWindow, windowOf,
+  EDGE_ZONE_PX, Snapping, StretchClip, TrimClip, edgeAt, hiddenBeyond, patternHiddenBeyond, patternTrimClip,
+  pitchOf, sampleTrimClip, snapPoint, stretchAll, stretchSet, stretched, trimAll, trimmed, trimmedWindow, windowOf,
 } from './edges'
 
 describe('edgeAt', () => {
@@ -77,7 +77,7 @@ describe('snapPoint', () => {
 
 // a clip from beat 4 to 12, of a source that runs from beat 2 to 16
 const clip: TrimClip = {
-  id: 1, start: 4, end: 12, sourceStart: 2, sourceEnd: 16, minLength: 0.02, perBeat: 0.5,
+  id: 1, start: 4, end: 12, sourceStart: 2, sourceEnd: 16, sourceLength: 7, loops: false, minLength: 0.02, perBeat: 0.5,
 }
 
 describe('trimmed', () => {
@@ -108,7 +108,7 @@ describe('trimmed', () => {
     expect(trimmed(clip, 'left', 100).start).toBeCloseTo(11.98, 10)
     expect(trimmed(clip, 'right', -100).end).toBeCloseTo(4.02, 10)
     // a pattern clip: a step (a quarter of a beat)
-    const pattern = patternTrimClip(2, 8, 16, null)
+    const pattern = patternTrimClip(2, 8, { start: 0, end: 16 }, 16, 512)
     expect(trimmed(pattern, 'right', -100)).toEqual({ start: 8, end: 8.25 })
     expect(trimmed(pattern, 'left', 100)).toEqual({ start: 11.75, end: 12 })
   })
@@ -116,10 +116,10 @@ describe('trimmed', () => {
 
 describe('trimAll', () => {
   const short: TrimClip = {
-    id: 2, start: 0, end: 1.5, sourceStart: 0, sourceEnd: 1.5, minLength: 0.02, perBeat: 0.5,
+    id: 2, start: 0, end: 1.5, sourceStart: 0, sourceEnd: 1.5, sourceLength: 0.75, loops: false, minLength: 0.02, perBeat: 0.5,
   }
   const other: TrimClip = {
-    id: 3, start: 20, end: 30, sourceStart: 20, sourceEnd: 30, minLength: 0.02, perBeat: 0.5,
+    id: 3, start: 20, end: 30, sourceStart: 20, sourceEnd: 30, sourceLength: 5, loops: false, minLength: 0.02, perBeat: 0.5,
   }
 
   it('moves the same edge of every clip as far as the grabbed clip\'s', () => {
@@ -158,7 +158,7 @@ describe('a sample clip', () => {
 
   it('is as long as its sample plays for, and no shorter than 10ms', () => {
     expect(whole).toEqual({
-      id: 1, start: 4, end: 8, sourceStart: 4, sourceEnd: 8, minLength: 0.02, perBeat: 0.5,
+      id: 1, start: 4, end: 8, sourceStart: 4, sourceEnd: 8, sourceLength: 2, loops: false, minLength: 0.02, perBeat: 0.5,
     })
     // an octave up, a beat is a second of the sample
     expect(sampleTrimClip(1, 4, 2, 2, null, 0.5).perBeat).toBe(1)
@@ -198,30 +198,41 @@ describe('a sample clip', () => {
 })
 
 describe('a pattern clip', () => {
-  it('spans its pattern, or its window of it', () => {
-    expect(patternSpan(null, 16)).toEqual([0, 16])
-    expect(patternSpan({ start: 4, end: null }, 16)).toEqual([4, 16])
-    expect(patternSpan({ start: 4, end: 12 }, 16)).toEqual([4, 12])
-  })
-
-  it('ends with a pattern made shorter, and gets its steps back when it is longer again', () => {
-    expect(patternSpan({ start: 4, end: 24 }, 16)).toEqual([4, 16])
-    expect(patternSpan({ start: 4, end: 24 }, 32)).toEqual([4, 24])
-    // past the pattern's end: a step long
-    expect(patternSpan({ start: 20, end: null }, 16)).toEqual([20, 21])
-  })
+  // a bar's pattern on beat 8, playing steps 4 to 12, in a playlist 64
+  // beats long
+  const windowed = patternTrimClip(2, 8, { start: 4, end: 12 }, 16, 64)
 
   it('is trimmed in steps of its pattern', () => {
-    // a bar's pattern on beat 8, playing steps 4 to 12
-    const windowed = patternTrimClip(2, 8, 16, { start: 4, end: 12 })
     expect(windowed).toEqual({
-      id: 2, start: 8, end: 10, sourceStart: 7, sourceEnd: 11, minLength: 0.25, perBeat: 4,
+      id: 2, start: 8, end: 10, sourceStart: 7, sourceEnd: 64, sourceLength: 16, loops: true, minLength: 0.25, perBeat: 4,
     })
-    // its right edge out to the pattern's end
-    const span = trimmed(windowed, 'right', 5)
-    expect(span).toEqual({ start: 8, end: 11 })
-    expect(windowOf(windowed, span)).toEqual({ start: 4, end: null })
     expect(windowOf(windowed, { start: 8.5, end: 10 })).toEqual({ start: 6, end: 12 })
+  })
+
+  it('is dragged past its pattern\'s end, where it plays the pattern again', () => {
+    // out to beat 14: steps 4 to 28, the pattern and half of it again
+    const span = trimmed(windowed, 'right', 4)
+    expect(span).toEqual({ start: 8, end: 14 })
+    expect(windowOf(windowed, span)).toEqual({ start: 4, end: 28 })
+    // to the pattern's end: still a number, so the engine takes it
+    expect(windowOf(windowed, { start: 8, end: 11 })).toEqual({ start: 4, end: 16 })
+    // its window's end stays as it was when the left edge moves
+    expect(trimmedWindow(windowed, { start: 9, end: 10 }, 'left', { start: 4, end: 12 })).toEqual({ start: 8, end: 12 })
+  })
+
+  it('goes no further than the playlist\'s end, or where it ends already if that\'s later', () => {
+    expect(trimmed(windowed, 'right', 100)).toEqual({ start: 8, end: 64 })
+    const past = patternTrimClip(2, 60, { start: 0, end: 64 }, 16, 64)
+    expect(trimmed(past, 'right', 10)).toEqual({ start: 60, end: 76 })
+    expect(trimmed(past, 'right', -4)).toEqual({ start: 60, end: 72 })
+  })
+
+  it('takes its left edge back to its pattern\'s first step, and no further', () => {
+    // from step 20: on its second time round
+    const late = patternTrimClip(3, 8, { start: 20, end: 36 }, 16, 64)
+    expect(late.sourceStart).toBe(3)
+    expect(trimmed(late, 'left', -10)).toEqual({ start: 3, end: 12 })
+    expect(windowOf(late, { start: 3, end: 12 })).toEqual({ start: 0, end: 36 })
   })
 })
 
@@ -248,16 +259,6 @@ describe('trimmedWindow', () => {
   })
 })
 
-describe('a pattern clip whose window is past its pattern\'s end', () => {
-  // steps 20 on, of a pattern now a bar (16 steps) long: a step long
-  const past = patternTrimClip(3, 8, 16, { start: 20, end: null })
-
-  it('is a step long, and its right edge has nowhere to go', () => {
-    expect(past.end - past.start).toBe(0.25)
-    expect(trimmed(past, 'right', 3)).toEqual({ start: 8, end: 8.25 })
-    expect(trimmed(past, 'right', -3)).toEqual({ start: 8, end: 8.25 })
-  })
-})
 
 describe('hiddenBeyond', () => {
   it('marks the edges that hide some of the source', () => {
@@ -269,9 +270,25 @@ describe('hiddenBeyond', () => {
 
   it('takes no notice of rounding, or of a source with no length', () => {
     expect(hiddenBeyond(1e-12, 2 - 1e-12, 2)).toEqual({ left: false, right: false })
-    // a pattern made shorter than the clip's window: nothing past its end
-    expect(hiddenBeyond(0, 16, 16)).toEqual({ left: false, right: false })
     expect(hiddenBeyond(0, 0, 0)).toEqual({ left: false, right: false })
+  })
+})
+
+describe('patternHiddenBeyond', () => {
+  it('marks the edges that cut into a time through the pattern', () => {
+    expect(patternHiddenBeyond(0, 16, 16)).toEqual({ left: false, right: false })
+    expect(patternHiddenBeyond(4, 12, 16)).toEqual({ left: true, right: true })
+    // round it twice and a half, from its start
+    expect(patternHiddenBeyond(0, 40, 16)).toEqual({ left: false, right: true })
+    // from the start of its second time round, to the end of its third
+    expect(patternHiddenBeyond(16, 48, 16)).toEqual({ left: false, right: false })
+    // from step 4 of its second time round
+    expect(patternHiddenBeyond(20, 32, 16)).toEqual({ left: true, right: false })
+  })
+
+  it('takes no notice of rounding, or of a pattern with no length', () => {
+    expect(patternHiddenBeyond(16 + 1e-12, 32 - 1e-12, 16)).toEqual({ left: false, right: false })
+    expect(patternHiddenBeyond(0, 4, 0)).toEqual({ left: false, right: false })
   })
 })
 

@@ -3,7 +3,7 @@ import { configureStore } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api/core'
 import playlistReducer, { reduceLoadedProject, reduceProjectView } from './playlistSlice'
 import projectReducer from './projectSlice'
-import sequencerReducer from './sequencerSlice'
+import sequencerReducer, { setSequencer } from './sequencerSlice'
 import windowReducer, { openPluginTab, openTab, splitPane } from './windowSlice'
 import effectsReducer, {
   addEffect,
@@ -29,6 +29,7 @@ import effectsReducer, {
 import { EffectSlot, Racks } from '../../types/effects'
 import { LoadedProject, ProjectView } from '../../types/project'
 import { tabKey, View } from '../../types/ui'
+import { sequencerOf, synthRow } from '../../types/sequencer.fixture'
 import * as paneTree from '../paneTree'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
@@ -79,7 +80,7 @@ const project = (effects?: Racks): LoadedProject => ({
   clips: [],
   missing: [],
   mixer: { tracks: [], master: { volumeDb: 0, pan: 0, mute: false, solo: false } },
-  sequencer: { rows: [], synths: [], patterns: [], folders: [] },
+  sequencer: { rows: [], patterns: [], folders: [] },
   patternClips: [],
   ...(effects ? { effects } : {}),
 })
@@ -236,6 +237,25 @@ describe('commands', () => {
     const root = () => state(store).window.windowPane.root
     const rackPane = paneTree.paneWithTab(root(), tabKey(View.EffectsRack))?.id
 
+    dispatch(store)(showPluginTab(1))
+    expect(paneTree.paneWithTab(root(), tabKey(View.Plugin, 1))?.id).toBe(rackPane)
+  })
+
+  it('opens a synth row’s tab, by its slot, in the pane the Pattern Sequencer is in', () => {
+    const store = makeStore()
+    // row 1's plugin is in slot 40; there's no row 40
+    store.dispatch(setSequencer(sequencerOf({ rows: [synthRow(1, { slot: 40 })] })))
+    store.dispatch(openTab(View.EffectsRack))
+    store.dispatch(splitPane('root', tabKey(View.EffectsRack), 'horizontal'))
+    store.dispatch(openTab(View.PatternSequencer))
+    const root = () => state(store).window.windowPane.root
+    const notesPane = paneTree.paneWithTab(root(), tabKey(View.PatternSequencer))?.id
+    const rackPane = paneTree.paneWithTab(root(), tabKey(View.EffectsRack))?.id
+    expect(notesPane).not.toBe(rackPane)
+
+    dispatch(store)(showPluginTab(40))
+    expect(paneTree.paneWithTab(root(), tabKey(View.Plugin, 40))?.id).toBe(notesPane)
+    // a row's id isn't a slot: an effect's, in the rack's pane
     dispatch(store)(showPluginTab(1))
     expect(paneTree.paneWithTab(root(), tabKey(View.Plugin, 1))?.id).toBe(rackPane)
   })

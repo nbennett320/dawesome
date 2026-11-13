@@ -8,9 +8,9 @@ title: Before you begin
 
 Dawesome is a free, open-source digital audio workstation (DAW) for macOS,
 Windows and Linux. You arrange samples and recordings on a playlist, build
-patterns in a step sequencer, record from your audio interface, add VST3
-instruments and effects, mix on a channel-strip mixer and export the result
-to a WAV or MP3 file.
+patterns of samples and VST3 instruments in a pattern sequencer and piano
+roll, record from your audio interface, add VST3 effects, mix on a
+channel-strip mixer and export the result to a WAV or MP3 file.
 
 Its controls are modelled on a cassette four-track: latching transport keys,
 LEDs, rolling counters and a tape deck with a cassette that winds as the song
@@ -22,7 +22,6 @@ keep copies of recordings you can't make again.
 :::
 
 <!-- VERIFY: README says "cross-platform"; confirm Windows and Linux are supported targets before publishing. -->
-<!-- VERIFY: VST3 instruments and effects are VST work not yet on main; drop them from 1-1 if this page ships first. -->
 
 ## 1-2 How this manual is written
 

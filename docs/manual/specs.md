@@ -83,11 +83,13 @@ Plugins are looked for in these folders, and the folders inside them:
 | Item | Specification |
 | --- | --- |
 | File | `.dawesome`, a JSON text file |
-| Format version | 3. A project without trimmed clips is saved as version 2, and one without patterns as version 1, so older versions of Dawesome can open it. |
+| Format version | 4 for a project with Pattern Sequencer rows, patterns or pattern folders. One without any is saved as version 3 if it has trimmed sample clips, or else as version 1, so older versions of Dawesome can open it. Projects of versions 1 to 3 open, and their patterns are converted (see [7-8](./patterns.md#_7-8-patterns-from-older-versions)). |
 | Sample paths | Relative to the project's folder for samples inside it; full paths otherwise |
 | Project folder | `recordings/` for takes, `clips/` for files made by **Deep copy** and **Join** |
 | Plugins | Saved with their id, file location and settings. A missing plugin keeps its settings and is saved again unchanged. |
 | Tempo | 1 to 1000 BPM |
+| Playlist length | 128 bars of the project's time signature, or to the end of the last clip if that's later |
+| Pattern length | 1 to 128 bars |
 
 ## 15-6 Systems
 

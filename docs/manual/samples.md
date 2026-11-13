@@ -4,9 +4,9 @@ title: Samples
 
 # 11 Samples
 
-Samples are audio files you place in the playlist or the Sequencer. You
-find them on the sidebar's **Samples** page, and adjust how a sample clip
-plays in the **Sample** tab.
+Samples are audio files you place in the playlist or the Pattern
+Sequencer. You find them on the sidebar's **Samples** page, and adjust how a
+sample clip plays in the **Sample** tab.
 
 ## 11-1 Sample browser
 
@@ -25,8 +25,9 @@ The browser shows the samples folder as a tree of folders and samples.
 - **Hear a sample:** click it (or select it and press **Return (Enter)**). The
   sample last heard stays highlighted.
 - **Use a sample:** drag it into the playlist (see
-  [Playlist](./playlist.md#_6-3-adding-clips)) or the Sequencer (see
-  [Patterns and sequencer](./patterns.md)).
+  [Playlist](./playlist.md#_6-3-adding-clips)) or the Pattern Sequencer,
+  where it becomes a sample row (see
+  [7-3-2 Adding rows](./patterns.md#_7-3-2-adding-rows)).
 - **Search:** type in **Search** at the top. Matching samples are listed by
   name, with the folder each is in. **Esc** clears the search.
 
@@ -97,6 +98,6 @@ it reads **No clips yet. Deep copy or join clips to make some.**
 
 It works like the Recordings browser (see
 [Basic recording](./recording.md#_5-7-recordings-browser)): click a clip to
-hear it, drag it into the playlist or the Sequencer, search, make folders,
-drag to move, and right-click to **Rename** or **Move to Trash**. A dot
+hear it, drag it into the playlist or the Pattern Sequencer, search, make
+folders, drag to move, and right-click to **Rename** or **Move to Trash**. A dot
 marks the clips the project uses; a clip in use can't be deleted.

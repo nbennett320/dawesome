@@ -1,6 +1,7 @@
 import type { Mock } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import { clipCommand, ClipTarget, sameCommand } from './clipCommands'
+import { DEFAULT_PLAYLIST_BEATS } from '../types/transport'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ ask: vi.fn(), open: vi.fn(), save: vi.fn() }))
@@ -8,6 +9,8 @@ vi.mock('@tauri-apps/plugin-fs', () => ({ readDir: vi.fn() }))
 vi.mock('@tauri-apps/api/path', () => ({ dirname: vi.fn(), documentDir: vi.fn(), join: vi.fn() }))
 
 const mockInvoke = invoke as Mock
+// get_playlist_data's answer: a new project's length in beats, and 4 tracks
+const playlistData = { beats: DEFAULT_PLAYLIST_BEATS, trackCount: 4 }
 const target = (over: Partial<ClipTarget> = {}): ClipTarget => ({
   selected: [3, 4], all: [3, 4, 5], pasteBeat: 8, focused: true, ...over,
 })
@@ -17,7 +20,7 @@ describe('clipCommand', () => {
     mockInvoke.mockReset()
     const placed = { clips: [], patternClips: [], leftOut: 0 }
     const answers: Record<string, unknown> = {
-      get_playlist_data: [16, 256, 240, 4],
+      get_playlist_data: playlistData,
       paste_clips: placed,
       repeat_clips: placed,
     }
@@ -54,7 +57,7 @@ describe('clipCommand', () => {
 
   it('joins two or more selected clips', async () => {
     mockInvoke.mockImplementation(async (command: string) =>
-      (command === 'join_clips' ? { clips: [], patternClips: [], removed: [], sequencer: null } : [16, 256, 240, 4]))
+      (command === 'join_clips' ? { clips: [], patternClips: [], removed: [], sequencer: null } : playlistData))
     await run('join', target())
     expect(mockInvoke).toHaveBeenCalledWith('join_clips', { ids: [3, 4] })
   })
@@ -68,7 +71,7 @@ describe('clipCommand', () => {
   it('deep copies the selection, and passes on the wait cursor', async () => {
     const setBusy = vi.fn()
     mockInvoke.mockImplementation(async (command: string) =>
-      (command === 'deep_copy_clips' ? { clips: [], patternClips: [] } : [16, 256, 240, 4]))
+      (command === 'deep_copy_clips' ? { clips: [], patternClips: [] } : playlistData))
     await clipCommand('deep-copy', target(), vi.fn(), setBusy)(vi.fn(), vi.fn())
     expect(mockInvoke).toHaveBeenCalledWith('deep_copy_clips', { ids: [3, 4] })
     // (quick, so the cursor never showed)

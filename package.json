@@ -14,6 +14,7 @@
     "ui:test": "vitest run",
     "engine:test": "cargo test --manifest-path engine/Cargo.toml",
     "engine:test:ignored": "cargo test --manifest-path engine/Cargo.toml -- --ignored --test-threads=1",
+    "engine:test:profile": "cargo test --manifest-path engine/Cargo.toml --release --no-default-features --features perf --bin app perf_ -- --ignored --show-output --test-threads=1",
     "engine:clean": "cargo clean --manifest-path engine/Cargo.toml -p app",
     "info": "tauri info",
     "build": "tauri build",

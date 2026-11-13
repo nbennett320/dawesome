@@ -27,8 +27,8 @@ fn pattern_clip(state: &daw::InnerState, track: u32, beat: f64) -> (u64, u64) {
   let pattern = {
     let mut sequencer = state.playlist.sequencer.lock().unwrap();
     let row = sequencer.add_row(KICK).unwrap();
-    let pattern = sequencer.add_pattern(1, 4, daw::PatternKind::Drum).unwrap();
-    sequencer.set_step(pattern, row, 0, true).unwrap();
+    let pattern = sequencer.add_pattern(1, 4).unwrap();
+    sequencer.set_pattern_step(pattern, row, 0, true, 4).unwrap();
     pattern
   };
   let mut audiograph = state.playlist.audiograph.lock().unwrap();
@@ -113,14 +113,14 @@ fn test_a_paste_past_the_end_pastes_nothing() {
   state.history.lock().unwrap().clear();
   let before = saved(&state);
 
-  // the second clip would start on beat 258, past bar 64
-  let refused = paste(&state, 250., None).unwrap_err();
+  // the second clip would start on beat 514, past bar 128
+  let refused = paste(&state, 506., None).unwrap_err();
   assert!(refused.contains("past the end of the playlist"), "{}", refused);
   assert_eq!(saved(&state), before);
   assert_eq!(steps(&state), 0);
 
   // the last beat itself is still the playlist
-  assert!(paste(&state, 248., None).is_ok());
+  assert!(paste(&state, 504., None).is_ok());
   assert!(paste(&state, f64::NAN, None).is_err());
   assert!(paste(&state, -1., None).is_err());
 }
@@ -227,15 +227,27 @@ fn test_a_clip_given_twice_is_copied_once() {
 }
 
 #[test]
+fn test_a_paste_stops_at_the_end_of_a_three_four_playlist() {
+  let state = state();
+  let a = sample(&state, 0, 2.);
+  copy(&state, &[a]);
+  crate::commands::transport::set_time_signature(&state, daw::timing::TimeSignature { numerator: 3, denominator: 4 });
+
+  // 128 bars of three beats: beat 384 is the last
+  assert!(paste(&state, 384., None).is_ok());
+  assert!(paste(&state, 385., None).unwrap_err().contains(PAST_THE_END));
+}
+
+#[test]
 fn test_the_last_beat_is_still_the_playlist_at_any_tempo() {
   let state = state();
   let (a, b) = (sample(&state, 0, 2.), sample(&state, 1, 5.));
   for tempo in [97., 133.3, 61.7] {
     crate::commands::transport::change_tempo(&state, tempo, None).unwrap();
     copy(&state, &[a, b]);
-    // the second clip lands on beat 256, the last
-    assert!(paste(&state, 253., None).is_ok(), "at {}bpm", tempo);
-    assert!(paste(&state, 253.01, None).is_err(), "at {}bpm", tempo);
+    // the second clip lands on beat 512, the last
+    assert!(paste(&state, 509., None).is_ok(), "at {}bpm", tempo);
+    assert!(paste(&state, 509.01, None).is_err(), "at {}bpm", tempo);
   }
 }
 
@@ -300,11 +312,11 @@ fn test_repeat_starts_exactly_where_the_span_ends() {
 #[test]
 fn test_a_repeat_past_the_end_repeats_nothing() {
   let state = state();
-  let (a, b) = (sample(&state, 0, 130.), sample(&state, 1, 250.));
+  let (a, b) = (sample(&state, 0, 260.), sample(&state, 1, 500.));
   state.history.lock().unwrap().clear();
   let before = saved(&state);
 
-  // from beat 130 to past beat 250: the second duplicate would be past bar 64
+  // from beat 260 to past beat 500: the second duplicate would be past bar 128
   let refused = repeat(&state, &[a, b]).unwrap_err();
   assert!(refused.contains("past the end of the playlist"), "{}", refused);
   assert_eq!(saved(&state), before);
@@ -333,6 +345,38 @@ fn test_the_halves_of_a_cut_clip_stay_together_when_pasted() {
   let (c, d) = (node(&state, repeated.clips.clips[0].id), node(&state, repeated.clips.clips[1].id));
   assert_eq!(c.origin(), d.origin());
   assert_eq!(c.start_offset, right_node.start_offset + right_node.duration());
+}
+
+#[test]
+fn test_a_looping_clip_and_its_cut_halves_are_pasted_and_repeated_as_they_play() {
+  let state = state();
+  // round its one bar pattern two and a half times, from beat 3, then cut
+  // on its second time round (step 20.5)
+  let (pattern, c) = pattern_clip(&state, 1, 3.);
+  crate::commands::clip::set_windows(&state, &[crate::commands::clip::WindowEdit {
+    id: c, window: crate::commands::clip::ClipWindow { start: 0., end: Some(40.) },
+  }]).unwrap();
+  let right = crate::commands::clip::split(&state, &[c], 3. + 20.5 / 4.).unwrap().pattern_clips[1].id;
+  let clip = |id: u64| state.playlist.audiograph.lock().unwrap().get_pattern_node_by_id(id).unwrap().clone();
+  let beat = state.playlist.audiograph.lock().unwrap().beat_interval();
+  assert_eq!(((clip(c).start, clip(c).end()), (clip(right).start, clip(right).end())), ((0., 20.5), (20.5, 40.)));
+
+  // pasted, each keeps its own part of its pattern (past the pattern's end
+  // too), and the second still starts on the nanosecond the first ends on
+  copy(&state, &[c, right]);
+  state.playlist.sequencer.lock().unwrap().set_pattern_bars(pattern, 2, 4).unwrap();
+  let pasted = paste(&state, 40., None).unwrap();
+  let (a, b) = (clip(pasted.clips.pattern_clips[0].id), clip(pasted.clips.pattern_clips[1].id));
+  assert_eq!(((a.start, a.end()), (b.start, b.end())), ((0., 20.5), (20.5, 40.)));
+  assert_eq!(a.origin(beat), b.origin(beat));
+  assert_eq!(a.start_offset + a.duration(beat), b.start_offset);
+
+  // repeated, the copies start where the clip ends: its own end, not its
+  // pattern's
+  let repeated = repeat(&state, &[c, right]).unwrap();
+  let first = repeated.clips.pattern_clips.iter().map(|copy| clip(copy.id)).min_by_key(|copy| copy.start_offset).unwrap();
+  assert_eq!(first.start_offset, clip(right).start_offset + clip(right).duration(beat));
+  assert_eq!(first.start_offset, beat.mul_f64(3. + 10.));
 }
 
 #[test]

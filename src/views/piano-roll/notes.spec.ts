@@ -1,8 +1,9 @@
-import { Note, Pattern, clipNoteBars, stepsPerBar, synthNotes, withNotes } from '../../types/sequencer'
+import { Note, sortNotes, stepsPerBar } from '../../types/sequencer'
 import {
   DEFAULT_LENGTH, NEW_VELOCITY, allIndices, carriedNotes, centerPitch, clampNote, copyNotes, cutNotes, deleteNotes, drawnLength,
-  fitSelection, inSteps, isBlackKey, markerStep, moveNotes, newNote, noteBoxes, noteCut, pasteNotes, pasteStep, pitchName,
-  pressKind, repeatNotes, rollSnapping, sameNotes, snapStep, snapStepDown, trimNotes,
+  MIN_NOTE_LENGTH, fitSelection, followPlaces, isBlackKey, markerStep, moveNotes, newNote, noteBoxes, noteCut, pasteNotes, pasteStep,
+  parsePitch, pitchName, pressKind, repeatNotes, rollSnapping, sameNotes, shortestNote, snapStep, snapStepDown, sortedWithPlaces, timelineEnd,
+  trimNotes,
 } from './notes'
 import {
   DEFAULT_STEP_WIDTH, MAX_STEP_WIDTH, MIN_STEP_WIDTH, ROW_HEIGHT, pitchAtY, rowAtY, rowTop, stepAtX, zoomGrid,
@@ -28,13 +29,19 @@ describe('snapping', () => {
     expect(snapStepDown(7.9, beats)).toBe(4)
   })
 
-  it('keeps to whole steps with snap off, or Option held', () => {
-    expect(inSteps(off).every).toBe(1)
-    expect(inSteps(bypassed).every).toBe(1)
-    expect(snapStep(5.6, off)).toBe(6)
-    expect(snapStep(5.6, bypassed)).toBe(6)
-    expect(snapStepDown(7.9, off)).toBe(7)
-    expect(snapStepDown(7.9, bypassed)).toBe(7)
+  it('lands right where the mouse is with snap off, or Option held', () => {
+    expect(snapStep(5.6, off)).toBe(5.6)
+    expect(snapStep(5.6, bypassed)).toBe(5.6)
+    expect(snapStepDown(7.9, off)).toBe(7.9)
+    expect(snapStepDown(7.9, bypassed)).toBe(7.9)
+  })
+
+  it('keeps notes a step long at least while snapping, and as short as a note can be while not', () => {
+    expect(shortestNote(sixteenths)).toBe(1)
+    expect(shortestNote(beats)).toBe(1)
+    expect(shortestNote(off)).toBe(MIN_NOTE_LENGTH)
+    expect(shortestNote(bypassed)).toBe(MIN_NOTE_LENGTH)
+    expect(MIN_NOTE_LENGTH).toBe(1 / 32)
   })
 })
 
@@ -44,11 +51,18 @@ describe('drawing a note', () => {
       .toEqual({ pitch: 60, start: 5, length: 4, velocity: NEW_VELOCITY })
     expect(DEFAULT_LENGTH).toBe(4)
     expect(newNote(5.7, 60, 2, 16, beats).start).toBe(4)
-    expect(newNote(5.7, 60, 2, 16, bypassed).start).toBe(5)
+    expect(newNote(5.7, 60, 2, 16, bypassed).start).toBe(5.7)
+    expect(newNote(5.7, 60, 2, 16, off).start).toBe(5.7)
   })
 
-  it('is kept inside the pattern', () => {
-    // drawn near the end, it's cut short where the pattern ends
+  it('is kept inside the timeline, which runs as far as a pattern can grow', () => {
+    expect(timelineEnd(16, stepsPerBar(4))).toBe(128 * 16)
+    expect(timelineEnd(16, stepsPerBar(3))).toBe(128 * 12)
+    // (a pattern made longer under another time signature: to its end)
+    expect(timelineEnd(2000, stepsPerBar(3))).toBe(2000)
+    expect(newNote(40.5, 60, 4, timelineEnd(16, 16), sixteenths)).toMatchObject({ start: 40, length: 4 })
+
+    // drawn near its end (16 here), it's cut short there
     expect(newNote(14.2, 60, 4, 16, sixteenths)).toMatchObject({ start: 14, length: 2 })
     expect(newNote(15.2, 60, 4, 16, sixteenths)).toMatchObject({ start: 15, length: 1 })
     expect(newNote(-2, 200, 4, 16, sixteenths)).toMatchObject({ start: 0, pitch: 127 })
@@ -62,7 +76,10 @@ describe('drawing a note', () => {
     expect(drawnLength(4, 30, 16, sixteenths)).toBe(12)
     expect(drawnLength(4, 9.5, 16, beats)).toBe(4)
     expect(drawnLength(4, 5, 16, beats)).toBe(4)
-    expect(drawnLength(4, 6.4, 16, off)).toBe(2)
+    // snap off: to the mouse, at least as long as a note can be
+    expect(drawnLength(4, 6.4, 16, off)).toBeCloseTo(2.4)
+    expect(drawnLength(4, 4.01, 16, off)).toBe(MIN_NOTE_LENGTH)
+    expect(drawnLength(4, 2, 16, off)).toBe(MIN_NOTE_LENGTH)
     expect(drawnLength(12, 30, 16, beats)).toBe(4)
   })
 })
@@ -76,7 +93,7 @@ describe('the mouse', () => {
   })
 
   it('knows what a press starts with each tool', () => {
-    const at = { shift: false, onNote: false, onEdge: false, inPattern: true }
+    const at = { shift: false, onNote: false, onEdge: false }
     // shift: a click or a box, whatever the tool and wherever
     expect(pressKind({ ...at, tool: 'select', shift: true, onNote: true, onEdge: true })).toBe('shift')
     expect(pressKind({ ...at, tool: 'cut', shift: true, onNote: true })).toBe('shift')
@@ -90,7 +107,6 @@ describe('the mouse', () => {
     expect(pressKind({ ...at, tool: 'draw', onNote: true })).toBe('move')
     expect(pressKind({ ...at, tool: 'draw', onNote: true, onEdge: true })).toBe('edge')
     expect(pressKind({ ...at, tool: 'draw' })).toBe('draw')
-    expect(pressKind({ ...at, tool: 'draw', inPattern: false })).toBe('empty')
 
     // Cut leaves edges alone
     expect(pressKind({ ...at, tool: 'cut', onNote: true, onEdge: true })).toBe('cut')
@@ -103,7 +119,7 @@ describe('the start marker', () => {
     expect(markerStep(5.4, 16, sixteenths)).toBe(5)
     expect(markerStep(5.6, 16, beats)).toBe(4)
     expect(markerStep(6.1, 16, beats)).toBe(8)
-    expect(markerStep(5.6, 16, bypassed)).toBe(6)
+    expect(markerStep(5.6, 16, bypassed)).toBe(5.6)
     // never past the last line before the pattern's end, nor before it
     expect(markerStep(15.8, 16, sixteenths)).toBe(15)
     expect(markerStep(15.8, 16, beats)).toBe(12)
@@ -119,7 +135,7 @@ describe('moving notes', () => {
     expect(moveNotes(notes, [0, 1], 1, 7, 64, 16)).toEqual([note(60, 3, 2), note(64, 7, 2), note(70, 0, 1)])
   })
 
-  it('holds the move back at the pattern’s ends and the piano’s, keeping their shape', () => {
+  it('holds the move back at the timeline’s ends and the piano’s, keeping their shape', () => {
     expect(moveNotes(notes, [0, 1], 0, -10, 60, 16).slice(0, 2)).toEqual([note(60, 0, 2), note(64, 4, 2)])
     expect(moveNotes(notes, [0, 1], 0, 20, 60, 16).slice(0, 2)).toEqual([note(60, 10, 2), note(64, 14, 2)])
     expect(moveNotes(notes, [0, 1], 0, 2, 160, 16).slice(0, 2).map(n => n.pitch)).toEqual([123, 127])
@@ -138,7 +154,7 @@ describe('moving notes', () => {
       expect(carried[i].start).toBeCloseTo(start)
       expect(carried[i].pitch).toBeCloseTo(pitch)
     })
-    // past the pattern's end and the top of the piano: stopped where
+    // past the timeline's end and the top of the piano: stopped where
     // moveNotes stops them
     const far = carriedNotes(notes, [0, 1], 20, 100, 16)
     expect(far.map(n => [n.start, n.pitch])).toEqual([[10, 123], [14, 127]])
@@ -150,10 +166,13 @@ describe('moving notes', () => {
 describe('trimming notes', () => {
   const notes = [note(60, 2, 2), note(64, 12, 2), note(67, 0, 1)]
 
-  it('moves the right edge of each chosen note as far, each stopping at the pattern’s end', () => {
+  it('moves the right edge of each chosen note as far, each stopping at the timeline’s end', () => {
     expect(trimNotes(notes, [0, 1], 0, 'right', 7, 16)).toEqual([note(60, 2, 5), note(64, 12, 4), note(67, 0, 1)])
-    // never shorter than a step
+    // never shorter than a step while snapping
     expect(trimNotes(notes, [0], 0, 'right', -3, 16)[0]).toEqual(note(60, 2, 1))
+    // and to anywhere while not, as short as a note can be
+    expect(trimNotes(notes, [0], 0, 'right', 4.3, 16, shortestNote(off))[0].length).toBeCloseTo(2.3)
+    expect(trimNotes(notes, [0], 0, 'right', -3, 16, shortestNote(off))[0]).toEqual(note(60, 2, MIN_NOTE_LENGTH))
   })
 
   it('moves the left edge too, ends staying put', () => {
@@ -163,7 +182,7 @@ describe('trimming notes', () => {
     expect(trimNotes(notes, [0, 1], 1, 'left', 11, 16).slice(0, 2)).toEqual([note(60, 1, 3), note(64, 11, 3)])
   })
 
-  it('lets a note that already runs past the pattern’s end keep its end', () => {
+  it('lets a note that already runs past the timeline’s end keep its end', () => {
     expect(trimNotes([note(60, 14, 4)], [0], 0, 'right', 17, 16)).toEqual([note(60, 14, 3)])
   })
 
@@ -179,8 +198,8 @@ describe('cutting notes', () => {
     expect(noteCut(notes, 0, new Set([0, 1]), 2.3, sixteenths)).toEqual({ ids: [0, 1], step: 2 })
     // not selected: on its own
     expect(noteCut(notes, 0, new Set([1]), 2.3, sixteenths)).toEqual({ ids: [0], step: 2 })
-    // a whole step with snap off
-    expect(noteCut(notes, 0, new Set(), 2.6, off)).toEqual({ ids: [0], step: 3 })
+    // right where the mouse is with snap off
+    expect(noteCut(notes, 0, new Set(), 2.6, off)).toEqual({ ids: [0], step: 2.6 })
   })
 
   it('cuts nowhere that leaves a half shorter than a step', () => {
@@ -215,7 +234,7 @@ describe('copying, pasting and repeating', () => {
     })
   })
 
-  it('leaves out a copy at or past the pattern’s end, and cuts short one crossing it', () => {
+  it('leaves out a copy at or past the timeline’s end, and cuts short one crossing it', () => {
     expect(pasteNotes(notes, [notes[0], notes[1]], 13, 16).notes.slice(3)).toEqual([note(60, 13, 2), note(64, 15, 1)])
     expect(pasteNotes(notes, [notes[0], notes[1]], 15, 16)).toEqual({
       notes: [...notes, note(60, 15, 1)],
@@ -229,7 +248,7 @@ describe('copying, pasting and repeating', () => {
     const once = repeatNotes(notes, new Set([0, 1]), 16)
     expect(once).toEqual({ notes: [...notes, note(60, 8, 2), note(64, 10, 2)], added: [3, 4] })
     expect(repeatNotes(once.notes, new Set(once.added), 16).notes.slice(5)).toEqual([note(60, 12, 2), note(64, 14, 2)])
-    // only what starts before the pattern's end
+    // only what starts before the timeline's end
     expect(repeatNotes(notes, new Set([0, 1, 2]), 16).notes.slice(3)).toEqual([note(60, 14, 2)])
   })
 
@@ -274,6 +293,12 @@ describe('the grid', () => {
     expect([60, 61, 62, 63, 64, 65, 66].map(isBlackKey)).toEqual([false, true, false, true, false, false, true])
   })
 
+  it('reads a pitch typed as its name or its number', () => {
+    expect(['C4', 'c4', ' D#3 ', 'Eb3', 'B#3', 'C-1', 'G9', '72'].map(parsePitch)).toEqual([60, 60, 51, 51, 60, 0, 127, 72])
+    // not a pitch, or not one MIDI has
+    expect(['', 'H2', 'C', '4C', 'Ab9', '128', '-1', 'C##4'].map(parsePitch)).toEqual(Array(8).fill(null))
+  })
+
   it('opens on the middle of the notes, or middle C', () => {
     expect(centerPitch([])).toBe(60)
     expect(centerPitch([note(40, 0), note(50, 0)])).toBe(45)
@@ -309,30 +334,19 @@ describe('the grid', () => {
   })
 })
 
-describe('a pattern’s notes', () => {
-  const pattern = (notes?: Record<string, Note[]>): Pattern =>
-    ({ id: 0, name: null, kind: 'note', length: 16, steps: {}, notes })
-
-  it('are none for a synth without any, or when an older engine leaves them out', () => {
-    expect(synthNotes(pattern(), 3)).toEqual([])
-    expect(synthNotes(pattern({ 4: [note(60, 0)] }), 3)).toBe(synthNotes(pattern(), 3))
-    expect(synthNotes(pattern({ 4: [note(60, 0)] }), 4)).toEqual([note(60, 0)])
+describe('keeping notes in order', () => {
+  it('sorts as sortNotes does, saying where each note went', () => {
+    const quiet = { ...note(60, 4), velocity: 0.2 }
+    const notes = [note(64, 4), note(60, 4), note(72, 0), quiet]
+    const { notes: sorted, at } = sortedWithPlaces(notes)
+    expect(sorted).toEqual(sortNotes(notes))
+    expect(sorted).toEqual([note(72, 0), note(60, 4), quiet, note(64, 4)])
+    expect(at).toEqual([3, 1, 0, 2])
   })
 
-  it('are replaced a synth at a time, a synth left without any left out', () => {
-    const p = withNotes(pattern({ 4: [note(60, 0)] }), 5, [note(62, 1)])
-    expect(p.notes).toEqual({ 4: [note(60, 0)], 5: [note(62, 1)] })
-    expect(withNotes(p, 4, []).notes).toEqual({ 5: [note(62, 1)] })
-  })
-
-  it('show in a clip as bars, every synth’s: those starting in its part, cut at its end', () => {
-    const p = pattern({ 1: [note(60, 0, 4), note(64, 6, 8)], 2: [note(72, 12, 2)] })
-    expect(clipNoteBars(p, 0, 16)).toEqual({
-      rows: 13,
-      bars: [{ start: 0, end: 4, row: 12 }, { start: 6, end: 14, row: 8 }, { start: 12, end: 14, row: 0 }],
-    })
-    // trimmed to steps 4 to 10: the first note began before it, the second is cut short
-    expect(clipNoteBars(p, 4, 10).bars).toEqual([{ start: 6, end: 10, row: 5 }])
-    expect(clipNoteBars(pattern(), 0, 16)).toEqual({ rows: 0, bars: [] })
+  it('moves places to where their notes went, leaving out places past the end', () => {
+    const { at } = sortedWithPlaces([note(64, 4), note(60, 0)])
+    expect(followPlaces([0], at)).toEqual(new Set([1]))
+    expect(followPlaces(new Set([0, 1, 5]), at)).toEqual(new Set([1, 0]))
   })
 })

@@ -20,8 +20,8 @@ import {
   ChangedClips, LoadedClip, LoadedPatternClip, LoadedProject, Joined, MissingEffect, MissingSample, MovedClip, Placed, ProjectView, SavedProject, splitMissing,
 } from '../../types/project'
 import { currentGesture } from '../gesture'
-import { Wind } from '../../types/transport'
-import { SequencerState, Synth } from '../../types/sequencer'
+import { DEFAULT_PLAYLIST_BEATS, Wind } from '../../types/transport'
+import { SequencerState, SynthInstrument } from '../../types/sequencer'
 import { MixerSettings } from '../../types/mixer'
 import { openTab } from './windowSlice'
 
@@ -73,9 +73,8 @@ export interface PlaylistState {
   // clips without an entry play all of it
   clipWindows: Record<number, ClipWindow>
   ui: {
-    maxPlaylistBeats: number,
+    // the playlist's length in beats, from the engine (see PLAYLIST_BARS)
     maxBeatsDisplayed: number,
-    maxPlaylistDuration: number,
     trackCount: number,
   },
 }
@@ -103,10 +102,7 @@ const initialState = {
   clipSampleDurations: {},
   clipWindows: {},
   ui: {
-    maxPlaylistBeats: 16,
-    // the playlist's length: 64 bars
-    maxBeatsDisplayed: 256,
-    maxPlaylistDuration: 120*2,
+    maxBeatsDisplayed: DEFAULT_PLAYLIST_BEATS,
     trackCount: 4,
   },
 } as PlaylistState
@@ -214,7 +210,7 @@ export const playlistSlice = createSlice({
         item.trackNumber = m.trackNumber
       })
     },
-    // pattern clips replaced by a pattern clip per sample (see
+    // pattern clips replaced by a pattern clip per row (see
     // explodePatternClips in sequencerSlice)
     reduceExploded: (state, action: PayloadAction<{ removed: number[], clips: LoadedPatternClip[] }>) => {
       const removed = new Set(action.payload.removed)
@@ -549,12 +545,19 @@ export const {
   removePlaylistItem
 } = playlistSlice.actions
 
+// get_playlist_data's answer: the playlist's length in beats, and how many
+// tracks it has
+interface PlaylistData {
+  beats: number
+  trackCount: number
+}
+
 // the engine has as many tracks as the highest one with a clip on it (and
 // at least its default number). ask it after clips are added, moved or
 // removed
 export const refreshTrackCount = () => async (dispatch: Dispatch) => {
   try {
-    const [, , , trackCount] = await invoke<[number, number, number, number]>('get_playlist_data', {})
+    const { trackCount } = await invoke<PlaylistData>('get_playlist_data', {})
     dispatch(playlistSlice.actions.setTrackCount(trackCount))
   } catch(e) {
     // eslint-disable-next-line no-console
@@ -613,27 +616,20 @@ export const addTrack = () => async (dispatch: Dispatch) => {
 }
 
 // place a pattern in the playlist (dragged from the Sequencer's pattern
-// strip). the clip stays linked to the pattern
+// strip). the clip stays linked to the pattern, and is as long as the
+// pattern is now
 export const addPatternToPlaylist = (
   patternId: number,
   trackNumber: number,
   dropBeat: number,
 ) => async (dispatch: Dispatch) => {
-  const { id, startBeat } = await invoke<{ id: number, startBeat: number }>('add_pattern_clip', {
+  const clip = await invoke<LoadedPatternClip>('add_pattern_clip', {
     patternId,
     trackNumber,
     dropBeat,
   })
 
-  dispatch(addPlaylistItem({
-    id,
-    path: '',
-    patternId,
-    startBeat,
-    trackNumber,
-    pixelOffset: { ...NO_PIXEL_OFFSET },
-  } as PlaylistItem))
-
+  dispatch(playlistSlice.actions.reduceChangedClips({ clips: [], patternClips: [clip] }))
   await refreshTrackCount()(dispatch)
 }
 
@@ -644,8 +640,8 @@ const placedNow = (getState: () => RootState, ids: number[]): MovedNode[] =>
     .map(({ id, startBeat, trackNumber }) => ({ id, startBeat, trackNumber }))
 
 // move a clip. it's moved at once to `shownBeat` (where the playlist showed
-// it landing), as the engine can take a moment to answer (a note pattern on
-// a new track waits for its synths' plugins), then to where the engine put it
+// it landing), as the engine can take a moment to answer (a pattern on a
+// new track waits for its synths' plugins), then to where the engine put it
 export const moveNodeInPlaylist = (
   id: number,
   path: string,
@@ -919,7 +915,7 @@ export const { setClipboardCount, selectClips, reducePainted } = playlistSlice.a
 
 // paint clips of a pattern along a track with the Draw tool, from startBeat
 // to endBeat (already snapped): end to end, the last cut short at the end.
-// with no pattern (null), a new empty note pattern long enough to hold the
+// with no pattern (null), a new empty pattern long enough to hold the
 // drag, and one clip of it. one step to undo. a track below the last makes
 // one. null if the engine refused
 export const paintPatternClips = (
@@ -1153,20 +1149,10 @@ export const {
   setPlaylistUI,
 } = playlistSlice.actions
 
+// the playlist's length and tracks
 export const initPlaylist = () => async (dispatch: Dispatch) => {
-  const [
-    maxPlaylistBeats,
-    maxBeatsDisplayed,
-    maxPlaylistDuration,
-    trackCount
-  ] = await invoke<[number, number, number, number]>('get_playlist_data', {})
-  
-  dispatch(setPlaylistUI({
-    maxPlaylistBeats,
-    maxBeatsDisplayed,
-    maxPlaylistDuration,
-    trackCount,
-  }))
+  const { beats, trackCount } = await invoke<PlaylistData>('get_playlist_data', {})
+  dispatch(setPlaylistUI({ maxBeatsDisplayed: beats, trackCount }))
 
   // the engine owns the snap defaults
   const snap = await invoke<SnapSetting>('get_snap_setting', {})
@@ -1232,7 +1218,7 @@ export const dropQueuedClipSettings = (): void => {
 export interface LoadedMissing {
   samples: MissingSample[]
   effects: MissingEffect[]
-  synths: Synth[]
+  synths: SynthInstrument[]
   dropped: string[]
 }
 
@@ -1249,7 +1235,7 @@ const showLoadedProject = async (
   // the playlist's length depends on its clips
   await initPlaylist()(dispatch)
 
-  const { effects, synths } = splitMissing(project.missingEffects ?? [], project.sequencer?.synths ?? [])
+  const { effects, synths } = splitMissing(project.missingEffects ?? [], project.sequencer?.rows ?? [])
   return { samples: project.missing, effects, synths, dropped: project.dropped ?? [] }
 }
 

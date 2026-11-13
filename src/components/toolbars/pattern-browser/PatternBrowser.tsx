@@ -7,39 +7,32 @@ import {
   movePatternToFolder,
   removePatternFolder,
   renamePatternFolder,
-  selectFoldersOf,
-  selectPattern,
+  selectPatternFolders,
   selectPatternRun,
-  selectPatternsOf,
+  selectPatterns,
+  selectRowKinds,
   selectSelectedPatternId,
-  sequencerView,
+  showPattern,
 } from '../../../state/slices/sequencerSlice'
 import { selectPlaylistItems } from '../../../state/slices/playlistSlice'
-import { openTab } from '../../../state/slices/windowSlice'
-import { FolderScope, beginSampleDrag } from '../../../state/sampleDrag'
+import { beginSampleDrag } from '../../../state/sampleDrag'
 import { FolderNode, allItems, buildTree } from '../../../types/folderTree'
 import {
-  Pattern, PatternKind, folderIdOf, folderKey, folderPathLabel, patternFolderInfos, patternHint, patternLabel,
-  searchPatterns,
+  Holds, Pattern, RowKinds, folderIdOf, folderKey, folderPathLabel, patternFolderInfos, patternHint, patternHolds,
+  patternLabel, searchPatterns,
 } from '../../../types/sequencer'
-import { viewLabels } from '../../../types/ui'
 import { plural } from '../../../util/helpers'
 import { useTransport } from '../../../views/transport/useTransport'
 import { Led } from '../../fourtrack'
+import { KeysIcon, WaveIcon } from '../../icons'
 import BrowserRow, { RowHint } from '../browser/BrowserRow'
 import FolderBrowser, { ItemContext } from '../browser/FolderBrowser'
 import { useClickWithoutDrag } from '../browser/useClickWithoutDrag'
 
-// each kind's page: its folders' drag scope, and what it's called
-const PAGES: Record<PatternKind, { scope: FolderScope, label: string }> = {
-  drum: { scope: 'patterns', label: 'Drum patterns' },
-  note: { scope: 'note-patterns', label: 'Note patterns' },
-}
-
 interface RowProps {
   pattern: Pattern
-  // the sequencer it's shown in
-  shownIn: string
+  // each row's kind of instrument, for the badges
+  kinds: RowKinds
   hint: string
   // placed in the playlist at least once
   used: boolean
@@ -49,18 +42,36 @@ interface RowProps {
   onSelect: (pattern: Pattern) => void
 }
 
-// one pattern: click to show it in its sequencer, drag it into the
+// a small mark for each kind of instrument a pattern has notes for
+const Badges = ({ samples, synths }: Holds) => (
+  <>
+    {samples && (
+      <span role='img' aria-label='Plays samples' title='Plays samples' className='shrink-0'>
+        <WaveIcon className='w-3 h-3 text-ink-faint' />
+      </span>
+    )}
+    {synths && (
+      <span role='img' aria-label='Plays instruments' title='Plays instruments' className='shrink-0'>
+        <KeysIcon className='w-3 h-3 text-ink-faint' />
+      </span>
+    )}
+  </>
+)
+
+// one pattern: click to show it in the Pattern Sequencer, drag it into the
 // playlist or a folder
-const PatternRow = ({ pattern, shownIn, hint, used, selected, playing, depth, onSelect }: RowProps) => {
+const PatternRow = ({ pattern, kinds, hint, used, selected, playing, depth, onSelect }: RowProps) => {
   const label = patternLabel(pattern)
   const { pressed, isClick } = useClickWithoutDrag()
+  // (worked out again only when the pattern or the rows' kinds change)
+  const holds = React.useMemo(() => patternHolds(pattern, kinds), [pattern, kinds])
 
   return (
     <BrowserRow
       role='treeitem'
       selected={selected}
       used={used}
-      title={`${label}. Click to show it in the ${shownIn}, drag into the playlist to place it`}
+      title={`${label}. Click to show it in the Pattern Sequencer, drag into the playlist to place it`}
       style={{ paddingLeft: depth * 12 + 8 }}
       // only a drag starts on mousedown: showing the sequencer straight away
       // could hide the playlist (when they share a pane) before it's dropped
@@ -74,25 +85,24 @@ const PatternRow = ({ pattern, shownIn, hint, used, selected, playing, depth, on
     >
       <Led color='lime' state={playing ? 'on' : 'off'} className='shrink-0 scale-75' />
       <span className='truncate'>{label}</span>
+      <Badges {...holds} />
       <RowHint className='ml-auto pl-2'>{hint}</RowHint>
     </BrowserRow>
   )
 }
 
-// a kind's patterns (the Drum Sequencer's, or the Note Sequencer's), in
-// folders of that kind: find them by name, drag them into the playlist, and
-// file them away
-const PatternBrowser = ({ kind }: { kind: PatternKind }) => {
+// the project's patterns, in folders: find them by name, drag them into the
+// playlist, and file them away
+const PatternBrowser = () => {
   const dispatch = useAppDispatch()
-  const patterns = useAppSelector(selectPatternsOf(kind))
-  const folders = useAppSelector(selectFoldersOf(kind))
-  const selectedId = useAppSelector(selectSelectedPatternId(kind))
+  const patterns = useAppSelector(selectPatterns)
+  const folders = useAppSelector(selectPatternFolders)
+  const kinds = useAppSelector(selectRowKinds)
+  const selectedId = useAppSelector(selectSelectedPatternId)
   const run = useAppSelector(selectPatternRun)
   const items = useAppSelector(selectPlaylistItems)
   const { transport } = useTransport()
   const beatsPerBar = transport?.beatsPerBar ?? 4
-  const { scope, label } = PAGES[kind]
-  const shownIn = viewLabels[sequencerView(kind)]
 
   // the engine owns the sequencer: catch up with it, in case its tab hasn't
   // been opened yet
@@ -124,7 +134,7 @@ const PatternBrowser = ({ kind }: { kind: PatternKind }) => {
     return (
       <PatternRow
         pattern={pattern}
-        shownIn={shownIn}
+        kinds={kinds}
         hint={where ? `${where} · ${hint}` : hint}
         used={clips > 0}
         selected={pattern.id === selectedId}
@@ -132,8 +142,7 @@ const PatternBrowser = ({ kind }: { kind: PatternKind }) => {
         depth={depth}
         onSelect={() => {
           deselectFolder()
-          dispatch(selectPattern(pattern.id))
-          dispatch(openTab(sequencerView(kind)))
+          dispatch(showPattern(pattern.id))
         }}
       />
     )
@@ -141,8 +150,8 @@ const PatternBrowser = ({ kind }: { kind: PatternKind }) => {
 
   return (
     <FolderBrowser
-      scope={scope}
-      label={label}
+      scope='patterns'
+      label='Patterns'
       searchLabel='Search patterns'
       noun='pattern'
       folders={infos}
@@ -152,8 +161,8 @@ const PatternBrowser = ({ kind }: { kind: PatternKind }) => {
       search={query => searchPatterns(patterns, query)
         .map(pattern => ({ item: pattern, where: folderPathLabel(folders, pattern.folder) }))}
       noMatch='No patterns match.'
-      emptyMessage={!patterns.length && !folders.length ? `No patterns yet. Make one in the ${shownIn}.` : null}
-      createFolder={(parent, name) => dispatch(addPatternFolder(name, folderIdOf(parent), kind)).then(folderKey)}
+      emptyMessage={!patterns.length && !folders.length ? 'No patterns yet. Make one in the Pattern Sequencer.' : null}
+      createFolder={(parent, name) => dispatch(addPatternFolder(name, folderIdOf(parent))).then(folderKey)}
       renameFolder={(key, name) => withId(key, id => dispatch(renamePatternFolder(id, name)))}
       moveFolder={(key, into) => withId(key, id => dispatch(movePatternFolder(id, folderIdOf(into))))}
       deleteFolder={node => withId(node.key, id => dispatch(removePatternFolder(id)))}

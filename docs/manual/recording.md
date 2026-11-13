@@ -128,7 +128,7 @@ project uses the take; takes not in use are dimmed. Hold the mouse over a
 row to see its full path, when it was recorded, and where it's used.
 
 - **Hear a take:** click it (or select it and press **Return (Enter)**).
-- **Use a take:** drag it into the playlist or the Sequencer.
+- **Use a take:** drag it into the playlist or the Pattern Sequencer.
 - **Search:** type in **Search** at the top. Only takes whose names contain
   the text are listed, with their folders. **Esc** clears the search.
 - **New folder:** click the new-folder button beside the search field. The
@@ -139,10 +139,10 @@ row to see its full path, when it was recorded, and where it's used.
 - **Rename:** right-click a take or folder and choose **Rename**. Type the
   name and press **Return (Enter)**; **Esc** leaves it as it was.
 - **Delete:** right-click and choose **Move to Trash**, then confirm. A
-  take the project uses can't be deleted (remove its clips and Sequencer
-  rows first), nor a folder holding one.
+  take the project uses can't be deleted (remove its clips and Pattern
+  Sequencer rows first), nor a folder holding one.
 
-Clips and Sequencer rows that play a take follow it when it's moved or
-renamed.
+Clips and Pattern Sequencer rows that play a take follow it when it's
+moved or renamed. So does the saved project file.
 
 While recording, the browser can't make, move, rename or delete anything.

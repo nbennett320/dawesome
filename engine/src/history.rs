@@ -67,7 +67,7 @@ impl Placed {
     match (&self.clip, &other.clip) {
       (ClipSnap::Sample(a), ClipSnap::Sample(b)) => a.same_clip(b),
       (ClipSnap::Pattern(a), ClipSnap::Pattern(b)) =>
-        a.pattern_id == b.pattern_id && a.track_number == b.track_number && a.window == b.window,
+        a.pattern_id == b.pattern_id && a.track_number == b.track_number && (a.start, a.length) == (b.start, b.length),
       _ => false,
     }
   }
@@ -442,7 +442,8 @@ pub fn clip_edit<T>(
   all.extend(made(&result));
   let after = clips(state, &all);
   record(state, Step::new().in_gesture(gesture).with_clips(before, after));
-  // a clip of a note pattern on a track that hasn't its synths yet
+  // a clip of a pattern with synth rows' notes, on a track that hasn't
+  // their copies yet
   crate::commands::synth::follow(state);
 
   Ok(result)

@@ -26,12 +26,13 @@ class Timeline extends PlaylistComponent {
     p.textAlign(p.LEFT, p.BASELINE)
 
     const renderer = this.renderer as Renderer
+    const { beatsPerBar } = renderer
     const limit = renderer.beatsDisplayed
     const beatWidth = this.timelineWidth * this.currentScale / limit
     // a tick on each grid line (see adaptiveStep), and bar numbers that thin
     // out so they never overlap, with bar.beat on each beat when zoomed in
     // (see rulerLabel). only the beats on screen are drawn
-    const { lineEvery, labelEvery } = gridSteps(beatWidth, theme.beatsPerBar)
+    const { lineEvery, labelEvery } = gridSteps(beatWidth, beatsPerBar)
     // (a number is drawn to the right of its beat, so one just off the left
     // edge may still show)
     const [first, last] = visibleBeats(beatWidth, renderer.transformX, this.timelineWidth, limit, MIN_LABEL_GAP)
@@ -43,7 +44,7 @@ class Timeline extends PlaylistComponent {
     for(let n = Math.ceil(first / lineEvery); n * lineEvery < last; n++) {
       const i = n * lineEvery
       const x = i * beatWidth
-      const level = lineLevel(i, theme.beatsPerBar)
+      const level = lineLevel(i, beatsPerBar)
 
       // a tick up from the bottom: tallest on each bar, short between beats
       paint.stroke(p, 'rulerLine', level === 0 ? 0.6 : 1)
@@ -56,7 +57,7 @@ class Timeline extends PlaylistComponent {
         p.noStroke()
         paint.fill(p, bar ? 'rulerBarText' : 'rulerText')
         p.textStyle(bar ? p.BOLD : p.NORMAL)
-        p.text(rulerLabel(i, theme.beatsPerBar), x + 3, this.timelineHeight - 8)
+        p.text(rulerLabel(i, beatsPerBar), x + 3, this.timelineHeight - 8)
       }
     }
     p.textStyle(p.NORMAL)

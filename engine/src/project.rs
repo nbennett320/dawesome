@@ -3,12 +3,14 @@
 //
 // an effect is saved with its plugin's id, bundle and settings (base64). one
 // whose plugin can't be loaded comes back missing, keeping its settings, and
-// is saved again just as it was read. the Note Sequencer's synths are saved
-// the same way, with the sequencer
+// is saved again just as it was read. the sequencer's synth rows' plugins
+// are saved the same way, in their rows
 //
 // a project saved by the stage-1 build of plugins (an instrument in a
-// track's rack, notes in a drum pattern) loads without those, and says so
-// (see drop_stage_one)
+// track's rack, notes as a plain list in a pattern) loads without those, and
+// says so
+// (see drop_stage_one). one saved before version 4 has its sequencer
+// rewritten for this one as it's read (see merge_pattern_kinds)
 //
 // sample paths inside the project's folder are saved relative to it, so a
 // project folder can be moved or shared. other samples are saved as
@@ -24,15 +26,16 @@ use crate::commands::clip::{clip_info, ClipInfo, ClipWindow};
 use crate::project_files::{self, recordings_dir_for};
 
 // the newest project format this version of the app reads and writes.
-// bump it when a change means older apps would misread a project
-pub const PROJECT_VERSION: u32 = 3;
-// what a project with patterns but no trimmed clips is saved as, so older
+// bump it when a change means older apps would misread a project. version 4
+// has a sequencer of rows and patterns as daw_core/sequencer.rs has them,
+// and pattern clips saved with their own start and length
+pub const PROJECT_VERSION: u32 = 4;
+// what a project without a sequencer or pattern clips is saved as, so older
 // apps can still open it. version 3 added clips that play part of their
-// sample or pattern
-pub const PROJECT_VERSION_WITHOUT_WINDOWS: u32 = 2;
-// what a project without patterns or trimmed clips is saved as, so older
-// apps can still open it. version 2 added the sequencer and pattern clips
-pub const PROJECT_VERSION_WITHOUT_PATTERNS: u32 = 1;
+// sample
+pub const PROJECT_VERSION_WITHOUT_PATTERNS: u32 = 3;
+// what a project with neither those nor trimmed clips is saved as
+pub const PROJECT_VERSION_WITHOUT_WINDOWS: u32 = 1;
 
 // the playlist's settings, as saved in a project
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
@@ -86,9 +89,18 @@ pub struct ProjectPatternClip {
   pub track_number: u32,
   // beats from the start of the playlist
   pub start_beat: f64,
-  // the part of the pattern it plays, in steps. left out for all of it
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub window: Option<ClipWindow>,
+  // where in the pattern the clip starts, in steps (see PatternNode::start).
+  // left out at its start
+  #[serde(default, skip_serializing_if = "is_zero")]
+  pub start: f64,
+  // the clip's own length, in steps (see saved_span for one that's left
+  // out or makes no sense)
+  #[serde(default)]
+  pub length: f64,
+}
+
+fn is_zero(steps: &f64) -> bool {
+  *steps == 0.
 }
 
 // a project file. missing fields take their defaults, so hand edited or
@@ -106,9 +118,11 @@ pub struct Project {
   pub tracks: u32,
   // only tracks changed from their defaults, or named, are saved
   pub mixer: daw::MixerSettings,
-  // the Sequencer tab's rows (with their sample paths saved like clips') and
-  // patterns, left out when there are none
-  #[serde(skip_serializing_if = "daw::SavedSequencer::is_empty")]
+  // the Sequencer tab's rows (with their sample paths saved like clips'),
+  // patterns and folders, left out when there are none. under a key of its
+  // own, which older apps don't read: they get as far as the version, and
+  // say the project is newer
+  #[serde(rename = "patternSequencer", skip_serializing_if = "daw::SavedSequencer::is_empty")]
   pub sequencer: daw::SavedSequencer,
   #[serde(skip_serializing_if = "Vec::is_empty")]
   pub pattern_clips: Vec<ProjectPatternClip>,
@@ -135,7 +149,7 @@ const MAX_SAVED_TRACKS: u32 = 1024;
 impl Default for Project {
   fn default() -> Self {
     Project {
-      version: PROJECT_VERSION_WITHOUT_PATTERNS,
+      version: PROJECT_VERSION_WITHOUT_WINDOWS,
       settings: ProjectSettings::default(),
       clips: Vec::new(),
       tracks: daw::defaults::NUM_OF_TRACKS,
@@ -154,7 +168,8 @@ impl Project {
   pub fn from_json(json: &str) -> Result<Self, String> {
     let mut value: serde_json::Value = serde_json::from_str(json)
       .map_err(|e| format!("not a valid project file: {}", e))?;
-    let dropped = drop_stage_one(&mut value);
+    let mut dropped = drop_stage_one(&mut value);
+    dropped.extend(merge_pattern_kinds(&mut value)?);
     let mut project: Project = serde_json::from_value(value)
       .map_err(|e| format!("not a valid project file: {}", e))?;
     project.validate()?;
@@ -221,8 +236,9 @@ pub struct LoadedPatternClip {
   pub pattern_id: u64,
   pub track_number: u32,
   pub start_beat: f32,
-  // the part of the pattern it plays, in steps. None: all of it
-  pub window: Option<ClipWindow>,
+  // where in its pattern it starts and ends, in steps (see
+  // ClipWindow::of_pattern)
+  pub window: ClipWindow,
 }
 
 impl LoadedPatternClip {
@@ -232,7 +248,7 @@ impl LoadedPatternClip {
       pattern_id: node.pattern_id,
       track_number: node.track_number,
       start_beat: beats(node.start_offset, interval),
-      window: node.window.map(ClipWindow::of_pattern),
+      window: ClipWindow::of_pattern(node),
     }
   }
 }
@@ -279,13 +295,13 @@ fn drop_stage_one(project: &mut serde_json::Value) -> Vec<String> {
   let plural = |n: usize, one: &str, many: &str| if n == 1 { format!("1 {}", one) } else { format!("{} {}", n, many) };
   if instruments > 0 {
     dropped.push(format!(
-      "{} in a mixer channel's effects {} left out: instruments are synths in the Note Sequencer now",
+      "{} in a mixer channel's effects {} left out: instruments are rows of the Pattern Sequencer now",
       plural(instruments, "instrument", "instruments"), if instruments == 1 { "was" } else { "were" }));
   }
   if patterns > 0 {
     dropped.push(format!(
-      "The notes in {} were left out: notes are in note patterns now",
-      plural(patterns, "drum pattern", "drum patterns")));
+      "The notes in {} were left out: notes belong to a row of the Pattern Sequencer now",
+      plural(patterns, "pattern", "patterns")));
   }
   dropped
 }
@@ -306,7 +322,7 @@ pub struct LoadedProject {
   // each channel's effects
   pub effects: crate::effects::Racks,
   // effects whose plugins couldn't be loaded (they're in their racks,
-  // marked missing), and synths (in the synth list, marked missing)
+  // marked missing), and synth rows' (in their rows, marked missing)
   pub missing_effects: Vec<crate::effects::MissingEffect>,
   // what the file had that was left out, a sentence for each kind of thing
   // (for the project notice; empty when nothing was)
@@ -388,18 +404,25 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
       .then(a.track_number.cmp(&b.track_number))
       .then_with(|| a.path.cmp(&b.path)));
 
-    // in the order they start, so saving twice gives the same file
-    let mut pattern_clips: Vec<ProjectPatternClip> = audiograph.pattern_nodes.iter().map(|node| ProjectPatternClip {
-      pattern_id: node.pattern_id,
-      track_number: node.track_number,
-      start_beat: beat_of(node.start_offset, node.window.is_some()),
-      window: node.window.map(ClipWindow::of_pattern),
+    // in the order they start, so saving twice gives the same file. a clip
+    // that isn't all of its pattern, once, is trimmed (a half of a cut clip,
+    // or a clip that loops it)
+    let sequencer = state.playlist.sequencer.lock().unwrap();
+    let mut pattern_clips: Vec<ProjectPatternClip> = audiograph.pattern_nodes.iter().map(|node| {
+      let whole = sequencer.pattern(node.pattern_id).map(|pattern| pattern.length as f64);
+      ProjectPatternClip {
+        pattern_id: node.pattern_id,
+        track_number: node.track_number,
+        start_beat: beat_of(node.start_offset, node.start != 0. || Some(node.length) != whole),
+        start: node.start,
+        length: node.length,
+      }
     }).collect();
     pattern_clips.sort_by(|a, b| a.start_beat.total_cmp(&b.start_beat).then(a.track_number.cmp(&b.track_number)));
 
-    let mut sequencer = state.playlist.sequencer.lock().unwrap().saved();
-    for row in &mut sequencer.rows {
-      row.path = stored_path(&row.path, project_dir);
+    let mut sequencer = sequencer.saved();
+    for path in sequencer.sample_paths_mut() {
+      *path = stored_path(path, project_dir);
     }
 
     (audiograph.tempo(), clips, pattern_clips, sequencer, audiograph.min_tracks)
@@ -410,28 +433,27 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
   // and their open windows where they are)
   crate::effect_windows::keep_positions(&state.playlist.effects);
   let effects = state.playlist.effects.saved();
-  // each synth's settings are its master copy's (passed on to the others
-  // first, so what's saved is what's heard)
+  // each synth row's plugin's settings are its master copy's (passed on to
+  // the others first, so what's saved is what's heard)
   state.playlist.effects.push_synth_states(true);
   let mut sequencer = sequencer;
-  for synth in &mut sequencer.synths {
-    synth.state = base64::encode(state.playlist.effects.state_of(synth.id).unwrap_or_default());
-    synth.window = state.playlist.effects.window_position(synth.id);
+  for synth in sequencer.synths_mut() {
+    synth.state = base64::encode(state.playlist.effects.state_of(synth.slot).unwrap_or_default());
+    synth.window = state.playlist.effects.window_position(synth.slot);
   }
 
   let mut mixer = state.playlist.mixer.settings(0);
   mixer.tracks.retain(|track| track.settings != daw::ChannelSettings::default() || track.labelled());
 
   let uses_patterns = !sequencer.is_empty() || !pattern_clips.is_empty();
-  let uses_windows = clips.iter().any(|clip| clip.window.is_some())
-    || pattern_clips.iter().any(|clip| clip.window.is_some());
+  let uses_windows = clips.iter().any(|clip| clip.window.is_some());
   Project {
-    version: if uses_windows {
+    version: if uses_patterns {
       PROJECT_VERSION
-    } else if uses_patterns {
-      PROJECT_VERSION_WITHOUT_WINDOWS
-    } else {
+    } else if uses_windows {
       PROJECT_VERSION_WITHOUT_PATTERNS
+    } else {
+      PROJECT_VERSION_WITHOUT_WINDOWS
     },
     settings: ProjectSettings {
       tempo,
@@ -453,12 +475,18 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
   }
 }
 
-// a saved pattern clip window made sensible: no negative start, and no end
-// that isn't after it. None if that leaves all of the pattern
-fn sanitised_pattern_window(window: ClipWindow) -> Option<daw::PatternWindow> {
-  let start = if window.start.is_finite() && window.start > 0. { window.start } else { 0. };
-  let end = window.end.filter(|end| end.is_finite() && *end > start);
-  if start == 0. && end.is_none() { None } else { Some(daw::PatternWindow { start, end }) }
+// where in its pattern, `length` steps long, a saved pattern clip starts,
+// and how long it is, in steps: a start that makes no sense is the
+// pattern's start, and a length that's left out or makes no sense is to
+// the pattern's end (see PatternNode::set_span for the rest)
+fn saved_span(clip: &ProjectPatternClip, length: u32) -> (f64, f64) {
+  let start = if clip.start.is_finite() { clip.start.max(0.) } else { 0. };
+  let own = if clip.length.is_finite() && clip.length >= daw::MIN_PATTERN_CLIP {
+    clip.length
+  } else {
+    (length as f64 - start).max(daw::MIN_PATTERN_CLIP)
+  };
+  (start, own)
 }
 
 // replace the playlist with a project. playback stops, and every clip gets a
@@ -490,20 +518,21 @@ pub fn apply(
     })
     .collect();
 
-  // the sequencer's rows, with their paths found like clips', and its synths
-  // under new ids (slot ids aren't reused in a session)
+  // the sequencer's sample rows, with their paths found like clips', and its
+  // synth rows' plugins under new slot ids (slot ids aren't reused in a
+  // session)
   let mut saved = project.sequencer.clone();
-  for row in &mut saved.rows {
-    row.path = resolved_path(&row.path, project_dir).to_string_lossy().into_owned();
+  for path in saved.sample_paths_mut() {
+    *path = resolved_path(path, project_dir).to_string_lossy().into_owned();
   }
-  saved.renumber_synths(|| state.playlist.effects.new_id());
-  let row_samples = daw::RowSample::load_rows(&saved);
+  saved.renumber_slots(|| state.playlist.effects.new_id());
+  let row_sounds = daw::RowSound::load_rows(&saved);
   // the effects and synths, with no lock held: their plugins load on the
-  // main thread. the synths' plugins don't follow the list until it's the
-  // new project's
+  // main thread. the synths' plugins don't follow the rows until they're
+  // the new project's
   let pause = state.playlist.effects.pause_synths();
   let mut missing_effects = state.playlist.effects.load_saved(&project.effects);
-  missing_effects.extend(state.playlist.effects.load_synths(&saved.synths));
+  missing_effects.extend(state.playlist.effects.load_synths(&saved.rows));
   // the UI isn't frozen while that loads: anything played meanwhile stops
   // before the playlist changes under it
   daw::stop_playlist(state);
@@ -563,7 +592,7 @@ pub fn apply(
 
   let sequencer = {
     let mut sequencer = state.playlist.sequencer.lock().unwrap();
-    for (path, reason) in sequencer.restore_loaded(saved, row_samples) {
+    for (path, reason) in sequencer.restore_loaded(saved, row_sounds) {
       missing.push(MissingSample { path, reason });
     }
     sequencer.state(&*state.playlist.effects)
@@ -573,26 +602,24 @@ pub fn apply(
   // doesn't have is left out
   let mut pattern_clips = Vec::new();
   for clip in &project.pattern_clips {
-    if !sequencer.patterns.iter().any(|p| p.id == clip.pattern_id) {
+    let Some(pattern) = sequencer.patterns.iter().find(|p| p.id == clip.pattern_id) else {
       println!("left out a clip of pattern {}, which isn't in the project", clip.pattern_id);
       continue;
-    }
+    };
     let start_beat = if clip.start_beat.is_finite() { clip.start_beat.max(0.) } else { 0. };
     match audiograph.add_pattern_node::<daw::timing::Note>(
       clip.pattern_id, interval.mul_f64(start_beat), clip.track_number, None,
     ) {
       Ok(id) => {
-        // kept as saved, even past the pattern's current end: lengthening
-        // the pattern later gives the clip its steps back
-        let window = clip.window.and_then(sanitised_pattern_window);
+        let (start, length) = saved_span(clip, pattern.length);
         let node = audiograph.pattern_nodes.iter_mut().find(|n| n.id == id).expect("a node that was just added");
-        node.window = window;
+        node.set_span(start, length);
         pattern_clips.push(LoadedPatternClip {
           id,
           pattern_id: clip.pattern_id,
           track_number: clip.track_number,
           start_beat: start_beat as f32,
-          window: window.map(ClipWindow::of_pattern),
+          window: ClipWindow::of_pattern(node),
         });
       }
       Err(e) => println!("left out a clip of pattern {}: {}", clip.pattern_id, e),
@@ -609,6 +636,8 @@ pub fn apply(
   // each track gets a copy of the synths it plays
   drop(pause);
   crate::commands::synth::follow(state);
+  // in bars of the project's time signature, and as long as its clips
+  daw::fit_playlist(state);
 
   LoadedProject {
     settings,
@@ -659,10 +688,12 @@ pub fn has_unsaved_changes(state: &daw::InnerState) -> bool {
 }
 
 // write a project file, all at once: a file that's half written is never
-// left in its place
+// left in its place. an older version's file is kept first (see
+// keep_older_file)
 fn write_project(project: &Project, project_path: &Path) -> Result<(), String> {
   let json = serde_json::to_string_pretty(project)
     .map_err(|e| format!("could not write the project: {}", e))?;
+  keep_older_file(project_path, project.version)?;
 
   let mut tmp = project_path.as_os_str().to_owned();
   tmp.push(".tmp");
@@ -674,6 +705,50 @@ fn write_project(project: &Project, project_path: &Path) -> Result<(), String> {
       let _ = fs::remove_file(&tmp);
       format!("could not save '{}': {}", project_path.display(), e)
     })
+}
+
+// the first time a project file an older version wrote (format 1 to 3) is
+// written over in a newer format (`writing`: a save, or following a moved
+// take), it's copied beside it first, named for its format
+// ("song.v3.dawesome"), unless a copy of that name is there already. the
+// older app still opens the copy, and nothing in it is lost should the new
+// format read it wrongly. a copy that can't be made stops the write: the
+// project stays open, and can be saved elsewhere
+fn keep_older_file(project_path: &Path, writing: u32) -> Result<(), String> {
+  if writing < PROJECT_VERSION { return Ok(()); }
+  let Some(version) = saved_version(project_path) else { return Ok(()) };
+  if version >= u64::from(PROJECT_VERSION) { return Ok(()); }
+
+  let copy = older_copy_path(project_path, version);
+  if copy.exists() { return Ok(()); }
+  fs::copy(project_path, &copy).map(drop).map_err(|e| format!(
+    "could not keep the older project file '{}' as '{}' before saving over it: {}",
+    project_path.display(), copy.display(), e))
+}
+
+// the format a project file was written in (no version is 1), or None when
+// there's no file, or it isn't a project
+fn saved_version(project_path: &Path) -> Option<u64> {
+  #[derive(Deserialize)]
+  struct Saved {
+    #[serde(default = "first_version")]
+    version: u64,
+  }
+  fn first_version() -> u64 { u64::from(PROJECT_VERSION_WITHOUT_WINDOWS) }
+
+  let json = fs::read_to_string(project_path).ok()?;
+  serde_json::from_str::<Saved>(&json).ok().map(|saved| saved.version)
+}
+
+// where a copy of a project file in format `version` is kept: beside it,
+// "song.dawesome" as "song.v3.dawesome"
+fn older_copy_path(project_path: &Path, version: u64) -> PathBuf {
+  let stem = project_path.file_stem().map_or_else(|| "project".into(), |stem| stem.to_string_lossy());
+  let name = match project_path.extension() {
+    Some(extension) => format!("{}.v{}.{}", stem, version, extension.to_string_lossy()),
+    None => format!("{}.v{}", stem, version),
+  };
+  project_path.with_file_name(name)
 }
 
 // a path that may not be there any more, with its folder resolved (links
@@ -712,8 +787,8 @@ pub fn follow_moved_in_baseline(state: &daw::InnerState, from: &Path, to: &Path)
   }
 }
 
-// a project's clips and sequencer rows playing `from` (a take, or anything
-// in a folder) play from `to` instead. whether any did
+// a project's clips and sample rows playing `from` (a take, or anything in
+// a folder) play from `to` instead. whether any did
 fn follow_moved(project: &mut Project, dir: Option<&Path>, from: &Path, to: &Path) -> bool {
   let from = resolved_parent(from);
   let to = resolved_parent(to);
@@ -728,7 +803,7 @@ fn follow_moved(project: &mut Project, dir: Option<&Path>, from: &Path, to: &Pat
     }
   };
   project.clips.iter_mut().for_each(|clip| follow(&mut clip.path));
-  project.sequencer.rows.iter_mut().for_each(|row| follow(&mut row.path));
+  project.sequencer.sample_paths_mut().for_each(|path| follow(path));
   changed
 }
 
@@ -893,6 +968,9 @@ pub fn new_project(state: daw::TState<'_>) -> LoadedProject {
 pub fn project_has_unsaved_changes(state: daw::TState<'_>) -> bool {
   has_unsaved_changes(&state)
 }
+
+mod merge_pattern_kinds;
+use merge_pattern_kinds::merge_pattern_kinds;
 
 #[cfg(test)]
 mod tests;

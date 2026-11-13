@@ -77,9 +77,10 @@ fn wall_clock_ms(started: Instant) -> Result<f64, String> {
 pub struct PlaylistTransport {
   playing: bool,
   // engine start time of the current run, ms since the unix epoch (None
-  // before the first run). for a pattern playing on its own, when its step
-  // 0 was (or would have been) heard: it may have started part way in, from
-  // the Piano Roll's start marker
+  // before the first run). for a pattern playing on its own, when step 0 of
+  // its time round was (or would have been) heard: it may have started part
+  // way in, from the Piano Roll's start marker, or changed length since
+  // (see pattern_length)
   start_time_ms: Option<f64>,
   // where on the timeline the current run started, in ms. while playing,
   // the playhead is this plus the time since `start_time_ms` (wrapped at the
@@ -102,9 +103,11 @@ pub struct PlaylistTransport {
   // when the playlist is playing or nothing is. while a pattern plays, the
   // playlist's playhead stays still
   pattern_id: Option<u64>,
-  // how long that pattern is, in ms. it started at `start_time_ms` and
-  // loops at this length
-  pattern_length_ms: f64,
+  // how long that pattern is, in steps (0 for none). it loops at this
+  // length, counted from `start_time_ms`. when its length changes, its
+  // steps are counted afresh from the one it's on (see
+  // daw::next_pattern_slice), so `start_time_ms` moves with it
+  pattern_length: u32,
 }
 
 fn playlist_transport(state: &daw::InnerState) -> PlaylistTransport {
@@ -114,23 +117,31 @@ fn playlist_transport(state: &daw::InnerState) -> PlaylistTransport {
   // (worked out before the struct, whose fields hold other locks as they're read)
   let loop_beats = daw::offset_beats(daw::loop_end(state), beat_interval).round() as u64;
   let pattern = state.playlist.playing_pattern();
-  let pattern_start_ms = pattern.map_or(0., |id| daw::pattern_start(state, id).as_secs_f64() * 1000.);
+  // a pattern counts from the step it was on when it last came round,
+  // changed length, or started (see daw::pattern_anchor)
+  let (started, counted_from_ms) = match pattern {
+    Some(_) => {
+      let (step, heard) = daw::pattern_anchor(state);
+      (heard, step * beat_interval.as_secs_f64() * 1000. / daw::STEPS_PER_BEAT as f64)
+    }
+    None => (started, 0.),
+  };
 
   PlaylistTransport {
     playing: state.playlist.playing(),
-    start_time_ms: started.and_then(|started| wall_clock_ms(started).ok()).map(|ms| ms - pattern_start_ms),
+    start_time_ms: started.and_then(|started| wall_clock_ms(started).ok()).map(|ms| ms - counted_from_ms),
     start_offset_ms: start_offset.as_secs_f64() * 1000.,
     position_ms: daw::playhead(state).as_secs_f64() * 1000.,
     beat_interval_ms: beat_interval.as_secs_f64() * 1000.,
     loop_beats,
-    beats_displayed: state.playlist.ui.lock().unwrap().max_beats_displayed,
+    beats_displayed: daw::playlist_beats(state),
     loop_enabled: state.playlist.loop_enabled.load(Ordering::SeqCst),
     song_end_ms: daw::song_end(state).unwrap_or_default().as_secs_f64() * 1000.,
     beats_per_bar: state.playlist.time_signature.lock().unwrap().numerator,
-    pattern_id: state.playlist.playing_pattern(),
-    pattern_length_ms: state.playlist.playing_pattern()
-      .and_then(|id| daw::pattern_len(state, id))
-      .map_or(0., |len| len.as_secs_f64() * 1000.),
+    pattern_id: pattern,
+    pattern_length: pattern
+      .and_then(|id| state.playlist.sequencer.lock().unwrap().pattern(id).map(|p| p.length))
+      .unwrap_or(0),
   }
 }
 
@@ -188,12 +199,13 @@ pub fn set_playlist_time_signature(
   numerator: u16,
   denominator: u16,
 ) {
-  let updated: daw::timing::TimeSignature = daw::timing::TimeSignature {
-    numerator,
-    denominator,
-  };
+  set_time_signature(&state, daw::timing::TimeSignature { numerator, denominator });
+}
 
-  *state.playlist.time_signature.lock().unwrap() = updated;
+// the playlist's length is counted in its bars, so it's worked out again
+pub fn set_time_signature(state: &daw::InnerState, signature: daw::timing::TimeSignature) {
+  *state.playlist.time_signature.lock().unwrap() = signature;
+  daw::fit_playlist(state);
 }
 
 #[tauri::command]

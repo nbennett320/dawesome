@@ -10,7 +10,7 @@ import { Rect } from '../../editing/lasso'
 import { groupLanding } from '../../editing/move'
 import { SnapNote, Snapping, snapDown, snapNoteBeats, snapPoint } from '../../editing/snap'
 import { Tool } from '../../editing/tools'
-import { Note, STEPS_PER_BEAT } from '../../types/sequencer'
+import { MAX_PATTERN_BARS, Note, STEPS_PER_BEAT, noteOrder } from '../../types/sequencer'
 import { clamp } from '../../util/helpers'
 
 // MIDI note numbers
@@ -35,21 +35,42 @@ const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 export const pitchName = (pitch: number): string =>
   `${NAMES[((pitch % 12) + 12) % 12]}${Math.floor(pitch / 12) - 1}`
 
+const ACCIDENTALS: Record<string, number> = { '': 0, '#': 1, b: -1 }
+
+// a pitch typed as pitchName gives it ("C4", "F#3", or "Gb3"), or as a
+// MIDI note number, or null when it's neither or isn't a note MIDI has
+export const parsePitch = (text: string): number | null => {
+  const typed = text.trim()
+  const named = /^([A-Ga-g])(#|b|)(-?\d+)$/.exec(typed)
+  let pitch = /^\d+$/.test(typed) ? Number(typed) : null
+  if(named) pitch = NAMES.indexOf(named[1].toUpperCase()) + ACCIDENTALS[named[2]] + (Number(named[3]) + 1) * 12
+  return pitch !== null && pitch >= 0 && pitch <= 127 ? pitch : null
+}
+
 // the black keys of a piano: C#, D#, F#, G#, A#
 export const isBlackKey = (pitch: number): boolean => [1, 3, 6, 8, 10].includes(((pitch % 12) + 12) % 12)
 
 
 export const clampPitch = (pitch: number): number => clamp(Math.round(pitch), LOWEST_PITCH, HIGHEST_PITCH)
 
-// a note kept inside a pattern `length` steps long: starting at or after
-// its start, ending at or before its end, at least a step long (or as long
-// as the pattern, if that's shorter), and on a key of the piano
-export const clampNote = (note: Note, length: number): Note => {
-  const size = clamp(note.length, Math.min(1, length), Math.max(1, length))
+// where the Piano Roll's time runs to, in steps: as long as a pattern can
+// grow (MAX_PATTERN_BARS), or the pattern's own length when that's longer
+// (set under another time signature). notes are drawn, moved, trimmed and
+// pasted anywhere before it, and one past the pattern's end grows it (see
+// withNotes)
+export const timelineEnd = (length: number, stepsPerBar: number): number =>
+  Math.max(length, MAX_PATTERN_BARS * stepsPerBar)
+
+// a note kept inside the timeline, which ends at `limit` (see timelineEnd):
+// starting at or after its start, ending at or before its end, at least a
+// step long (or as long as the timeline, if that's shorter), and on a key of
+// the piano
+export const clampNote = (note: Note, limit: number): Note => {
+  const size = clamp(note.length, Math.min(1, limit), Math.max(1, limit))
   return {
     ...note,
     pitch: clampPitch(note.pitch),
-    start: clamp(note.start, 0, Math.max(0, length - size)),
+    start: clamp(note.start, 0, Math.max(0, limit - size)),
     length: size,
   }
 }
@@ -66,24 +87,27 @@ export const rollSnapping = (enabled: boolean, note: SnapNote, bypass: boolean):
   bypass,
 })
 
-// a line on every step
-const EVERY_STEP: Snapping = { enabled: true, every: 1, playhead: null, bypass: false }
+// the shortest a note can be, in steps: the engine's MIN_NOTE
+// (engine/src/daw/daw_core/sequencer.rs)
+export const MIN_NOTE_LENGTH = 1 / 32
 
-// notes are whole steps: with snap off or bypassed, places land on the steps
-// themselves
-export const inSteps = (snap: Snapping): Snapping =>
-  (snap.enabled && !snap.bypass && Number.isInteger(snap.every) && snap.every >= 1 ? snap : EVERY_STEP)
+// whether anything snaps just now: snap is on, and Option isn't held
+const snaps = (snap: Snapping): boolean => snap.enabled && !snap.bypass && snap.every > 0
+
+// the shortest a note drawn, trimmed or cut can be: a step while snapping,
+// and as short as a note can be while not
+export const shortestNote = (snap: Snapping): number => (snaps(snap) ? 1 : MIN_NOTE_LENGTH)
 
 // where an edge or a moved note lands, with the mouse at `step`: the nearest
-// snap line, or step
-export const snapStep = (step: number, snap: Snapping): number => snapPoint(step, inSteps(snap))
+// snap line, or just where the mouse is while nothing snaps
+export const snapStep = (step: number, snap: Snapping): number => snapPoint(step, snap)
 
-// where something new starts, with the mouse at `step`: the snap line (or
-// step) at or before it
-export const snapStepDown = (step: number, snap: Snapping): number => snapDown(step, inSteps(snap))
+// where something new starts, with the mouse at `step`: the snap line at or
+// before it, or the mouse's place while nothing snaps
+export const snapStepDown = (step: number, snap: Snapping): number => snapDown(step, snap)
 
 // where Play starts from, with the mouse at `step` on the ruler: the nearest
-// snap line (or step), on one inside the pattern
+// snap line (or where the mouse is), on one inside the pattern
 export const markerStep = (step: number, patternLength: number, snap: Snapping): number =>
   Math.max(0, Math.min(snapStep(step, snap), snapStepDown(patternLength - 1, snap)))
 
@@ -109,61 +133,61 @@ export const noteBoxes = (notes: Note[]): Array<{ id: number, box: Rect }> =>
 // - edge: trimming the note by the edge pressed (and the rest of the
 //   selection with it)
 // - move: moving the note (and the rest of the selection)
-// - draw: drawing a new note, with the Draw tool on empty space in the
-//   pattern
+// - draw: drawing a new note, with the Draw tool on empty space (past the
+//   pattern's end too, which grows it)
 // - empty: a click clears the selection, a drag pans
 export type PressKind = 'shift' | 'cut' | 'edge' | 'move' | 'draw' | 'empty'
 
-export const pressKind = ({ tool, shift, onNote, onEdge, inPattern }: {
+export const pressKind = ({ tool, shift, onNote, onEdge }: {
   tool: Tool
   shift: boolean
   onNote: boolean
   onEdge: boolean
-  inPattern: boolean
 }): PressKind => {
   if(shift) return 'shift'
   if(tool === 'cut') return onNote ? 'cut' : 'empty'
   if(onNote) return onEdge ? 'edge' : 'move'
-  return tool === 'draw' && inPattern ? 'draw' : 'empty'
+  return tool === 'draw' ? 'draw' : 'empty'
 }
 
 // ---- drawing ----
 
 // a note drawn by pressing at `step` on `pitch`'s row: it starts on the snap
-// line (or step) at or before the press, `length` long, cut short if it
-// would run past the pattern's end
-export const newNote = (step: number, pitch: number, length: number, patternLength: number, snap: Snapping): Note => {
-  const start = clamp(snapStepDown(step, snap), 0, Math.max(0, patternLength - 1))
-  return clampNote({ pitch, start, length: Math.min(length, patternLength - start), velocity: NEW_VELOCITY }, patternLength)
+// line at or before the press (or right there, while nothing snaps),
+// `length` long, cut short if it would run past the timeline's end
+// (`limit`: see timelineEnd)
+export const newNote = (step: number, pitch: number, length: number, limit: number, snap: Snapping): Note => {
+  const start = clamp(snapStepDown(step, snap), 0, Math.max(0, limit - shortestNote(snap)))
+  return clampNote({ pitch, start, length: Math.min(length, limit - start), velocity: NEW_VELOCITY }, limit)
 }
 
 // as a note is drawn, dragging right sets its length: to the snap line
-// nearest the mouse, at least one snap length (a step, with snap off), and
-// no further than the pattern's end
-export const drawnLength = (start: number, step: number, patternLength: number, snap: Snapping): number => {
-  const lines = inSteps(snap)
-  const length = Math.max(snapPoint(step, lines) - start, lines.every)
-  return clamp(length, 1, Math.max(1, patternLength - start))
+// nearest the mouse, at least one snap length, and no further than the
+// timeline's end (`limit`). while nothing snaps, to the mouse itself
+export const drawnLength = (start: number, step: number, limit: number, snap: Snapping): number => {
+  const shortest = shortestNote(snap)
+  const length = Math.max(snapPoint(step, snap) - start, snaps(snap) ? snap.every : shortest)
+  return clamp(length, shortest, Math.max(shortest, limit - start))
 }
 
 // ---- moving and trimming ----
 
 // the notes `indices` moved together, the grabbed one (`anchor`) to start at
 // `start` (already snapped) on `pitch`, the rest keeping their places about
-// it. the move is held back so that none of them leaves the pattern or the
-// piano (groupLanding, with pitches for lanes)
+// it. the move is held back so that none of them leaves the timeline (which
+// ends at `limit`) or the piano (groupLanding, with pitches for lanes)
 export const moveNotes = (
   notes: Note[],
   indices: ReadonlyArray<number>,
   anchor: number,
   start: number,
   pitch: number,
-  patternLength: number,
+  limit: number,
 ): Note[] => {
   const placed = indices.filter(i => notes[i]).map(i => ({
     id: i, beat: notes[i].start, track: notes[i].pitch, length: notes[i].length,
   }))
-  const landed = new Map(groupLanding(placed, anchor, start, pitch, patternLength, HIGHEST_PITCH).map(p => [p.id, p]))
+  const landed = new Map(groupLanding(placed, anchor, start, pitch, limit, HIGHEST_PITCH).map(p => [p.id, p]))
 
   let changed = false
   const next = notes.map((note, i) => {
@@ -184,23 +208,26 @@ export const carriedNotes = (
   indices: ReadonlyArray<number>,
   steps: number,
   pitches: number,
-  patternLength: number,
+  limit: number,
 ): Note[] => {
   const placed = indices.filter(i => notes[i]).map(i => ({
     id: i, beat: notes[i].start, track: notes[i].pitch, length: notes[i].length,
   }))
   if(!placed.length) return []
   const [anchor] = placed
-  const landed = groupLanding(placed, anchor.id, anchor.beat + steps, anchor.track + pitches, patternLength, HIGHEST_PITCH)
+  const landed = groupLanding(placed, anchor.id, anchor.beat + steps, anchor.track + pitches, limit, HIGHEST_PITCH)
   return landed.map(p => ({ ...notes[p.id], start: p.beat, pitch: p.track }))
 }
 
-// notes, as far as trimming goes: a step long at least, and reaching as far
-// as the pattern does (or the note, if it already reaches further)
-export const trimItems = (notes: Note[], indices: ReadonlyArray<number>, patternLength: number): TrimItem[] =>
+// notes, as far as trimming goes: `shortest` long at least (see
+// shortestNote), and reaching as far as the timeline does (`limit`), or the
+// note, if it already reaches further
+export const trimItems = (
+  notes: Note[], indices: ReadonlyArray<number>, limit: number, shortest: number,
+): TrimItem[] =>
   indices.filter(i => notes[i]).map(i => {
     const end = notes[i].start + notes[i].length
-    return { id: i, start: notes[i].start, end, sourceStart: 0, sourceEnd: Math.max(patternLength, end), minLength: 1 }
+    return { id: i, start: notes[i].start, end, sourceStart: 0, sourceEnd: Math.max(limit, end), minLength: shortest }
   })
 
 // the notes `indices` trimmed by one edge: the grabbed note's edge goes to
@@ -212,9 +239,10 @@ export const trimNotes = (
   grabbed: number,
   edge: Edge,
   target: number,
-  patternLength: number,
+  limit: number,
+  shortest = 1,
 ): Note[] => {
-  const spans = new Map(trimAll(trimItems(notes, indices, patternLength), grabbed, edge, target).map(s => [s.id, s]))
+  const spans = new Map(trimAll(trimItems(notes, indices, limit, shortest), grabbed, edge, target).map(s => [s.id, s]))
 
   let changed = false
   const next = notes.map((note, i) => {
@@ -228,12 +256,14 @@ export const trimNotes = (
 
 // ---- cutting ----
 
-// notes, as far as cutting goes: neither half shorter than a step
-export const cutItems = (notes: Note[]): CutItem[] =>
-  notes.map((note, id) => ({ id, start: note.start, end: note.start + note.length, minLength: 1 }))
+// notes, as far as cutting goes: neither half shorter than `shortest` (see
+// shortestNote)
+export const cutItems = (notes: Note[], shortest: number): CutItem[] =>
+  notes.map((note, id) => ({ id, start: note.start, end: note.start + note.length, minLength: shortest }))
 
 // the cut a click with the Cut tool at `step` on the note `index` makes:
-// where (the snap line, or step, nearest the mouse) and which notes (that
+// where (the snap line nearest the mouse, or the mouse's place while nothing
+// snaps) and which notes (that
 // one, and the rest of the selection under the cut when it's selected).
 // null where it can't be cut
 export const noteCut = (
@@ -243,11 +273,11 @@ export const noteCut = (
   step: number,
   snap: Snapping,
 ): { ids: number[], step: number } | null => {
-  const items = cutItems(notes)
+  const items = cutItems(notes, shortestNote(snap))
   const item = items[index]
   if(!item) return null
 
-  const at = cutPoint(item, step, inSteps(snap))
+  const at = cutPoint(item, step, snap)
   if(at === null) return null
   const ids = cutTargets(items, index, selected, at)
   return ids.length ? { ids, step: at } : null
@@ -255,8 +285,9 @@ export const noteCut = (
 
 // the notes `ids` each cut in two at `at`, both halves the same pitch and
 // velocity. the first half keeps its note's place in the list and the
-// second goes after every note, so no other note's index changes. `halves`
-// maps each note cut to its second half
+// second goes after every note, so no other note's index changes (until the
+// list is put in order: see sortedWithPlaces). `halves` maps each note cut
+// to its second half
 export const cutNotes = (notes: Note[], ids: ReadonlyArray<number>, at: number): {
   notes: Note[]
   halves: Map<number, number>
@@ -284,16 +315,16 @@ export const copyNotes = (notes: Note[], selected: ReadonlySet<number>): Note[] 
 const spansOf = (notes: Note[]) => notes.map(note => ({ start: note.start, end: note.start + note.length }))
 
 // copies of `copies` moved `by` steps, after the notes. a copy that would
-// start at or past the pattern's end is left out, and one that crosses it
-// is cut short. `added` is the copies' indices, to select
-export const addCopies = (notes: Note[], copies: Note[], by: number, patternLength: number): {
+// start at or past the timeline's end (`limit`) is left out, and one that
+// crosses it is cut short. `added` is the copies' indices, to select
+export const addCopies = (notes: Note[], copies: Note[], by: number, limit: number): {
   notes: Note[]
   added: number[]
 } => {
   const placed = copies.flatMap(note => {
     const start = note.start + by
-    if(start < 0 || start >= patternLength) return []
-    return [{ ...note, start, length: Math.min(note.length, patternLength - start) }]
+    if(start < 0 || start >= limit) return []
+    return [{ ...note, start, length: Math.min(note.length, limit - start) }]
   })
   return {
     notes: placed.length ? [...notes, ...placed] : notes,
@@ -303,24 +334,44 @@ export const addCopies = (notes: Note[], copies: Note[], by: number, patternLeng
 
 // a paste: the clipboard's notes with the earliest at `at`, the rest
 // keeping their places after it, and their pitches
-export const pasteNotes = (notes: Note[], clipboard: Note[], at: number, patternLength: number) =>
-  addCopies(notes, clipboard, pasteShift(spansOf(clipboard), at), patternLength)
+export const pasteNotes = (notes: Note[], clipboard: Note[], at: number, limit: number) =>
+  addCopies(notes, clipboard, pasteShift(spansOf(clipboard), at), limit)
 
 // a repeat: the selected notes copied to start where they end, so repeating
 // again lays them end to end
-export const repeatNotes = (notes: Note[], selected: ReadonlySet<number>, patternLength: number) => {
+export const repeatNotes = (notes: Note[], selected: ReadonlySet<number>, limit: number) => {
   const copies = copyNotes(notes, selected)
-  return addCopies(notes, copies, repeatShift(spansOf(copies)), patternLength)
+  return addCopies(notes, copies, repeatShift(spansOf(copies)), limit)
 }
 
-// where a paste puts the earliest note: the snap line (or step) at or
-// before the mouse while it's over the grid (`mouseStep`), else the first
-// snap line in view, which starts at step `firstInView`
+// where a paste puts the earliest note: the snap line at or before the mouse
+// while it's over the grid (`mouseStep`; the mouse's place while nothing
+// snaps), else the first snap line in view (the first step, while nothing
+// snaps), which starts at step `firstInView`
 export const pasteStep = (mouseStep: number | null, firstInView: number, snap: Snapping): number => {
   if(mouseStep !== null) return Math.max(0, snapStepDown(mouseStep, snap))
-  const { every } = inSteps(snap)
+  const every = snaps(snap) ? snap.every : 1
   return Math.max(0, Math.ceil(firstInView / every - 1e-9) * every)
 }
+
+// ---- keeping notes in order ----
+
+// notes put in order (as sortNotes puts them, and the engine keeps them),
+// and where each one went: `at[i]` is the new place of `notes[i]`. what's
+// kept by a note's place in the list, like the selection, follows its
+// notes through `at` (see followPlaces)
+export const sortedWithPlaces = (notes: Note[]): { notes: Note[], at: number[] } => {
+  // (alike notes keep their order, as in a stable sort)
+  const order = notes.map((_, i) => i).sort((a, b) => noteOrder(notes[a], notes[b]) || a - b)
+  const at: number[] = []
+  order.forEach((from, to) => { at[from] = to })
+  return { notes: order.map(i => notes[i]), at }
+}
+
+// places in a list, moved to where their notes went when it was put in
+// order (see sortedWithPlaces). a place past the list's end is left out
+export const followPlaces = (places: Iterable<number>, at: number[]): Set<number> =>
+  new Set([...places].flatMap(i => (at[i] === undefined ? [] : [at[i]])))
 
 // ---- deleting and selecting ----
 
