@@ -20,7 +20,11 @@ export const ROW_VOLUME_MAX = 2
 export interface SequencerRow {
   id: number
   path: string
+  // what it's called ("Snare"), shown instead of its sample's name
+  label: string | null
   volume: number
+  // -1 (left) to 1 (right)
+  pan: number
   muted: boolean
 }
 
@@ -112,10 +116,16 @@ export interface SequencerState {
   folders: PatternFolder[]
 }
 
-// what a pattern is called: its name, or its number. numbers come from ids,
-// so they don't change when another pattern is deleted
-export const patternLabel = (pattern: Pick<Pattern, 'id' | 'name'>): string =>
-  pattern.name ?? String(pattern.id + 1)
+// what an unnamed pattern is called: its kind's name and its number ("Loop
+// 3", "Sequence 3"). numbers come from ids, so they don't change when another
+// pattern is deleted. (new patterns are given a name like this by the
+// engine; unnamed ones are from older projects, or were renamed blank)
+export const unnamedLabel = (pattern: Pick<Pattern, 'id' | 'kind'>): string =>
+  `${kindOf(pattern) === 'drum' ? 'Loop' : 'Sequence'} ${pattern.id + 1}`
+
+// what a pattern is called: its name, or as an unnamed one
+export const patternLabel = (pattern: Pick<Pattern, 'id' | 'name' | 'kind'>): string =>
+  pattern.name ?? unnamedLabel(pattern)
 
 // a sample's file name, without its folders
 

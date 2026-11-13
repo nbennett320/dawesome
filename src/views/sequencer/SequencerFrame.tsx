@@ -14,12 +14,13 @@ import { useStopWhenUnfocused } from './useStopWhenUnfocused'
 // kind along the top, a row for each sample or synth, and things dragged
 // from the sidebar becoming rows
 
-// things of one kind dragged from the sidebar onto `ref` are dropped there.
-// returns whether one is being dragged over it now
+// things of one kind dragged from the sidebar onto `ref` are dropped there
+// (`onDrop` is told where, in the window). returns whether one is being
+// dragged over it now
 export const useDropOn = <T extends DragItem>(
   ref: React.RefObject<HTMLElement>,
   accepts: (item: DragItem) => item is T,
-  onDrop: (item: T) => void,
+  onDrop: (item: T, at: { clientX: number, clientY: number }) => void,
 ): boolean => {
   const [over, setOver] = React.useState(false)
   const drop = React.useRef(onDrop)
@@ -29,7 +30,7 @@ export const useDropOn = <T extends DragItem>(
     const isOver = accepts(item) && !!ref.current?.contains(document.elementFromPoint(clientX, clientY))
 
     setOver(type === 'move' && isOver)
-    if(type === 'drop' && isOver && accepts(item)) drop.current(item)
+    if(type === 'drop' && isOver && accepts(item)) drop.current(item, { clientX, clientY })
   }), [ref, accepts])
 
   return over

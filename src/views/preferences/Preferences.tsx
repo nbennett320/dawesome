@@ -10,6 +10,12 @@ const APPEARANCES = [
   { value: 'dark', label: 'Dark' },
 ]
 
+const STEP_KEYS = [
+  { value: 'tr808', label: 'TR-808' },
+  { value: 'tr909', label: 'TR-909' },
+  { value: 'tr8s', label: 'TR-8S' },
+]
+
 const PLUGIN_VIEWS = [
   { value: 'window', label: 'In a window of their own' },
   { value: 'tab', label: 'In a tab' },
@@ -48,6 +54,13 @@ const Preferences = () => {
             value={preferences.darkTheme}
             options={named('dark')}
             onChange={darkTheme => dispatch(changePreferences({ darkTheme }))}
+          />
+          <Choice
+            id='preferences-step-keys'
+            label='Step key style'
+            value={preferences.stepKeys}
+            options={STEP_KEYS}
+            onChange={stepKeys => dispatch(changePreferences({ stepKeys: stepKeys as Prefs['stepKeys'] }))}
           />
           <Choice
             id='preferences-plugin-view'

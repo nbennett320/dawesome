@@ -34,7 +34,7 @@ const initialState = {
         { component: View.Playlist },
         // { component: View.SamplePreview },
         { component: View.Mixer },
-        { component: View.Transport },
+        // { component: View.Transport },
         { component: View.Sequencer },
         { component: View.NoteSequencer },
       ],

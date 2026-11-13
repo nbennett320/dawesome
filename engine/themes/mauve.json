@@ -1,0 +1,37 @@
+{
+  "name": "Mauve",
+  "appearance": "light",
+  "colors": {
+    "surface": "#f8f1f1",
+    "panel": "#eddddd",
+    "raised": "#fcf8f8",
+    "sunken": "#e3cfcf",
+    "line": "#e6d6d6",
+    "lineStrong": "#ce9c9c",
+    "inkStrong": "#2e1f1f",
+    "ink": "#432e2e",
+    "inkSoft": "#6f5252",
+    "inkFaint": "#9c7171",
+    "accent": "#8b6767",
+    "accentSoft": "#ce9c9c",
+    "accentTint": "#f3e3e3",
+    "accentInk": "#5e3f3f",
+    "led": "#c8933f",
+    "ledTint": "#faf0de",
+    "ledInk": "#6e4a1a",
+    "danger": "#b8323a",
+    "dangerTint": "#fbe9ea",
+    "accentFocus": "#ba8888",
+    "ok": "#7d9a5a",
+    "shadow": "#2e1f1f"
+  },
+  "waveform": {
+    "wave": "#ab7a7a"
+  },
+  "fourtrack": {
+    "ledRedOff": "mix(fourtrack.ledRedOn, sunken, 0.85)",
+    "ledAmberOff": "mix(fourtrack.ledAmberOn, sunken, 0.85)",
+    "ledLimeOff": "mix(fourtrack.ledLimeOn, sunken, 0.85)",
+    "ledBlueOff": "mix(fourtrack.ledBlueOn, sunken, 0.85)"
+  }
+}

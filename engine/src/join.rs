@@ -191,9 +191,9 @@ fn whole(steps: f64) -> Option<u32> {
   if steps >= -1e-6 && (steps - rounded).abs() < 1e-6 { Some(rounded.max(0.) as u32) } else { None }
 }
 
-// what a pattern is called: its name, or its number
+// what a pattern is called (see Pattern::label)
 fn label(pattern: &daw::Pattern) -> String {
-  pattern.name.clone().unwrap_or_else(|| (pattern.id + 1).to_string())
+  pattern.label()
 }
 
 // the joined patterns' names, in order: "a + b", or past three of them,

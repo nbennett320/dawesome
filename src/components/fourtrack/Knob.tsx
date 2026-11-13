@@ -22,6 +22,8 @@ export interface KnobProps {
   disabled?: boolean
   className?: string
   title?: string
+  // drawn in the middle of the cap, turning with it, saying what the knob does
+  icon?: React.ReactNode
 }
 
 // drag up and down (shift for fine moves), arrow keys (shift for big steps),
@@ -42,6 +44,7 @@ export const Knob = ({
   disabled,
   className,
   title,
+  icon,
 }: KnobProps) => {
   const [v, setV] = useControllable(value, defaultValue ?? center, onChange)
   const drag = React.useRef<{ y: number, v: number } | null>(null)
@@ -69,7 +72,7 @@ export const Knob = ({
       aria-valuetext={formatValue?.(v)}
       aria-disabled={disabled || undefined}
       title={title}
-      className={cx('ft-knob', className)}
+      className={cx('ft-knob', icon ? 'ft-knob--icon' : undefined, className)}
       style={{ width: size, height: size, opacity: disabled ? 0.5 : undefined }}
       onPointerDown={e => {
         if(disabled || e.button !== 0) return
@@ -111,6 +114,7 @@ export const Knob = ({
       <span className='ft-knob__rot' style={{ transform: `rotate(${angle}deg)` }}>
         <span className='ft-knob__cap' />
         <span className='ft-knob__ptr' />
+        {icon && <span className='ft-knob__icon'>{icon}</span>}
       </span>
     </div>
   )

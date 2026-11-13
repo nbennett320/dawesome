@@ -30,6 +30,20 @@ pub enum PluginView {
   Tab,
 }
 
+// how the Drum Sequencer's step keys look, after Roland's drum machines:
+// coloured caps (TR-808), plain caps over a coloured strip (TR-909), or
+// pads that light up (TR-8S)
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Default)]
+pub enum StepKeys {
+  #[serde(rename = "tr808")]
+  Tr808,
+  #[default]
+  #[serde(rename = "tr909")]
+  Tr909,
+  #[serde(rename = "tr8s")]
+  Tr8s,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Preferences {
@@ -38,6 +52,7 @@ pub struct Preferences {
   pub light_theme: String,
   pub dark_theme: String,
   pub plugin_view: PluginView,
+  pub step_keys: StepKeys,
 }
 
 impl Default for Preferences {
@@ -47,6 +62,7 @@ impl Default for Preferences {
       light_theme: theme::DEFAULT_LIGHT.to_string(),
       dark_theme: theme::DEFAULT_DARK.to_string(),
       plugin_view: PluginView::Window,
+      step_keys: StepKeys::default(),
     }
   }
 }
@@ -88,6 +104,7 @@ impl Preferences {
       light_theme: pick(&self.light_theme, Appearance::Light, theme::DEFAULT_LIGHT),
       dark_theme: pick(&self.dark_theme, Appearance::Dark, theme::DEFAULT_DARK),
       plugin_view: self.plugin_view,
+      step_keys: self.step_keys,
     }
   }
 }
@@ -145,12 +162,14 @@ mod tests {
       light_theme: "charcoal-light".to_string(),
       dark_theme: "slate-dark".to_string(),
       plugin_view: PluginView::Tab,
+      step_keys: StepKeys::Tr8s,
     };
     prefs.save(&file).unwrap();
     assert_eq!(Preferences::load(&file), prefs);
     let json = fs::read_to_string(&file).unwrap();
     assert!(json.contains("\"lightTheme\"") && json.contains("\"dark\""), "{}", json);
     assert!(json.contains("\"pluginView\": \"tab\""), "{}", json);
+    assert!(json.contains("\"stepKeys\": \"tr8s\""), "{}", json);
     fs::remove_dir_all(file.parent().unwrap()).ok();
   }
 
@@ -174,6 +193,8 @@ mod tests {
     assert_eq!(prefs.dark_theme, theme::DEFAULT_DARK);
     // plugins open in windows unless a tab is asked for
     assert_eq!(prefs.plugin_view, PluginView::Window);
+    // and step keys look like a TR-909's
+    assert_eq!(prefs.step_keys, StepKeys::Tr909);
     fs::remove_dir_all(file.parent().unwrap()).ok();
   }
 
@@ -185,6 +206,7 @@ mod tests {
       light_theme: "charcoal-light".to_string(),
       dark_theme: "slate-dark".to_string(),
       plugin_view: PluginView::Tab,
+      step_keys: StepKeys::Tr808,
     };
     assert_eq!(ok.sanitize(&themes), ok);
 
@@ -193,6 +215,7 @@ mod tests {
       light_theme: "no-such-theme".to_string(),
       dark_theme: "slate-light".to_string(),
       plugin_view: PluginView::Window,
+      step_keys: StepKeys::Tr909,
     };
     let fixed = bad.sanitize(&themes);
     assert_eq!(fixed.light_theme, theme::DEFAULT_LIGHT);

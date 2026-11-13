@@ -32,13 +32,19 @@ pub const NOTE_BARS_MAX: u32 = 64;
 // a row's volume when it's added, as a gain (1 leaves the sample as is)
 pub const ROW_VOLUME: f32 = 1.;
 pub const ROW_VOLUME_MAX: f32 = 2.;
+// the longest a row's label can be, in characters
+pub const ROW_LABEL_MAX: usize = 40;
 
 // a sample in the sequencer
 #[derive(Clone)]
 pub struct SequencerRow {
   pub id: u64,
   pub path: String,
+  // what the row is called ("Snare"), shown instead of its sample's name
+  pub label: Option<String>,
   pub volume: f32,
+  // -1 (left) to 1 (right)
+  pub pan: f32,
   pub muted: bool,
   buffer: daw::SampleBuffer,
   // how long the sample plays for
@@ -46,9 +52,15 @@ pub struct SequencerRow {
 }
 
 impl SequencerRow {
-  // the row's sample at its volume, ready to be played once
+  // the row's sample at its volume and pan, in stereo, ready to be played
+  // once
   pub fn source(&self) -> impl Source<Item = f32> + Send + 'static {
-    self.buffer.convert_samples().amplify(self.volume)
+    Panned::new(self.buffer.convert_samples().amplify(self.volume), self.pan)
+  }
+
+  // what the row is called: its label, or its sample's name
+  pub fn name(&self) -> String {
+    self.label.clone().unwrap_or_else(|| sample_name(&self.path))
   }
 
   pub fn duration(&self) -> Duration {
@@ -71,6 +83,14 @@ impl PatternKind {
   pub fn is_drum(&self) -> bool {
     *self == PatternKind::Drum
   }
+
+  // what its patterns are called until they're named: "Loop 3", "Sequence 3"
+  pub fn default_name(&self, n: u64) -> String {
+    match self {
+      PatternKind::Drum => format!("Loop {}", n),
+      PatternKind::Note => format!("Sequence {}", n),
+    }
+  }
 }
 
 // a pattern, as the sequencer keeps it and a project saves it
@@ -78,7 +98,8 @@ impl PatternKind {
 #[serde(rename_all = "camelCase")]
 pub struct Pattern {
   pub id: u64,
-  // unnamed patterns are shown by their number
+  // unnamed patterns (from older projects, or renamed blank) are shown by
+  // their number: see label
   pub name: Option<String>,
   #[serde(default, skip_serializing_if = "PatternKind::is_drum")]
   pub kind: PatternKind,
@@ -284,6 +305,12 @@ fn folder_name(name: &str) -> Result<String, String> {
 }
 
 impl Pattern {
+  // what the pattern is called: its name, or for an unnamed one its kind's
+  // name with its number ("Loop 3")
+  pub fn label(&self) -> String {
+    self.name.clone().unwrap_or_else(|| self.kind.default_name(self.id + 1))
+  }
+
   // whether a row's step is lit
   #[cfg(test)]
   pub fn lit(&self, row_id: u64, step: u32) -> bool {
@@ -297,7 +324,9 @@ impl Pattern {
 pub struct RowInfo {
   pub id: u64,
   pub path: String,
+  pub label: Option<String>,
   pub volume: f32,
+  pub pan: f32,
   pub muted: bool,
 }
 
@@ -325,13 +354,21 @@ impl SequencerState {
 pub struct SavedRow {
   pub id: u64,
   pub path: String,
+  // left out when it has none (and by projects from before labels)
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub label: Option<String>,
   #[serde(default = "default_row_volume")]
   pub volume: f32,
+  // left out when centred (and by projects from before pan)
+  #[serde(default, skip_serializing_if = "is_centred")]
+  pub pan: f32,
   #[serde(default)]
   pub muted: bool,
 }
 
 fn default_row_volume() -> f32 { ROW_VOLUME }
+
+fn is_centred(pan: &f32) -> bool { *pan == 0. }
 
 // the sequencer as saved in a project
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -444,7 +481,7 @@ impl Sequencer {
   // whether another sequencer holds the same rows, synths, patterns and
   // folders (for the history, to tell whether an edit changed anything)
   pub fn same_as(&self, other: &Sequencer) -> bool {
-    let row = |r: &SequencerRow| (r.id, r.path.clone(), r.volume, r.muted);
+    let row = |r: &SequencerRow| (r.id, r.path.clone(), r.label.clone(), r.volume, r.pan, r.muted);
     self.rows.iter().map(row).eq(other.rows.iter().map(row))
       && self.synths == other.synths
       && self.patterns == other.patterns
@@ -502,7 +539,9 @@ impl Sequencer {
       rows: self.rows.iter().map(|r| RowInfo {
         id: r.id,
         path: r.path.clone(),
+        label: r.label.clone(),
         volume: r.volume,
+        pan: r.pan,
         muted: r.muted,
       }).collect(),
       synths: self.synths.iter().map(|s| {
@@ -542,7 +581,8 @@ impl Sequencer {
   // at the bottom. returns its id
   pub fn add_loaded_row(&mut self, path: &str, sample: RowSample) -> Result<u64, String> {
     let id = self.next_row_id;
-    self.insert_row(SavedRow { id, path: path.to_string(), volume: ROW_VOLUME, muted: false }, sample)?;
+    let saved = SavedRow { id, path: path.to_string(), label: None, volume: ROW_VOLUME, pan: 0., muted: false };
+    self.insert_row(saved, sample)?;
     Ok(id)
   }
 
@@ -557,7 +597,9 @@ impl Sequencer {
     self.rows.push(SequencerRow {
       id: saved.id,
       path: saved.path,
+      label: saved.label.and_then(|l| row_label(&l)),
       volume: clamp_volume(saved.volume),
+      pan: clamp_pan(saved.pan),
       muted: saved.muted,
       buffer,
       duration,
@@ -584,6 +626,40 @@ impl Sequencer {
 
   pub fn set_row_muted(&mut self, id: u64, muted: bool) -> Result<(), String> {
     self.row_mut(id)?.muted = muted;
+    Ok(())
+  }
+
+  // a row's pan, kept between -1 (left) and 1 (right)
+  pub fn set_row_pan(&mut self, id: u64, pan: f32) -> Result<(), String> {
+    self.row_mut(id)?.pan = clamp_pan(pan);
+    Ok(())
+  }
+
+  // label a row ("Snare"). a blank label goes back to its sample's name
+  pub fn rename_row(&mut self, id: u64, label: &str) -> Result<(), String> {
+    self.row_mut(id)?.label = row_label(label);
+    Ok(())
+  }
+
+  // move a row to `index` in the list (past the end: to the bottom). its
+  // steps are kept by its id, so no pattern changes
+  pub fn move_row(&mut self, id: u64, index: usize) -> Result<(), String> {
+    let from = self.rows.iter().position(|r| r.id == id)
+      .ok_or_else(|| format!("no sequencer row with id {}", id))?;
+    let row = self.rows.remove(from);
+    let to = index.min(self.rows.len());
+    self.rows.insert(to, row);
+    Ok(())
+  }
+
+  // play another sample (already loaded, see RowSample) on a row, keeping
+  // its steps in every pattern, its label, volume, pan and mute
+  pub fn replace_row_sample(&mut self, id: u64, path: &str, sample: RowSample) -> Result<(), String> {
+    let row = self.row_mut(id)?;
+    let RowSample { duration, buffer } = sample;
+    row.path = path.to_string();
+    row.buffer = buffer;
+    row.duration = duration;
     Ok(())
   }
 
@@ -627,13 +703,15 @@ impl Sequencer {
     Ok(())
   }
 
-  // a new, empty, unnamed pattern of `bars` bars, at the end. returns its id
+  // a new, empty pattern of `bars` bars, at the end, named "Loop n" or
+  // "Sequence n" (see free_pattern_name). returns its id
   pub fn add_pattern(&mut self, bars: u32, beats_per_bar: u16, kind: PatternKind) -> Result<u64, String> {
     check_bars(kind, bars)?;
     let id = self.next_pattern_id;
+    let name = self.free_pattern_name(kind);
     self.insert_pattern(Pattern {
       id,
-      name: None,
+      name: Some(name),
       kind,
       length: steps_in_bars(bars, beats_per_bar),
       steps: BTreeMap::new(),
@@ -641,6 +719,16 @@ impl Sequencer {
       notes: BTreeMap::new(),
     })?;
     Ok(id)
+  }
+
+  // a new pattern's name: its kind's name with the lowest number no pattern
+  // of that kind is shown with (an unnamed one counts as its label)
+  pub fn free_pattern_name(&self, kind: PatternKind) -> String {
+    let taken: BTreeSet<String> = self.patterns.iter()
+      .filter(|p| p.kind == kind)
+      .map(|p| p.label().to_lowercase())
+      .collect();
+    (1..).map(|n| kind.default_name(n)).find(|name| !taken.contains(&name.to_lowercase())).expect("a free name")
   }
 
   // add a pattern with a known id (from a project)
@@ -803,23 +891,23 @@ impl Sequencer {
   // split a pattern into a pattern per row it uses, each holding just that
   // row's steps, at the same length. a pattern that already holds exactly
   // those steps (made by an earlier split, or by hand) is used rather than
-  // making another; new ones go after the pattern, named like "verse (kick)", or "1 (kick)" unnamed.
-  // returns (row's sample, pattern id), in row order. the pattern itself is
-  // left as it is
-  pub fn split_pattern(&mut self, id: u64) -> Result<Vec<(String, u64)>, String> {
+  // making another; new ones go after the pattern, named like "verse (kick)".
+  // returns (row's sample, row's name, pattern id), in row order. the
+  // pattern itself is left as it is
+  pub fn split_pattern(&mut self, id: u64) -> Result<Vec<(String, String, u64)>, String> {
     let source = self.pattern(id).cloned()
       .ok_or_else(|| format!("no pattern with id {}", id))?;
-    let label = source.name.clone().unwrap_or_else(|| (source.id + 1).to_string());
+    let label = source.label();
     // its notes have no sample to go with: exploding would lose them
     if source.kind != PatternKind::Drum {
       return Err(format!("pattern {} is a note pattern, and only a drum pattern can be exploded", label));
     }
 
-    let parts: Vec<(u64, String, BTreeSet<u32>)> = self.rows.iter()
+    let parts: Vec<(u64, String, String, BTreeSet<u32>)> = self.rows.iter()
       .filter_map(|row| {
         let steps: BTreeSet<u32> = source.steps.get(&row.id)?
           .iter().copied().filter(|&s| s < source.length).collect();
-        if steps.is_empty() { None } else { Some((row.id, row.path.clone(), steps)) }
+        if steps.is_empty() { None } else { Some((row.id, row.path.clone(), row.name(), steps)) }
       })
       .collect();
     if parts.is_empty() {
@@ -828,7 +916,7 @@ impl Sequencer {
 
     let mut insert_at = self.patterns.iter().position(|p| p.id == id).expect("found above") + 1;
     let mut split = Vec::new();
-    for (row_id, path, steps) in parts {
+    for (row_id, path, name, steps) in parts {
       let wanted: BTreeMap<u64, BTreeSet<u32>> = [(row_id, steps)].into_iter().collect();
       let existing = self.patterns.iter().find(|p| {
         p.length == source.length
@@ -845,7 +933,7 @@ impl Sequencer {
           self.next_pattern_id += 1;
           self.patterns.insert(insert_at, Pattern {
             id: new_id,
-            name: Some(format!("{} ({})", label, sample_name(&path))),
+            name: Some(format!("{} ({})", label, name)),
             kind: PatternKind::Drum,
             length: source.length,
             steps: wanted,
@@ -857,7 +945,7 @@ impl Sequencer {
           new_id
         }
       };
-      split.push((path, pattern_id));
+      split.push((path, name, pattern_id));
     }
     Ok(split)
   }
@@ -1004,7 +1092,9 @@ impl Sequencer {
       rows: self.rows.iter().map(|r| SavedRow {
         id: r.id,
         path: r.path.clone(),
+        label: r.label.clone(),
         volume: r.volume,
+        pan: r.pan,
         muted: r.muted,
       }).collect(),
       synths: self.synths.iter().map(|s| SavedSynth {
@@ -1131,6 +1221,62 @@ fn tidy_notes(notes: Vec<PatternNote>) -> Vec<PatternNote> {
 
 fn clamp_volume(volume: f32) -> f32 {
   if volume.is_finite() { volume.clamp(0., ROW_VOLUME_MAX) } else { ROW_VOLUME }
+}
+
+fn clamp_pan(pan: f32) -> f32 {
+  if pan.is_finite() { pan.clamp(-1., 1.) } else { 0. }
+}
+
+// a row's label, trimmed and cut to ROW_LABEL_MAX characters. none when blank
+fn row_label(label: &str) -> Option<String> {
+  let label: String = label.trim().chars().take(ROW_LABEL_MAX).collect();
+  let label = label.trim_end();
+  if label.is_empty() { None } else { Some(label.to_string()) }
+}
+
+// a source panned, in stereo: a mono one is put on both sides first, and
+// channels past the first two are dropped. the same pan law as a clip's
+// (see clip_reader.rs): the far side fades out, the near side stays as is
+pub struct Panned<S> {
+  inner: S,
+  channels: u16,
+  gains: [f32; 2],
+  // the right half of the frame whose left was just given
+  right: Option<f32>,
+}
+
+impl<S: Source<Item = f32>> Panned<S> {
+  pub fn new(inner: S, pan: f32) -> Self {
+    let pan = clamp_pan(pan);
+    let channels = inner.channels().max(1);
+    Panned { inner, channels, gains: [(1. - pan).min(1.), (1. + pan).min(1.)], right: None }
+  }
+}
+
+impl<S: Source<Item = f32>> Iterator for Panned<S> {
+  type Item = f32;
+
+  fn next(&mut self) -> Option<f32> {
+    if let Some(right) = self.right.take() {
+      return Some(right);
+    }
+    let left = self.inner.next()?;
+    let right = if self.channels >= 2 { self.inner.next().unwrap_or(left) } else { left };
+    for _ in 2..self.channels {
+      self.inner.next();
+    }
+    self.right = Some(right * self.gains[1]);
+    Some(left * self.gains[0])
+  }
+}
+
+impl<S: Source<Item = f32>> Source for Panned<S> {
+  // (the inner source's channels are read once, so its format is taken to
+  // stay the same throughout)
+  fn current_frame_len(&self) -> Option<usize> { None }
+  fn channels(&self) -> u16 { 2 }
+  fn sample_rate(&self) -> u32 { self.inner.sample_rate() }
+  fn total_duration(&self) -> Option<Duration> { self.inner.total_duration() }
 }
 
 #[cfg(test)]

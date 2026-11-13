@@ -22,7 +22,15 @@ export const defaultPreferences: Preferences = {
   lightTheme: defaultThemeId('light'),
   darkTheme: defaultThemeId('dark'),
   pluginView: 'window',
+  stepKeys: 'tr909',
 }
+
+// settings an older engine doesn't know about (it leaves them out) are
+// their defaults
+const withDefaults = (preferences: Partial<Preferences>): Preferences => ({
+  ...defaultPreferences,
+  ...Object.fromEntries(Object.entries(preferences).filter(([, v]) => v !== undefined && v !== null)),
+})
 
 const initialState: AppearanceState = {
   preferences: defaultPreferences,
@@ -34,8 +42,11 @@ export const appearanceSlice = createSlice({
   name: 'appearanceSlice',
   initialState,
   reducers: {
-    hydrateAppearance: (_state, action: PayloadAction<AppearanceState>) => action.payload,
-    setPreferences: (state, action: PayloadAction<Preferences>) => { state.preferences = action.payload },
+    hydrateAppearance: (_state, action: PayloadAction<AppearanceState>) => ({
+      ...action.payload,
+      preferences: withDefaults(action.payload.preferences),
+    }),
+    setPreferences: (state, action: PayloadAction<Preferences>) => { state.preferences = withDefaults(action.payload) },
     setSystemDark: (state, action: PayloadAction<boolean>) => { state.systemDark = action.payload },
   },
 })

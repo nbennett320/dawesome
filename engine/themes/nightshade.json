@@ -1,0 +1,45 @@
+{
+  "name": "Nightshade",
+  "appearance": "dark",
+  "colors": {
+    "surface": "#4b375a",
+    "panel": "#5e4570",
+    "raised": "#6b4f7f",
+    "sunken": "#3b2b46",
+    "line": "#6a4e7e",
+    "lineStrong": "#84629d",
+    "inkStrong": "#fbf6df",
+    "ink": "#eee3b0",
+    "inkSoft": "#d2c4de",
+    "inkFaint": "#a796b8",
+    "accent": "#dcb8f7",
+    "accentSoft": "#8a6aad",
+    "accentTint": "#8a1f74",
+    "accentInk": "#ffd6f4",
+    "led": "#f0cf6a",
+    "ledTint": "#584a52",
+    "ledInk": "#f6e6a8",
+    "danger": "#ff6b7f",
+    "dangerTint": "#5e3047",
+    "ok": "#9fd67a",
+    "shadow": "#120c1a"
+  },
+  "playlist": {
+    "beatLine": "mix(line, surface, 0.5)",
+    "selectedClip": "#8a1f74",
+    "selectedLabel": "#b02e94",
+    "selectedBorder": "#ff4fd0",
+    "lassoFill": "#ff4fd0"
+  },
+  "pianoRoll": {
+    "selected": "#e23fb6",
+    "selectedBorder": "#ffb8ee"
+  },
+  "waveform": {
+    "wave": "#eee3b0"
+  },
+  "fourtrack": {
+    "ledBlueOn": "#ffe23d",
+    "ledAmberOn": "#f5a742"
+  }
+}

@@ -26,4 +26,10 @@ export interface Preferences {
   darkTheme: string
   // where a plugin's own interface opens: a floating window, or a tab
   pluginView: 'window' | 'tab'
+  // how the Drum Sequencer's step keys look (see StepKeys in preferences.rs)
+  stepKeys: StepKeys
 }
+
+// coloured caps (TR-808), plain caps over a coloured strip (TR-909), or
+// pads that light up (TR-8S)
+export type StepKeys = 'tr808' | 'tr909' | 'tr8s'

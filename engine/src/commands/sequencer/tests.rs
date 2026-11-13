@@ -234,6 +234,10 @@ fn test_every_sequencer_edit_can_be_undone_and_redone() {
     ("add a row", Box::new(|| add_row(s, KICK).map(|_| ()))),
     ("row volume", Box::new(|| set_row_volume(s, kick, 0.5, None).map(|_| ()))),
     ("mute a row", Box::new(|| edit(s, |seq| seq.set_row_muted(snare, true)).map(|_| ()))),
+    ("pan a row", Box::new(|| edit_in(s, None, |seq| seq.set_row_pan(kick, -0.5)).map(|_| ()))),
+    ("label a row", Box::new(|| edit(s, |seq| seq.rename_row(snare, "Snare")).map(|_| ()))),
+    ("move a row", Box::new(|| edit(s, |seq| seq.move_row(snare, 0)).map(|_| ()))),
+    ("replace a row's sample", Box::new(|| replace_row_sample(s, kick, SNARE).map(|_| ()))),
     ("light a step", Box::new(|| set_step(s, pattern, kick, 8, true, None).map(|_| ()))),
     ("clear a step", Box::new(|| set_step(s, pattern, kick, 0, false, None).map(|_| ()))),
     ("rename a pattern", Box::new(|| edit(s, |seq| seq.rename_pattern(pattern, "verse")).map(|_| ()))),
@@ -617,4 +621,24 @@ fn test_explode_skips_sample_clips() {
   assert_eq!(exploded.sequencer.patterns.len(), 1);
   let named = exploded.mixer.tracks.iter().find(|t| t.track_number == 0).unwrap();
   assert_eq!(named.name.as_deref(), Some("assets_66-bd-01"));
+}
+
+#[test]
+fn test_replacing_a_sample_keeps_the_row() {
+  let (state, kick, _, pattern, _, _) = drums();
+  edit(&state, |seq| seq.rename_row(kick, "Boom")).unwrap();
+  set_row_volume(&state, kick, 0.5, None).unwrap();
+  let before = state.playlist.sequencer.lock().unwrap().pattern(pattern).unwrap().clone();
+
+  let after = replace_row_sample(&state, kick, SNARE).unwrap();
+  let row = after.rows.iter().find(|r| r.id == kick).unwrap();
+  assert_eq!(row.path, SNARE);
+  assert_eq!(row.label.as_deref(), Some("Boom"));
+  assert_eq!(row.volume, 0.5);
+  assert_eq!(state.playlist.sequencer.lock().unwrap().pattern(pattern).unwrap(), &before);
+
+  // a file that isn't a sample leaves it as it was, and is no step
+  let count = steps(&state);
+  assert!(replace_row_sample(&state, kick, "assets/nope.wav").is_err());
+  assert_eq!(steps(&state), count);
 }

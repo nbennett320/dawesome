@@ -148,7 +148,7 @@ pub(crate) fn source_name(audiograph: &daw::AudioGraph<'static>, id: u64, tag: &
   }
   let node = audiograph.get_pattern_node_by_id(id)?;
   let name = audiograph.sequencer.lock().unwrap().pattern(node.pattern_id)
-    .map(|pattern| pattern.name.clone().unwrap_or_else(|| format!("pattern {}", pattern.id + 1)));
+    .map(daw::Pattern::label);
   Some(project_files::file_stem_from(&name.unwrap_or_else(|| "pattern".into())))
 }
 

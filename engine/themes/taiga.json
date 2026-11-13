@@ -1,0 +1,30 @@
+{
+  "name": "Taiga",
+  "appearance": "dark",
+  "colors": {
+    "surface": "#284539",
+    "panel": "#2b5748",
+    "raised": "#346352",
+    "sunken": "#1e362d",
+    "line": "#3a6153",
+    "lineStrong": "#4f7867",
+    "inkStrong": "#f1f5ea",
+    "ink": "#dde7d3",
+    "inkSoft": "#b3c6aa",
+    "inkFaint": "#88a28c",
+    "accent": "#b8cc98",
+    "accentSoft": "#618764",
+    "accentTint": "#1f3d33",
+    "accentInk": "#d6e5bf",
+    "led": "#e0b05a",
+    "ledTint": "#3b4530",
+    "ledInk": "#f0d79a",
+    "danger": "#ec8a6e",
+    "dangerTint": "#47352c",
+    "ok": "#a6d07e",
+    "shadow": "#0b1512"
+  },
+  "playlist": {
+    "beatLine": "mix(line, surface, 0.5)"
+  }
+}

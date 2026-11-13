@@ -20,7 +20,9 @@ const pattern = (steps: Record<string, number[]> = {}, length = 16): Pattern =>
 
 describe('patternLabel', () => {
   it('is the name, or the number from the id', () => {
-    expect(patternLabel({ id: 2, name: null })).toBe('3')
+    expect(patternLabel({ id: 2, name: null })).toBe('Loop 3')
+    expect(patternLabel({ id: 2, name: null, kind: 'drum' })).toBe('Loop 3')
+    expect(patternLabel({ id: 2, name: null, kind: 'note' })).toBe('Sequence 3')
     expect(patternLabel({ id: 2, name: 'verse' })).toBe('verse')
   })
 })
@@ -72,7 +74,7 @@ describe('stepAt', () => {
 
 describe('litRows', () => {
   it("lists each row's steps in row order, inside the pattern", () => {
-    const rows = [5, 3].map(id => ({ id, path: '', volume: 1, muted: false }))
+    const rows = [5, 3].map(id => ({ id, path: '', label: null, volume: 1, pan: 0, muted: false }))
     expect(litRows(pattern({ 3: [1, 20], 9: [2] }), rows)).toEqual([[], [1]])
   })
 })

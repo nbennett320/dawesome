@@ -280,7 +280,7 @@ fn test_pattern_clips_become_one_clip_of_a_new_pattern() {
   assert_eq!(sequencer.patterns[2], patterns_before.patterns[1]);
   let made = &sequencer.patterns[1];
   assert_eq!(made.id, clip.pattern_id);
-  assert_eq!((made.name.as_deref(), made.length), (Some("a + 2"), 48));
+  assert_eq!((made.name.as_deref(), made.length), (Some("a + Loop 2"), 48));
   // the first's steps, an empty bar, then the second's
   assert_eq!(made.steps[&kick], BTreeSet::from([0, 8, 47]));
   assert_eq!(made.steps[&snare], BTreeSet::from([36, 44]));

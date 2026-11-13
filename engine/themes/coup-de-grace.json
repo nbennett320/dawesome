@@ -1,0 +1,34 @@
+{
+  "name": "Coup de Grâce",
+  "appearance": "dark",
+  "colors": {
+    "surface": "#2a363b",
+    "panel": "#33434a",
+    "raised": "#3c4e56",
+    "sunken": "#1f292d",
+    "line": "#435760",
+    "lineStrong": "#587078",
+    "inkStrong": "#fff0e3",
+    "ink": "#fecea8",
+    "inkSoft": "#c7c0b4",
+    "inkFaint": "#8e9a98",
+    "accent": "#ff847c",
+    "accentSoft": "#a8504b",
+    "accentTint": "#5a3437",
+    "accentInk": "#ffc2bc",
+    "led": "#f9b26e",
+    "ledTint": "#4a3d33",
+    "ledInk": "#fecea8",
+    "danger": "#e84a5f",
+    "dangerTint": "#4c2630",
+    "dangerBright": "#e84a5f",
+    "ok": "#99b898",
+    "shadow": "#0e1416"
+  },
+  "playlist": {
+    "beatLine": "mix(line, surface, 0.5)"
+  },
+  "waveform": {
+    "wave": "#99b898"
+  }
+}

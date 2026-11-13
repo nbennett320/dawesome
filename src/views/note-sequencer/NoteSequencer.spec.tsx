@@ -9,9 +9,9 @@ import projectReducer from '../../state/slices/projectSlice'
 import mixerReducer from '../../state/slices/mixerSlice'
 import windowReducer, { openTab, selectFocusedView } from '../../state/slices/windowSlice'
 import effectsReducer from '../../state/slices/effectsSlice'
-import appearanceReducer from '../../state/slices/appearanceSlice'
+import appearanceReducer, { setPreferences } from '../../state/slices/appearanceSlice'
 import sequencerReducer from '../../state/slices/sequencerSlice'
-import { DragItem, beginSampleDrag } from '../../state/sampleDrag'
+import { DragItem, beginSampleDrag, onSampleDrag } from '../../state/sampleDrag'
 import { Note, SequencerState, Synth } from '../../types/sequencer'
 import { View } from '../../types/ui'
 import NoteSequencer from './NoteSequencer'
@@ -31,7 +31,7 @@ const synth = (id: number, name: string, change: Partial<Synth> = {}): Synth => 
 
 // a drum pattern (0) and two note patterns (1, 2), with Pad's notes in 1
 const makeSequencer = (change: Partial<SequencerState> = {}): SequencerState => ({
-  rows: [{ id: 0, path: '/drums/kick.wav', volume: 1, muted: false }],
+  rows: [{ id: 0, path: '/drums/kick.wav', label: null, volume: 1, pan: 0, muted: false }],
   synths: [synth(7, 'Pad'), synth(8, 'Gone', { missing: true })],
   patterns: [
     { id: 0, name: 'Beat', length: 16, steps: { 0: [0] } },
@@ -183,10 +183,57 @@ describe('the Note Sequencer', () => {
     await waitFor(() => expect(calls('set_pattern_bars')).toEqual([{ patternId: 1, bars: 12 }]))
   })
 
-  it('plays and stops the pattern from its strip', async () => {
+  it('has no Play key of its own: the top bar plays its pattern', async () => {
     await setup()
-    fireEvent.click(screen.getByRole('button', { name: 'Play the pattern' }))
-    await waitFor(() => expect(calls('toggle_pattern')).toEqual([{ patternId: 1 }]))
+    expect(screen.queryByRole('button', { name: 'Play the pattern' })).toBeNull()
+  })
+
+  it('lists every pattern under ▾, to pick one', async () => {
+    const { store } = await setup()
+    fireEvent.click(screen.getByRole('button', { name: 'All patterns' }))
+    const items = screen.getAllByRole('menuitemradio')
+    expect(items.map(i => i.textContent)).toEqual(['✓Verse', 'Chorus'])
+    expect(items[0].getAttribute('aria-checked')).toBe('true')
+
+    fireEvent.click(items[1])
+    expect(store.getState().sequencer.selected.note).toBe(2)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('searches the list, and Enter picks the first found', async () => {
+    const { store } = await setup()
+    fireEvent.click(screen.getByRole('button', { name: 'All patterns' }))
+    const search = screen.getByRole('searchbox', { name: 'Search patterns' })
+    fireEvent.change(search, { target: { value: 'cho' } })
+    expect(screen.getAllByRole('menuitemradio').map(i => i.textContent)).toEqual(['Chorus'])
+    fireEvent.change(search, { target: { value: 'zzz' } })
+    expect(screen.getByText('No patterns match')).toBeTruthy()
+
+    fireEvent.change(search, { target: { value: 'chorus' } })
+    fireEvent.keyDown(search, { key: 'Enter' })
+    expect(store.getState().sequencer.selected.note).toBe(2)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('drags a pattern out of the list, closing it', async () => {
+    await setup()
+    fireEvent.click(screen.getByRole('button', { name: 'All patterns' }))
+    const dropped: DragItem[] = []
+    const off = onSampleDrag(({ type, item }) => { if(type === 'drop') dropped.push(item) })
+
+    fireEvent.mouseDown(screen.getByRole('menuitemradio', { name: 'Chorus' }), { button: 0, clientX: 10, clientY: 10 })
+    act(() => { window.dispatchEvent(new MouseEvent('mousemove', { clientX: 200, clientY: 300 })) })
+    expect(screen.queryByRole('menu')).toBeNull()
+    act(() => { window.dispatchEvent(new MouseEvent('mouseup', { clientX: 200, clientY: 300 })) })
+    off()
+    expect(dropped).toEqual([{ kind: 'pattern', patternId: 2, label: 'Chorus' }])
+  })
+
+  it('closes the list on Escape', async () => {
+    await setup()
+    fireEvent.click(screen.getByRole('button', { name: 'All patterns' }))
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByRole('menu')).toBeNull()
   })
 })
 
@@ -205,5 +252,50 @@ describe('the Drum Sequencer', () => {
     await setup(Sequencer, View.Sequencer)
     fireEvent.click(screen.getByRole('button', { name: 'New pattern' }))
     await waitFor(() => expect(calls('add_pattern')).toEqual([{ bars: 1, kind: 'drum' }]))
+  })
+
+  it('draws its step keys in the style the preferences pick', async () => {
+    const { store, container } = await setup(Sequencer, View.Sequencer)
+    const steps = () => container.querySelector('.seq-steps') as HTMLElement
+    // a TR-909's by default
+    expect(steps().dataset.keys).toBe('tr909')
+    const lit = screen.getAllByRole('button', { name: /kick\.wav, step/ })
+    expect(lit[0].classList.contains('is-lit')).toBe(true)
+    expect(lit[1].classList.contains('is-lit')).toBe(false)
+    // in beats of four, coloured by their place in the bar
+    expect(Array.from(container.querySelectorAll('.seq-beat')).map(b => b.classList.contains(`is-beat-0`))).toEqual([true, false, false, false])
+
+    act(() => { store.dispatch(setPreferences({ ...store.getState().appearance.preferences, stepKeys: 'tr808' })) })
+    expect(steps().dataset.keys).toBe('tr808')
+  })
+
+  it('replaces the sample of a row a sample is dropped on', async () => {
+    await setup(Sequencer, View.Sequencer)
+    const step = screen.getAllByRole('button', { name: /kick\.wav, step/ })[3]
+    await dragOnto({ kind: 'sample', path: '/drums/snare.wav' }, step)
+    expect(calls('replace_sequencer_row_sample')).toEqual([{ rowId: 0, path: '/drums/snare.wav' }])
+    expect(calls('add_sequencer_row')).toEqual([])
+  })
+
+  it('adds a row for a sample dropped anywhere else', async () => {
+    await setup(Sequencer, View.Sequencer)
+    await dragOnto({ kind: 'sample', path: '/drums/snare.wav' }, screen.getByText('Drop more samples here to add rows'))
+    expect(calls('add_sequencer_row')).toEqual([{ path: '/drums/snare.wav' }])
+    expect(calls('replace_sequencer_row_sample')).toEqual([])
+  })
+
+  it('shows which row a sample dragged over it would replace', async () => {
+    await setup(Sequencer, View.Sequencer)
+    const step = screen.getAllByRole('button', { name: /kick\.wav, step/ })[3]
+    document.elementFromPoint = () => step
+    beginSampleDrag({ kind: 'sample', path: '/drums/snare.wav' }, { button: 0, clientX: 0, clientY: 0 })
+    act(() => { window.dispatchEvent(new MouseEvent('mousemove', { clientX: 40, clientY: 40 })) })
+
+    expect(screen.getByText('Replace sample with snare.wav')).toBeTruthy()
+    expect(screen.getByText('Let go to replace kick.wav’s sample with snare.wav')).toBeTruthy()
+
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })) })
+    act(() => { window.dispatchEvent(new MouseEvent('mouseup', { clientX: 40, clientY: 40 })) })
+    expect(screen.queryByText('Replace sample with snare.wav')).toBeNull()
   })
 })
