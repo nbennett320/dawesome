@@ -33,6 +33,9 @@ interface Props {
   onStep: (rowId: number, step: number, on: boolean) => void
   // dragged by its grip now
   dragging: boolean
+  // the name of a sample from the sidebar being dragged over it, which
+  // would replace its own
+  replacingWith: string | null
   // a row dragged would go just above or below it
   dropLine: 'before' | 'after' | null
   onGripDown: (rowId: number, ev: React.MouseEvent) => void
@@ -41,7 +44,7 @@ interface Props {
 // one sample: its name (click to hear it, right-click to rename), mute,
 // volume, pan and remove, then a key for each of the pattern's steps
 const SequencerRow = ({
-  row, pattern, beatsPerBar, playingStep, paint, onStep, dragging, dropLine, onGripDown,
+  row, pattern, beatsPerBar, playingStep, paint, onStep, dragging, replacingWith, dropLine, onGripDown,
 }: Props) => {
   const dispatch = useAppDispatch()
   const sample = fileName(row.path)
@@ -102,7 +105,9 @@ const SequencerRow = ({
   return (
     <div
       data-row-id={row.id}
-      className={`relative flex flex-row items-center gap-2 ${dragging ? 'opacity-50' : ''}`}
+      className={`relative flex flex-row items-center gap-2 rounded-md ${dragging ? 'opacity-50' : ''} ${
+        replacingWith ? 'ring-2 ring-accent-focus ring-offset-2 ring-offset-panel' : ''
+      }`}
     >
       {dropLine && (
         <div
@@ -132,7 +137,17 @@ const SequencerRow = ({
         removeTitle='Remove the row, and its steps from every pattern'
         onRemove={() => dispatch(removeSequencerRow(row.id))}
       />
-      <div className='flex flex-row items-center'>{steps}</div>
+      <div className='relative flex flex-row items-center'>
+        {steps}
+        {replacingWith && (
+          <div
+            aria-hidden='true'
+            className='absolute inset-0 flex items-center justify-center rounded-sm bg-accent-tint/90 text-xs text-accent-ink pointer-events-none'
+          >
+            Replace sample with {replacingWith}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

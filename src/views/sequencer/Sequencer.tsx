@@ -4,11 +4,13 @@ import {
   PatternRun,
   addSequencerRow,
   moveSequencerRow,
+  replaceSequencerRowSample,
   selectSequencerRows,
   setPatternStep,
 } from '../../state/slices/sequencerSlice'
-import { DragItem } from '../../state/sampleDrag'
+import { DragItem, onSampleDrag } from '../../state/sampleDrag'
 import { Pattern, stepAt } from '../../types/sequencer'
+import { fileName } from '../../util/helpers'
 import SequencerFrame, { useDropOn, useSequencerTab } from './SequencerFrame'
 import SequencerRow, { Paint } from './SequencerRow'
 import { useRowDrag } from './useRowDrag'
@@ -40,6 +42,34 @@ const usePlayingStep = (run: PatternRun | null, pattern: Pattern | null): number
 
 const isSample = (item: DragItem): item is Extract<DragItem, { kind: 'sample' }> => item.kind === 'sample'
 
+// the row at a point in the window, inside `tab`, if there's one
+const rowAt = (tab: HTMLElement | null, clientX: number, clientY: number): number | null => {
+  const el = document.elementFromPoint(clientX, clientY)?.closest<HTMLElement>('[data-row-id]')
+  return el && tab?.contains(el) ? Number(el.dataset.rowId) : null
+}
+
+// a sample dragged over a row, to replace the row's sample with it
+interface Replacing {
+  rowId: number
+  sample: string
+}
+
+// the row a sample from the sidebar is being dragged over now
+const useReplacing = (tab: React.RefObject<HTMLElement>): Replacing | null => {
+  const [replacing, setReplacing] = React.useState<Replacing | null>(null)
+
+  React.useEffect(() => onSampleDrag(({ type, item, clientX, clientY }) => {
+    const rowId = type === 'move' && isSample(item) ? rowAt(tab.current, clientX, clientY) : null
+    setReplacing(now => {
+      if(rowId === null) return null
+      if(now?.rowId === rowId) return now
+      return { rowId, sample: fileName((item as Extract<DragItem, { kind: 'sample' }>).path) }
+    })
+  }), [tab])
+
+  return replacing
+}
+
 // the drum machine: drum patterns along the top, a row per sample, and a
 // key for each 16th note step. Play loops the selected pattern while this
 // tab is focused
@@ -48,8 +78,14 @@ const Sequencer = () => {
   const rows = useAppSelector(selectSequencerRows)
   const { pattern, run, beatsPerBar } = useSequencerTab('drum')
   const tabRef = React.useRef<HTMLDivElement>(null)
-  // samples dragged from the sidebar become rows
-  const dropping = useDropOn(tabRef, isSample, item => { dispatch(addSequencerRow(item.path)) })
+  // samples dragged from the sidebar become rows, or dropped on a row,
+  // replace its sample (its steps and settings stay)
+  const dropping = useDropOn(tabRef, isSample, (item, { clientX, clientY }) => {
+    const rowId = rowAt(tabRef.current, clientX, clientY)
+    if(rowId === null) dispatch(addSequencerRow(item.path))
+    else dispatch(replaceSequencerRowSample(rowId, item.path))
+  })
+  const replacing = useReplacing(tabRef)
 
   // painting steps ends wherever the mouse is let go
   const paint = React.useRef<Paint | null>(null)
@@ -80,6 +116,10 @@ const Sequencer = () => {
   let hint = 'Drop more samples here to add rows'
   if(!rows.length) hint = 'Drag samples here from the sidebar. Each one becomes a row of steps'
   if(dropping) hint = 'Let go to add the sample'
+  const replaced = replacing && rows.find(r => r.id === replacing.rowId)
+  if(dropping && replaced) {
+    hint = `Let go to replace ${replaced.label ?? fileName(replaced.path)}’s sample with ${replacing.sample}`
+  }
 
   return (
     <SequencerFrame
@@ -101,6 +141,7 @@ const Sequencer = () => {
           paint={paint}
           onStep={onStep}
           dragging={row.id === draggingId}
+          replacingWith={replacing?.rowId === row.id ? replacing.sample : null}
           dropLine={line?.rowId === row.id ? line.edge : null}
           onGripDown={onGripDown}
         />

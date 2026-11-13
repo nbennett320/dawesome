@@ -206,4 +206,34 @@ describe('the Drum Sequencer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'New pattern' }))
     await waitFor(() => expect(calls('add_pattern')).toEqual([{ bars: 1, kind: 'drum' }]))
   })
+
+  it('replaces the sample of a row a sample is dropped on', async () => {
+    await setup(Sequencer, View.Sequencer)
+    const step = screen.getAllByRole('button', { name: /kick\.wav, step/ })[3]
+    await dragOnto({ kind: 'sample', path: '/drums/snare.wav' }, step)
+    expect(calls('replace_sequencer_row_sample')).toEqual([{ rowId: 0, path: '/drums/snare.wav' }])
+    expect(calls('add_sequencer_row')).toEqual([])
+  })
+
+  it('adds a row for a sample dropped anywhere else', async () => {
+    await setup(Sequencer, View.Sequencer)
+    await dragOnto({ kind: 'sample', path: '/drums/snare.wav' }, screen.getByText('Drop more samples here to add rows'))
+    expect(calls('add_sequencer_row')).toEqual([{ path: '/drums/snare.wav' }])
+    expect(calls('replace_sequencer_row_sample')).toEqual([])
+  })
+
+  it('shows which row a sample dragged over it would replace', async () => {
+    await setup(Sequencer, View.Sequencer)
+    const step = screen.getAllByRole('button', { name: /kick\.wav, step/ })[3]
+    document.elementFromPoint = () => step
+    beginSampleDrag({ kind: 'sample', path: '/drums/snare.wav' }, { button: 0, clientX: 0, clientY: 0 })
+    act(() => { window.dispatchEvent(new MouseEvent('mousemove', { clientX: 40, clientY: 40 })) })
+
+    expect(screen.getByText('Replace sample with snare.wav')).toBeTruthy()
+    expect(screen.getByText('Let go to replace kick.wav’s sample with snare.wav')).toBeTruthy()
+
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })) })
+    act(() => { window.dispatchEvent(new MouseEvent('mouseup', { clientX: 40, clientY: 40 })) })
+    expect(screen.queryByText('Replace sample with snare.wav')).toBeNull()
+  })
 })
