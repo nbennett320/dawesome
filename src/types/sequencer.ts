@@ -371,27 +371,6 @@ export const clipPasses = (start: number, length: number, patternLength: number)
 export const repeatLines = (start: number, length: number, patternLength: number): number[] =>
   clipPasses(start, length, patternLength).slice(1).map(pass => pass.at - start)
 
-// what a pattern clip draws, rows in their order: a lane for each sample
-// row, holding the steps its notes start on inside the pattern, and every
-// synth row's notes, drawn as small bars (see noteBars). (one pass over
-// each row's notes, with nothing copied: the playlist keeps what it makes
-// for each version of a pattern, see patternDrawing)
-export const clipContents = (pattern: Pattern, rows: Row[]): { lanes: number[][], notes: Note[] } => {
-  const lanes: number[][] = []
-  const notes: Note[] = []
-  rows.forEach(row => {
-    const held = rowNotes(pattern, row.id)
-    if(isSynthRow(row)) {
-      held.forEach(note => notes.push(note))
-      return
-    }
-    const starts: number[] = []
-    held.forEach(note => { if(note.start < pattern.length) starts.push(note.start) })
-    lanes.push(starts)
-  })
-  return { lanes, notes }
-}
-
 export interface NoteBars {
   rows: number
   bars: Array<{ start: number, end: number, row: number }>
@@ -436,6 +415,28 @@ export const patternHint = (pattern: Pattern, beatsPerBar: number, clips: number
   const bars = patternBars(pattern, beatsPerBar)
   const length = bars === null ? `${pattern.length} steps` : `${bars} bar${bars === 1 ? '' : 's'}`
   return clips ? `${length} · ${clips}×` : length
+}
+
+// each row's kind of instrument, by row id
+export type RowKinds = ReadonlyMap<number, Instrument['kind']>
+
+// what a pattern holds notes for: sample rows, synth rows, or both (the
+// pattern browser's badges). notes past its end count: it holds them still
+export interface Holds {
+  samples: boolean
+  synths: boolean
+}
+
+export const patternHolds = (pattern: Pattern, kinds: RowKinds): Holds => {
+  let samples = false
+  let synths = false
+  Object.entries(pattern.notes).forEach(([rowId, notes]) => {
+    if(!notes.length) return
+    const kind = kinds.get(Number(rowId))
+    samples ||= kind === 'sample'
+    synths ||= kind === 'synth'
+  })
+  return { samples, synths }
 }
 
 // the patterns whose label has the search in it, keeping their order

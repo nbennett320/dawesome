@@ -124,6 +124,15 @@ pub struct SampleRow {
   sound: RowSound,
 }
 
+// what an explode gives a track of its own (see explode_tracks): a sample,
+// by its file (sample clips play one too, and two rows of it are one
+// sound), or a synth row, by its id (its slot changes with its plugin)
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Sound<'a> {
+  Sample(&'a str),
+  Synth(u64),
+}
+
 // a synth row's plugin. effects.rs keeps it under `slot`, which its windows,
 // docking and the copies tracks play go by
 #[derive(Clone, Debug, PartialEq)]
@@ -221,6 +230,14 @@ impl Row {
     match &self.instrument {
       Instrument::Synth(synth) => Some(synth),
       Instrument::Sample(_) => None,
+    }
+  }
+
+  // what the row plays, as an explode tells tracks apart
+  pub fn sound(&self) -> Sound<'_> {
+    match &self.instrument {
+      Instrument::Sample(sample) => Sound::Sample(&sample.path),
+      Instrument::Synth(_) => Sound::Synth(self.id),
     }
   }
 
@@ -401,6 +418,11 @@ impl Pattern {
   // the rows it plays notes of
   fn heard_rows(&self) -> impl Iterator<Item = u64> + '_ {
     self.notes.keys().copied().filter(|&row| !self.heard(row).is_empty())
+  }
+
+  // whether it plays any note at all
+  pub fn plays_notes(&self) -> bool {
+    self.heard_rows().next().is_some()
   }
 
   // whether all it plays is these notes, of one row
@@ -758,6 +780,15 @@ impl SavedSequencer {
       synth.slot = next();
     }
   }
+}
+
+// one row's part of a split pattern (see Sequencer::split_pattern): the
+// row, what it's called, and the pattern holding just its notes
+#[derive(Debug, PartialEq)]
+pub struct SplitPart {
+  pub row: u64,
+  pub name: String,
+  pub pattern: u64,
 }
 
 #[derive(Default, Clone)]
@@ -1356,50 +1387,44 @@ impl Sequencer {
     self.pattern(id).map(|p| step_offset(p.length, beat_interval))
   }
 
-  // the sample a pattern plays, if it plays notes of just one row and that's
-  // a sample row (the patterns an explode makes)
-  pub fn single_sample(&self, pattern_id: u64) -> Option<&str> {
+  // what a pattern plays, if it plays notes of just one row (the patterns
+  // an explode makes)
+  pub fn sole_sound(&self, pattern_id: u64) -> Option<Sound<'_>> {
     let pattern = self.pattern(pattern_id)?;
     let mut rows = pattern.heard_rows();
     let row = rows.next()?;
     if rows.next().is_some() { return None; }
-    self.row(row)?.sample().map(|sample| sample.path.as_str())
+    Some(self.row(row)?.sound())
   }
 
-  // split a pattern into a pattern per sample row it plays, each holding
-  // just that row's notes inside it, at the same length and floor. a pattern
-  // that already plays exactly those notes (made by an earlier split, or by
-  // hand) is used rather than making another; new ones go after the
-  // pattern, named like "verse (kick)". returns (row's sample, row's name,
-  // pattern id), in row order. the pattern itself is left as it is. one with
-  // notes on synth rows inside it can't be split yet
-  pub fn split_pattern(&mut self, id: u64) -> Result<Vec<(String, String, u64)>, String> {
+  // split a pattern into a pattern per row it plays, sample or synth, each
+  // holding just that row's notes inside it, at the same length and floor.
+  // a pattern that already plays exactly those notes (made by an earlier
+  // split, or by hand) is used rather than making another; new ones go
+  // after the pattern, named like "verse (kick)". returns a part per row,
+  // in row order. the pattern itself is left as it is
+  pub fn split_pattern(&mut self, id: u64) -> Result<Vec<SplitPart>, String> {
     let source = self.pattern(id).cloned()
       .ok_or_else(|| format!("no pattern with id {}", id))?;
     let label = source.label();
-    if self.rows.iter().any(|row| row.synth().is_some() && !source.heard(row.id).is_empty()) {
-      return Err(format!("pattern {} has notes on synths, which can't be exploded yet", label));
-    }
-
-    let parts: Vec<(u64, String, String, Vec<PatternNote>)> = self.rows.iter()
+    let heard: Vec<(u64, String, Vec<PatternNote>)> = self.rows.iter()
       .filter_map(|row| {
-        let notes = source.heard(row.id).to_vec();
-        if notes.is_empty() { return None; }
-        Some((row.id, row.sample()?.path.clone(), row.name(), notes))
+        let notes = source.heard(row.id);
+        (!notes.is_empty()).then(|| (row.id, row.name(), notes.to_vec()))
       })
       .collect();
-    if parts.is_empty() {
+    if heard.is_empty() {
       return Err(format!("pattern {} has no notes to explode", label));
     }
 
     let mut insert_at = self.patterns.iter().position(|p| p.id == id).expect("found above") + 1;
-    let mut split = Vec::new();
-    for (row, path, name, notes) in parts {
+    let mut parts = Vec::new();
+    for (row, name, notes) in heard {
       let existing = self.patterns.iter()
         .find(|p| p.length == source.length && p.plays_just(row, &notes))
         .map(|p| p.id);
 
-      let pattern_id = match existing {
+      let pattern = match existing {
         Some(found) => found,
         None => {
           let new_id = self.next_pattern_id;
@@ -1418,9 +1443,9 @@ impl Sequencer {
           new_id
         }
       };
-      split.push((path, name, pattern_id));
+      parts.push(SplitPart { row, name, pattern });
     }
-    Ok(split)
+    Ok(parts)
   }
 
   #[cfg(test)]

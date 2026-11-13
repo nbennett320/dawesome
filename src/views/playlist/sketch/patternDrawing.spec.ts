@@ -1,36 +1,45 @@
 import { Note } from '../../../types/sequencer'
 import { pattern, sampleRow, step, synthRow } from '../../../types/sequencer.fixture'
-import { firstFrom, patternDrawing } from './patternDrawing'
+import { firstFrom, patternLanes } from './patternDrawing'
 
 const note = (pitch: number, start: number, length = 1): Note => ({ pitch, start, length, velocity: 0.8 })
 
-describe('patternDrawing', () => {
-  const rows = [sampleRow(0), synthRow(1), synthRow(2)]
-  const drums = pattern(0, { notes: { 0: [step(0), step(8), step(20)], 1: [note(64, 6, 12)], 2: [note(60, 2, 4)] } })
+describe('patternLanes', () => {
+  const rows = [sampleRow(0), synthRow(1), sampleRow(3), synthRow(2), sampleRow(4)]
+  // row 3 plays nothing inside the pattern, and row 4 nothing at all
+  const mixed = pattern(0, {
+    notes: { 0: [step(0), step(8), step(20)], 1: [note(64, 6, 12)], 2: [note(60, 2, 4), note(62, 3)], 3: [step(16)] },
+  })
 
-  it('is a lane per sample row, and the synth rows\' notes as bars in order of their starts, cut at the end', () => {
-    expect(patternDrawing(drums, rows)).toEqual({
-      lanes: [[0, 8]],
-      bars: [{ start: 2, end: 6, row: 7 }, { start: 6, end: 16, row: 3 }],
-      rows: 12,
-    })
+  it('is a lane per row that plays notes, in the rows\' order: ticks for a sample row, bars for a synth row', () => {
+    expect(patternLanes(mixed, rows)).toEqual([
+      { kind: 'sample', ticks: [0, 8] },
+      // cut at the pattern's end
+      { kind: 'synth', bars: [{ start: 6, end: 16, row: 5 }], pitches: 12 },
+      { kind: 'synth', bars: [{ start: 2, end: 6, row: 6 }, { start: 3, end: 4, row: 4 }], pitches: 12 },
+    ])
+  })
+
+  it('ticks every note of a sample row, whatever its pitch or length', () => {
+    const played = pattern(0, { notes: { 0: [note(48, 0, 6), note(72, 0.5), step(4)] } })
+    expect(patternLanes(played, rows)).toEqual([{ kind: 'sample', ticks: [0, 0.5, 4] }])
   })
 
   it('is worked out once for a pattern and its rows', () => {
-    const first = patternDrawing(drums, rows)
-    expect(patternDrawing(drums, rows)).toBe(first)
+    const first = patternLanes(mixed, rows)
+    expect(patternLanes(mixed, rows)).toBe(first)
   })
 
   it('is worked out again for a changed pattern (a new object), or for changed rows', () => {
-    const first = patternDrawing(drums, rows)
-    const edited = { ...drums, notes: { ...drums.notes, 0: [step(4)] } }
-    expect(patternDrawing(edited, rows)).not.toBe(first)
-    expect(patternDrawing(edited, rows).lanes).toEqual([[4]])
+    const first = patternLanes(mixed, rows)
+    const edited = { ...mixed, notes: { ...mixed.notes, 0: [step(4)] } }
+    expect(patternLanes(edited, rows)).not.toBe(first)
+    expect(patternLanes(edited, rows)[0]).toEqual({ kind: 'sample', ticks: [4] })
 
     // the rows moved: the same pattern, with its lanes in their new order
-    const moved = [synthRow(1), sampleRow(3), synthRow(2), sampleRow(0)]
-    expect(patternDrawing(drums, moved)).not.toBe(first)
-    expect(patternDrawing(drums, moved).lanes).toEqual([[], [0, 8]])
+    const moved = [synthRow(2), sampleRow(0), synthRow(1)]
+    expect(patternLanes(mixed, moved)).not.toBe(first)
+    expect(patternLanes(mixed, moved).map(lane => lane.kind)).toEqual(['synth', 'sample', 'synth'])
   })
 })
 

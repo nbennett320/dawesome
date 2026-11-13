@@ -1416,47 +1416,48 @@ impl AudioGraph<'static> {
     ids
   }
 
-  // split a pattern clip into a clip per sample row it plays: each plays a
-  // pattern holding just that row's notes (see Sequencer::split_pattern),
-  // on a track of its own (see explode_tracks), so each sample gets its own
-  // mixer strip. unnamed tracks are named after their rows. returns the
-  // new clips' ids, in row order
+  // split a pattern clip into a clip per row it plays, sample or synth: each
+  // plays a pattern holding just that row's notes (see
+  // Sequencer::split_pattern), on a track of its own (see explode_tracks),
+  // so each row gets its own mixer strip. a synth row's copy on that track
+  // is made when the synths next follow the clips. unnamed tracks are named
+  // after their rows. returns the new clips' ids, in row order
   pub fn explode_pattern_node(&mut self, id: u64) -> Result<Vec<u64>, String> {
     let clip = self.get_pattern_node_by_id(id).cloned()
       .ok_or_else(|| format!("no pattern clip with id {}", id))?;
 
-    let (split, placed_patterns) = {
+    let (parts, tracks) = {
       let mut sequencer = self.sequencer.lock().unwrap();
-      let split = sequencer.split_pattern(clip.pattern_id)?;
-      // other pattern clips count as their sample's when they play just one
-      let placed: Vec<(u32, Option<String>)> = self.pattern_nodes.iter()
-        .filter(|n| n.id != id)
-        .map(|n| (n.track_number, sequencer.single_sample(n.pattern_id).map(str::to_string)))
+      let parts = sequencer.split_pattern(clip.pattern_id)?;
+      let sounds: Vec<daw::Sound> = parts.iter()
+        .map(|part| sequencer.row(part.row).expect("a row the split found").sound())
         .collect();
-      (split, placed)
+      // every other clip, with what it plays when that's one sound
+      let placed: Vec<(u32, Option<daw::Sound>)> = self.nodes.iter()
+        .map(|n| (n.track_number, Some(daw::Sound::Sample(n.sample_path()))))
+        .chain(self.pattern_nodes.iter()
+          .filter(|n| n.id != id)
+          .map(|n| (n.track_number, sequencer.sole_sound(n.pattern_id))))
+        .collect();
+      let tracks = explode_tracks(&sounds, clip.track_number, &placed);
+      (parts, tracks)
     };
-
-    let paths: Vec<&str> = split.iter().map(|(path, _, _)| path.as_str()).collect();
-    let placed: Vec<(u32, Option<&str>)> = self.nodes.iter()
-      .map(|n| (n.track_number, Some(n.sample_path())))
-      .chain(placed_patterns.iter().map(|(t, p)| (*t, p.as_deref())))
-      .collect();
-    let tracks = explode_tracks(&paths, clip.track_number, &placed);
 
     self.remove_node(id)?;
     let mut ids = Vec::new();
-    for ((_, name, pattern_id), &track) in split.iter().zip(&tracks) {
+    for (part, &track) in parts.iter().zip(&tracks) {
       let new_id = self.next_id;
-      // each plays the same steps of its pattern as the clip did of its
+      // each plays the same steps of its pattern as the clip did of its,
+      // for as long (so a looping clip makes looping clips)
       self.add_pattern_node_with_id(PatternNode {
         id: new_id,
-        pattern_id: *pattern_id,
+        pattern_id: part.pattern,
         track_number: track,
         ..clip.clone()
       });
       ids.push(new_id);
       if self.mixer.name(track).is_none() {
-        self.mixer.set_name(track, name);
+        self.mixer.set_name(track, &part.name);
       }
     }
 
@@ -1700,42 +1701,43 @@ impl AudioGraph<'static> {
 
 }
 
-// which track each sample of an exploded pattern goes on, so every sample
-// gets a track (and mixer strip) of its own
-// - paths: the pattern's samples, in row order
+// which track each sound of an exploded pattern goes on, so every sound
+// gets a track (and mixer strip) of its own. a sound is whatever tells them
+// apart (a Sound in the app, a name in the tests)
+// - sounds: the pattern's, in row order
 // - clip_track: the track the pattern clip was on
-// - placed: every other clip in the playlist, as (track, sample path), with
-//   None for pattern clips
+// - placed: every other clip in the playlist, as (track, sound), with None
+//   for a pattern clip of more than one
 //
-// a sample goes on the track already holding only clips of it (its track
-// from an earlier explode), if there is one. otherwise the first sample
-// stays on the clip's track, unless that has other samples on it, and the
+// a sound goes on the track already holding only clips of it (its track
+// from an earlier explode), if there is one. otherwise the first sound
+// stays on the clip's track, unless that has other sounds on it, and the
 // rest go on the next empty tracks below it (new ones past the last
 // track), so they stay together under the clip
-pub fn explode_tracks(
-  paths: &[&str],
+pub fn explode_tracks<S: Copy + PartialEq>(
+  sounds: &[S],
   clip_track: u32,
-  placed: &[(u32, Option<&str>)],
+  placed: &[(u32, Option<S>)],
 ) -> Vec<u32> {
-  let mut placed: Vec<(u32, Option<&str>)> = placed.to_vec();
+  let mut placed: Vec<(u32, Option<S>)> = placed.to_vec();
   let mut tracks = Vec::new();
 
-  for (i, &path) in paths.iter().enumerate() {
-    let has_other_sample = |placed: &[(u32, Option<&str>)], track: u32| placed.iter()
-      .any(|&(t, p)| t == track && p.map_or(false, |p| p != path));
+  for (i, &sound) in sounds.iter().enumerate() {
+    let has_other_sound = |placed: &[(u32, Option<S>)], track: u32| placed.iter()
+      .any(|&(t, s)| t == track && s.map_or(false, |s| s != sound));
     let dedicated = placed.iter()
-      .filter(|&&(_, p)| p == Some(path))
+      .filter(|&&(_, s)| s == Some(sound))
       .map(|&(t, _)| t)
-      .filter(|&t| !has_other_sample(&placed, t))
+      .filter(|&t| !has_other_sound(&placed, t))
       .min();
 
     let track = dedicated
-      .or_else(|| if i == 0 && !has_other_sample(&placed, clip_track) { Some(clip_track) } else { None })
+      .or_else(|| if i == 0 && !has_other_sound(&placed, clip_track) { Some(clip_track) } else { None })
       .unwrap_or_else(|| (clip_track + 1..)
         .find(|&t| !placed.iter().any(|&(pt, _)| pt == t))
         .expect("an empty track below the clip"));
 
-    placed.push((track, Some(path)));
+    placed.push((track, Some(sound)));
     tracks.push(track);
   }
 

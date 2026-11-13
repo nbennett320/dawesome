@@ -210,7 +210,7 @@ export const playlistSlice = createSlice({
         item.trackNumber = m.trackNumber
       })
     },
-    // pattern clips replaced by a pattern clip per sample (see
+    // pattern clips replaced by a pattern clip per row (see
     // explodePatternClips in sequencerSlice)
     reduceExploded: (state, action: PayloadAction<{ removed: number[], clips: LoadedPatternClip[] }>) => {
       const removed = new Set(action.payload.removed)

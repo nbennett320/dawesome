@@ -573,21 +573,20 @@ fn test_split_a_pattern_by_row() {
 
   let split = seq.split_pattern(pattern).unwrap();
   assert_eq!(split.len(), 2);
-  let (kick_path, kick_name, kick_pattern) = &split[0];
-  let (_, _, snare_pattern) = &split[1];
-  assert_eq!(kick_path, KICK);
-  assert_eq!(kick_name, "assets_66-bd-01");
+  let (kick_part, snare_part) = (&split[0], &split[1]);
+  assert_eq!((kick_part.row, kick_part.name.as_str()), (kick, "assets_66-bd-01"));
+  assert_eq!(snare_part.row, snare);
 
   // each holds just its row's notes, named after its sample, after the source
   let order: Vec<u64> = seq.patterns().iter().map(|p| p.id).collect();
-  assert_eq!(order, vec![pattern, *kick_pattern, *snare_pattern, after]);
-  let k = seq.pattern(*kick_pattern).unwrap();
+  assert_eq!(order, vec![pattern, kick_part.pattern, snare_part.pattern, after]);
+  let k = seq.pattern(kick_part.pattern).unwrap();
   assert_eq!(k.name.as_deref(), Some("verse (assets_66-bd-01)"));
   assert_eq!((k.length, k.floor), (16, 16));
   assert_eq!(k.notes_of(kick), &[step(0.), step(8.)]);
   assert!(!k.notes.contains_key(&snare));
-  assert_eq!(seq.single_sample(*snare_pattern), Some(SNARE));
-  assert_eq!(seq.single_sample(pattern), None);
+  assert_eq!(seq.sole_sound(snare_part.pattern), Some(Sound::Sample(SNARE)));
+  assert_eq!(seq.sole_sound(pattern), None);
 
   // the source is unchanged, and splitting it again reuses the same patterns
   assert!(seq.pattern(pattern).unwrap().lit(snare, 4));
@@ -596,24 +595,45 @@ fn test_split_a_pattern_by_row() {
 }
 
 #[test]
-fn test_a_split_needs_notes_and_no_synth_notes() {
+fn test_a_split_needs_notes_it_plays() {
   let (mut seq, kick, _, pattern) = kit();
   assert!(seq.split_pattern(pattern).unwrap_err().contains("no notes to explode"));
   assert!(seq.split_pattern(99).is_err());
+  assert!(!seq.pattern(pattern).unwrap().plays_notes());
 
-  let keys = seq.add_synth_row(synth(500, "Keys"));
+  // notes past the end don't play, so they don't count
+  seq.set_pattern_notes(pattern, kick, vec![note(60, 40., 1.)]).unwrap();
+  assert!(!seq.pattern(pattern).unwrap().plays_notes());
+  assert!(seq.split_pattern(pattern).unwrap_err().contains("no notes to explode"));
   seq.set_step(pattern, kick, 0, true).unwrap();
-  seq.set_pattern_notes(pattern, keys, vec![note(60, 4., 1.)]).unwrap();
-  seq.rename_pattern(pattern, "verse").unwrap();
-  assert_eq!(seq.split_pattern(pattern).unwrap_err(), "pattern verse has notes on synths, which can't be exploded yet");
+  assert!(seq.pattern(pattern).unwrap().plays_notes());
+}
 
-  // a synth's notes past the end don't play, so they don't count
-  seq.set_pattern_notes(pattern, keys, vec![note(60, 40., 1.)]).unwrap();
-  assert_eq!(seq.split_pattern(pattern).unwrap().len(), 1);
-  // nor is a pattern of synth notes alone a sample's
-  let tune = seq.add_pattern(1, 4).unwrap();
-  seq.set_pattern_notes(tune, keys, vec![note(60, 4., 1.)]).unwrap();
-  assert_eq!(seq.single_sample(tune), None);
+#[test]
+fn test_a_split_gives_synth_rows_a_pattern_each_too() {
+  let (mut seq, kick, snare, pattern) = kit();
+  let keys = seq.add_synth_row(synth(500, "Keys"));
+  let bass = seq.add_synth_row(synth(501, "Bass"));
+  // the synth row first, so the parts follow the rows' order
+  seq.move_row(keys, 0).unwrap();
+  seq.set_step(pattern, kick, 0, true).unwrap();
+  seq.set_pattern_notes(pattern, keys, vec![note(60, 4., 2.), note(64, 40., 1.)]).unwrap();
+  seq.set_pattern_notes(pattern, snare, vec![note(62, 6., 3.)]).unwrap();
+  // only past the end: not played, so no part
+  seq.set_pattern_notes(pattern, bass, vec![note(36, 20., 1.)]).unwrap();
+  seq.rename_pattern(pattern, "verse").unwrap();
+
+  let split = seq.split_pattern(pattern).unwrap();
+  let rows: Vec<(u64, &str)> = split.iter().map(|part| (part.row, part.name.as_str())).collect();
+  assert_eq!(rows, vec![(keys, "Keys"), (kick, "assets_66-bd-01"), (snare, "assets_66-sd-01")]);
+  let k = seq.pattern(split[0].pattern).unwrap();
+  assert_eq!(k.name.as_deref(), Some("verse (Keys)"));
+  // the notes it plays, and none past its end
+  assert_eq!(k.notes.len(), 1);
+  assert_eq!(k.notes_of(keys), &[note(60, 4., 2.)]);
+  assert_eq!(seq.sole_sound(split[0].pattern), Some(Sound::Synth(keys)));
+  // a sample row's notes stay as they were, whatever they are
+  assert_eq!(seq.pattern(split[2].pattern).unwrap().notes_of(snare), &[note(62, 6., 3.)]);
 }
 
 #[test]
@@ -624,8 +644,8 @@ fn test_a_split_is_named_after_a_rows_label() {
   seq.set_step(pattern, snare, 4, true).unwrap();
   seq.rename_row(kick, "Kick").unwrap();
   let split = seq.split_pattern(pattern).unwrap();
-  assert_eq!(split[0].1, "Kick");
-  assert_eq!(seq.pattern(split[0].2).unwrap().name.as_deref(), Some("Sequence 1 (Kick)"));
+  assert_eq!(split[0].name, "Kick");
+  assert_eq!(seq.pattern(split[0].pattern).unwrap().name.as_deref(), Some("Sequence 1 (Kick)"));
 }
 
 #[test]

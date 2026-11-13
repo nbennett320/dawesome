@@ -2,7 +2,7 @@ import { createSelector, createSlice, Dispatch, Draft, original, PayloadAction }
 import { invoke } from '@tauri-apps/api/core'
 import type { RootState } from '../store'
 import {
-  AddedRow, Note, Pattern, PatternChange, PatternFolder, Row, RowChange, SequencerState, SynthInstrument,
+  AddedRow, Note, Pattern, PatternChange, PatternFolder, Row, RowChange, RowKinds, SequencerState, SynthInstrument,
   isSampleRow, isSynthRow, keepNotes, keepUnchanged, samePattern, sameRow, sortNotes, withNotes, withStep,
 } from '../../types/sequencer'
 import { PlaylistTransport } from '../../types/transport'
@@ -508,10 +508,11 @@ export const changeTempo = (tempo: number, gesture: number | null = null) => asy
   return changed
 }
 
-// split pattern clips in the playlist into a pattern clip per sample, each
-// playing a pattern of just that sample's notes (made in the pattern list, or
-// reused from an earlier explode) on its own track, so its own mixer strip.
-// ids that aren't pattern clips are skipped
+// split pattern clips in the playlist into a pattern clip per row, sample or
+// synth, each playing a pattern of just that row's notes (made in the
+// pattern list, or reused from an earlier explode) on its own track, so its
+// own mixer strip. ids that aren't pattern clips, and clips of patterns that
+// play nothing, are skipped
 export const explodePatternClips = (ids: number[]) => async (dispatch: Dispatch) => {
   if(!ids.length) return
   try {
@@ -676,6 +677,12 @@ export const selectSampleRows = createSelector(
   [selectRows], rows => rows.filter(isSampleRow), { memoizeOptions: { resultEqualityCheck: sameItems } })
 export const selectSynthRows = createSelector(
   [selectRows], rows => rows.filter(isSynthRow), { memoizeOptions: { resultEqualityCheck: sameItems } })
+// the same map until a row is added or taken out (a knob, or a row moved,
+// leaves it as it was)
+const sameKinds = (a: RowKinds, b: RowKinds) => a.size === b.size && [...a].every(([id, kind]) => b.get(id) === kind)
+export const selectRowKinds = createSelector(
+  [selectRows], (rows): RowKinds => new Map(rows.map(row => [row.id, row.instrument.kind])),
+  { memoizeOptions: { resultEqualityCheck: sameKinds } })
 export const selectPatterns = (state: RootState) => state.sequencer.patterns
 export const selectPatternFolders = (state: RootState) => state.sequencer.folders
 

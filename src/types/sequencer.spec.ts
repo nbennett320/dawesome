@@ -3,7 +3,6 @@ import {
   UNCONFIRMED,
   addedEnd,
   barsReached,
-  clipContents,
   clipPasses,
   greyedSteps,
   grownLength,
@@ -13,6 +12,7 @@ import {
   sameRow,
   noteBars,
   patternBars,
+  patternHolds,
   patternLabel,
   patternSeconds,
   patternStepAt,
@@ -393,24 +393,17 @@ describe('repeatLines', () => {
   })
 })
 
-describe('clipContents', () => {
-  it("gives each sample row a lane of its notes' starts inside the pattern, in row order", () => {
-    const rows = [sampleRow(5), synthRow(1), sampleRow(3)]
-    const p = pattern(0, { notes: { 3: [step(1), step(20)], 1: [note(72, 2, 4)], 9: steps(2) } })
-    expect(clipContents(p, rows)).toEqual({ lanes: [[], [1]], notes: [note(72, 2, 4)] })
+describe('patternHolds', () => {
+  const kinds = new Map([[0, 'sample' as const], [1, 'synth' as const], [2, 'sample' as const]])
+
+  it('says which kinds of instrument a pattern has notes for, past its end too', () => {
+    expect(patternHolds(pattern(0, { notes: { 0: steps(0), 2: steps(4) } }), kinds)).toEqual({ samples: true, synths: false })
+    expect(patternHolds(pattern(0, { notes: { 1: [note(60, 40)] } }), kinds)).toEqual({ samples: false, synths: true })
+    expect(patternHolds(pattern(0, { notes: { 0: steps(0), 1: [note(60, 0)] } }), kinds)).toEqual({ samples: true, synths: true })
   })
 
-  it("draws every synth row's notes as bars: those starting in the clip's part, cut at its end", () => {
-    const rows = [synthRow(1), sampleRow(0), synthRow(2)]
-    const p = pattern(0, { notes: { 1: [note(60, 0, 4), note(64, 6, 8)], 0: steps(0), 2: [note(72, 12, 2)] } })
-    const { notes } = clipContents(p, rows)
-    expect(noteBars(notes, p.length, 0, 16)).toEqual({
-      rows: 13,
-      bars: [{ start: 0, end: 4, row: 12 }, { start: 6, end: 14, row: 8 }, { start: 12, end: 14, row: 0 }],
-    })
-    // trimmed to steps 4 to 10: the first note began before it, the second is cut short
-    expect(noteBars(notes, p.length, 4, 10).bars).toEqual([{ start: 6, end: 10, row: 5 }])
-    expect(noteBars(clipContents(pattern(0), rows).notes, 16, 0, 16)).toEqual({ rows: 0, bars: [] })
+  it('leaves out empty lists and rows it doesn\'t know', () => {
+    expect(patternHolds(pattern(0, { notes: { 1: [], 9: steps(0) } }), kinds)).toEqual({ samples: false, synths: false })
   })
 })
 
@@ -419,6 +412,16 @@ describe('noteBars', () => {
     const { rows, bars } = noteBars([note(60, 0, 4), note(62, 6, 4), note(64, 12)], 16, 0, 8)
     expect(rows).toBe(12)
     expect(bars).toEqual([{ start: 0, end: 4, row: 6 }, { start: 6, end: 8, row: 4 }])
+  })
+
+  it('cuts notes at the pattern\'s end, and leaves out those that began before the part', () => {
+    const notes = [note(60, 0, 4), note(64, 6, 12), note(72, 12, 2)]
+    expect(noteBars(notes, 16, 0, 16)).toEqual({
+      rows: 13,
+      bars: [{ start: 0, end: 4, row: 12 }, { start: 6, end: 16, row: 8 }, { start: 12, end: 14, row: 0 }],
+    })
+    expect(noteBars(notes, 16, 4, 10).bars).toEqual([{ start: 6, end: 10, row: 5 }])
+    expect(noteBars([], 16, 0, 16)).toEqual({ rows: 0, bars: [] })
   })
 })
 

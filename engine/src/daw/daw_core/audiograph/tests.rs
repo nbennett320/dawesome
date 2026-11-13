@@ -848,6 +848,14 @@ fn test_explode_tracks_skips_shared_tracks() {
 }
 
 #[test]
+fn test_explode_tracks_tell_a_synth_row_from_a_sample() {
+  // a clip of one synth row's notes is a sound of its own: the kick moves
+  // off its track, and the synth goes onto it
+  let placed = [(0, Some(daw::Sound::Synth(7)))];
+  assert_eq!(explode_tracks(&[daw::Sound::Sample("kick"), daw::Sound::Synth(7)], 0, &placed), vec![1, 0]);
+}
+
+#[test]
 fn test_explode_a_pattern_clip() {
   let (mut graph, kick, pattern) = graph_with_pattern();
   const SNARE: &str = "assets/assets_66-sd-01.wav";
@@ -871,8 +879,8 @@ fn test_explode_a_pattern_clip() {
     vec![(ms(2_000), 0), (ms(2_000), 1)]);
   {
     let seq = graph.sequencer.lock().unwrap();
-    assert_eq!(seq.single_sample(made[0].pattern_id), Some(KICK));
-    assert_eq!(seq.single_sample(made[1].pattern_id), Some(SNARE));
+    assert_eq!(seq.sole_sound(made[0].pattern_id), Some(daw::Sound::Sample(KICK)));
+    assert_eq!(seq.sole_sound(made[1].pattern_id), Some(daw::Sound::Sample(SNARE)));
     assert!(seq.pattern(made[0].pattern_id).unwrap().lit(kick, 8));
     // the source pattern is still there
     assert_eq!(seq.patterns().len(), 3);
@@ -895,6 +903,45 @@ fn test_explode_a_pattern_clip() {
   // sample clips can't be exploded
   let sample = graph.construct_and_add_node(KICK.to_string(), ms(0), 0).unwrap();
   assert!(graph.explode_pattern_node(sample).is_err());
+}
+
+#[test]
+fn test_explode_gives_a_synth_row_its_own_track_and_keeps_a_looping_clip_looping() {
+  let (mut graph, kick, pattern) = graph_with_pattern();
+  let keys = {
+    let mut seq = graph.sequencer.lock().unwrap();
+    let keys = seq.add_synth_row(daw::Synth {
+      id: 7, plugin_id: "vst3:synth".into(), path: String::new(), name: "Keys".into(),
+      vendor: String::new(), volume: 1., pan: 0., muted: false,
+    });
+    seq.set_pattern_notes(pattern, keys, vec![daw::PatternNote { pitch: 64, start: 2., length: 6., velocity: 1. }]).unwrap();
+    keys
+  };
+  // round its one bar pattern two and a half times, from step 4
+  let clip = graph.add_pattern_node::<daw::timing::QuarterNote>(pattern, ms(0), 2, None).unwrap();
+  graph.set_pattern_window(clip, 4., Some(44.)).unwrap();
+
+  let ids = graph.explode_pattern_node(clip).unwrap();
+  let made: Vec<PatternNode> = ids.iter().map(|&id| graph.get_pattern_node_by_id(id).unwrap().clone()).collect();
+  // the kick stays on the clip's track, the synth goes below it, named
+  // after it, and each new clip loops as the clip did
+  assert_eq!(made.iter().map(|n| n.track_number).collect::<Vec<_>>(), vec![2, 3]);
+  assert_eq!(graph.mixer.name(3).as_deref(), Some("Keys"));
+  assert!(made.iter().all(|n| (n.start, n.length) == (4., 40.)));
+  {
+    let seq = graph.sequencer.lock().unwrap();
+    assert_eq!(seq.sole_sound(made[0].pattern_id), Some(daw::Sound::Sample(KICK)));
+    assert_eq!(seq.sole_sound(made[1].pattern_id), Some(daw::Sound::Synth(keys)));
+    assert!(seq.pattern(made[0].pattern_id).unwrap().lit(kick, 8));
+  }
+  // so the synth's notes are played on its track now
+  assert_eq!(graph.synth_tracks(), BTreeSet::from([(7, 3)]));
+
+  // another clip of the pattern, exploded, puts the synth on its track again
+  let copy = graph.add_pattern_node::<daw::timing::QuarterNote>(pattern, ms(8_000), 0, None).unwrap();
+  let again = graph.explode_pattern_node(copy).unwrap();
+  let tracks: Vec<u32> = again.iter().map(|&id| graph.get_pattern_node_by_id(id).unwrap().track_number).collect();
+  assert_eq!(tracks, vec![2, 3]);
 }
 
 #[test]

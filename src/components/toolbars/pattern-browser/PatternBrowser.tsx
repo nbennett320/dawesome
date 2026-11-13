@@ -10,6 +10,7 @@ import {
   selectPatternFolders,
   selectPatternRun,
   selectPatterns,
+  selectRowKinds,
   selectSelectedPatternId,
   showPattern,
 } from '../../../state/slices/sequencerSlice'
@@ -17,18 +18,21 @@ import { selectPlaylistItems } from '../../../state/slices/playlistSlice'
 import { beginSampleDrag } from '../../../state/sampleDrag'
 import { FolderNode, allItems, buildTree } from '../../../types/folderTree'
 import {
-  Pattern, folderIdOf, folderKey, folderPathLabel, patternFolderInfos, patternHint, patternLabel,
-  searchPatterns,
+  Holds, Pattern, RowKinds, folderIdOf, folderKey, folderPathLabel, patternFolderInfos, patternHint, patternHolds,
+  patternLabel, searchPatterns,
 } from '../../../types/sequencer'
 import { plural } from '../../../util/helpers'
 import { useTransport } from '../../../views/transport/useTransport'
 import { Led } from '../../fourtrack'
+import { KeysIcon, WaveIcon } from '../../icons'
 import BrowserRow, { RowHint } from '../browser/BrowserRow'
 import FolderBrowser, { ItemContext } from '../browser/FolderBrowser'
 import { useClickWithoutDrag } from '../browser/useClickWithoutDrag'
 
 interface RowProps {
   pattern: Pattern
+  // each row's kind of instrument, for the badges
+  kinds: RowKinds
   hint: string
   // placed in the playlist at least once
   used: boolean
@@ -38,18 +42,36 @@ interface RowProps {
   onSelect: (pattern: Pattern) => void
 }
 
-// one pattern: click to show it in a sequencer, drag it into the playlist
-// or a folder
-const PatternRow = ({ pattern, hint, used, selected, playing, depth, onSelect }: RowProps) => {
+// a small mark for each kind of instrument a pattern has notes for
+const Badges = ({ samples, synths }: Holds) => (
+  <>
+    {samples && (
+      <span role='img' aria-label='Plays samples' title='Plays samples' className='shrink-0'>
+        <WaveIcon className='w-3 h-3 text-ink-faint' />
+      </span>
+    )}
+    {synths && (
+      <span role='img' aria-label='Plays instruments' title='Plays instruments' className='shrink-0'>
+        <KeysIcon className='w-3 h-3 text-ink-faint' />
+      </span>
+    )}
+  </>
+)
+
+// one pattern: click to show it in the Pattern Sequencer, drag it into the
+// playlist or a folder
+const PatternRow = ({ pattern, kinds, hint, used, selected, playing, depth, onSelect }: RowProps) => {
   const label = patternLabel(pattern)
   const { pressed, isClick } = useClickWithoutDrag()
+  // (worked out again only when the pattern or the rows' kinds change)
+  const holds = React.useMemo(() => patternHolds(pattern, kinds), [pattern, kinds])
 
   return (
     <BrowserRow
       role='treeitem'
       selected={selected}
       used={used}
-      title={`${label}. Click to show it in a sequencer, drag into the playlist to place it`}
+      title={`${label}. Click to show it in the Pattern Sequencer, drag into the playlist to place it`}
       style={{ paddingLeft: depth * 12 + 8 }}
       // only a drag starts on mousedown: showing the sequencer straight away
       // could hide the playlist (when they share a pane) before it's dropped
@@ -63,6 +85,7 @@ const PatternRow = ({ pattern, hint, used, selected, playing, depth, onSelect }:
     >
       <Led color='lime' state={playing ? 'on' : 'off'} className='shrink-0 scale-75' />
       <span className='truncate'>{label}</span>
+      <Badges {...holds} />
       <RowHint className='ml-auto pl-2'>{hint}</RowHint>
     </BrowserRow>
   )
@@ -74,6 +97,7 @@ const PatternBrowser = () => {
   const dispatch = useAppDispatch()
   const patterns = useAppSelector(selectPatterns)
   const folders = useAppSelector(selectPatternFolders)
+  const kinds = useAppSelector(selectRowKinds)
   const selectedId = useAppSelector(selectSelectedPatternId)
   const run = useAppSelector(selectPatternRun)
   const items = useAppSelector(selectPlaylistItems)
@@ -110,6 +134,7 @@ const PatternBrowser = () => {
     return (
       <PatternRow
         pattern={pattern}
+        kinds={kinds}
         hint={where ? `${where} · ${hint}` : hint}
         used={clips > 0}
         selected={pattern.id === selectedId}
@@ -136,7 +161,7 @@ const PatternBrowser = () => {
       search={query => searchPatterns(patterns, query)
         .map(pattern => ({ item: pattern, where: folderPathLabel(folders, pattern.folder) }))}
       noMatch='No patterns match.'
-      emptyMessage={!patterns.length && !folders.length ? 'No patterns yet. Make one in a sequencer.' : null}
+      emptyMessage={!patterns.length && !folders.length ? 'No patterns yet. Make one in the Pattern Sequencer.' : null}
       createFolder={(parent, name) => dispatch(addPatternFolder(name, folderIdOf(parent))).then(folderKey)}
       renameFolder={(key, name) => withId(key, id => dispatch(renamePatternFolder(id, name)))}
       moveFolder={(key, into) => withId(key, id => dispatch(movePatternFolder(id, folderIdOf(into))))}

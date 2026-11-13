@@ -624,17 +624,81 @@ fn test_explode_skips_sample_clips() {
   let sample = state.playlist.audiograph.lock().unwrap()
     .construct_and_add_node(KICK.to_string(), Duration::ZERO, 0).unwrap();
 
-  let exploded = explode(&state, &[sample, clip]).unwrap();
+  // and a clip of a pattern with nothing in it (painted, say), first
+  let empty = add_pattern_of(&state, 1).unwrap().id;
+  let painted = add_pattern_clip_to(&state, empty, 3, Some(0.)).unwrap().id;
+
+  let exploded = explode(&state, &[painted, sample, clip]).unwrap();
   assert_eq!(exploded.removed, vec![clip]);
   assert_eq!(exploded.clips.len(), 1);
+  assert!(state.playlist.audiograph.lock().unwrap().get_pattern_node_by_id(painted).is_some());
   // where the clip was. track 0 holds only kicks already, so it joins it
   assert_eq!(exploded.clips[0].start_beat, 4.);
   assert_eq!(exploded.clips[0].track_number, 0);
   // a one-row pattern is its own split, so no new pattern is needed
   assert_eq!(exploded.clips[0].pattern_id, pattern);
-  assert_eq!(exploded.sequencer.patterns.len(), 1);
+  assert_eq!(exploded.sequencer.patterns.len(), 2);
   let named = exploded.mixer.tracks.iter().find(|t| t.track_number == 0).unwrap();
   assert_eq!(named.name.as_deref(), Some("assets_66-bd-01"));
+}
+
+#[test]
+fn test_an_exploded_synth_row_plays_through_a_copy_on_its_own_track() {
+  let mut rig = crate::effects::testing::rig();
+  let state = rig.state.clone();
+  let kick = add_sample(&state, KICK).unwrap().row_id;
+  let (synth, pattern) = synth_and_pattern(&state);
+  let slot = rig.slot_of(synth);
+  rig.turn(slot, 0.25);
+  set_step(&state, pattern, kick, 0, true, None).unwrap();
+  set_notes(&state, pattern, synth, vec![note(60, 2.)], None).unwrap();
+  // on track 1, round its one bar pattern two and a half times
+  let clip = add_pattern_clip_to(&state, pattern, 1, Some(0.)).unwrap().id;
+  let looping = ClipWindow { start: 0., end: Some(40.) };
+  crate::commands::clip::set_windows(&state, &[crate::commands::clip::WindowEdit { id: clip, window: looping.clone() }]).unwrap();
+  let before = saved(&state);
+  let had = steps(&state);
+
+  let exploded = explode(&state, &[clip]).unwrap();
+  assert_eq!(steps(&state), had + 1);
+  // the kick on the clip's track and the synth below it, each looping as
+  // the clip did, each a pattern named after its row, as long as the one
+  // it came from
+  let placed: Vec<(u32, &ClipWindow)> = exploded.clips.iter().map(|c| (c.track_number, &c.window)).collect();
+  assert_eq!(placed, vec![(1, &looping), (2, &looping)]);
+  let made = |n: usize| exploded.sequencer.patterns.iter().find(|p| p.id == exploded.clips[n].pattern_id).unwrap();
+  assert_eq!((made(1).name.as_deref(), made(1).length, made(1).floor), (Some("Sequence 1 (Synth)"), 16, 16));
+  assert_eq!(made(1).notes.keys().collect::<Vec<_>>(), vec![&synth]);
+  let named = |track: u32| exploded.mixer.tracks.iter().find(|t| t.track_number == track).and_then(|t| t.name.clone());
+  assert_eq!((named(1).as_deref(), named(2).as_deref()), (Some("assets_66-bd-01"), Some("Synth")));
+
+  // the synth has a copy on track 2, with its settings, and its notes are
+  // played there, through the track's fader
+  assert_eq!(rig.copy_gain(slot, Some(2)), Some(0.25));
+  state.playlist.mixer.set_volume_db(2, -6.);
+  let notes = {
+    let mut graph = state.playlist.audiograph.lock().unwrap();
+    graph.init();
+    graph.set_current_offset(Some(Duration::ZERO));
+    let notes = graph.run_notes(Duration::from_secs(1), None);
+    graph.pause();
+    notes
+  };
+  assert!(!notes.is_empty());
+  assert!(notes.iter().all(|n| n.synth == slot && n.route.as_ref().map(|r| r.number) == Some(2)));
+  rig.run += 1;
+  rig.engine.start_run(rig.run, state.playlist.mixer.master(), vec![]).unwrap();
+  daw::play_slice_notes(&rig.engine, rig.run, Duration::ZERO, notes, &rig.effects().copy_ids()).unwrap();
+  // the note is steps 2 to 3: 250 to 375ms, frames 12000 to 18000
+  let mut out = vec![0f32; 20_000 * 2];
+  rig.renderer.render(&mut out, std::time::Instant::now(), Duration::ZERO);
+  assert_eq!(out[11_000 * 2], 0.);
+  assert!((out[15_000 * 2] / 0.25 - 0.501).abs() < 0.01, "{}", out[15_000 * 2]);
+
+  // undone: as it was, and no track 2 copy is needed any more
+  history::undo(&state).unwrap();
+  assert_eq!(saved(&state), before);
+  assert!(!state.playlist.audiograph.lock().unwrap().synth_tracks().contains(&(slot, 2)));
 }
 
 #[test]

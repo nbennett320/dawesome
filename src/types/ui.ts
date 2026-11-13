@@ -99,8 +99,6 @@ export enum SidebarPage {
   Samples = 'samples',
   // the project's patterns, to drag into the playlist
   Patterns = 'patterns',
-  // the same, under a second key (until the two pages are one)
-  NotePatterns = 'note-patterns',
   // the project's recorded takes
   Recordings = 'recordings',
   // files the app wrote out itself: Deep copy's and Join's

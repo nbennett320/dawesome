@@ -1,7 +1,7 @@
 import React from 'react'
 import { AnalogButton } from '../fourtrack'
 import { SidebarPage } from '../../types/ui'
-import { ClipsIcon, EffectsIcon, IconProps, InstrumentsIcon, NotePatternIcon, PatternIcon, RecordingsIcon, SidebarIcon } from '../icons'
+import { ClipsIcon, EffectsIcon, IconProps, InstrumentsIcon, PatternIcon, RecordingsIcon, SidebarIcon } from '../icons'
 
 interface Props {
   open: boolean
@@ -13,10 +13,8 @@ interface Props {
 const keys: Array<{ page: SidebarPage, name: string, hint: string, Icon: React.ComponentType<IconProps> }> = [
   { page: SidebarPage.Samples, name: 'samples',
     hint: "browse audio files on disk and preview them", Icon: SidebarIcon },
-  { page: SidebarPage.Patterns, name: 'drum patterns',
-    hint: "the project's patterns", Icon: PatternIcon },
-  { page: SidebarPage.NotePatterns, name: 'note patterns',
-    hint: "the project's patterns", Icon: NotePatternIcon },
+  { page: SidebarPage.Patterns, name: 'patterns',
+    hint: "the project's patterns, to drag into the playlist", Icon: PatternIcon },
   { page: SidebarPage.Recordings, name: 'recordings',
     hint: "takes recorded into the project's recordings folder", Icon: RecordingsIcon },
   { page: SidebarPage.Clips, name: 'clips',

@@ -453,8 +453,8 @@ fn add_pattern_clip_to(
 }
 
 // pattern clips that were exploded: the ones taken out, the pattern clips
-// that replaced them (one per sample row), the sequencer (with the patterns
-// the explode made), and the mixer (whose tracks may have been named)
+// that replaced them (one per row), the sequencer (with the patterns the
+// explode made), and the mixer (whose tracks may have been named)
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Exploded {
@@ -464,10 +464,11 @@ pub struct Exploded {
   mixer: daw::MixerSettings,
 }
 
-// split pattern clips into a pattern clip per sample row, each playing a
-// pattern of just that row's notes on a track of its own (see
-// AudioGraph::explode_pattern_node). ids that aren't pattern clips are
-// skipped. clips exploded before one that fails stay exploded
+// split pattern clips into a pattern clip per row, sample or synth, each
+// playing a pattern of just that row's notes on a track of its own (see
+// AudioGraph::explode_pattern_node). ids that aren't pattern clips, and
+// clips of a pattern that plays nothing, are skipped. clips exploded before
+// one that fails stay exploded
 #[tauri::command]
 pub fn explode_pattern_clips(state: daw::TState<'_>, ids: Vec<u64>) -> Result<Exploded, String> {
   explode(&state, &ids)
@@ -491,10 +492,10 @@ fn explode_each(state: &daw::InnerState, ids: &[u64], touched: &mut Vec<u64>) ->
   let mut removed = Vec::new();
   let mut clips = Vec::new();
 
-  // one at a time, so a later clip's samples land on the tracks an earlier
+  // one at a time, so a later clip's rows land on the tracks an earlier
   // one's went to
   for &id in ids {
-    if audiograph.get_pattern_node_by_id(id).is_none() { continue; }
+    if !explodable(&audiograph, id) { continue; }
     let made = audiograph.explode_pattern_node(id)?;
     touched.extend(&made);
     removed.push(id);
@@ -507,6 +508,14 @@ fn explode_each(state: &daw::InnerState, ids: &[u64], touched: &mut Vec<u64>) ->
   let mixer = state.playlist.mixer.settings(audiograph.track_count());
   drop(audiograph);
   Ok(Exploded { removed, clips, sequencer: sequencer_state(state), mixer })
+}
+
+// whether a clip is a pattern clip with notes to explode. (a selection
+// often holds an empty clip painted with the Draw tool: refusing it would
+// leave the clips exploded before it unseen by the app)
+fn explodable(audiograph: &daw::AudioGraph<'static>, id: u64) -> bool {
+  let Some(clip) = audiograph.get_pattern_node_by_id(id) else { return false };
+  audiograph.sequencer.lock().unwrap().pattern(clip.pattern_id).map_or(false, |p| p.plays_notes())
 }
 
 // the clips a drag from `from` to `to` (either way round, already snapped)

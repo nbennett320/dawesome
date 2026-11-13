@@ -398,6 +398,43 @@ fn test_a_looping_clip_is_joined_as_it_plays() {
 }
 
 #[test]
+fn test_an_old_drum_pattern_and_an_old_note_pattern_join() {
+  // the project the app saved at version 3 (see
+  // project/merge_pattern_kinds/tests.rs), where "Loop 1" was a drum
+  // pattern and "Bass" a note pattern
+  let rate = 44_100;
+  let total = Duration::from_secs(6);
+  let state = crate::effects::testing::rig().state;
+  let loaded = project::load_from(&state, Path::new("tests/fixtures/v3-patterns.dawesome")).unwrap();
+  // Loop 1's first clip, the whole bar on track 0 from beat 0, and Bass's,
+  // from its step 8 to its end, moved to track 0 at beat 8
+  let (loop_1, bass) = (&loaded.pattern_clips[0], &loaded.pattern_clips[1]);
+  assert_eq!((loop_1.pattern_id, bass.pattern_id, bass.window.start), (0, 3, 8.));
+  {
+    let mut audiograph = state.playlist.audiograph.lock().unwrap();
+    let at = audiograph.beat_interval().mul_f64(8.);
+    audiograph.move_node(bass.id, at, 0).unwrap();
+  }
+  let original = play(&state, rate, total);
+  assert!(original.iter().any(|&sample| sample != 0.));
+
+  let joined = join(&state, &[loop_1.id, bass.id], Some(rate)).unwrap();
+  let made = joined.sequencer.unwrap().patterns.into_iter().find(|p| p.id == joined.clips.pattern_clips[0].pattern_id).unwrap();
+  // 32 steps to Bass's clip, which plays 24: four bars, and a clip of the 56
+  assert_eq!((made.name.as_deref(), made.length, made.floor), (Some("Loop 1 + Bass"), 64, 64));
+  assert_eq!(joined.clips.pattern_clips[0].window, ClipWindow { start: 0., end: Some(56.) });
+  // the drum rows' steps and the synth row's notes, as the clips played them
+  assert_eq!(made.notes.keys().copied().collect::<Vec<_>>(), vec![0, 1, 3]);
+  assert_eq!(starts(&made, 0), vec![0., 4., 8., 12.]);
+  assert_eq!(starts(&made, 1), vec![4., 12.]);
+  assert_eq!(*made.notes[&3], vec![
+    daw::PatternNote { pitch: 43, start: 32., length: 1.5, velocity: 0.6 },
+    daw::PatternNote { pitch: 41, start: 40.25, length: 3., velocity: 0.8 },
+  ]);
+  assert!(play(&state, rate, total) == original);
+}
+
+#[test]
 fn test_a_join_too_long_or_too_full_for_a_pattern_is_refused() {
   let state = Arc::new(daw::InnerState::default());
   let (_, _, a, b) = two_patterns(&state);

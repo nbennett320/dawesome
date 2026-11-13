@@ -2,7 +2,8 @@ import type { Mock } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import { configureStore } from '@reduxjs/toolkit'
 import reducer, {
-  addSampleRow, addSynthOnTrack, addSynthRow, changeTempo, moveRow, selectLastSelectedPattern, selectPattern,
+  addSampleRow, addSynthOnTrack, addSynthRow, changeTempo, explodePatternClips, moveRow, selectLastSelectedPattern,
+  selectPattern, selectRowKinds,
   replaceRowSynth, selectPianoRollRow, selectSampleRows, selectSynthRows, selectUsedOnly, sequencerSlice,
   setPatternStep, setPianoRollRow, setRowGated, setRowMuted, setRowSamplePitch, setRowStepPitch, setRowVolume,
   setSequencer, setUsedOnly, showPattern,
@@ -143,6 +144,17 @@ describe('sequencerSlice', () => {
     expect(selectSampleRows(root).map(r => r.id)).toEqual([0])
     expect(selectSynthRows(root).map(r => r.id)).toEqual([3, 1])
     expect(selectSynthRows(root)).toBe(selectSynthRows(root))
+  })
+
+  it('gives each row\'s kind, the same map until a row comes or goes', () => {
+    const state = reducer(init(), setSequencer(sequencer))
+    const kinds = selectRowKinds(asRoot(state))
+    expect([...kinds]).toEqual([[0, 'sample'], [3, 'synth'], [1, 'synth']])
+    // a knob turned, and the rows moved: the same map
+    const turned = reducer(state, setSequencer({ ...sequencer, rows: [synthRow(1), sampleRow(0, { volume: 0.5 }), synthRow(3)] }))
+    expect(selectRowKinds(asRoot(turned))).toBe(kinds)
+    const added = reducer(state, setSequencer({ ...sequencer, rows: [...sequencer.rows, sampleRow(5)] }))
+    expect(selectRowKinds(asRoot(added)).get(5)).toBe('sample')
   })
 
   it('shows a row’s notes straight away, in order', () => {
@@ -417,6 +429,61 @@ describe('adding rows', () => {
     expect(state.sequencer.selected).toBe(6)
     expect(state.sequencer.lastSelected).toBe(6)
     expect(state.mixer.tracks[4]).toMatchObject({ volumeDb: -3 })
+  })
+
+  it('explodes a pattern clip into a clip per row, each looping as it did, on tracks named after them', async () => {
+    const looping = { start: 4, end: 40 }
+    // a clip per row: row 0's on the clip's track, row 3's below it
+    const exploded = {
+      removed: [30],
+      clips: [
+        { id: 31, patternId: 7, trackNumber: 1, startBeat: 2, window: looping },
+        { id: 32, patternId: 8, trackNumber: 2, startBeat: 2, window: looping },
+      ],
+      sequencer: sequencerOf({
+        rows: sequencer.rows,
+        patterns: [...sequencer.patterns, pattern(7, { notes: { 0: steps(0, 8) } }), pattern(8, { notes: { 3: [note(60, 0)] } })],
+        folders: sequencer.folders,
+      }),
+      mixer: {
+        tracks: [{ trackNumber: 2, volumeDb: 0, pan: 0, mute: false, solo: false, name: 'Synth 3' }],
+        master: { volumeDb: 0, pan: 0, mute: false, solo: false },
+      },
+    }
+    mockInvoke.mockImplementation(async (command: string) => {
+      if(command === 'explode_pattern_clips') return exploded
+      if(command === 'get_playlist_data') return [0, 0, 0, 3]
+      return undefined
+    })
+    const store = makeStore()
+    store.dispatch(reducePainted({
+      clips: [{ id: 30, patternId: 0, trackNumber: 1, startBeat: 2, window: looping }],
+      patternId: 0, sequencer, mixer: exploded.mixer, trackCount: 2,
+    }))
+
+    await store.dispatch(explodePatternClips([30]))
+    expect(mockInvoke).toHaveBeenCalledWith('explode_pattern_clips', { ids: [30] })
+    const state = store.getState()
+    expect(state.playlist.playlistItems.map(i => [i.id, i.patternId, i.trackNumber, i.startBeat])).toEqual([
+      [31, 7, 1, 2], [32, 8, 2, 2],
+    ])
+    expect(state.playlist.clipWindows).toEqual({ 31: looping, 32: looping })
+    expect(state.sequencer.patterns.map(p => p.id)).toEqual([0, 2, 4, 6, 7, 8])
+    expect(state.mixer.names[2]).toBe('Synth 3')
+    expect(state.playlist.ui.trackCount).toBe(3)
+  })
+
+  it('leaves the playlist as it is when the engine won’t explode', async () => {
+    mockInvoke.mockRejectedValue('no pattern clip with id 30')
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const store = makeStore()
+    const before = store.getState().playlist
+    await store.dispatch(explodePatternClips([30]))
+    expect(store.getState().playlist).toBe(before)
+    // and asks nothing for no clips
+    mockInvoke.mockClear()
+    await store.dispatch(explodePatternClips([]))
+    expect(mockInvoke).not.toHaveBeenCalled()
   })
 
   it('paints nothing when the engine refuses', async () => {
