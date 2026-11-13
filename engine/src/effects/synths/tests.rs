@@ -199,6 +199,86 @@ fn test_volume_and_mute_reach_every_copy() {
   assert!(edit(&rig.state, None, |seq| seq.set_row_volume(999, 1.)).is_err());
 }
 
+// what a synth's copy on `track` (none: its master copy) plays for a note
+// held over `frames` frames, left and right, once a change of gain or pan
+// (ramped across a block) has been made
+fn heard_both(rig: &mut Rig, synth: u64, track: Option<u32>, frames: usize) -> Vec<[f32; 2]> {
+  let mut out = Vec::new();
+  for _ in 0..2 {
+    rig.run += 1;
+    rig.engine.start_run(rig.run, rig.state.playlist.mixer.master(), vec![]).unwrap();
+    let copy = rig.effects().copy_ids()[&(synth, track)];
+    let notes = vec![daw::TimedNote::on(0, 60, 1.), daw::TimedNote::off(frames as u64 - 100, 60)];
+    match track {
+      Some(n) => rig.engine.play_notes(&rig.state.playlist.mixer.track_route(n), copy, Some(rig.run), notes).unwrap(),
+      None => rig.engine.play_master_notes(copy, Some(rig.run), notes).unwrap(),
+    }
+    let mut samples = vec![0f32; frames * 2];
+    rig.renderer.render(&mut samples, Instant::now(), Duration::ZERO);
+    out = samples.chunks(2).map(|frame| [frame[0], frame[1]]).collect();
+  }
+  out
+}
+
+#[test]
+fn test_a_synth_rows_pan_reaches_every_copy() {
+  let mut rig = rig();
+  let (synth, pattern) = synth_with_notes(&rig, 0.4);
+  clip(&rig, pattern, 1);
+  let row = row_of(&rig, synth);
+  let had = steps(&rig);
+
+  // centred: both sides at its level, as before
+  for track in [Some(1), None] {
+    assert!(heard_both(&mut rig, synth, track, 400)[100] == [0.4, 0.4]);
+  }
+
+  // hard left, a drag of the knob (one step): the right side is silent, on
+  // its track and on the master
+  for pan in [-0.4, -0.9, -1.] { edit(&rig.state, Some(9), |seq| seq.set_row_pan(row, pan)).unwrap(); }
+  assert_eq!(steps(&rig), had + 1);
+  for track in [Some(1), None] {
+    let heard = heard_both(&mut rig, synth, track, 400);
+    assert!(close(heard[100][0], 0.4), "{:?}", heard[100]);
+    assert!(heard.iter().all(|frame| frame[1] == 0.), "{:?}", track);
+  }
+
+  // half right: the left at half, the right as it was
+  edit(&rig.state, None, |seq| seq.set_row_pan(row, 0.5)).unwrap();
+  let heard = heard_both(&mut rig, synth, Some(1), 400);
+  assert!(close(heard[100][0], 0.2) && close(heard[100][1], 0.4), "{:?}", heard[100]);
+
+  // undone, it's back where it was
+  crate::history::undo(&rig.state).unwrap();
+  crate::history::undo(&rig.state).unwrap();
+  assert!(heard_both(&mut rig, synth, Some(1), 400)[100] == [0.4, 0.4]);
+}
+
+// a change of pan glides across a block, as a change of volume does, so it
+// doesn't click
+#[test]
+fn test_a_synth_rows_pan_glides() {
+  let mut rig = rig();
+  let (synth, pattern) = synth_with_notes(&rig, 0.4);
+  clip(&rig, pattern, 1);
+  let row = row_of(&rig, synth);
+  heard_both(&mut rig, synth, Some(1), 400);
+
+  // one block, with the pan moved to hard right just before it
+  edit(&rig.state, None, |seq| seq.set_row_pan(row, 1.)).unwrap();
+  rig.run += 1;
+  rig.engine.start_run(rig.run, rig.state.playlist.mixer.master(), vec![]).unwrap();
+  let copy = rig.effects().copy_ids()[&(synth, Some(1))];
+  let notes = vec![daw::TimedNote::on(0, 60, 1.), daw::TimedNote::off(300, 60)];
+  rig.engine.play_notes(&rig.state.playlist.mixer.track_route(1), copy, Some(rig.run), notes).unwrap();
+  let mut samples = vec![0f32; 256 * 2];
+  rig.renderer.render(&mut samples, Instant::now(), Duration::ZERO);
+  let left: Vec<f32> = samples.chunks(2).map(|frame| frame[0]).collect();
+  // from full down to nothing, a little at a time
+  assert!(left[0] > 0.39 && left[255] < 0.01, "{} {}", left[0], left[255]);
+  assert!(left.windows(2).all(|pair| (pair[1] - pair[0]).abs() < 0.01));
+}
+
 #[test]
 fn test_removing_a_synth_and_undoing_it_brings_back_its_notes_and_settings() {
   let mut rig = rig();
@@ -291,12 +371,73 @@ fn test_a_key_plays_a_synths_master_copy_until_its_let_go() {
   assert!(synths::play_row_note_on(&rig.state, &engine, row, 128, 0.9).is_err());
   assert!(synths::play_row_note_on(&rig.state, &engine, 999, 60, 0.9).unwrap_err().contains("no row with id 999"));
 
-  // a sample row is silent, for now
-  let kick = rig.state.playlist.sequencer.lock().unwrap().rows()[0].id;
-  synths::play_row_note_on(&rig.state, &engine, kick, 60, 0.9).unwrap();
-  rig.renderer.render(&mut out, Instant::now(), Duration::ZERO);
-  assert!(out.iter().all(|&s| s == 0.));
-  synths::stop_row_note_on(&rig.state, &engine, kick, 60).unwrap();
+}
+
+// a key held on a sample row, at half velocity: what's heard in the
+// `held` frames before it's let go of, then in the `after` frames after
+// (each frame left and right)
+fn key_on_sample_row(rig: &mut Rig, row: u64, pitch: u8, held: usize, after: usize) -> (Vec<[f32; 2]>, Vec<[f32; 2]>) {
+  let engine = rig.engine.clone();
+  let mut render = |frames: usize| {
+    let mut out = vec![0f32; frames * 2];
+    rig.renderer.render(&mut out, Instant::now(), Duration::ZERO);
+    out.chunks(2).map(|frame| [frame[0], frame[1]]).collect::<Vec<_>>()
+  };
+  synths::play_row_note_on(&rig.state, &engine, row, pitch, 0.5).unwrap();
+  let before = render(held);
+  synths::stop_row_note_on(&rig.state, &engine, row, pitch).unwrap();
+  (before, render(after))
+}
+
+// a rig with a long sample (still sounding when a key's let go of) as a
+// row, muted and panned hard left, and that row
+fn sample_row_rig(gated: bool) -> (Rig, u64) {
+  let rig = rig();
+  let row = rig.state.playlist.sequencer.lock().unwrap().add_row("assets/slide_guitar.wav").unwrap();
+  edit(&rig.state, None, |seq| seq.set_row_muted(row, true)).unwrap();
+  edit(&rig.state, None, |seq| seq.set_row_pan(row, -1.)).unwrap();
+  edit(&rig.state, None, |seq| seq.set_row_gated(row, gated)).unwrap();
+  (rig, row)
+}
+
+// a row's note as playback plays it, at half velocity, from its start: the
+// left side
+fn note_on_row(rig: &Rig, row: u64, pitch: u8) -> Vec<f32> {
+  let instrument = rig.state.playlist.sequencer.lock().unwrap().row(row).unwrap().sample_instrument().unwrap();
+  instrument.voice(pitch, 0.5, RATE, 0, None).step_by(2).take(4_000).collect()
+}
+
+fn near(a: f32, b: f32) -> bool {
+  (a - b).abs() < 1e-6
+}
+
+#[test]
+fn test_a_key_plays_a_one_shot_sample_row_out_muted_or_not() {
+  let (mut rig, row) = sample_row_rig(false);
+  let (held, after) = key_on_sample_row(&mut rig, row, 60, 2_000, 2_000);
+  let expected = note_on_row(&rig, row, 60);
+  assert!(expected.iter().any(|&s| s.abs() > 0.01));
+  // heard though it's muted, on the left only, and letting go changes
+  // nothing
+  for (i, (heard, &e)) in held.iter().chain(&after).zip(&expected).enumerate() {
+    assert!(near(heard[0], e) && heard[1] == 0., "frame {}: {:?} not {}", i, heard, e);
+  }
+  assert!(synths::play_row_note_on(&rig.state, &rig.engine.clone(), row, 128, 1.).is_err());
+  assert!(synths::play_row_note_on(&rig.state, &rig.engine.clone(), 99, 60, 1.).is_err());
+}
+
+#[test]
+fn test_a_key_on_a_gated_sample_row_fades_out_once_its_let_go_of() {
+  let (mut rig, row) = sample_row_rig(true);
+  // a fifth up, let go of after 2000 frames: it fades out over 5ms (240
+  // frames), in a straight line, and then it's silent
+  let (held, after) = key_on_sample_row(&mut rig, row, 67, 2_000, 2_000);
+  let expected = note_on_row(&rig, row, 67);
+  assert!(held.iter().zip(&expected).all(|(heard, &e)| near(heard[0], e)));
+  for (i, heard) in after.iter().enumerate() {
+    let faded = if i < 240 { expected[2_000 + i] * (240 - i) as f32 / 240. } else { 0. };
+    assert!(near(heard[0], faded), "frame {} after: {} not {}", i, heard[0], faded);
+  }
 }
 
 #[test]

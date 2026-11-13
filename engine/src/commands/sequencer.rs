@@ -152,24 +152,45 @@ fn replace_sample(state: &daw::InnerState, row_id: u64, path: &str) -> Result<da
   edit_row(state, None, row_id, |seq| seq.replace_row_sample(row_id, path, sound))
 }
 
-// play a sample row's sample once, at its volume and pan (whether it's muted
-// or not)
+// play a sample row's sample once, as it is, at its volume and pan
+// (whether it's muted or not)
 #[tauri::command]
 pub fn preview_row(state: daw::TState<'_>, row_id: u64) -> Result<(), String> {
-  let source = state.playlist.sequencer.lock().unwrap()
+  let instrument = state.playlist.sequencer.lock().unwrap()
     .row(row_id)
     .ok_or_else(|| format!("no row with id {}", row_id))?
-    .one_shot()
-    .ok_or_else(|| format!("row {} plays a synth, which has no sample to preview", row_id))?
-    .source();
+    .sample_instrument()
+    .ok_or_else(|| format!("row {} plays a synth, which has no sample to preview", row_id))?;
 
+  // (the output may have to be opened first, which takes a moment)
   thread::spawn(move || {
-    if let Err(e) = daw::engine().and_then(|engine| engine.preview(source)) {
+    let previewed = daw::engine().and_then(|engine| engine.preview(instrument.preview(engine.sample_rate())));
+    if let Err(e) = previewed {
       println!("could not preview row {}: {}", row_id, e);
     }
   });
 
   Ok(())
+}
+
+// the pitch a row's clicked steps play. the row's notes move with it in
+// each pattern where all of them were at the old one (so a row showing
+// steps still does)
+#[tauri::command]
+pub fn set_row_step_pitch(state: daw::TState<'_>, row_id: u64, pitch: u8) -> Result<daw::SequencerState, String> {
+  edit(&state, None, |seq| seq.set_row_step_pitch(row_id, pitch))
+}
+
+// the pitch that plays a sample row's sample unchanged
+#[tauri::command]
+pub fn set_row_sample_pitch(state: daw::TState<'_>, row_id: u64, pitch: u8) -> Result<daw::RowChange, String> {
+  edit_row(&state, None, row_id, |seq| seq.set_row_sample_pitch(row_id, pitch))
+}
+
+// whether a sample row's notes stop at their ends, or play the sample out
+#[tauri::command]
+pub fn set_row_gated(state: daw::TState<'_>, row_id: u64, gated: bool) -> Result<daw::RowChange, String> {
+  edit_row(&state, None, row_id, |seq| seq.set_row_gated(row_id, gated))
 }
 
 // a pattern that was just made, and the sequencer with it

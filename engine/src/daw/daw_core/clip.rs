@@ -37,6 +37,15 @@ impl Default for ClipSettings {
   }
 }
 
+// how loud each side is at a pan of -1 (hard left) to 1 (hard right): a
+// balance law, as a clip's pan (and a sample or synth row's) has it. at the
+// center both sides are unchanged, and panning turns the far side down, to
+// silence at hard left or right
+pub fn pan_gains(pan: f32) -> [f32; 2] {
+  let pan = pan.clamp(-1., 1.);
+  [(1. - pan).min(1.), (1. + pan).min(1.)]
+}
+
 // the range of each setting (attack and decay are also kept within the clip)
 const GAIN_DB: RangeInclusive<f32> = -60.0..=12.0;
 const PAN: RangeInclusive<f32> = -1.0..=1.0;

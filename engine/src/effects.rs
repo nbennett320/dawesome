@@ -870,12 +870,12 @@ impl Effects {
     main_thread::run(|| {
       // the synths' copies (one that's muted isn't heard: none), then the
       // effects, in their channels' order
-      let live: Vec<(Channel, Desc, Arc<Mutex<Box<dyn Hosted>>>, Option<(u64, f32)>)> = {
+      let live: Vec<(Channel, Desc, Arc<Mutex<Box<dyn Hosted>>>, Option<(u64, f32, f32)>)> = {
         let inner = self.inner.lock().unwrap();
         let copies = synths.iter().filter_map(|&(id, track)| {
           let synth = inner.synths.get(&id).filter(|synth| !synth.muted)?;
           let loaded = synth.master.loaded()?;
-          Some((Channel::Track(track), synth.desc.clone(), loaded.plugin.clone(), Some((id, synth.volume))))
+          Some((Channel::Track(track), synth.desc.clone(), loaded.plugin.clone(), Some((id, synth.volume, synth.pan))))
         });
         let effects = inner.racks.iter()
           .flat_map(|(channel, effects)| effects.iter().map(move |e| (*channel, e)))
@@ -895,10 +895,11 @@ impl Effects {
         copy.set_state(&state).map_err(failed)?;
         let processor = copy.take_processor().ok_or_else(|| failed("it has no audio processor".into()))?;
         let slot = match synth {
-          Some((synth, volume)) => {
+          Some((synth, volume, pan)) => {
             // (an id of its own: a synth has a copy on each of its tracks)
             let slot = Slot::new_instrument(self.new_id(), processor);
             slot.set_gain(volume);
+            slot.set_pan(pan);
             copies.insert((synth, track_of(channel)), slot.id());
             slot
           }

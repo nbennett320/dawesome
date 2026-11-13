@@ -19,7 +19,7 @@ use std::time::Duration;
 use rodio::cpal::Sample as _;
 use rodio::{Decoder, Source};
 
-use super::clip::ClipSettings;
+use super::clip::{pan_gains, ClipSettings};
 
 // a sample file's audio, decoded
 pub struct Pcm {
@@ -157,7 +157,6 @@ impl ClipReader {
     let rate = rate.max(1);
     let pitched = pitched_rate(pcm.rate(), settings);
     let divisor = gcd(pitched as u64, rate as u64);
-    let pan = settings.pan.clamp(-1., 1.);
     // (through a Duration and back, as the fades always were)
     let secs = |ms: f32| Duration::from_secs_f32(ms.max(0.) / 1000.).as_secs_f32();
 
@@ -168,7 +167,7 @@ impl ClipReader {
       end,
       rate,
       gain: settings.gain_factor(),
-      pan: [(1. - pan).min(1.), (1. + pan).min(1.)],
+      pan: pan_gains(settings.pan),
       fades: Fades {
         attack: secs(settings.attack_ms),
         decay: secs(settings.decay_ms),
@@ -214,8 +213,8 @@ impl ClipReader {
     (current, next)
   }
 
-  // the next output frame
-  fn next_frame(&mut self) -> Option<[f32; 2]> {
+  // the next output frame, left and right (see sample_voice.rs)
+  pub(super) fn next_frame(&mut self) -> Option<[f32; 2]> {
     if self.done { return None; }
     if self.end.is_some_and(|end| self.next >= end) {
       self.done = true;

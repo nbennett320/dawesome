@@ -235,8 +235,6 @@ pub fn run_playlist(
     // loop's end (see run_notes). a pattern's notes already end at its length
     let slice_voices = |at: Duration, dur: Duration, on_beat: bool, resume: bool, loop_len: Option<Duration>| {
       let audiograph_ref = state.playlist.audiograph.lock().unwrap();
-      println!("tick: {}ms", audiograph_ref.current_offset.unwrap_or_default().as_millis());
-
       let metronome = on_beat && state.metronome_enabled.load(Ordering::SeqCst);
       let (sounds, notes) = match mode {
         state::PlayMode::Playlist => (
@@ -244,7 +242,7 @@ pub fn run_playlist(
           audiograph_ref.run_notes(dur, loop_len),
         ),
         state::PlayMode::Pattern(id) => (
-          audiograph_ref.pattern_sounds(id, dur, metronome, resume),
+          audiograph_ref.pattern_sounds(id, at, engine.sample_rate(), dur, metronome, resume),
           audiograph_ref.pattern_notes(id, dur),
         ),
       };
@@ -427,13 +425,6 @@ pub fn run_playlist(
         let state = state.clone();
         thread::spawn(move || crate::recording::finish(&state, true));
       }
-
-      println!(
-        "current beat: {}, total beats played: {}, looping: {}",
-        state.playlist.current_beat.load(Ordering::SeqCst),
-        state.playlist.total_beats.load(Ordering::SeqCst),
-        loop_len.is_some(),
-      );
 
       slice_at = next_at;
     }

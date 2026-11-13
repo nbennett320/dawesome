@@ -8,7 +8,6 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use rodio::source::UniformSourceIterator;
 
 use crate::commands::clip::{changed_clips, ChangedClips};
 use crate::daw;
@@ -53,43 +52,37 @@ pub fn render_sample(node: &daw::AudioNode, rate: u32) -> Vec<f32> {
     .collect()
 }
 
-// a pattern clip's hits as they are now, ready to be mixed (see
-// mix_pattern): how many frames the clip lasts, and each hit's sound with
-// the frame of the clip it starts on. the sample rows' notes, each row at
-// its volume, muted rows silent, at the tempo as it is (synth rows' notes
-// aren't written out)
+// a pattern clip's notes as they are now, ready to be mixed (see
+// mix_pattern): how many frames the clip lasts, and each of its sample
+// rows' notes, played as playback plays them (see sample_voice.rs), with the
+// frame of the clip it starts on. muted rows are silent, and it's at the
+// tempo as it is (synth rows' notes aren't written out)
 pub struct PatternHits {
   frames: usize,
-  hits: Vec<(usize, daw::VoiceSource)>,
+  hits: Vec<(usize, daw::SampleVoice)>,
 }
 
 pub fn pattern_hits(audiograph: &daw::AudioGraph<'static>, node: &daw::PatternNode, rate: u32) -> Result<PatternHits, String> {
-  let sequencer = audiograph.sequencer.lock().unwrap();
-  let pattern = sequencer.pattern(node.pattern_id)
-    .ok_or_else(|| format!("no pattern with id {}", node.pattern_id))?;
-  let beat = audiograph.beat_interval();
+  let length = audiograph.sequencer.lock().unwrap().pattern(node.pattern_id)
+    .ok_or_else(|| format!("no pattern with id {}", node.pattern_id))?
+    .length;
   let frame = |at: Duration| daw::run_frame(at.as_nanos() as i128, rate);
 
   let starts = frame(node.start_offset);
-  let frames = (frame(node.start_offset + node.duration(pattern.length, beat)) - starts).max(0) as usize;
-  let hits = sequencer.sample_hits(node.pattern_id).into_iter()
-    .filter(|(_, start)| node.plays(*start, pattern.length))
+  let frames = (frame(node.start_offset + node.duration(length, audiograph.beat_interval())) - starts).max(0) as usize;
+  let hits = audiograph.pattern_clip_voices(node, rate).into_iter()
     // on the frame the engine would start it on
-    .map(|(hit, start)| {
-      let at = (frame(node.hit_at(start, beat)) - starts).max(0) as usize;
-      (at, Box::new(hit.source()) as daw::VoiceSource)
-    })
+    .map(|(delay, voice)| ((frame(node.start_offset + delay) - starts).max(0) as usize, voice))
     .collect();
   Ok(PatternHits { frames, hits })
 }
 
-// a pattern clip as it's heard, for as long as the clip is. a hit still
+// a pattern clip as it's heard, for as long as the clip is. a note still
 // sounding at the clip's end is faded out
 pub fn mix_pattern(PatternHits { frames, hits }: PatternHits, rate: u32) -> Vec<f32> {
   let mut out = vec![0f32; frames * 2];
-  for (at, source) in hits {
-    let hit = UniformSourceIterator::<_, f32>::new(source, 2, rate);
-    for (sample, mixed) in hit.zip(out.iter_mut().skip(at * 2)) {
+  for (at, voice) in hits {
+    for (sample, mixed) in voice.zip(out.iter_mut().skip(at * 2)) {
       *mixed += sample;
     }
   }

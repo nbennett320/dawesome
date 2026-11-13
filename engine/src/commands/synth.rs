@@ -111,29 +111,57 @@ pub fn add_on_track(state: &daw::InnerState, plugin_id: &str, track: u32, drop_b
   Ok(AddedOnTrack { row_id, pattern_id, project: project_view(state) })
 }
 
-// start a key on a row, now (it's ended by stop_row_note, not by playback
-// stopping). a synth row's plays on its plugin's master copy (which its mute
-// silences), and a missing plugin plays nothing. a sample row is silent for
-// now
+// start a key on a row, now, straight on the master (it's ended by
+// stop_row_note, not by playback stopping)
+// - a sample row's plays its sample at the key's pitch (see
+//   sample_voice.rs), whether the row is muted or not: a gated row's until
+//   the key's let go of, a one-shot row's to the sample's end
+// - a synth row's plays on its plugin's master copy, which its mute does
+//   silence (that one plugin plays the pattern on its own too, which the
+//   mute is for), and a missing plugin plays nothing
 pub fn play_row_note_on(state: &daw::InnerState, engine: &daw::Engine, row_id: u64, pitch: u8, velocity: f32) -> Result<(), String> {
   if pitch > 127 { return Err(format!("there's no note {}", pitch)); }
-  let Some(slot) = synth_slot(state, row_id)? else { return Ok(()) };
   let velocity = if velocity.is_finite() { velocity.clamp(0., 1.) } else { 1. };
-  let Some(&copy) = state.playlist.effects.copy_ids().get(&(slot, None)) else { return Ok(()) };
-  engine.play_master_notes(copy, None, vec![daw::TimedNote::on(0, pitch, velocity)])
+  match key_on(state, row_id)? {
+    KeyOn::Sample(instrument) => {
+      let (voice, release) = instrument.held(pitch, velocity, engine.sample_rate());
+      if let Some(release) = release {
+        state.playlist.held_keys.hold(row_id, pitch, release);
+      }
+      engine.play(vec![engine.voice(voice, None, 0, daw::Route::Master)])
+    }
+    KeyOn::Synth(slot) => {
+      let Some(&copy) = state.playlist.effects.copy_ids().get(&(slot, None)) else { return Ok(()) };
+      engine.play_master_notes(copy, None, vec![daw::TimedNote::on(0, pitch, velocity)])
+    }
+  }
 }
 
 pub fn stop_row_note_on(state: &daw::InnerState, engine: &daw::Engine, row_id: u64, pitch: u8) -> Result<(), String> {
-  let Some(slot) = synth_slot(state, row_id)? else { return Ok(()) };
+  let pitch = pitch.min(127);
+  // (whatever a sample row's key is holding fades out)
+  state.playlist.held_keys.let_go(row_id, pitch);
+  let KeyOn::Synth(slot) = key_on(state, row_id)? else { return Ok(()) };
   let Some(&copy) = state.playlist.effects.copy_ids().get(&(slot, None)) else { return Ok(()) };
-  engine.play_master_notes(copy, None, vec![daw::TimedNote::off(0, pitch.min(127))])
+  engine.play_master_notes(copy, None, vec![daw::TimedNote::off(0, pitch)])
 }
 
-// a row's plugin's slot, or none for a sample row
-fn synth_slot(state: &daw::InnerState, row_id: u64) -> Result<Option<u64>, String> {
+// what a key on a row plays
+enum KeyOn {
+  // a sample row's sample
+  Sample(daw::SampleInstrument),
+  // a synth row's plugin, by its slot
+  Synth(u64),
+}
+
+fn key_on(state: &daw::InnerState, row_id: u64) -> Result<KeyOn, String> {
   let sequencer = state.playlist.sequencer.lock().unwrap();
   let row = sequencer.row(row_id).ok_or_else(|| format!("no row with id {}", row_id))?;
-  Ok(row.synth().map(|synth| synth.slot))
+  match (row.synth(), row.sample_instrument()) {
+    (Some(synth), _) => Ok(KeyOn::Synth(synth.slot)),
+    (None, Some(instrument)) => Ok(KeyOn::Sample(instrument)),
+    (None, None) => Err(format!("row {} plays nothing", row_id)),
+  }
 }
 
 #[tauri::command]

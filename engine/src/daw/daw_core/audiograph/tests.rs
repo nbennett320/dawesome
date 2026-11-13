@@ -370,7 +370,7 @@ fn test_sample_lengths_use_the_file_rate() {
 
   let mut seq = daw::Sequencer::default();
   let row = seq.add_row(&path).unwrap();
-  let row_dur = seq.row(row).unwrap().one_shot().unwrap().duration();
+  let row_dur = seq.row(row).unwrap().sample_instrument().unwrap().played_len(daw::DEFAULT_PITCH);
   assert!(second(row_dur), "sequencer row: {:?}", row_dur);
 
   let _ = std::fs::remove_file(&path);
@@ -613,7 +613,6 @@ fn test_audiograph_node_functions() {
   let max_beats: u64 = 8;
 
   let mut audiograph = AudioGraph::new(sample_rate, tempo, max_beats);
-  let _buf = daw::SampleBuffer::load(node.sample_path()).unwrap();
 
   audiograph.add_node(node);
   let id2 = audiograph.construct_and_add_node(
@@ -686,21 +685,6 @@ fn graph_with_pattern() -> (AudioGraph<'static>, u64, u64) {
 }
 
 #[test]
-fn test_schedule_in_window() {
-  let (w, d) = (ms(1_000), ms(500));
-  // starts in the slice
-  assert_eq!(schedule_in_window(ms(1_000), ms(100), w, d, false), Some(Scheduled::Delay(ms(0))));
-  assert_eq!(schedule_in_window(ms(1_250), ms(100), w, d, false), Some(Scheduled::Delay(ms(250))));
-  // the slice's end belongs to the next one
-  assert_eq!(schedule_in_window(ms(1_500), ms(100), w, d, false), None);
-  // already sounding: only played on a resume
-  assert_eq!(schedule_in_window(ms(900), ms(300), w, d, false), None);
-  assert_eq!(schedule_in_window(ms(900), ms(300), w, d, true), Some(Scheduled::Skip(ms(100))));
-  // finished before the slice
-  assert_eq!(schedule_in_window(ms(500), ms(300), w, d, true), None);
-}
-
-#[test]
 fn test_pattern_nodes_share_ids_and_snap() {
   let (mut graph, _, pattern) = graph_with_pattern();
   let clip = graph.construct_and_add_node(KICK.to_string(), ms(0), 0).unwrap();
@@ -755,7 +739,7 @@ fn graph_with_notes(notes: Vec<daw::PatternNote>) -> (AudioGraph<'static>, u64) 
     seq.add_row("assets/assets_66-bd-01.wav").unwrap();
     let row = seq.add_synth_row(daw::Synth {
       id: 7, plugin_id: "vst3:synth".into(), path: String::new(), name: "Synth".into(),
-      vendor: String::new(), volume: 1., muted: false,
+      vendor: String::new(), volume: 1., pan: 0., muted: false,
     });
     let pattern = seq.add_pattern(1, 4).unwrap();
     seq.set_pattern_notes(pattern, row, notes).unwrap();
@@ -1533,4 +1517,154 @@ fn test_a_cut_pattern_clip_plays_exactly_what_the_whole_clip_did() {
   assert_eq!(graph.split_node(clip, start + step.mul_f64(0.5)).unwrap(), None);
   assert_eq!(graph.split_node(clip, start + step.mul_f64(8.)).unwrap(), None);
   assert_eq!(graph.pattern_nodes.len(), 3);
+}
+
+const LONG: &str = "assets/slide_guitar.wav";
+
+fn pnote(pitch: u8, start: f64, length: f64, velocity: f32) -> daw::PatternNote {
+  daw::PatternNote { pitch, start, length, velocity }
+}
+
+// a graph at an awkward tempo with a two bar pattern of the long sample
+// (gated, unless `one_shot`) and the kick (one-shot), notes off the grid at
+// other pitches and velocities, and a clip of it off the grid on track 1.
+// (graph, the long sample's row, pattern, clip)
+fn graph_with_pitched_notes(long: Vec<daw::PatternNote>, one_shot: bool) -> (AudioGraph<'static>, u64, u64, u64) {
+  let mut graph = AudioGraph::new(44_100, 97., 256);
+  let (row, pattern) = {
+    let mut seq = graph.sequencer.lock().unwrap();
+    let kick = seq.add_row(KICK).unwrap();
+    let row = seq.add_row(LONG).unwrap();
+    seq.set_row_gated(row, !one_shot).unwrap();
+    let pattern = seq.add_pattern(2, 4).unwrap();
+    seq.set_pattern_notes(pattern, row, long).unwrap();
+    seq.set_pattern_notes(pattern, kick, vec![pnote(72, 7.9, 0.1, 0.6), pnote(48, 19.5, 1., 1.), pnote(60, 26., 1., 0.3)]).unwrap();
+    (row, pattern)
+  };
+  let clip = graph.add_pattern_node::<daw::timing::QuarterNote>(pattern, Duration::ZERO, 1, None).unwrap();
+  graph.pattern_nodes[0].start_offset = Duration::from_nanos(1_234_567_891);
+  (graph, row, pattern, clip)
+}
+
+#[test]
+fn test_a_gated_note_stops_on_the_frame_its_end_is_heard_and_a_one_shot_rings_on() {
+  let rate = 48_000;
+  let total = Duration::from_secs(4);
+  // the long sample alone: from step 2.3 to 4 (a fifth up)
+  let only = vec![pnote(67, 2.3, 1.7, 0.9)];
+  let (mut graph, _, _, _) = graph_with_pitched_notes(only.clone(), false);
+  let kick = graph.sequencer.lock().unwrap().rows()[0].id;
+  graph.sequencer.lock().unwrap().set_row_muted(kick, true).unwrap();
+  let node = graph.pattern_nodes[0].clone();
+  let beat = graph.beat_interval();
+  let frame = |at: i128| run_frame(at, rate) as usize;
+  let (on, off) = (frame(node.heard_at(2.3, beat)), frame(node.heard_at(4., beat)));
+
+  let gated = play(&mut graph, rate, Duration::ZERO, total);
+  let left: Vec<f32> = gated.chunks(2).map(|frame| frame[0]).collect();
+  assert!(left[..on].iter().all(|&s| s == 0.));
+  assert!(left[on..on + 100].iter().any(|&s| s != 0.));
+  // sounding up to its last 5ms (240 frames), then down to nothing by its end
+  assert!(left[off - 400..off - 240].iter().any(|&s| s.abs() > 0.01));
+  assert!(left[off - 3..off].iter().all(|&s| s.abs() < 0.001));
+  assert!(left[off..].iter().all(|&s| s == 0.));
+
+  // one-shot: the same note rings on past its end, the same up to there
+  let (mut graph, _, _, _) = graph_with_pitched_notes(only, true);
+  graph.sequencer.lock().unwrap().set_row_muted(kick, true).unwrap();
+  let rung = play(&mut graph, rate, Duration::ZERO, total);
+  assert!(rung[off * 2..(off + 2_000) * 2].iter().any(|&s| s.abs() > 0.01));
+  assert!(rung[..(off - 240) * 2] == gated[..(off - 240) * 2]);
+}
+
+#[test]
+fn test_a_cut_clip_of_pitched_and_gated_notes_plays_exactly_what_the_whole_clip_did() {
+  let rate = 48_000;
+  let total = Duration::from_secs(5);
+  // (none of the gated notes crosses a cut: one that does is cut there, as
+  // a synth's note is)
+  let long = vec![pnote(55, 1., 3., 0.9), pnote(70, 10., 2.5, 0.5), pnote(64, 21., 5., 1.), pnote(50, 30., 6., 0.7)];
+  let (mut graph, _, _, clip) = graph_with_pitched_notes(long, false);
+  // from the start, and from the middle of notes of both kinds
+  let starts = [Duration::ZERO, ms(1_500), ms(2_900)];
+  let whole: Vec<Vec<f32>> = starts.iter().map(|&start| play(&mut graph, rate, start, total)).collect();
+  assert!(whole.iter().all(|heard| heard.iter().any(|&s| s.abs() > 0.01)));
+
+  let step = graph.beat_interval() / 4;
+  let start = graph.get_pattern_node_by_id(clip).unwrap().start_offset;
+  let right = graph.split_node(clip, start + step.mul_f64(8.5)).unwrap().expect("a cut inside the clip");
+  graph.split_node(right, start + step.mul_f64(19.75)).unwrap().expect("a cut inside the half");
+  for (&start, whole) in starts.iter().zip(&whole) {
+    assert_eq!(differences(&play(&mut graph, rate, start, total), whole), 0, "played from {:?}", start);
+  }
+}
+
+#[test]
+fn test_a_pattern_on_its_own_ends_a_gated_note_at_the_pattern_end() {
+  let rate = 48_000;
+  let (mut graph, _, pattern, _) = graph_with_pitched_notes(vec![pnote(60, 15., 4., 1.)], false);
+  graph.set_tempo(120.);
+  // the last beat of the second bar (a step is 125ms): the note from step
+  // 31 runs past the pattern's end
+  graph.sequencer.lock().unwrap().set_pattern_notes(pattern, 1, vec![pnote(60, 31., 4., 1.)]).unwrap();
+  graph.set_current_offset(Some(ms(3_500)));
+  let sounds = graph.pattern_sounds(pattern, ms(500), rate, ms(500), false, false);
+  assert_eq!(sounds.len(), 1);
+  let (delay, voice, route) = sounds.into_iter().next().unwrap();
+  assert_eq!(delay, ms(375));
+  assert!(matches!(route, daw::Route::Master));
+  // to 4s, where the pattern ends: 125ms
+  assert_eq!(voice.count(), 6_000 * 2);
+}
+
+// every note of a long pattern, played a slice at a time (slices of an
+// awkward length, at an awkward tempo), is played once, in the slice it's
+// heard in: as it was when every slice looked at every note
+#[test]
+fn test_each_note_is_played_once_in_the_slice_its_heard_in() {
+  let mut graph = AudioGraph::new(44_100, 97., 1_024);
+  let (row, pattern) = {
+    let mut seq = graph.sequencer.lock().unwrap();
+    let row = seq.add_row(KICK).unwrap();
+    let synth = seq.add_synth_row(daw::Synth {
+      id: 7, plugin_id: "vst3:synth".into(), path: String::new(), name: "Synth".into(),
+      vendor: String::new(), volume: 1., pan: 0., muted: false,
+    });
+    let pattern = seq.add_pattern(8, 4).unwrap();
+    // notes off the grid, two on some steps, and past the end
+    let notes: Vec<daw::PatternNote> = (0..300).map(|n| pnote(40 + (n % 30) as u8, n as f64 * 0.47, 0.3, 1.)).collect();
+    seq.set_pattern_notes(pattern, row, notes.clone()).unwrap();
+    seq.set_pattern_notes(pattern, synth, notes).unwrap();
+    (row, pattern)
+  };
+  // a clip of steps 3.3 to 101.2 of it, off the grid
+  let clip = graph.add_pattern_node::<daw::timing::QuarterNote>(pattern, ms(777), 0, None).unwrap();
+  graph.set_pattern_window(clip, 3.3, Some(101.2)).unwrap();
+  graph.init();
+  let node = graph.get_pattern_node_by_id(clip).unwrap().clone();
+  let beat = graph.beat_interval();
+  let notes = graph.sequencer.lock().unwrap().pattern(pattern).unwrap().notes_of(row).to_vec();
+  let expected: Vec<i128> = notes.iter()
+    .filter(|note| node.plays(note.start, 128))
+    .map(|note| node.heard_at(note.start, beat))
+    .collect();
+  assert!(expected.len() > 150);
+
+  let slice = Duration::from_nanos(123_456_789);
+  let (mut hits, mut synth_notes) = (Vec::new(), Vec::new());
+  let mut at = Duration::ZERO;
+  while at < Duration::from_secs(20) {
+    graph.set_current_offset(Some(at));
+    let start = at.as_nanos() as i128;
+    for (delay, _, _) in graph.run_sounds_at(at, 48_000, slice, false, false) {
+      hits.push(start + delay.as_nanos() as i128);
+    }
+    for note in graph.run_notes(slice, None) {
+      synth_notes.push(start + note.on.as_nanos() as i128);
+    }
+    at += slice;
+  }
+  // (the hits' delays are whole nanoseconds of the same times)
+  assert_eq!(hits, expected);
+  assert_eq!(synth_notes, expected);
 }

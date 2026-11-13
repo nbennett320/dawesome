@@ -60,6 +60,44 @@ fn test_a_mixdown_is_what_playback_plays() {
   }
 }
 
+// a pattern of notes off the grid at other pitches and velocities: kicks
+// (one-shot, so they ring out whatever their length) and the long sample
+// (gated, so it stops at each note's end), on track `track`, from `at`
+fn pitched_clip(state: &daw::InnerState, track: u32, at: Duration) -> u64 {
+  let note = |pitch, start, length, velocity| daw::PatternNote { pitch, start, length, velocity };
+  let pattern = {
+    let mut sequencer = state.playlist.sequencer.lock().unwrap();
+    let kick = sequencer.add_row(KICK).unwrap();
+    let long = sequencer.add_row(LONG).unwrap();
+    sequencer.set_row_gated(long, true).unwrap();
+    sequencer.set_row_sample_pitch(long, 62).unwrap();
+    sequencer.set_row_volume(long, 0.4).unwrap();
+    let pattern = sequencer.add_pattern(1, 4).unwrap();
+    sequencer.set_pattern_notes(pattern, kick, vec![note(60, 0., 0.25, 0.5), note(67, 5.5, 0.1, 1.), note(48, 9., 1., 0.8)]).unwrap();
+    sequencer.set_pattern_notes(pattern, long, vec![note(55, 2.3, 3.3, 0.9), note(74, 10.5, 0.4, 0.6), note(62, 13., 2., 1.)]).unwrap();
+    pattern
+  };
+  state.playlist.audiograph.lock().unwrap()
+    .add_pattern_node::<daw::timing::Note>(pattern, at, track, None).unwrap()
+}
+
+#[test]
+fn test_notes_at_any_pitch_velocity_and_gate_are_mixed_down_as_played() {
+  for (tempo, rate) in [(97., 48_000), (120., 44_100)] {
+    let state = daw::InnerState::default();
+    state.playlist.audiograph.lock().unwrap().set_tempo(tempo);
+    pitched_clip(&state, 2, Duration::from_nanos(1_234_567_891));
+    state.playlist.mixer.set_pan(2, -0.3);
+
+    let mixed = mixdown(&state, rate);
+    let played = play(&state, rate, Duration::from_secs_f64(mixed.len() as f64 / 2. / rate as f64));
+    assert_eq!(mixed.len(), played.len());
+    assert!(peak(&mixed) > 0.1);
+    let off = worst(&mixed, &played);
+    assert!(off < 1e-5, "off by {} at {} bpm, {}Hz", off, tempo, rate);
+  }
+}
+
 #[test]
 fn test_mute_and_solo_are_heard_as_set() {
   let state = daw::InnerState::default();
@@ -370,6 +408,20 @@ fn test_a_synth_on_two_tracks_is_mixed_down_through_each_tracks_fader() {
   let quieter = mixdown(&state, 48_000);
   assert!((quieter[20_000 * 2] - mixed[20_000 * 2] * 0.5).abs() < 1e-6);
   assert!((quieter[50_000 * 2] - mixed[50_000 * 2] * 0.5).abs() < 1e-6);
+}
+
+#[test]
+fn test_a_synth_rows_pan_is_mixed_down() {
+  let (rig, synth, pattern) = synth_and_notes();
+  let state = rig.state.clone();
+  note_clip(&state, pattern, 1, Duration::ZERO);
+  crate::commands::sequencer::edit(&state, None, |seq| seq.set_row_pan(synth, -1.)).unwrap();
+
+  // hard left: the right side silent, the left as it was
+  let mixed = mixdown(&state, 48_000);
+  assert_eq!(sounding(&mixed), vec![(18_000, 36_000), (84_000, 96_000)]);
+  assert_eq!(mixed[20_000 * 2], 0.25);
+  assert!(mixed.chunks(2).all(|frame| frame[1] == 0.));
 }
 
 #[test]

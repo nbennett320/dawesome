@@ -437,6 +437,52 @@ fn test_a_pattern_clip_becomes_a_sample_clip_of_what_it_played() {
 }
 
 #[test]
+fn test_a_pattern_clip_of_pitched_and_gated_notes_is_written_as_it_plays() {
+  let note = |pitch, start, length, velocity| daw::PatternNote { pitch, start, length, velocity };
+  for (tempo, rate, file_rate) in [(97., 48_000, 44_100), (120., 44_100, 48_000)] {
+    let (state, dir) = saved_project(&format!("pitched-{}", rate));
+    let long = noise_wav(&dir, "long.wav", file_rate, 2, file_rate);
+    let pattern = {
+      let mut sequencer = state.playlist.sequencer.lock().unwrap();
+      let kick = sequencer.add_row(KICK).unwrap();
+      let gated = sequencer.add_row(&long).unwrap();
+      sequencer.set_row_gated(gated, true).unwrap();
+      sequencer.set_row_sample_pitch(gated, 57).unwrap();
+      sequencer.set_row_volume(gated, 0.3).unwrap();
+      sequencer.set_row_pan(gated, 0.6).unwrap();
+      let pattern = sequencer.add_pattern(1, 4).unwrap();
+      // an octave up and down, quieter and louder, off the grid
+      sequencer.set_pattern_notes(pattern, kick, vec![note(72, 0.5, 1., 0.4), note(48, 6.25, 0.1, 1.)]).unwrap();
+      sequencer.set_pattern_notes(pattern, gated, vec![note(57, 1., 2.7, 0.8), note(69, 8.1, 1., 1.), note(45, 12., 3.5, 0.5)]).unwrap();
+      pattern
+    };
+    let id = {
+      let mut audiograph = state.playlist.audiograph.lock().unwrap();
+      audiograph.set_tempo(tempo);
+      audiograph.add_pattern_node::<daw::timing::Note>(pattern, Duration::from_nanos(987_654_321), 2, None).unwrap()
+    };
+    let (start, length) = {
+      let audiograph = state.playlist.audiograph.lock().unwrap();
+      let node = audiograph.get_pattern_node_by_id(id).unwrap().clone();
+      (node.start_offset, node.duration(16, audiograph.beat_interval()))
+    };
+    let total = Duration::from_secs(4);
+    let original = play(&state, rate, total);
+
+    deep_copy(&state, &[id], Some(rate)).unwrap();
+    let first = daw::run_frame(start.as_nanos() as i128, rate) as usize;
+    let last = daw::run_frame((start + length).as_nanos() as i128, rate) as usize;
+    let copy = play(&state, rate, total);
+    // the same, frame for frame, up to the last 10ms (faded in the file)
+    let body = first * 2..(last - rate as usize / 100) * 2;
+    assert!(original[body.clone()].iter().any(|s| s.abs() > 0.05));
+    let off = worst(&copy[body.clone()], &original[body]);
+    assert!(off <= STEP, "off by {} steps at {} bpm, {}Hz", off / STEP, tempo, rate);
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+}
+
+#[test]
 fn test_saving_somewhere_new_takes_the_clips_folder_along() {
   let (state, dir) = saved_project("save-as");
   project::save_to(&state, &dir.join("song.dawesome")).unwrap();

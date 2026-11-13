@@ -9,8 +9,9 @@
 // kept but not played. a pattern is 1 to PATTERN_BARS_MAX bars long
 //
 // a step clicked on is a one-step note at its row's step pitch (see
-// set_step). for now a sample row plays each of its notes as a hit: its
-// sample once, whatever the note's pitch, length or velocity
+// set_step). a sample row plays a note by reading its sample at the note's
+// pitch, against the row's sample pitch, and either to the sample's end
+// (one-shot) or to the note's end (gated): see sample_voice.rs
 //
 // a synth row's plugin lives in effects.rs under the row's slot id, and
 // follows this list (see commands/synth.rs)
@@ -30,7 +31,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use rodio::Source;
 use serde::{Deserialize, Serialize};
 
 use crate::daw;
@@ -96,7 +96,7 @@ pub struct Row {
   pub label: Option<String>,
   // a gain, 0 to ROW_VOLUME_MAX
   pub volume: f32,
-  // -1 (left) to 1 (right). a synth row's isn't heard yet
+  // -1 (left) to 1 (right)
   pub pan: f32,
   pub muted: bool,
   // the pitch a clicked step plays
@@ -113,10 +113,10 @@ pub enum Instrument {
 #[derive(Clone, PartialEq)]
 pub struct SampleRow {
   pub path: String,
-  // the pitch that plays the sample unchanged (not heard yet)
+  // the pitch that plays the sample unchanged
   pub sample_pitch: u8,
   // whether a note stops the sample at the note's end, rather than letting
-  // it play out (not heard yet)
+  // it play out
   pub gated: bool,
   sound: RowSound,
 }
@@ -135,8 +135,8 @@ pub struct SynthRow {
 }
 
 // a synth row's plugin as effects.rs loads it and keeps it in line with the
-// rows (see Effects::follow_synths): `id` is the row's slot, and the volume
-// and mute are the row's
+// rows (see Effects::follow_synths): `id` is the row's slot, and the volume,
+// pan and mute are the row's
 #[derive(Clone, Debug, PartialEq)]
 pub struct Synth {
   pub id: u64,
@@ -145,18 +145,16 @@ pub struct Synth {
   pub name: String,
   pub vendor: String,
   pub volume: f32,
+  pub pan: f32,
   pub muted: bool,
 }
 
-// a sample row's sample, decoded. loading one takes a while, so it's done
-// without the sequencer, whose lock playback needs. it's what the row's path
-// holds, so it isn't compared
+// a sample row's sample, decoded once, when it's added (playing a note
+// only reads it). decoding takes a while, so it's done without the
+// sequencer, whose lock playback needs. it's what the row's path holds, so
+// it isn't compared
 #[derive(Clone)]
-pub struct RowSound {
-  buffer: daw::SampleBuffer,
-  // how long the sample plays for
-  duration: Duration,
-}
+pub struct RowSound(Arc<daw::Pcm>);
 
 impl PartialEq for RowSound {
   fn eq(&self, _: &RowSound) -> bool { true }
@@ -166,10 +164,11 @@ impl RowSound {
   // decoded here, so a file that isn't audio is refused when it's added
   // rather than when it's played
   pub fn load(path: &str) -> Result<Self, String> {
-    let (duration, _) = daw::preview_sample(path)?;
-    let buffer = daw::SampleBuffer::load(path)
-      .map_err(|e| format!("could not read sample '{}': {}", path, e))?;
-    Ok(RowSound { buffer, duration })
+    let pcm = daw::Pcm::load(path)?;
+    if pcm.frames() == 0 {
+      return Err(format!("sample '{}' contains no audio", path));
+    }
+    Ok(RowSound(Arc::new(pcm)))
   }
 
   // each of a saved sequencer's rows' samples, in order (none for a synth
@@ -177,25 +176,10 @@ impl RowSound {
   pub fn load_rows(saved: &SavedSequencer) -> Vec<Option<Result<Self, String>>> {
     saved.rows.iter().map(|row| row.instrument.sample_path().map(Self::load)).collect()
   }
-}
 
-// a sample row's sample played once, at the row's volume and pan: a hit of
-// one of its notes, or a preview
-#[derive(Clone, Copy)]
-pub struct OneShot<'a> {
-  sound: &'a RowSound,
-  volume: f32,
-  pan: f32,
-}
-
-impl OneShot<'_> {
-  // in stereo, ready to be played
-  pub fn source(&self) -> impl Source<Item = f32> + Send + 'static {
-    Panned::new(self.sound.buffer.convert_samples().amplify(self.volume), self.pan)
-  }
-
-  pub fn duration(&self) -> Duration {
-    self.sound.duration
+  #[cfg(test)]
+  pub fn pcm(&self) -> &Arc<daw::Pcm> {
+    &self.0
   }
 }
 
@@ -237,10 +221,17 @@ impl Row {
     }
   }
 
-  // a sample row's sample, once, as its notes play it (none for a synth row)
-  pub fn one_shot(&self) -> Option<OneShot<'_>> {
+  // what plays a sample row's notes: its sample, at its volume and pan
+  // (none for a synth row)
+  pub fn sample_instrument(&self) -> Option<daw::SampleInstrument> {
     let sample = self.sample()?;
-    Some(OneShot { sound: &sample.sound, volume: self.volume, pan: self.pan })
+    Some(daw::SampleInstrument {
+      pcm: sample.sound.0.clone(),
+      sample_pitch: sample.sample_pitch,
+      gated: sample.gated,
+      volume: self.volume,
+      pan: self.pan,
+    })
   }
 
   fn saved(&self) -> SavedRow {
@@ -397,20 +388,21 @@ impl Pattern {
     self.notes_of(row).iter().any(|note| note.start == step as f64)
   }
 
-  // a row's notes that start inside the pattern: the ones it plays
-  fn heard(&self, row: u64) -> impl Iterator<Item = &PatternNote> {
-    let end = self.length as f64;
-    self.notes_of(row).iter().filter(move |note| note.start < end)
+  // a row's notes that start inside the pattern: the ones it plays. (its
+  // notes are sorted, so they're the ones before the first past its end)
+  fn heard(&self, row: u64) -> &[PatternNote] {
+    let notes = self.notes_of(row);
+    &notes[..notes.partition_point(|note| note.start < self.length as f64)]
   }
 
   // the rows it plays notes of
   fn heard_rows(&self) -> impl Iterator<Item = u64> + '_ {
-    self.notes.keys().copied().filter(|&row| self.heard(row).next().is_some())
+    self.notes.keys().copied().filter(|&row| !self.heard(row).is_empty())
   }
 
   // whether all it plays is these notes, of one row
   fn plays_just(&self, row: u64, notes: &[PatternNote]) -> bool {
-    self.heard_rows().eq([row]) && self.heard(row).eq(notes.iter())
+    self.heard_rows().eq([row]) && self.heard(row) == notes
   }
 
   // replace a row's notes (already tidy and sorted). none takes the row out
@@ -799,6 +791,11 @@ fn no_row(id: u64) -> String {
   format!("no row with id {}", id)
 }
 
+// a MIDI note number: 0 to 127
+fn check_pitch(pitch: u8) -> Result<u8, String> {
+  if pitch <= 127 { Ok(pitch) } else { Err(format!("there's no note {}", pitch)) }
+}
+
 impl Sequencer {
   #[cfg(test)]
   pub fn rows(&self) -> &[Row] {
@@ -908,9 +905,21 @@ impl Sequencer {
         name: synth.name.clone(),
         vendor: synth.vendor.clone(),
         volume: row.volume,
+        pan: row.pan,
         muted: row.muted,
       })
     }).collect()
+  }
+
+  // each sample row's notes a pattern plays (those that start inside it),
+  // with what plays them, in row order. muted rows, and rows without notes,
+  // are left out
+  pub fn sample_notes<'a>(&'a self, pattern: &'a Pattern) -> impl Iterator<Item = (daw::SampleInstrument, &'a [PatternNote])> + 'a {
+    self.rows.iter()
+      .filter(|row| !row.muted)
+      .map(|row| (row, pattern.heard(row.id)))
+      .filter(|(_, notes)| !notes.is_empty())
+      .filter_map(|(row, notes)| Some((row.sample_instrument()?, notes)))
   }
 
   // each synth row's notes in a pattern, with the row's slot (which its
@@ -1017,6 +1026,47 @@ impl Sequencer {
     Ok(())
   }
 
+  // the pitch a row's clicked steps play. in each pattern where every one
+  // of the row's notes is at the old step pitch, they move to the new one, so
+  // a row showing steps still shows them. a pattern where they're at mixed
+  // pitches is left as it is
+  pub fn set_row_step_pitch(&mut self, id: u64, pitch: u8) -> Result<(), String> {
+    let pitch = check_pitch(pitch)?;
+    let row = self.row_mut(id)?;
+    let old = std::mem::replace(&mut row.step_pitch, pitch);
+    if old == pitch { return Ok(()); }
+
+    let at_old: Vec<u64> = self.patterns.iter()
+      .filter(|p| p.notes.get(&id).is_some_and(|notes| notes.iter().all(|note| note.pitch == old)))
+      .map(|p| p.id)
+      .collect();
+    for pattern in at_old {
+      let pattern = self.pattern_mut(pattern)?;
+      let notes = pattern.notes_of(id).iter().map(|&note| PatternNote { pitch, ..note }).collect();
+      pattern.set_notes(id, notes);
+    }
+    Ok(())
+  }
+
+  // the pitch that plays a sample row's sample unchanged
+  pub fn set_row_sample_pitch(&mut self, id: u64, pitch: u8) -> Result<(), String> {
+    let pitch = check_pitch(pitch)?;
+    self.sample_row_mut(id)?.sample_pitch = pitch;
+    Ok(())
+  }
+
+  // whether a sample row's notes stop at their ends (gated), or play the
+  // sample out (one-shot)
+  pub fn set_row_gated(&mut self, id: u64, gated: bool) -> Result<(), String> {
+    self.sample_row_mut(id)?.gated = gated;
+    Ok(())
+  }
+
+  // a sample row's sample settings to change (see row_mut)
+  fn sample_row_mut(&mut self, id: u64) -> Result<&mut SampleRow, String> {
+    self.row_mut(id)?.sample_mut().ok_or_else(|| format!("row {} plays a synth, not a sample", id))
+  }
+
   // label a row ("Snare"). a blank label goes back to its instrument's name
   pub fn rename_row(&mut self, id: u64, label: &str) -> Result<(), String> {
     self.row_mut(id)?.label = row_label(label);
@@ -1037,8 +1087,7 @@ impl Sequencer {
   // play another sample (already loaded, see RowSound) on a sample row,
   // keeping everything else about it
   pub fn replace_row_sample(&mut self, id: u64, path: &str, sound: RowSound) -> Result<(), String> {
-    let sample = self.row_mut(id)?.sample_mut()
-      .ok_or_else(|| format!("row {} plays a synth, not a sample", id))?;
+    let sample = self.sample_row_mut(id)?;
     sample.path = path.to_string();
     sample.sound = sound;
     Ok(())
@@ -1204,18 +1253,6 @@ impl Sequencer {
     self.pattern(id).map(|p| step_offset(p.length, beat_interval))
   }
 
-  // every hit of a pattern's sample rows: the row's sample once, for each
-  // note, with the note's start, in row order. muted rows, and notes past the
-  // pattern's end, don't play
-  pub fn sample_hits(&self, pattern_id: u64) -> Vec<(OneShot<'_>, f64)> {
-    let Some(pattern) = self.pattern(pattern_id) else { return Vec::new() };
-    self.rows.iter()
-      .filter(|row| !row.muted)
-      .filter_map(|row| Some((row.one_shot()?, pattern.heard(row.id))))
-      .flat_map(|(one_shot, notes)| notes.map(move |note| (one_shot, note.start)))
-      .collect()
-  }
-
   // the sample a pattern plays, if it plays notes of just one row and that's
   // a sample row (the patterns an explode makes)
   pub fn single_sample(&self, pattern_id: u64) -> Option<&str> {
@@ -1237,13 +1274,13 @@ impl Sequencer {
     let source = self.pattern(id).cloned()
       .ok_or_else(|| format!("no pattern with id {}", id))?;
     let label = source.label();
-    if self.rows.iter().any(|row| row.synth().is_some() && source.heard(row.id).next().is_some()) {
+    if self.rows.iter().any(|row| row.synth().is_some() && !source.heard(row.id).is_empty()) {
       return Err(format!("pattern {} has notes on synths, which can't be exploded yet", label));
     }
 
     let parts: Vec<(u64, String, String, Vec<PatternNote>)> = self.rows.iter()
       .filter_map(|row| {
-        let notes: Vec<PatternNote> = source.heard(row.id).copied().collect();
+        let notes = source.heard(row.id).to_vec();
         if notes.is_empty() { return None; }
         Some((row.id, row.sample()?.path.clone(), row.name(), notes))
       })
@@ -1539,51 +1576,6 @@ fn row_label(label: &str) -> Option<String> {
   let label: String = label.trim().chars().take(ROW_LABEL_MAX).collect();
   let label = label.trim_end();
   if label.is_empty() { None } else { Some(label.to_string()) }
-}
-
-// a source panned, in stereo: a mono one is put on both sides first, and
-// channels past the first two are dropped. the same pan law as a clip's
-// (see clip_reader.rs): the far side fades out, the near side stays as is
-pub struct Panned<S> {
-  inner: S,
-  channels: u16,
-  gains: [f32; 2],
-  // the right half of the frame whose left was just given
-  right: Option<f32>,
-}
-
-impl<S: Source<Item = f32>> Panned<S> {
-  pub fn new(inner: S, pan: f32) -> Self {
-    let pan = clamp_pan(pan);
-    let channels = inner.channels().max(1);
-    Panned { inner, channels, gains: [(1. - pan).min(1.), (1. + pan).min(1.)], right: None }
-  }
-}
-
-impl<S: Source<Item = f32>> Iterator for Panned<S> {
-  type Item = f32;
-
-  fn next(&mut self) -> Option<f32> {
-    if let Some(right) = self.right.take() {
-      return Some(right);
-    }
-    let left = self.inner.next()?;
-    let right = if self.channels >= 2 { self.inner.next().unwrap_or(left) } else { left };
-    for _ in 2..self.channels {
-      self.inner.next();
-    }
-    self.right = Some(right * self.gains[1]);
-    Some(left * self.gains[0])
-  }
-}
-
-impl<S: Source<Item = f32>> Source for Panned<S> {
-  // (the inner source's channels are read once, so its format is taken to
-  // stay the same throughout)
-  fn current_frame_len(&self) -> Option<usize> { None }
-  fn channels(&self) -> u16 { 2 }
-  fn sample_rate(&self) -> u32 { self.inner.sample_rate() }
-  fn total_duration(&self) -> Option<Duration> { self.inner.total_duration() }
 }
 
 #[cfg(test)]

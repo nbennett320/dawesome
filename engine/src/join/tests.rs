@@ -341,7 +341,7 @@ fn test_joined_pattern_clips_keep_the_notes_they_play() {
     let mut sequencer = state.playlist.sequencer.lock().unwrap();
     let s = sequencer.add_synth_row(daw::Synth {
       id: 40, plugin_id: "vst3:synth".into(), path: String::new(), name: "Synth".into(),
-      vendor: String::new(), volume: 1., muted: false,
+      vendor: String::new(), volume: 1., pan: 0., muted: false,
     });
     let a = sequencer.add_pattern(1, 4).unwrap();
     let b = sequencer.add_pattern(1, 4).unwrap();

@@ -1,6 +1,6 @@
 // the synth rows' plugins
 //
-// the synth rows themselves (names, volume, mute, order) are the
+// the synth rows themselves (names, volume, pan, mute, order) are the
 // sequencer's (see daw_core/sequencer.rs), and undo and projects go through
 // them. this keeps each synth's plugins in line with those rows:
 // follow_synths is told the synths (by slot id) and which tracks play
@@ -39,6 +39,7 @@ const SPARE_FOR: Duration = Duration::from_secs(30);
 pub(super) struct LiveSynth {
   pub(super) desc: Desc,
   pub(super) volume: f32,
+  pub(super) pan: f32,
   pub(super) muted: bool,
   pub(super) master: Instance,
   // by track
@@ -63,11 +64,12 @@ impl LiveSynth {
     if self.muted { 0. } else { self.volume }
   }
 
-  // its volume and mute, on every copy
+  // its volume, mute and pan, on every copy
   fn set_gains(&self) {
     let gain = self.gain();
     for loaded in self.loaded() {
       loaded.slot.set_gain(gain);
+      loaded.slot.set_pan(self.pan);
     }
   }
 
@@ -178,6 +180,7 @@ impl Effects {
         name: info.name.clone(),
         vendor: info.vendor.clone(),
         volume: daw::ROW_VOLUME,
+        pan: 0.,
         muted: false,
       };
       let mut inner = self.inner.lock().unwrap();
@@ -254,6 +257,7 @@ impl Effects {
           name: synth.name.clone(),
           vendor: synth.vendor.clone(),
           volume: row.volume,
+          pan: row.pan,
           muted: row.muted,
         };
         loaded.push(live(desc, &spec, master));
@@ -375,6 +379,7 @@ impl Effects {
       if let Some(synth) = inner.synths.get_mut(&spec.id) {
         synth.desc.name = spec.name.clone();
         synth.volume = spec.volume;
+        synth.pan = spec.pan;
         synth.muted = spec.muted;
         synth.set_gains();
       }
@@ -513,6 +518,7 @@ fn live(desc: Desc, spec: &daw::Synth, master: Instance) -> LiveSynth {
   let synth = LiveSynth {
     desc,
     volume: spec.volume,
+    pan: spec.pan,
     muted: spec.muted,
     master,
     copies: BTreeMap::new(),

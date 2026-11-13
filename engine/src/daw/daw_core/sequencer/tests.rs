@@ -15,9 +15,11 @@ fn kit() -> (Sequencer, u64, u64, u64) {
   (seq, kick, snare, pattern)
 }
 
-// where a pattern's hits start, in steps, in row order
+// where the notes a pattern plays on its sample rows start, in steps, in
+// row order
 fn hit_starts(seq: &Sequencer, pattern: u64) -> Vec<f64> {
-  seq.sample_hits(pattern).into_iter().map(|(_, start)| start).collect()
+  let pattern = seq.pattern(pattern).unwrap();
+  seq.sample_notes(pattern).flat_map(|(_, notes)| notes.iter().map(|note| note.start)).collect()
 }
 
 fn note(pitch: u8, start: f64, length: f64) -> PatternNote {
@@ -38,6 +40,7 @@ fn synth(slot: u64, name: &str) -> Synth {
     name: name.into(),
     vendor: "Fake Audio".into(),
     volume: 1.,
+    pan: 0.,
     muted: false,
   }
 }
@@ -662,9 +665,8 @@ fn test_pan_is_kept_in_range() {
 #[test]
 fn test_a_row_is_panned_in_stereo() {
   let (mut seq, kick, _, _) = kit();
-  let played = |seq: &Sequencer| -> Vec<f32> { seq.row(kick).unwrap().one_shot().unwrap().source().collect() };
+  let played = |seq: &Sequencer| -> Vec<f32> { seq.row(kick).unwrap().sample_instrument().unwrap().preview(44_100).collect() };
   let centered = played(&seq);
-  assert_eq!(seq.row(kick).unwrap().one_shot().unwrap().source().channels(), 2);
 
   // hard left: the left side as it was, the right silent
   seq.set_row_pan(kick, -1.).unwrap();
@@ -680,7 +682,7 @@ fn test_a_row_is_panned_in_stereo() {
 
   // a synth row has no sample to play
   let keys = seq.add_synth_row(synth(500, "Keys"));
-  assert!(seq.row(keys).unwrap().one_shot().is_none());
+  assert!(seq.row(keys).unwrap().sample_instrument().is_none());
 }
 
 #[test]
@@ -731,7 +733,7 @@ fn test_a_replaced_sample_keeps_the_row() {
   assert_eq!((row.sample().unwrap().path.as_str(), row.label.as_deref(), row.pan, row.muted), (SNARE, Some("Boom"), 0.25, true));
   assert_eq!(seq.rows()[0].id, kick);
   assert!(seq.pattern(pattern).unwrap().lit(kick, 0));
-  assert_eq!(row.one_shot().unwrap().duration(), RowSound::load(SNARE).unwrap().duration);
+  assert_eq!(row.sample_instrument().unwrap().pcm.frames(), RowSound::load(SNARE).unwrap().pcm().frames());
 
   // a synth row has no sample to replace
   let keys = seq.add_synth_row(synth(500, "Keys"));

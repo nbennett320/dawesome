@@ -72,6 +72,8 @@ pub struct Playlist {
   pub sequencer: Arc<Mutex<daw::Sequencer>>,
   // each mixer channel's effects (see effects.rs)
   pub effects: Arc<crate::effects::Effects>,
+  // keys held on sample rows, auditioned (see commands/synth.rs)
+  pub held_keys: daw::HeldKeys,
   // what the current (or last) run plays. set before each run starts
   pub mode: Mutex<PlayMode>,
   // the step a pattern playing on its own started from (the Piano Roll's
@@ -116,6 +118,7 @@ impl Playlist {
       mixer,
       sequencer,
       effects,
+      held_keys: daw::HeldKeys::default(),
       mode: Mutex::new(PlayMode::Playlist),
       pattern_start: Mutex::new(0.),
 

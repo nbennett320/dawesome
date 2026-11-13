@@ -49,7 +49,7 @@ fn big_project(seq: &mut daw::Sequencer) -> Big {
   let samples: Vec<u64> = (0..SAMPLE_ROWS).map(|n| seq.add_row(SAMPLES[n % SAMPLES.len()]).unwrap()).collect();
   let synths: Vec<u64> = (0..SYNTHS).map(|n| seq.add_synth_row(daw::Synth {
     id: 1_000 + n, plugin_id: "vst3:perf".into(), path: String::new(), name: format!("Synth {}", n + 1),
-    vendor: String::new(), volume: 1., muted: false,
+    vendor: String::new(), volume: 1., pan: 0., muted: false,
   })).collect();
 
   let drums = seq.add_pattern(4, 4).unwrap();
@@ -166,8 +166,8 @@ fn perf_slice() {
 
   // a pattern playing on its own
   let (mut graph, big) = big_graph(|_| vec![]);
-  let alone = |id: u64| move |graph: &daw::AudioGraph<'static>, _: Duration, beat: Duration, first: bool| (
-    graph.pattern_sounds(id, beat, false, first),
+  let alone = |id: u64| move |graph: &daw::AudioGraph<'static>, at: Duration, beat: Duration, first: bool| (
+    graph.pattern_sounds(id, at, RATE, beat, false, first),
     graph.pattern_notes(id, beat),
   );
   let (times, scheduled) = time_slices(&mut graph, &engine, 16, 100, alone(big.drums));

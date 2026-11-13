@@ -241,6 +241,9 @@ fn test_every_sequencer_edit_can_be_undone_and_redone() {
     ("row volume", Box::new(|| edit(s, None, |seq| seq.set_row_volume(kick, 0.5)).map(|_| ()))),
     ("mute a row", Box::new(|| edit(s, None, |seq| seq.set_row_muted(snare, true)).map(|_| ()))),
     ("pan a row", Box::new(|| edit(s, None, |seq| seq.set_row_pan(kick, -0.5)).map(|_| ()))),
+    ("a row's step pitch", Box::new(|| edit(s, None, |seq| seq.set_row_step_pitch(kick, 62)).map(|_| ()))),
+    ("a row's sample pitch", Box::new(|| edit_row(s, None, snare, |seq| seq.set_row_sample_pitch(snare, 48)).map(|_| ()))),
+    ("gate a row", Box::new(|| edit_row(s, None, kick, |seq| seq.set_row_gated(kick, true)).map(|_| ()))),
     ("label a row", Box::new(|| edit(s, None, |seq| seq.rename_row(snare, "Snare")).map(|_| ()))),
     ("move a row", Box::new(|| edit(s, None, |seq| seq.move_row(snare, 0)).map(|_| ()))),
     ("replace a row's sample", Box::new(|| replace_sample(s, kick, SNARE).map(|_| ()))),
@@ -679,6 +682,8 @@ fn test_a_row_edit_replies_with_the_row_and_undo_puts_its_rev_back() {
     ("set_row_pan", Box::new(|| edit_row(s, Some(8), kick, |seq| seq.set_row_pan(kick, -0.5)))),
     ("set_row_muted", Box::new(|| edit_row(s, None, snare, |seq| seq.set_row_muted(snare, true)))),
     ("replace_row_sample", Box::new(|| replace_sample(s, kick, SNARE))),
+    ("set_row_sample_pitch", Box::new(|| edit_row(s, None, kick, |seq| seq.set_row_sample_pitch(kick, 72)))),
+    ("set_row_gated", Box::new(|| edit_row(s, None, snare, |seq| seq.set_row_gated(snare, true)))),
   ];
 
   for (what, edit) in &edits {
@@ -749,4 +754,75 @@ fn test_moving_a_row_changes_no_rev() {
   assert_eq!(revs(&state), before);
   history::undo(&state).unwrap();
   assert_eq!(revs(&state), before);
+}
+
+#[test]
+fn test_a_rows_step_pitch_moves_its_notes_where_all_are_at_the_old_one() {
+  let (state, kick, snare, pattern, _, _) = drums();
+  let s: &daw::InnerState = &state;
+  // steps (one of them past the pattern's end): moved with it
+  edit(s, None, |seq| seq.set_pattern_bars(pattern, 2, 4)).unwrap();
+  set_step(s, pattern, kick, 20, true, None).unwrap();
+  edit(s, None, |seq| seq.set_pattern_bars(pattern, 1, 4)).unwrap();
+  // a chord on the step pitch and another: left as it is
+  let chords = add_pattern_of(s, 1).unwrap().id;
+  set_notes(s, chords, kick, vec![note(60, 0.), note(64, 0.)], None).unwrap();
+  // only the snare's notes: not the kick's to move
+  let snares = add_pattern_of(s, 1).unwrap().id;
+  set_step(s, snares, snare, 2, true, None).unwrap();
+
+  let before = revs(s);
+  let had = steps(s);
+  let reply = edit(s, None, |seq| seq.set_row_step_pitch(kick, 48)).unwrap();
+  let after = revs(s);
+  assert_eq!(steps(s), had + 1);
+  assert_eq!(changed(&before.0, &after.0), vec![kick]);
+  assert_eq!(changed(&before.1, &after.1), vec![pattern]);
+  let kick_notes = |p: u64| -> Vec<(u8, f64)> {
+    reply.pattern(p).unwrap().notes[&kick].iter().map(|n| (n.pitch, n.start)).collect()
+  };
+  assert_eq!(kick_notes(pattern), vec![(48, 0.), (48, 20.)]);
+  assert_eq!(kick_notes(chords), vec![(60, 0.), (64, 0.)]);
+  assert_eq!(reply.rows.iter().find(|r| r.id == kick).unwrap().step_pitch, 48);
+  // a step clicked now is at it
+  set_step(s, chords, kick, 4, true, None).unwrap();
+  assert!(sequencer_state(s).pattern(chords).unwrap().notes[&kick].iter().any(|n| (n.pitch, n.start) == (48, 4.)));
+  history::undo(&state).unwrap();
+
+  // one step to undo, which puts back the revs too
+  history::undo(&state).unwrap();
+  assert_eq!(revs(s), before);
+  assert_eq!(sequencer_state(s).pattern(pattern).unwrap().notes[&kick][1].pitch, 60);
+
+  // the pitch it has already: no step
+  edit(s, None, |seq| seq.set_row_step_pitch(kick, 60)).unwrap();
+  assert_eq!(steps(s), had);
+  assert_eq!(edit(s, None, |seq| seq.set_row_step_pitch(kick, 128)).unwrap_err(), "there's no note 128");
+  assert!(edit(s, None, |seq| seq.set_row_step_pitch(99, 60)).unwrap_err().contains("no row with id 99"));
+  assert_eq!(steps(s), had);
+}
+
+#[test]
+fn test_a_sample_rows_pitch_and_gate_change_no_notes() {
+  let (state, kick, _, pattern, _, _) = drums();
+  let s: &daw::InnerState = &state;
+  let notes = sequencer_state(s).pattern(pattern).unwrap().notes.clone();
+  let sample = |change: daw::RowChange| match change.row.instrument {
+    daw::InstrumentState::Sample(sample) => (sample.sample_pitch, sample.gated),
+    daw::InstrumentState::Synth(_) => panic!("a sample row"),
+  };
+
+  assert_eq!(sample(edit_row(s, None, kick, |seq| seq.set_row_sample_pitch(kick, 72)).unwrap()), (72, false));
+  assert_eq!(sample(edit_row(s, None, kick, |seq| seq.set_row_gated(kick, true)).unwrap()), (72, true));
+  assert_eq!(sequencer_state(s).pattern(pattern).unwrap().notes, notes);
+
+  // refused: a note MIDI hasn't, and a synth row
+  let had = steps(s);
+  assert_eq!(edit_row(s, None, kick, |seq| seq.set_row_sample_pitch(kick, 128)).unwrap_err(), "there's no note 128");
+  let (synth, _) = synth_and_pattern(&state);
+  let had_synth = steps(s);
+  assert!(had_synth == had + 2);
+  assert!(edit_row(s, None, synth, |seq| seq.set_row_sample_pitch(synth, 60)).unwrap_err().contains("plays a synth"));
+  assert!(edit_row(s, None, synth, |seq| seq.set_row_gated(synth, true)).unwrap_err().contains("plays a synth"));
+  assert_eq!(steps(s), had_synth);
 }
