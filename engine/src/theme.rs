@@ -344,8 +344,14 @@ pub fn parse(id: &str, json: &str) -> Result<(ResolvedTheme, Vec<String>), Strin
 const STOCK: &[(&str, &str)] = &[
   ("slate-light", include_str!("../themes/slate-light.json")),
   ("charcoal-light", include_str!("../themes/charcoal-light.json")),
+  ("banana-split", include_str!("../themes/banana-split.json")),
+  ("southern-lapwing", include_str!("../themes/southern-lapwing.json")),
+  ("mauve", include_str!("../themes/mauve.json")),
   ("charcoal", include_str!("../themes/charcoal.json")),
   ("slate-dark", include_str!("../themes/slate-dark.json")),
+  ("taiga", include_str!("../themes/taiga.json")),
+  ("nightshade", include_str!("../themes/nightshade.json")),
+  ("coup-de-grace", include_str!("../themes/coup-de-grace.json")),
 ];
 
 // the themes that come with the app. one that fails is skipped, not fatal

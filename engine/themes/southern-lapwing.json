@@ -1,0 +1,34 @@
+{
+  "name": "Southern Lapwing",
+  "appearance": "light",
+  "colors": {
+    "surface": "#f7f6f1",
+    "panel": "#ebeae4",
+    "raised": "#fbfaf7",
+    "sunken": "#dddcd5",
+    "line": "#e0dfd8",
+    "lineStrong": "#c8c8c1",
+    "inkStrong": "#1c1d1f",
+    "ink": "#34353a",
+    "inkSoft": "#63645f",
+    "inkFaint": "#8e8f8a",
+    "accent": "#c96a62",
+    "accentSoft": "#e8b3ae",
+    "accentTint": "#f8ecea",
+    "accentInk": "#5b4a6e",
+    "led": "#8a5a3c",
+    "ledTint": "#f3ebe3",
+    "ledInk": "#5e3c27",
+    "danger": "#c8322b",
+    "dangerTint": "#fbeceb",
+    "accentFocus": "#d9827a",
+    "ok": "#5f7148",
+    "shadow": "#1c1d1f"
+  },
+  "fourtrack": {
+    "ledRedOff": "mix(fourtrack.ledRedOn, sunken, 0.85)",
+    "ledAmberOff": "mix(fourtrack.ledAmberOn, sunken, 0.85)",
+    "ledLimeOff": "mix(fourtrack.ledLimeOn, sunken, 0.85)",
+    "ledBlueOff": "mix(fourtrack.ledBlueOn, sunken, 0.85)"
+  }
+}

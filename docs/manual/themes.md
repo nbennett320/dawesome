@@ -28,10 +28,16 @@ Changes apply as you make them. There is no **OK** button.
 | --- | --- | --- |
 | **Slate Light** | Light | Default light theme |
 | **Charcoal Light** | Light | |
+| **Banana Split** | Light | |
+| **Southern Lapwing** | Light | |
+| **Mauve** | Light | |
 | **Charcoal** | Dark | Default dark theme |
 | **Slate Dark** | Dark | |
+| **Taiga** | Dark | |
+| **Nightshade** | Dark | |
+| **Coup de Grâce** | Dark | |
 
-<!-- SCREENSHOT: gallery, the playlist in each of the four themes -->
+<!-- SCREENSHOT: gallery, the playlist in each of the ten themes -->
 
 To choose the theme for each appearance:
 
@@ -55,7 +61,7 @@ appearance falls back to its default theme.
 
 ::: warning CAUTION
 This version of Dawesome can't load theme files of your own yet. It only
-offers the four built-in themes. The format below is the one the built-in
+offers the ten built-in themes. The format below is the one the built-in
 themes use, and the one user themes are planned to use.
 :::
 

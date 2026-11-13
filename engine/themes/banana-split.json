@@ -1,0 +1,35 @@
+{
+  "name": "Banana Split",
+  "appearance": "light",
+  "colors": {
+    "surface": "#fffbea",
+    "panel": "#fcefbf",
+    "raised": "#fffdf5",
+    "sunken": "#f3e2a4",
+    "line": "#efdfa3",
+    "lineStrong": "#e0c77a",
+    "inkStrong": "#3b2314",
+    "ink": "#4e3021",
+    "inkSoft": "#83604a",
+    "inkFaint": "#ad8e78",
+    "accent": "#e8467c",
+    "accentSoft": "#f9a8c4",
+    "accentTint": "#fff0f5",
+    "accentInk": "#a3164a",
+    "led": "#d9822b",
+    "ledTint": "#fff1dc",
+    "ledInk": "#6b3a10",
+    "danger": "#c62828",
+    "dangerTint": "#fdecea",
+    "accentFocus": "#f472a0",
+    "dangerBright": "#e53935",
+    "ok": "#7cb342",
+    "shadow": "#3b2314"
+  },
+  "fourtrack": {
+    "ledRedOff": "mix(fourtrack.ledRedOn, sunken, 0.85)",
+    "ledAmberOff": "mix(fourtrack.ledAmberOn, sunken, 0.85)",
+    "ledLimeOff": "mix(fourtrack.ledLimeOn, sunken, 0.85)",
+    "ledBlueOff": "mix(fourtrack.ledBlueOn, sunken, 0.85)"
+  }
+}

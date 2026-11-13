@@ -34,8 +34,14 @@ fn test_stock_themes_parse_clean() {
   let expected = [
     ("slate-light", Appearance::Light),
     ("charcoal-light", Appearance::Light),
+    ("banana-split", Appearance::Light),
+    ("southern-lapwing", Appearance::Light),
+    ("mauve", Appearance::Light),
     ("charcoal", Appearance::Dark),
     ("slate-dark", Appearance::Dark),
+    ("taiga", Appearance::Dark),
+    ("nightshade", Appearance::Dark),
+    ("coup-de-grace", Appearance::Dark),
   ];
   assert_eq!(base().by_name.len(), 131);
   for (id, appearance) in expected {
@@ -48,7 +54,7 @@ fn test_stock_themes_parse_clean() {
     }
   }
   let ids: Vec<String> = stock().into_iter().map(|t| t.id).collect();
-  assert_eq!(ids, vec!["slate-light", "charcoal-light", "charcoal", "slate-dark"]);
+  assert_eq!(ids, vec!["slate-light", "charcoal-light", "banana-split", "southern-lapwing", "mauve", "charcoal", "slate-dark", "taiga", "nightshade", "coup-de-grace"]);
 }
 
 #[test]
