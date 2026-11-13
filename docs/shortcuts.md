@@ -125,7 +125,7 @@ Click a knob or fader first to give it the keyboard.
 | **Page Up** / **Page Down** | Big step | 3 dB |
 | **Home** | Minimum | Maximum (+6 dB) |
 | **End** | Maximum | Silent |
-| **0** | Centre | — |
+| **0** | Center | — |
 
 ::: tip NOTE
 **Shift** with the arrow keys makes knobs move *more* but faders move *less*.

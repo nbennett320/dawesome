@@ -1,4 +1,4 @@
-import { LIP, fitName, inBox, ledCentre, lipBox, lipWidth, onLed } from './lip'
+import { LIP, fitName, inBox, ledCenter, lipBox, lipWidth, onLed } from './lip'
 
 describe('a lane’s lip', () => {
   it('is pinned to the top right, inside its own lane', () => {
@@ -38,7 +38,7 @@ describe('a lane’s lip', () => {
 
   it('has its LED at its right end, which takes clicks a little round it', () => {
     const box = lipBox(124, 100, 800, 60, 24)
-    const led = ledCentre(box)
+    const led = ledCenter(box)
     expect(led.x).toBe(800 - LIP.margin - LIP.padRight - LIP.wellRadius)
     expect(led.y).toBe(box.y + box.h / 2)
     expect(onLed(box, led.x, led.y)).toBe(true)
