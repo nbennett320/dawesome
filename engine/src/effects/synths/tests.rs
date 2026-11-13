@@ -318,6 +318,57 @@ fn test_removing_a_synth_and_undoing_it_brings_back_its_notes_and_settings() {
 }
 
 #[test]
+fn test_replacing_a_synths_plugin_keeps_its_row_and_undoing_it_brings_back_the_old_one() {
+  let mut rig = rig();
+  let (old, pattern) = synth_with_notes(&rig, 0.35);
+  clip(&rig, pattern, 2);
+  let row = row_of(&rig, old);
+  edit(&rig.state, None, |seq| {
+    seq.rename_row(row, "Lead")?;
+    seq.set_row_pan(row, -0.5)?;
+    seq.set_row_step_pitch(row, 48)
+  }).unwrap();
+  let had = steps(&rig);
+
+  let replaced = synths::replace(&rig.state, row, &synth().id).unwrap().row;
+  assert_eq!(steps(&rig), had + 1);
+  let new = replaced.synth().unwrap().slot;
+  assert_ne!(new, old);
+  // the row as it was: its id, label, pan, step pitch and notes, and its
+  // name not taken by itself
+  assert_eq!((replaced.id, replaced.label.as_deref(), replaced.pan, replaced.step_pitch), (row, Some("Lead"), -0.5, 48));
+  assert_eq!(replaced.synth().unwrap().name, "Synth");
+  assert_eq!(*synths::sequencer_state(&rig.state).pattern(pattern).unwrap().notes[&row], vec![note(48, 0., 4.)]);
+  // the old plugin gone, the new one (as it starts) on the track
+  assert!(rig.effects().slot_name(old).is_none());
+  assert!(close(rig.gain_of(new), START_GAIN));
+  assert_eq!(rig.copy_gain(new, Some(2)), Some(START_GAIN));
+  assert!(rig.effects().copy_ids().get(&(old, Some(2))).is_none());
+
+  // undone: the old plugin back in its slot with its settings, on its track
+  crate::history::undo(&rig.state).unwrap();
+  assert_eq!(rig.slot_of(row), old);
+  assert!(close(rig.gain_of(old), 0.35));
+  assert_eq!(rig.copy_gain(old, Some(2)), Some(0.35));
+  assert!(close(rig.hear_notes(old, Some(2), &[(60, 0, 300)], 400)[100], 0.35));
+  assert!(rig.effects().slot_name(new).is_none());
+  crate::history::redo(&rig.state).unwrap();
+  assert_eq!(rig.slot_of(row), new);
+  crate::history::undo(&rig.state).unwrap();
+
+  // refused, loading nothing and with no step: a sample row, a row that
+  // isn't there, and a plugin that isn't an instrument
+  let (loads, had) = (rig.loader.loads.load(SeqCst), steps(&rig));
+  let sample_row = synths::sequencer_state(&rig.state).rows[0].id;
+  assert!(synths::replace(&rig.state, sample_row, &synth().id).unwrap_err().contains("plays a sample"));
+  assert!(synths::replace(&rig.state, 99, &synth().id).unwrap_err().contains("no row with id 99"));
+  assert_eq!(rig.loader.loads.load(SeqCst), loads);
+  assert!(synths::replace(&rig.state, row, &gain().id).unwrap_err().contains("isn't an instrument"));
+  assert_eq!(steps(&rig), had);
+  assert_eq!(rig.slot_of(row), old);
+}
+
+#[test]
 fn test_adding_a_synth_on_a_track_is_one_step() {
   let rig = rig();
   let before = crate::project::capture(&rig.state, None);

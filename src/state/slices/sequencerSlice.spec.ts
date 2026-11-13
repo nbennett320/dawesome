@@ -3,8 +3,9 @@ import { invoke } from '@tauri-apps/api/core'
 import { configureStore } from '@reduxjs/toolkit'
 import reducer, {
   addSampleRow, addSynthOnTrack, addSynthRow, changeTempo, moveRow, selectLastSelectedPattern, selectPattern,
-  selectPianoRollRow, selectSampleRows, selectSynthRows, sequencerSlice, sequencerTabFor, setPatternStep,
-  setPianoRollRow, setRowMuted, setRowVolume, setSequencer, showPattern,
+  replaceRowSynth, selectPianoRollRow, selectSampleRows, selectSynthRows, selectUsedOnly, sequencerSlice,
+  setPatternStep, setPianoRollRow, setRowGated, setRowMuted, setRowSamplePitch, setRowStepPitch, setRowVolume,
+  setSequencer, setUsedOnly, showPattern,
 } from './sequencerSlice'
 import { beginGesture, resetGestures } from '../gesture'
 import playlistReducer, { paintPatternClips, reduceLoadedProject, reducePainted, setPlaying } from './playlistSlice'
@@ -147,21 +148,36 @@ describe('sequencerSlice', () => {
   it('shows a row’s notes straight away, in order', () => {
     const { reduceNotes } = sequencerSlice.actions
     let state = reducer(init(), setSequencer(sequencer))
-    state = reducer(state, reduceNotes({ patternId: 2, rowId: 1, notes: [note(62, 2)] }))
+    state = reducer(state, reduceNotes({ patternId: 2, rowId: 1, notes: [note(62, 2)], stepsPerBar: 16 }))
     expect(Object.keys(state.patterns[1].notes)).toEqual(['1', '3'])
-    state = reducer(state, reduceNotes({ patternId: 2, rowId: 3, notes: [] }))
+    state = reducer(state, reduceNotes({ patternId: 2, rowId: 3, notes: [], stepsPerBar: 16 }))
     expect(state.patterns[1].notes).toEqual({ 1: [note(62, 2)] })
+    // drawn past the end: the pattern grows to fit, in the same dispatch
+    state = reducer(state, reduceNotes({ patternId: 2, rowId: 3, notes: [note(60, 70)], stepsPerBar: 16 }))
+    expect(state.patterns[1].length).toBe(80)
   })
 
   it('shows a step straight away, at the row’s step pitch', () => {
     const { reduceStep } = sequencerSlice.actions
     let state = reducer(init(), setSequencer({ ...sequencer, rows: [sampleRow(0, { stepPitch: 48 })] }))
-    state = reducer(state, reduceStep({ patternId: 0, rowId: 0, step: 4, on: true }))
+    state = reducer(state, reduceStep({ patternId: 0, rowId: 0, step: 4, on: true, stepsPerBar: 16 }))
     expect(state.patterns[0].notes).toEqual({ 0: [step(0), step(4, 48), step(8)] })
     // (a row that's gone changes nothing)
     const before = state.patterns
-    state = reducer(state, reduceStep({ patternId: 0, rowId: 9, step: 4, on: true }))
+    state = reducer(state, reduceStep({ patternId: 0, rowId: 9, step: 4, on: true, stepsPerBar: 16 }))
     expect(state.patterns).toBe(before)
+    // a greyed step past the end: lit, and the pattern a bar longer
+    state = reducer(state, reduceStep({ patternId: 0, rowId: 0, step: 20, on: true, stepsPerBar: 16 }))
+    expect(state.patterns[0].length).toBe(32)
+    expect(state.patterns[0].notes[0]).toContainEqual(step(20, 48))
+  })
+
+  it('shows only the rows used in a pattern while asked to, not saved with the project', () => {
+    let state = reducer(init(), setUsedOnly(true))
+    expect(selectUsedOnly(asRoot(state))).toBe(true)
+    state = reducer(state, reduceLoadedProject({ sequencer, patternClips: [] } as unknown as LoadedProject))
+    expect(state.usedOnly).toBe(true)
+    expect(reducer(state, setUsedOnly(false)).usedOnly).toBe(false)
   })
 
   it('forgets the run once the engine stops', () => {
@@ -189,20 +205,6 @@ describe('sequencerSlice', () => {
     const state = reducer(init(), reduceLoadedProject({ sequencer: null, patternClips: [] } as unknown as LoadedProject))
     expect(state.rows).toEqual([])
     expect(state.pianoRollRowId).toBeNull()
-  })
-})
-
-describe('sequencerTabFor', () => {
-  const rows = [sampleRow(0), synthRow(3)]
-
-  it('is the Note Sequencer when every note is on a synth row', () => {
-    expect(sequencerTabFor(pattern(0, { notes: { 3: [note(60, 0)] } }), rows)).toBe(View.NoteSequencer)
-  })
-
-  it('is the Drum Sequencer for steps, for both, and for nothing', () => {
-    expect(sequencerTabFor(pattern(0, { notes: { 0: steps(0) } }), rows)).toBe(View.Sequencer)
-    expect(sequencerTabFor(pattern(0, { notes: { 0: steps(0), 3: [note(60, 0)] } }), rows)).toBe(View.Sequencer)
-    expect(sequencerTabFor(pattern(0), rows)).toBe(View.Sequencer)
   })
 })
 
@@ -252,9 +254,9 @@ describe('sequencer edits and undo', () => {
 
     // the mouse goes down on a step, and is dragged along the row
     const stroke = beginGesture()
-    await setPatternStep(0, 0, 4, true)(dispatch)
-    await setPatternStep(0, 0, 5, true)(dispatch)
-    await setPatternStep(0, 0, 6, true)(dispatch)
+    await setPatternStep(0, 0, 4, true, 16)(dispatch)
+    await setPatternStep(0, 0, 5, true, 16)(dispatch)
+    await setPatternStep(0, 0, 6, true, 16)(dispatch)
     // the next press: a volume knob
     const drag = beginGesture()
     await setRowVolume(3, 0.8)(dispatch)
@@ -271,7 +273,7 @@ describe('sequencer edits and undo', () => {
 
   it('sends a step toggled from the keyboard, and a mute, as steps of their own', async () => {
     const dispatch = vi.fn()
-    await setPatternStep(0, 0, 4, true)(dispatch)
+    await setPatternStep(0, 0, 4, true, 16)(dispatch)
     // a click is a press too, but a mute is always its own step
     beginGesture()
     await setRowMuted(1, true)(dispatch)
@@ -342,6 +344,46 @@ describe('adding rows', () => {
     expect(store.getState().project.notice).toEqual({ kind: 'error', message: 'Couldn’t add the instrument: not an instrument' })
   })
 
+  it('replaces a synth row’s plugin, keeping the row, or says why it couldn’t', async () => {
+    const replaced = synthRow(3, { slot: 140, name: 'Keys' })
+    mockInvoke.mockImplementation(async (command: string) => {
+      if(command === 'replace_row_synth') return { row: replaced }
+      return undefined
+    })
+    const store = makeStore()
+    store.dispatch(setSequencer(sequencer))
+    await store.dispatch(replaceRowSynth(3, 'vst3:keys'))
+    expect(mockInvoke).toHaveBeenCalledWith('replace_row_synth', { rowId: 3, pluginId: 'vst3:keys' })
+    expect(store.getState().sequencer.rows.map(r => r.id)).toEqual([0, 3, 1])
+    expect(store.getState().sequencer.rows[1]).toBe(replaced)
+
+    mockInvoke.mockRejectedValue('Keys couldn’t be loaded')
+    await store.dispatch(replaceRowSynth(3, 'vst3:keys'))
+    expect(store.getState().project.notice).toEqual({ kind: 'error', message: 'Couldn’t replace the instrument: Keys couldn’t be loaded' })
+  })
+
+  it('sets a row’s step pitch (the patterns its notes move in coming back too), sample pitch and gate', async () => {
+    const moved = { ...sequencer, rows: [sampleRow(0, { stepPitch: 48 }), ...sequencer.rows.slice(1)] }
+    const gated = sampleRow(0, { stepPitch: 48, samplePitch: 72, gated: true })
+    mockInvoke.mockImplementation(async (command: string) => {
+      if(command === 'set_row_step_pitch') return moved
+      if(command === 'set_row_sample_pitch' || command === 'set_row_gated') return { row: gated }
+      return undefined
+    })
+    const store = makeStore()
+    store.dispatch(setSequencer(sequencer))
+    await store.dispatch(setRowStepPitch(0, 48))
+    expect(store.getState().sequencer.rows[0].stepPitch).toBe(48)
+    await store.dispatch(setRowSamplePitch(0, 72))
+    await store.dispatch(setRowGated(0, true))
+    expect(store.getState().sequencer.rows[0]).toBe(gated)
+    expect(mockInvoke.mock.calls.map(([command, args]) => [command, args])).toEqual([
+      ['set_row_step_pitch', { rowId: 0, pitch: 48 }],
+      ['set_row_sample_pitch', { rowId: 0, pitch: 72 }],
+      ['set_row_gated', { rowId: 0, gated: true }],
+    ])
+  })
+
   it('paints clips into the playlist, the sequencer and the mixer', async () => {
     const mixer = {
       tracks: [{ trackNumber: 4, volumeDb: -3, pan: 0, mute: false, solo: false }],
@@ -409,14 +451,17 @@ describe('adding rows', () => {
     expect(selectFocusedView(state)).toBe(View.PianoRoll)
   })
 
-  it('opens a pattern in the sequencer tab that shows its notes', () => {
+  it('opens a pattern in the Pattern Sequencer, whatever it holds', () => {
     const store = makeStore()
     store.dispatch(setSequencer(sequencer))
     store.dispatch(showPattern(2))
-    expect(selectFocusedView(store.getState())).toBe(View.NoteSequencer)
+    expect(selectFocusedView(store.getState())).toBe(View.PatternSequencer)
     expect(store.getState().sequencer.selected).toBe(2)
     store.dispatch(showPattern(0))
-    expect(selectFocusedView(store.getState())).toBe(View.Sequencer)
+    expect(store.getState().sequencer.selected).toBe(0)
+    // (a pattern that's gone: nothing)
+    store.dispatch(showPattern(99))
+    expect(store.getState().sequencer.selected).toBe(0)
   })
 })
 
@@ -515,7 +560,7 @@ describe('what the engine answers', () => {
     const lit: PatternChange = sent({ pattern: { ...engine.patterns[0], rev: freshRev(), notes: { ...engine.patterns[0].notes, 0: steps(0, 4, 8) } } })
     mockInvoke.mockResolvedValue(lit)
 
-    await store.dispatch(setPatternStep(0, 0, 4, true))
+    await store.dispatch(setPatternStep(0, 0, 4, true, 16))
     const after = store.getState().sequencer
     expect(after.patterns[0]).toEqual(lit.pattern)
     expect(after.patterns[1]).toBe(before.patterns[1])
@@ -548,7 +593,7 @@ describe('what the engine answers', () => {
     let answer: (change: PatternChange) => void = () => {}
     mockInvoke.mockImplementation(() => new Promise(resolve => { answer = resolve }))
 
-    const stepped = store.dispatch(setPatternStep(0, 0, 4, true))
+    const stepped = store.dispatch(setPatternStep(0, 0, 4, true, 16))
     const shown = store.getState().sequencer.patterns[0]
     expect(shown.rev).toBe(UNCONFIRMED)
 
@@ -571,7 +616,7 @@ describe('what the engine answers', () => {
       return sent(engine)
     })
 
-    await store.dispatch(setPatternStep(0, 0, 4, true))
+    await store.dispatch(setPatternStep(0, 0, 4, true, 16))
     expect(mockInvoke).toHaveBeenCalledWith('get_sequencer', {})
     const now = store.getState().sequencer.patterns[0]
     expect(now.rev).toBe(before.rev)

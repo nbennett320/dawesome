@@ -9,16 +9,19 @@
 // kept but not played. a pattern is 1 to PATTERN_BARS_MAX bars long
 //
 // a step clicked on is a one-step note at its row's step pitch (see
-// set_step). a sample row plays a note by reading its sample at the note's
-// pitch, against the row's sample pitch, and either to the sample's end
-// (one-shot) or to the note's end (gated): see sample_voice.rs
+// set_pattern_step). a step clicked, or a note drawn, past a pattern's end
+// grows it to fit (see grown_length). a sample row plays a note by reading
+// its sample at the note's pitch, against the row's sample pitch, and either
+// to the sample's end (one-shot) or to the note's end (gated): see
+// sample_voice.rs
 //
 // a synth row's plugin lives in effects.rs under the row's slot id, and
 // follows this list (see commands/synth.rs)
 //
-// a pattern plays on its own in the sequencer tabs (see daw::run_playlist),
-// and as pattern clips in the playlist (PatternNode in audiograph.rs), which
-// stay linked to it: editing a pattern changes every clip of it
+// a pattern plays on its own in the Pattern Sequencer and the Piano Roll
+// (see daw::run_playlist), and as pattern clips in the playlist (PatternNode
+// in audiograph.rs), which stay linked to it: editing a pattern changes
+// every clip of it
 //
 // undo keeps whole copies of the sequencer (see history.rs), so the row list,
 // each pattern, and each row's notes in a pattern are shared (Arc): a copy
@@ -27,7 +30,7 @@
 // each row and pattern has a rev, which changes whenever it does, so the
 // frontend can tell what an edit changed. edits change rows and patterns
 // only through row_mut and pattern_mut, which give the new rev
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -778,6 +781,40 @@ pub fn step_offset(n: u32, beat_interval: Duration) -> Duration {
   Duration::from_nanos((beat_interval.as_nanos() * n as u128 / STEPS_PER_BEAT as u128) as u64)
 }
 
+// the length a pattern grows to so a note ending at `end` fits: to the end
+// of the bar (`bar` steps) holding that end. never shorter than it was (even
+// past the cap), never grown past PATTERN_BARS_MAX bars. the frontend's
+// grownLength is the same (src/types/sequencer.ts)
+pub fn grown_length(length: u32, end: f64, bar: u32) -> u32 {
+  let cap = PATTERN_BARS_MAX * bar;
+  let fit = ((end - 1e-9) / bar as f64).ceil().max(1.) as u32 * bar;
+  length.max(fit.min(cap))
+}
+
+// where the notes in `new` that aren't in `old` end, the furthest of them
+// (0 when none was added). notes are compared on all they are, and a note
+// in `new` twice but in `old` once counts once as added. the frontend's
+// addedEnd is the same
+pub fn added_end(old: &[PatternNote], new: &[PatternNote]) -> f64 {
+  // (the notes both lists start and end with alike aren't looked at: an
+  // edit usually changes a few notes, and a row can hold MAX_NOTES)
+  let head = old.iter().zip(new).take_while(|(a, b)| a == b).count();
+  let (old, new) = (&old[head..], &new[head..]);
+  let tail = old.iter().rev().zip(new.iter().rev()).take_while(|(a, b)| a == b).count();
+  let (old, new) = (&old[..old.len() - tail], &new[..new.len() - tail]);
+
+  let key = |note: &PatternNote| (note.pitch, note.start.to_bits(), note.length.to_bits(), note.velocity.to_bits());
+  let mut had: HashMap<_, usize> = HashMap::new();
+  for note in old { *had.entry(key(note)).or_default() += 1; }
+  new.iter().fold(0., |end, note| match had.get_mut(&key(note)) {
+    Some(count) if *count > 0 => {
+      *count -= 1;
+      end
+    }
+    _ => end.max(note.end()),
+  })
+}
+
 // a pattern's length in bars: 1 to PATTERN_BARS_MAX
 fn check_bars(bars: u32) -> Result<(), String> {
   if (1..=PATTERN_BARS_MAX).contains(&bars) {
@@ -990,7 +1027,13 @@ impl Sequencer {
   // `name`, or "name 2" and so on if a synth row has it already (case
   // aside)
   pub fn free_synth_name(&self, name: &str) -> String {
+    self.free_synth_name_besides(name, None)
+  }
+
+  // the same, leaving out a row (whose plugin is being replaced)
+  fn free_synth_name_besides(&self, name: &str, except: Option<u64>) -> String {
     let free = |candidate: &str| !self.rows.iter()
+      .filter(|row| Some(row.id) != except)
       .filter_map(Row::synth)
       .any(|synth| synth.name.eq_ignore_ascii_case(candidate));
     if free(name) { return name.to_string(); }
@@ -1090,6 +1133,31 @@ impl Sequencer {
     let sample = self.sample_row_mut(id)?;
     sample.path = path.to_string();
     sample.sound = sound;
+    Ok(())
+  }
+
+  // refuses a row that isn't there, or that plays a sample
+  pub fn check_synth_row(&self, id: u64) -> Result<(), String> {
+    match self.row(id).ok_or_else(|| no_row(id))?.synth() {
+      Some(_) => Ok(()),
+      None => Err(format!("row {} plays a sample, not a synth", id)),
+    }
+  }
+
+  // play another plugin, which effects.rs has just loaded in a new slot (see
+  // Effects::load_synth), on a synth row, keeping everything else about it.
+  // its name is made unique among the other synth rows. the old slot's
+  // plugin follows the rows out (see commands/synth.rs)
+  pub fn replace_row_synth(&mut self, id: u64, synth: Synth) -> Result<(), String> {
+    self.check_synth_row(id)?;
+    let name = self.free_synth_name_besides(&synth.name, Some(id));
+    self.row_mut(id)?.instrument = Instrument::Synth(SynthRow {
+      slot: synth.id,
+      plugin_id: synth.plugin_id,
+      path: synth.path,
+      name,
+      vendor: synth.vendor,
+    });
     Ok(())
   }
 
@@ -1210,7 +1278,8 @@ impl Sequencer {
   }
 
   // replace a row's notes in a pattern, each made sensible (see
-  // PatternNote::tidy), and sorted. one that makes no sense is left out
+  // PatternNote::tidy), and sorted. one that makes no sense is left out.
+  // the pattern's length stays as it is, so it can hold notes past its end
   pub fn set_pattern_notes(&mut self, id: u64, row: u64, notes: Vec<PatternNote>) -> Result<(), String> {
     if notes.len() > MAX_NOTES {
       return Err(format!("a pattern can hold at most {} notes for a row", MAX_NOTES));
@@ -1222,30 +1291,64 @@ impl Sequencer {
     Ok(())
   }
 
-  // turn one of a row's steps on or off in a pattern. a note is on the step
-  // when it starts there at the row's step pitch. on adds a one-step note
-  // there, unless there's one already; off takes out every note on it,
-  // whatever its length or velocity. nothing that's already so is changed
-  pub fn set_step(&mut self, pattern_id: u64, row_id: u64, step: u32, on: bool) -> Result<(), String> {
+  // a row's notes edited (the Piano Roll): set_pattern_notes, and the
+  // pattern grows to fit the notes the edit added, up to PATTERN_BARS_MAX
+  // bars of `beats_per_bar` beats (see added_end and grown_length). only
+  // what's added counts, so notes kept past an end the bars counter made
+  // shorter don't grow it back each time another note is moved. growing
+  // never raises the floor
+  pub fn edit_pattern_notes(&mut self, id: u64, row: u64, notes: Vec<PatternNote>, beats_per_bar: u16) -> Result<(), String> {
+    let before = self.pattern(id).and_then(|p| p.notes.get(&row).cloned()).unwrap_or_default();
+    self.set_pattern_notes(id, row, notes)?;
+    let pattern = self.pattern(id).ok_or_else(|| format!("no pattern with id {}", id))?;
+    let end = added_end(&before, pattern.notes_of(row));
+    if end <= 0. { return Ok(()); }
+    let length = grown_length(pattern.length, end, steps_in_bars(1, beats_per_bar));
+    if length != pattern.length { self.pattern_mut(id)?.length = length; }
+    Ok(())
+  }
+
+  // turn one of a row's steps on or off in a pattern (the Pattern
+  // Sequencer's keys). a note is on the step when it starts there at the
+  // row's step pitch. on adds a one-step note there, unless there's one
+  // already; off takes out every note on it, whatever its length or velocity
+  //
+  // a step past the pattern's end can be set too, up to the longest the
+  // pattern can grow to (PATTERN_BARS_MAX bars of `beats_per_bar` beats).
+  // turning one on grows the pattern to the end of the step's bar (see
+  // grown_length), whether it was on already or not. growing never raises
+  // the floor. nothing that's already so is changed
+  pub fn set_pattern_step(&mut self, pattern_id: u64, row_id: u64, step: u32, on: bool, beats_per_bar: u16) -> Result<(), String> {
+    let bar = steps_in_bars(1, beats_per_bar);
     let pitch = self.row(row_id).ok_or_else(|| no_row(row_id))?.step_pitch;
     let pattern = self.pattern(pattern_id).ok_or_else(|| format!("no pattern with id {}", pattern_id))?;
-    if step >= pattern.length {
+    if step >= pattern.length.max(PATTERN_BARS_MAX * bar) {
       return Err(format!("pattern {} has {} steps, there's no step {}", pattern_id, pattern.length, step));
     }
 
+    let length = if on { grown_length(pattern.length, f64::from(step + 1), bar) } else { pattern.length };
     let notes = pattern.notes_of(row_id);
     let on_step = |note: &PatternNote| note.start == step as f64 && note.pitch == pitch;
-    if notes.iter().any(on_step) == on { return Ok(()); }
-    let toggled = if on {
+    let toggled = (notes.iter().any(on_step) != on).then(|| if on {
       let mut notes = notes.to_vec();
       notes.push(PatternNote { pitch, start: step as f64, length: 1., velocity: STEP_VELOCITY });
       sort_notes(&mut notes);
       notes
     } else {
       notes.iter().copied().filter(|note| !on_step(note)).collect()
-    };
-    self.pattern_mut(pattern_id)?.set_notes(row_id, toggled);
+    });
+    if toggled.is_none() && length == pattern.length { return Ok(()); }
+
+    let pattern = self.pattern_mut(pattern_id)?;
+    pattern.length = length;
+    if let Some(notes) = toggled { pattern.set_notes(row_id, notes); }
     Ok(())
+  }
+
+  // set_pattern_step in 4/4, for tests building patterns
+  #[cfg(test)]
+  pub fn set_step(&mut self, pattern_id: u64, row_id: u64, step: u32, on: bool) -> Result<(), String> {
+    self.set_pattern_step(pattern_id, row_id, step, on, 4)
   }
 
   // how long a pattern plays for, at the beat length given

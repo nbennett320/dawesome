@@ -8,10 +8,10 @@ import { selectFocusedView } from '../../state/slices/windowSlice'
 // one stop at a time, however many of the tabs are open
 let stopping = false
 
-// a pattern playing on its own stops once neither sequencer nor the Piano
-// Roll is the focused pane's tab: another tab selected, another pane
-// clicked, or the tab closed. (going from one of them to another keeps it
-// playing)
+// a pattern playing on its own stops once neither the Pattern Sequencer
+// nor the Piano Roll is the focused pane's tab: another tab selected,
+// another pane clicked, or the tab closed. (going from one to the other
+// keeps it playing)
 export const useStopWhenUnfocused = () => {
   const store = useStore<RootState>()
   const dispatch = useAppDispatch()

@@ -35,8 +35,8 @@ export interface PatternRun {
 }
 
 export interface SequencerSliceState extends SequencerState {
-  // the pattern shown in the sequencers and the Piano Roll, which Play
-  // loops while one of them is focused
+  // the pattern shown in the Pattern Sequencer and the Piano Roll, which
+  // Play loops while one of them is focused
   selected: number | null
   // the pattern most recently selected or made in a sequencer: what the
   // playlist's Draw tool paints. null when there isn't one (it was deleted,
@@ -45,6 +45,9 @@ export interface SequencerSliceState extends SequencerState {
   // the synth row whose notes the Piano Roll edits
   pianoRollRowId: number | null
   run: PatternRun | null
+  // the Pattern Sequencer shows only the rows with notes in the pattern
+  // (a view of it: not saved with the project)
+  usedOnly: boolean
 }
 
 const initialState: SequencerSliceState = {
@@ -55,6 +58,7 @@ const initialState: SequencerSliceState = {
   lastSelected: null,
   pianoRollRowId: null,
   run: null,
+  usedOnly: false,
 }
 
 // keep a pattern selected while there are any: the one that was, or the
@@ -116,7 +120,7 @@ export const sequencerSlice = createSlice({
       const i = rows.findIndex(row => row.id === got.id)
       if(i >= 0 && !sameRow(rows[i], got)) state.rows[i] = got
     },
-    // show a pattern in the sequencers and the Piano Roll
+    // show a pattern in the Pattern Sequencer and the Piano Roll
     selectPattern: (state, action: PayloadAction<number>) => {
       select(state, action.payload)
     },
@@ -125,23 +129,27 @@ export const sequencerSlice = createSlice({
       if(state.rows.some(row => row.id === action.payload && isSynthRow(row))) state.pianoRollRowId = action.payload
     },
     // show a step changed straight away, before the engine answers, so
-    // painting across a row keeps up with the mouse
+    // painting across a row keeps up with the mouse (and a step past the
+    // end grows the pattern in the same frame)
     reduceStep: (
       state,
-      action: PayloadAction<{ patternId: number, rowId: number, step: number, on: boolean }>,
+      action: PayloadAction<{ patternId: number, rowId: number, step: number, on: boolean, stepsPerBar: number }>,
     ) => {
-      const { patternId, rowId, step, on } = action.payload
+      const { patternId, rowId, step, on, stepsPerBar } = action.payload
       const row = original(state.rows).find(r => r.id === rowId)
       const patterns = original(state.patterns)
       const i = patterns.findIndex(p => p.id === patternId)
-      if(row && i >= 0) state.patterns[i] = withStep(patterns[i], row, step, on)
+      if(row && i >= 0) state.patterns[i] = withStep(patterns[i], row, step, on, stepsPerBar)
     },
     // and a row's notes in a pattern (in order), as they're drawn and dragged
-    reduceNotes: (state, action: PayloadAction<{ patternId: number, rowId: number, notes: Note[] }>) => {
-      const { patternId, rowId, notes } = action.payload
+    reduceNotes: (
+      state,
+      action: PayloadAction<{ patternId: number, rowId: number, notes: Note[], stepsPerBar: number }>,
+    ) => {
+      const { patternId, rowId, notes, stepsPerBar } = action.payload
       const patterns = original(state.patterns)
       const i = patterns.findIndex(p => p.id === patternId)
-      if(i >= 0) state.patterns[i] = withNotes(patterns[i], rowId, notes)
+      if(i >= 0) state.patterns[i] = withNotes(patterns[i], rowId, notes, stepsPerBar)
     },
     // and a row moved, as soon as it's dropped
     reduceRowMove: (state, action: PayloadAction<{ rowId: number, index: number }>) => {
@@ -152,6 +160,9 @@ export const sequencerSlice = createSlice({
     },
     setRun: (state, action: PayloadAction<PatternRun | null>) => {
       state.run = action.payload
+    },
+    setUsedOnly: (state, action: PayloadAction<boolean>) => {
+      state.usedOnly = action.payload
     },
   },
   extraReducers: builder => {
@@ -184,7 +195,7 @@ export const sequencerSlice = createSlice({
   },
 })
 
-export const { selectPattern, setPianoRollRow, setSequencer } = sequencerSlice.actions
+export const { selectPattern, setPianoRollRow, setSequencer, setUsedOnly } = sequencerSlice.actions
 const { reducePattern, reduceRow, reduceStep, reduceNotes, reduceRowMove, setRun } = sequencerSlice.actions
 
 export default sequencerSlice.reducer
@@ -289,9 +300,24 @@ export const moveRow = (rowId: number, index: number) => (dispatch: Dispatch) =>
 }
 
 // play another sample on a sample row, keeping its notes, label, volume,
-// pan and mute
+// pan, mute, pitches and gate
 export const replaceRowSample = (rowId: number, path: string) =>
   editRow(`replace the row's sample with ${path}`, 'replace_row_sample', { rowId, path })
+
+// the pitch a row's clicked steps play. its notes follow in each pattern
+// where they were all at the old one (so a row showing steps still does),
+// which is why the whole sequencer comes back
+export const setRowStepPitch = (rowId: number, pitch: number) =>
+  edit("set the row's step pitch", 'set_row_step_pitch', { rowId, pitch })
+
+// the pitch that plays a sample row's sample as it is
+export const setRowSamplePitch = (rowId: number, pitch: number) =>
+  editRow("set the row's sample pitch", 'set_row_sample_pitch', { rowId, pitch })
+
+// whether a sample row's notes stop at their ends (gated), or play the
+// sample out (one-shot)
+export const setRowGated = (rowId: number, gated: boolean) =>
+  editRow('gate the row', 'set_row_gated', { rowId, gated })
 
 // hear a sample row's sample, as it is
 export const previewRow = (rowId: number) => () =>
@@ -357,10 +383,11 @@ export const renamePattern = (patternId: number, name: string) =>
 export const setPatternBars = (patternId: number, bars: number) =>
   editPattern("change the pattern's length", 'set_pattern_bars', { patternId, bars })
 
-// light or clear a row's step (see withStep)
-export const setPatternStep = (patternId: number, rowId: number, step: number, on: boolean) =>
+// light or clear a row's step (see withStep). a step past the end grows the
+// pattern, in bars of `stepsPerBar` steps (the time signature's)
+export const setPatternStep = (patternId: number, rowId: number, step: number, on: boolean, stepsPerBar: number) =>
   (dispatch: Dispatch) => {
-    dispatch(reduceStep({ patternId, rowId, step, on }))
+    dispatch(reduceStep({ patternId, rowId, step, on, stepsPerBar }))
     // every step painted in one stroke of the mouse is undone together
     const gesture = currentGesture()
     return editPattern('change the step', 'set_pattern_step', { patternId, rowId, step, on, gesture })(dispatch)
@@ -406,13 +433,14 @@ const sendNotes = ({ patternId, rowId, notes, gesture, dispatch }: QueuedNotes):
 // replace a row's notes in a pattern. put in order first, as the engine
 // keeps them, so its answer doesn't move them about (anything kept by a
 // note's place in the list has to follow them: see the Piano Roll's
-// sortedWithPlaces). shown straight away, and sent at most every
+// sortedWithPlaces). shown straight away (grown to fit the notes added, in
+// bars of `stepsPerBar` steps: see withNotes), and sent at most every
 // SEND_NOTES_EVERY_MS, the latest always last (flushNoteSends sends it now).
 // every change made in one drag is one step to undo: see state/gesture.ts
-export const setPatternNotes = (patternId: number, rowId: number, notes: Note[]) =>
+export const setPatternNotes = (patternId: number, rowId: number, notes: Note[], stepsPerBar: number) =>
   (dispatch: Dispatch): Promise<void> => {
     const sorted = sortNotes(notes)
-    dispatch(reduceNotes({ patternId, rowId, notes: sorted }))
+    dispatch(reduceNotes({ patternId, rowId, notes: sorted, stepsPerBar }))
     const key = queueKey(patternId, rowId)
     const change = { patternId, rowId, notes: sorted, gesture: currentGesture(), dispatch }
 
@@ -455,19 +483,10 @@ export const clearPendingNoteSends = () => {
 
 // the tabs that show the selected pattern, and loop it with Play while
 // they're the focused pane's
-const PATTERN_VIEWS = new Set([View.Sequencer, View.NoteSequencer, View.PianoRoll])
+const PATTERN_VIEWS = new Set([View.PatternSequencer, View.PianoRoll])
 
 export const isPatternView = (view: View | undefined): boolean =>
   view !== undefined && PATTERN_VIEWS.has(view)
-
-// which sequencer tab shows a pattern's notes, while there are two (one
-// for the sample rows, one for the synth rows): the synths' when every note
-// it holds is on a synth row, else the samples' (an empty pattern too)
-export const sequencerTabFor = (pattern: Pattern, rows: Row[]): View => {
-  const held = Object.keys(pattern.notes).map(Number)
-  const onSynths = held.length > 0 && held.every(id => rows.some(row => row.id === id && isSynthRow(row)))
-  return onSynths ? View.NoteSequencer : View.Sequencer
-}
 
 // after a transport command: whether the engine plays, and which pattern
 export const syncRun = async (dispatch: Dispatch) => {
@@ -479,8 +498,8 @@ export const syncRun = async (dispatch: Dispatch) => {
 }
 
 // change the tempo (see setPlaylistTempo). a pattern playing on its own
-// starts over at the new tempo, so the Sequencer's step light follows the
-// new run. resolves to whether the tempo was changed
+// starts over at the new tempo, so the Pattern Sequencer's playing step
+// follows the new run. resolves to whether the tempo was changed
 export const changeTempo = (tempo: number, gesture: number | null = null) => async (
   dispatch: Dispatch,
 ): Promise<boolean> => {
@@ -508,14 +527,12 @@ export const explodePatternClips = (ids: number[]) => async (dispatch: Dispatch)
   }
 }
 
-// open a pattern in the sequencer tab that shows its notes (double-clicking
-// its clip, or picking it in the browser)
+// open a pattern in the Pattern Sequencer (double-clicking its clip, or
+// picking it in the browser)
 export const showPattern = (patternId: number) => (dispatch: Dispatch, getState: () => RootState) => {
-  const { patterns, rows } = getState().sequencer
-  const pattern = patterns.find(p => p.id === patternId)
-  if(!pattern) return
+  if(!getState().sequencer.patterns.some(p => p.id === patternId)) return
   dispatch(selectPattern(patternId))
-  dispatch(openTab(sequencerTabFor(pattern, rows)))
+  dispatch(openTab(View.PatternSequencer))
 }
 
 // open the Piano Roll on a synth row's notes in a pattern
@@ -548,9 +565,9 @@ export const seekPattern = (patternId: number, step: number) => async (dispatch:
   await syncRun(dispatch)
 }
 
-// the Play key: with a sequencer or the Piano Roll the focused pane's tab,
-// loop the selected pattern (or pause what's playing); anywhere else, play
-// the playlist as always
+// the Play key: with the Pattern Sequencer or the Piano Roll the focused
+// pane's tab, loop the selected pattern (or pause what's playing); anywhere
+// else, play the playlist as always
 export const togglePlayHere = () => async (dispatch: Dispatch, getState: () => RootState) => {
   const state = getState()
   const view = selectFocusedView(state)
@@ -577,8 +594,8 @@ export const playPattern = (patternId: number) => async (dispatch: Dispatch) => 
   await syncRun(dispatch)
 }
 
-// stop a pattern playing on its own (focus left the sequencers and the
-// Piano Roll). the playlist's playhead stays where it was
+// stop a pattern playing on its own (focus left the Pattern Sequencer and
+// the Piano Roll). the playlist's playhead stays where it was
 export const stopPattern = () => async (dispatch: Dispatch) => {
   try {
     await invoke('pause_playlist', {})
@@ -599,9 +616,9 @@ const synthFail = (dispatch: Dispatch, what: string) => (e: unknown) => {
   dispatch(setProjectNotice({ kind: 'error', message: `${what}: ${message(e)}` }))
 }
 
-// an instrument dropped on the Note Sequencer: a synth row at the bottom.
-// resolves to the row's id, or null when it couldn't be added (which is
-// shown)
+// an instrument dropped on the Pattern Sequencer: a synth row at the
+// bottom. resolves to the row's id, or null when it couldn't be added
+// (which is shown)
 export const addSynthRow = (pluginId: string) =>
   async (dispatch: Dispatch, getState: () => RootState): Promise<number | null> => {
     try {
@@ -614,6 +631,16 @@ export const addSynthRow = (pluginId: string) =>
       return null
     }
   }
+
+// an instrument dropped on a synth row: its plugin instead, in a new slot,
+// keeping the row's notes and settings (one that can't be loaded is shown)
+export const replaceRowSynth = (rowId: number, pluginId: string) => async (dispatch: Dispatch) => {
+  try {
+    dispatch(reduceRow(await invoke<RowChange>('replace_row_synth', { rowId, pluginId })))
+  } catch(e) {
+    synthFail(dispatch, 'Couldn’t replace the instrument')(e)
+  }
+}
 
 // the playhead's beat, from the engine (null if it can't be asked)
 const playheadBeat = async (): Promise<number | null> => {
@@ -661,3 +688,4 @@ export const selectPianoRollRow = (state: RootState): Row<SynthInstrument> | nul
   state.sequencer.rows.find((row): row is Row<SynthInstrument> =>
     row.id === state.sequencer.pianoRollRowId && isSynthRow(row)) ?? null
 export const selectPatternRun = (state: RootState) => state.sequencer.run
+export const selectUsedOnly = (state: RootState) => state.sequencer.usedOnly

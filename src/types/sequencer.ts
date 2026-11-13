@@ -137,26 +137,71 @@ const NO_NOTES: Note[] = []
 export const rowNotes = (pattern: Pick<Pattern, 'notes'>, rowId: number): Note[] =>
   pattern.notes[rowId] ?? NO_NOTES
 
+// the length a pattern grows to so a note ending at `end` fits: to the end
+// of the bar holding that end. never shorter than it was (even past the
+// cap), never grown past MAX_PATTERN_BARS. the engine's grown_length is the
+// same
+export const grownLength = (length: number, end: number, stepsPerBar: number): number => {
+  const cap = MAX_PATTERN_BARS * stepsPerBar
+  const fit = Math.max(1, Math.ceil((end - 1e-9) / stepsPerBar)) * stepsPerBar
+  return Math.max(length, Math.min(fit, cap))
+}
+
+const sameNote = (a: Note, b: Note): boolean =>
+  a.pitch === b.pitch && a.start === b.start && a.length === b.length && a.velocity === b.velocity
+
+const noteKey = (note: Note): string => `${note.pitch}:${note.start}:${note.length}:${note.velocity}`
+
+// where the notes in `next` that aren't in `prev` end, the furthest of
+// them (0 when none was added). notes are compared on all they are, and a
+// note in `next` twice but in `prev` once counts once as added. the
+// engine's added_end is the same
+export const addedEnd = (prev: Note[], next: Note[]): number => {
+  // (the notes both lists start and end with alike aren't looked at: an
+  // edit usually changes a few notes)
+  let head = 0
+  while(head < prev.length && head < next.length && sameNote(prev[head], next[head])) head += 1
+  let tail = 0
+  while(tail < prev.length - head && tail < next.length - head
+    && sameNote(prev[prev.length - 1 - tail], next[next.length - 1 - tail])) tail += 1
+
+  const had = new Map<string, number>()
+  prev.slice(head, prev.length - tail).forEach(note => had.set(noteKey(note), (had.get(noteKey(note)) ?? 0) + 1))
+  let end = 0
+  next.slice(head, next.length - tail).forEach(note => {
+    const count = had.get(noteKey(note)) ?? 0
+    if(count > 0) had.set(noteKey(note), count - 1)
+    else end = Math.max(end, note.start + note.length)
+  })
+  return end
+}
+
 // a pattern with a row's notes replaced (what the engine will make of
-// it, unconfirmed until it answers). `notes` must be in order already
-export const withNotes = (pattern: Pattern, rowId: number, notes: Note[]): Pattern => {
+// it, unconfirmed until it answers), grown to fit the notes added (see
+// addedEnd and grownLength). `notes` must be in order already
+export const withNotes = (pattern: Pattern, rowId: number, notes: Note[], stepsPerBar: number): Pattern => {
+  const end = addedEnd(rowNotes(pattern, rowId), notes)
   const next = { ...pattern.notes }
   if(notes.length) next[rowId] = notes
   else delete next[rowId]
-  return { ...pattern, rev: UNCONFIRMED, notes: next }
+  const length = end > 0 ? grownLength(pattern.length, end, stepsPerBar) : pattern.length
+  return { ...pattern, rev: UNCONFIRMED, length, notes: next }
 }
 
 // a pattern with a row's step (a whole step) lit or cleared, as the engine
-// does it: lit, a 1-step note at the row's step pitch, unless one's there.
-// cleared, every note of the row at that step and pitch goes
-export const withStep = (pattern: Pattern, row: Row, step: number, on: boolean): Pattern => {
+// does it: lit, a 1-step note at the row's step pitch, unless one's there,
+// and the pattern grown to the end of the step's bar (a step past its end
+// was clicked), whether the note was there or not. cleared, every note of
+// the row at that step and pitch goes
+export const withStep = (pattern: Pattern, row: Row, step: number, on: boolean, stepsPerBar: number): Pattern => {
   const notes = rowNotes(pattern, row.id)
   const atStep = (note: Note) => note.start === step && note.pitch === row.stepPitch
-  if(on === notes.some(atStep)) return pattern
+  const length = on ? grownLength(pattern.length, step + 1, stepsPerBar) : pattern.length
+  if(on === notes.some(atStep)) return length === pattern.length ? pattern : { ...pattern, rev: UNCONFIRMED, length }
 
-  return withNotes(pattern, row.id, on
+  return withNotes({ ...pattern, length }, row.id, on
     ? sortNotes([...notes, { pitch: row.stepPitch, start: step, length: 1, velocity: STEP_VELOCITY }])
-    : notes.filter(note => !atStep(note)))
+    : notes.filter(note => !atStep(note)), stepsPerBar)
 }
 
 // a row's notes in a pattern `length` steps long, as the steps they light,
@@ -177,6 +222,11 @@ export const stepView = (row: Row, notes: Note[], length: number): number[] | nu
   }
   return lit
 }
+
+// how many steps after a pattern's end are shown greyed, for a click to
+// grow it (see withStep): a bar, or what's left of the longest it can be
+export const greyedSteps = (length: number, stepsPerBar: number): number =>
+  Math.max(0, Math.min(stepsPerBar, MAX_PATTERN_BARS * stepsPerBar - length))
 
 // a folder of patterns, in the sidebar's pattern browser. folders only sort
 // patterns: they don't change how anything plays
@@ -228,9 +278,6 @@ export const sameRow = (a: Row, b: Row): boolean => a.rev === b.rev
   && (a.instrument.kind !== 'synth' || (b.instrument.kind === 'synth'
     && a.instrument.missing === b.instrument.missing && a.instrument.hasEditor === b.instrument.hasEditor))
 
-const sameNote = (a: Note, b: Note): boolean =>
-  a.pitch === b.pitch && a.start === b.start && a.length === b.length && a.velocity === b.velocity
-
 // a pattern the engine sent, holding `had`'s list of notes for each row
 // whose notes are the same, so the rows showing them don't re-render. (an
 // edit changes one row's notes: the rest arrive as new copies)
@@ -270,12 +317,17 @@ export const patternBars = (pattern: Pattern, beatsPerBar: number): number | nul
   return Number.isInteger(bars) ? bars : null
 }
 
+// the bars a pattern reaches into (its last one may not be whole), as the
+// bars counter shows them
+export const barsReached = (pattern: Pattern, beatsPerBar: number): number =>
+  Math.ceil(pattern.length / stepsPerBar(beatsPerBar))
+
 // how long a pattern plays for, in seconds, at a tempo
 export const patternSeconds = (pattern: Pattern, tempo: number): number =>
   tempo > 0 ? (pattern.length / STEPS_PER_BEAT) * (60 / tempo) : 0
 
 // the step a pattern playing on its own is on, `elapsedMs` after it started
-export const stepAt = (elapsedMs: number, pattern: Pattern, beatIntervalMs: number): number | null => {
+export const stepAt = (elapsedMs: number, pattern: Pick<Pattern, 'length'>, beatIntervalMs: number): number | null => {
   const stepMs = beatIntervalMs / STEPS_PER_BEAT
   if(stepMs <= 0 || pattern.length <= 0) return null
   return Math.floor(Math.max(0, elapsedMs) / stepMs) % pattern.length

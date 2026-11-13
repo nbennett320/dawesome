@@ -35,6 +35,18 @@ const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 export const pitchName = (pitch: number): string =>
   `${NAMES[((pitch % 12) + 12) % 12]}${Math.floor(pitch / 12) - 1}`
 
+const ACCIDENTALS: Record<string, number> = { '': 0, '#': 1, b: -1 }
+
+// a pitch typed as pitchName gives it ("C4", "F#3", or "Gb3"), or as a
+// MIDI note number, or null when it's neither or isn't a note MIDI has
+export const parsePitch = (text: string): number | null => {
+  const typed = text.trim()
+  const named = /^([A-Ga-g])(#|b|)(-?\d+)$/.exec(typed)
+  let pitch = /^\d+$/.test(typed) ? Number(typed) : null
+  if(named) pitch = NAMES.indexOf(named[1].toUpperCase()) + ACCIDENTALS[named[2]] + (Number(named[3]) + 1) * 12
+  return pitch !== null && pitch >= 0 && pitch <= 127 ? pitch : null
+}
+
 // the black keys of a piano: C#, D#, F#, G#, A#
 export const isBlackKey = (pitch: number): boolean => [1, 3, 6, 8, 10].includes(((pitch % 12) + 12) % 12)
 

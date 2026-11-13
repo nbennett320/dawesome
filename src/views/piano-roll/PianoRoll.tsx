@@ -25,7 +25,7 @@ import {
 import { View } from '../../types/ui'
 import { AnalogButton, Led } from '../../components/fourtrack'
 import { useTransport } from '../transport/useTransport'
-import { useStopWhenUnfocused } from '../sequencer/useStopWhenUnfocused'
+import { useStopWhenUnfocused } from '../pattern-sequencer/useStopWhenUnfocused'
 import NoteGrid from './NoteGrid'
 import { PlayIcon, StopIcon } from '../../components/icons'
 
@@ -97,7 +97,7 @@ const Toolbar = ({ pattern, row, beatsPerBar }: {
     <div className='ft-tray rounded-lg m-2 mb-0 p-2 flex flex-row flex-wrap items-end gap-x-4 gap-y-2'>
       <Picker
         label='Pattern'
-        title='The pattern whose notes are shown (the sequencers show it too)'
+        title='The pattern whose notes are shown (the Pattern Sequencer shows it too)'
         value={String(pattern.id)}
         onChange={value => dispatch(selectPattern(Number(value)))}
       >
@@ -153,9 +153,9 @@ const Empty = ({ children }: { children: React.ReactNode }) => (
 const NO_GHOSTS: Note[] = []
 
 // one synth row's notes in a pattern, on a grid of 16th note steps against
-// a piano keyboard. the pattern is the sequencers' selected one, so the tabs
-// agree, and Play loops it while any of them is focused. the other rows'
-// notes show faintly behind
+// a piano keyboard. the pattern is the Pattern Sequencer's selected one, so
+// the tabs agree, and Play loops it while either is focused. the other
+// rows' notes show faintly behind
 const PianoRoll = () => {
   const dispatch = useAppDispatch()
   const pattern = useAppSelector(selectSelectedPattern)
@@ -204,9 +204,9 @@ const PianoRoll = () => {
         </div>
       ) : (
         <Empty>
-          <p className='text-xs text-ink-soft'>No synth yet. Drag an instrument into the Note Sequencer to draw its notes</p>
-          <AnalogButton variant='text' size='sm' onPress={() => dispatch(openTab(View.NoteSequencer))}>
-            Note Sequencer
+          <p className='text-xs text-ink-soft'>No synth yet. Drag an instrument into the Pattern Sequencer to draw its notes</p>
+          <AnalogButton variant='text' size='sm' onPress={() => dispatch(openTab(View.PatternSequencer))}>
+            Pattern Sequencer
           </AnalogButton>
         </Empty>
       )}

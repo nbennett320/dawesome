@@ -62,14 +62,14 @@ describe('the pattern browser', () => {
     expect(rows().some(row => row.startsWith('Verse'))).toBe(true)
   })
 
-  it('shows a pattern in the sequencer tab that shows its notes', async () => {
+  it('shows a pattern in the Pattern Sequencer', async () => {
     const store = await setup()
     fireEvent.click(screen.getByText('Beat'))
-    expect(selectFocusedView(store.getState() as never)).toBe(View.Sequencer)
+    expect(selectFocusedView(store.getState() as never)).toBe(View.PatternSequencer)
     expect(store.getState().sequencer.selected).toBe(0)
 
     fireEvent.click(screen.getByText('Verse'))
-    expect(selectFocusedView(store.getState() as never)).toBe(View.NoteSequencer)
+    expect(selectFocusedView(store.getState() as never)).toBe(View.PatternSequencer)
     expect(store.getState().sequencer.selected).toBe(1)
   })
 

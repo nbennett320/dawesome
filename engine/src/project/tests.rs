@@ -1048,8 +1048,8 @@ fn test_a_stage_one_project_loads_without_its_instruments_and_notes() {
   let rig = rig();
   let loaded = apply(&rig.state, &Project::from_json(&json.to_string()).unwrap(), None);
   assert_eq!(loaded.dropped, vec![
-    "1 instrument in a mixer channel's effects was left out: instruments are synths in the Note Sequencer now".to_string(),
-    "The notes in 2 drum patterns were left out: notes are in note patterns now".to_string(),
+    "1 instrument in a mixer channel's effects was left out: instruments are rows of the Pattern Sequencer now".to_string(),
+    "The notes in 2 patterns were left out: notes belong to a row of the Pattern Sequencer now".to_string(),
   ]);
   assert_eq!(serde_json::to_value(&loaded).unwrap()["dropped"].as_array().unwrap().len(), 2);
   assert_eq!(rack_shape(&loaded.effects), vec![(Some(0), vec![("Gain".into(), false, false)])]);

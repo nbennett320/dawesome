@@ -8,20 +8,20 @@ import {
   selectPattern,
   selectPatterns,
   selectSelectedPattern,
-  setPatternBars,
+  selectUsedOnly,
+  setUsedOnly,
 } from '../../state/slices/sequencerSlice'
 import { selectPlaylistItems } from '../../state/slices/playlistSlice'
 import { beginSampleDrag } from '../../state/sampleDrag'
-import {
-  MAX_PATTERN_BARS, Pattern, patternBars, patternLabel, unnamedLabel,
-} from '../../types/sequencer'
+import { Pattern, patternLabel, unnamedLabel } from '../../types/sequencer'
 import { AnalogButton, Led } from '../../components/fourtrack'
 import { NameInput } from '../../components/common'
+import BarsCounter from './BarsCounter'
 import { PatternMenu, ScrollingKeys } from './PatternKeys'
 
 // narrower than this, the selected pattern's length and keys go on a line
 // of their own under the patterns
-const NARROW_PX = 560
+const NARROW_PX = 640
 
 const MAX_NAME_CHARS = 24
 
@@ -121,38 +121,20 @@ const DeletePattern = ({ pattern }: { pattern: Pattern }) => {
   )
 }
 
-// whether a typed length is one a pattern can be
-const validBars = (bars: number) => Number.isInteger(bars) && bars >= 1 && bars <= MAX_PATTERN_BARS
-
-// a pattern's length: any number of bars up to MAX_PATTERN_BARS, typed.
-// taken up on Enter or when the field is left
-const BarsField = ({ pattern, bars }: { pattern: Pattern, bars: number | null }) => {
+// "Used only": the rows without notes in the pattern shown are hidden
+const UsedOnly = () => {
   const dispatch = useAppDispatch()
-  const [draft, setDraft] = React.useState<string | null>(null)
-
-  const takeUp = (value: string) => {
-    setDraft(null)
-    const typed = Number(value)
-    if(validBars(typed) && typed !== bars) dispatch(setPatternBars(pattern.id, typed))
-  }
-
+  const usedOnly = useAppSelector(selectUsedOnly)
   return (
-    <input
-      type='number'
-      min={1}
-      max={MAX_PATTERN_BARS}
-      step={1}
-      className='ft-readout text-sm py-0.5 w-14 h-7'
-      aria-label='Bars'
-      title={`How many bars long the pattern is, 1 to ${MAX_PATTERN_BARS}. Notes past its end are kept, but don’t play`}
-      value={draft ?? (bars ?? '')}
-      onChange={e => setDraft(e.currentTarget.value)}
-      onBlur={e => takeUp(e.currentTarget.value)}
-      onKeyDown={e => {
-        if(e.key === 'Enter') takeUp(e.currentTarget.value)
-        if(e.key === 'Escape') setDraft(null)
-      }}
-    />
+    <AnalogButton
+      variant='text'
+      size='sm'
+      latched={usedOnly}
+      title={usedOnly ? 'Showing the rows with notes in this pattern. Click to show every row' : 'Show only the rows with notes in this pattern'}
+      onPress={() => dispatch(setUsedOnly(!usedOnly))}
+    >
+      Used only
+    </AnalogButton>
   )
 }
 
@@ -170,8 +152,8 @@ const useNarrow = (ref: React.RefObject<HTMLElement>, px: number): boolean => {
 }
 
 // the patterns along the top, in one line that scrolls, then the selected
-// one's length, Copy and Delete (under them, when the strip is narrow). the
-// top bar's Play loops the selected one
+// one's length, Used only, Copy and Delete (under them, when the strip is
+// narrow). the top bar's Play loops the selected one
 const PatternStrip = ({ beatsPerBar, playingId }: {
   beatsPerBar: number
   playingId: number | null
@@ -179,7 +161,6 @@ const PatternStrip = ({ beatsPerBar, playingId }: {
   const dispatch = useAppDispatch()
   const patterns = useAppSelector(selectPatterns)
   const selected = useAppSelector(selectSelectedPattern)
-  const bars = selected ? patternBars(selected, beatsPerBar) : null
   const ref = React.useRef<HTMLDivElement>(null)
   const narrow = useNarrow(ref, NARROW_PX)
 
@@ -187,10 +168,14 @@ const PatternStrip = ({ beatsPerBar, playingId }: {
     <>
       <div className='shrink-0 flex flex-col gap-1'>
         <span className='ft-label'>Bars</span>
-        <BarsField key={selected.id} pattern={selected} bars={bars} />
+        <BarsCounter key={selected.id} pattern={selected} beatsPerBar={beatsPerBar} />
       </div>
 
-      <div className='shrink-0 flex flex-row gap-1 ml-auto'>
+      <div className='shrink-0 pb-0.5'>
+        <UsedOnly />
+      </div>
+
+      <div className='shrink-0 flex flex-row gap-1 ml-auto pb-0.5'>
         <AnalogButton
           variant='text'
           size='sm'
@@ -234,7 +219,7 @@ const PatternStrip = ({ beatsPerBar, playingId }: {
                 variant='text'
                 title='A new, empty pattern'
                 aria-label='New pattern'
-                onPress={() => dispatch(addPattern(bars ?? 1))}
+                onPress={() => dispatch(addPattern(1))}
               >
                 +
               </AnalogButton>
@@ -248,6 +233,5 @@ const PatternStrip = ({ beatsPerBar, playingId }: {
   )
 }
 
-// memo: the Drum Sequencer re-renders as the playing step moves, which
-// doesn't change the strip
+// memo: the tab renders again on every step clicked
 export default React.memo(PatternStrip)

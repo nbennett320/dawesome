@@ -186,13 +186,13 @@ describe('the Piano Roll', () => {
     await waitFor(() => expect(calls('toggle_pattern')).toEqual([{ patternId: 1 }]))
   })
 
-  it('sends to the Note Sequencer when there’s no synth row yet', async () => {
+  it('sends to the Pattern Sequencer when there’s no synth row yet', async () => {
     sequencer = { ...makeSequencer(), rows: [sampleRow(2)] }
     setup()
     expect(await screen.findByText(/No synth yet/)).toBeTruthy()
     expect(screen.queryByRole('combobox', { name: 'Synth' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Note Sequencer' }))
-    expect(selectFocusedView(store.getState() as never)).toBe(View.NoteSequencer)
+    fireEvent.click(screen.getByRole('button', { name: 'Pattern Sequencer' }))
+    expect(selectFocusedView(store.getState() as never)).toBe(View.PatternSequencer)
   })
 
   it('has the playlist’s tray: Select, Draw and Cut, with Draw to start, and snap', async () => {

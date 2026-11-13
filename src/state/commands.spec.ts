@@ -12,7 +12,15 @@ describe('findCommand', () => {
   it('takes the short names', () => {
     const dispatch = vi.fn()
     findCommand('seq')!(dispatch)
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ payload: View.Sequencer }))
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ payload: View.PatternSequencer }))
+  })
+
+  it('opens the Pattern Sequencer by its menu name and its old one', () => {
+    const dispatch = vi.fn()
+    findCommand('sequencer')!(dispatch)
+    findCommand('notes')!(dispatch)
+    expect(dispatch.mock.calls.map(([action]) => action.payload)).toEqual([View.PatternSequencer, View.PatternSequencer])
+    expect(findCommand('note-sequencer')).toBeUndefined()
   })
 
   it('ignores case and surrounding space', () => {

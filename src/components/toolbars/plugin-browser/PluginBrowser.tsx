@@ -28,7 +28,7 @@ const KINDS: Record<PluginKind, { plural: string, where: string, Icon: typeof Kn
   },
   instrument: {
     plural: 'instruments',
-    where: 'Drag into the Note Sequencer to add it as a synth, or onto a track in the Mixer to start a pattern there',
+    where: 'Drag into the Pattern Sequencer to add it as a row, or onto a track in the Mixer to start a pattern there',
     Icon: KeysIcon,
   },
 }
@@ -143,7 +143,7 @@ const PluginSection = ({ plugins, kind, query }: { plugins: PluginInfo[], kind: 
 
 // the plugins of a kind the engine found, by category: drag an effect onto
 // a mixer channel (or into the Effects Rack), and an instrument into the
-// Note Sequencer
+// Pattern Sequencer
 const PluginBrowser = ({ kind }: { kind: PluginKind }) => {
   const dispatch = useAppDispatch()
   const catalog = useAppSelector(selectCatalog)

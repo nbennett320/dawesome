@@ -52,23 +52,19 @@ describe('the Play key and Space', () => {
     expect(sent()).toEqual([['toggle_playlist', {}]])
   })
 
-  it('loops the selected pattern from either sequencer and the Piano Roll', async () => {
-    store.dispatch(openTab(View.Sequencer))
-    await pressPlay()
-    store.dispatch(openTab(View.NoteSequencer))
+  it('loops the selected pattern from the Pattern Sequencer and the Piano Roll', async () => {
+    store.dispatch(openTab(View.PatternSequencer))
     await pressPlay()
     store.dispatch(openTab(View.PianoRoll))
     await pressPlay()
-    expect(sent()).toEqual([
-      ['toggle_pattern', { patternId: 15 }], ['toggle_pattern', { patternId: 15 }], ['toggle_pattern', { patternId: 15 }],
-    ])
+    expect(sent()).toEqual([['toggle_pattern', { patternId: 15 }], ['toggle_pattern', { patternId: 15 }]])
   })
 
   it('loops from the Piano Roll’s start marker, set on its ruler, and only from the Piano Roll', async () => {
     store.dispatch(setPianoRollStart({ patternId: 15, step: 10 }))
     store.dispatch(openTab(View.PianoRoll))
     await pressPlay()
-    store.dispatch(openTab(View.NoteSequencer))
+    store.dispatch(openTab(View.PatternSequencer))
     await pressPlay()
     expect(sent()).toEqual([['toggle_pattern', { patternId: 15, fromStep: 10 }], ['toggle_pattern', { patternId: 15 }]])
     store.dispatch(setPianoRollStart({ patternId: 15, step: 0 }))
@@ -79,8 +75,8 @@ describe('the Play key and Space', () => {
     expect(sent()).toEqual([['play_pattern', { patternId: 3 }]])
   })
 
-  it('plays the playlist from the Sequencer when there is no pattern', async () => {
-    store.dispatch(openTab(View.Sequencer))
+  it('plays the playlist from the Pattern Sequencer when there is no pattern', async () => {
+    store.dispatch(openTab(View.PatternSequencer))
     store.dispatch(setSequencer(patterns([])))
     await pressPlay()
     expect(sent()).toEqual([['toggle_playlist', {}]])

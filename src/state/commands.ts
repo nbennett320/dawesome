@@ -18,8 +18,9 @@ const commands: Record<string, Run> = {
   // every tab the Window menu opens, by the same names
   ...Object.fromEntries(Object.entries(menuViews).map(([name, view]) => [name, tab(view)])),
   // shortcuts
-  seq: tab(View.Sequencer),
-  notes: tab(View.NoteSequencer),
+  seq: tab(View.PatternSequencer),
+  // (its old name, still known)
+  notes: tab(View.PatternSequencer),
   piano: tab(View.PianoRoll),
   fx: tab(View.EffectsRack),
   prefs: tab(View.Preferences),

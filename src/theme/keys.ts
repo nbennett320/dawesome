@@ -26,7 +26,7 @@ export interface Preferences {
   darkTheme: string
   // where a plugin's own interface opens: a floating window, or a tab
   pluginView: 'window' | 'tab'
-  // how the Drum Sequencer's step keys look (see StepKeys in preferences.rs)
+  // how the Pattern Sequencer's step keys look (see StepKeys in preferences.rs)
   stepKeys: StepKeys
   // whether typing `:` opens the vim-style command bar (see InfoBar)
   commandBar: boolean

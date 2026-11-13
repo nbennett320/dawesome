@@ -1,16 +1,26 @@
-// the Drum Sequencer's step keys, after Roland's drum machines. which look
-// is a preference (StepKeys), set on the row as data-keys:
+// the Pattern Sequencer's step keys, after Roland's drum machines. which
+// look is a preference (StepKeys), set on the list of rows as data-keys:
 // - tr808: each beat's caps in its own colour, a red LED on each
 // - tr909: plain caps with an amber LED, over a coloured strip per beat
 // - tr8s: plain pads that light up in the accent
 // the colours are the theme's own: four-track caps and LEDs, and for the
 // beats its accent, then accent and LED colour mixed, then its LED colour,
 // then plain
+//
+// the keys are 22px wide, 3px apart, with 6px between beats and 12px
+// between bars: stepGrid.ts places the beats (and the playing step's
+// column) by these numbers
 
+// a row's keys: its beats are placed in it, only those in view (see
+// StepKeys), so it's given its width and height
 .seq-steps {
-  display: flex;
-  flex-direction: row;
-  align-items: flex-start;
+  position: relative;
+  flex: none;
+  height: 30px;
+
+  [data-keys='tr909'] & {
+    height: 37px;
+  }
 }
 
 .seq-beat {
@@ -20,6 +30,8 @@
   &.is-beat-1 { --beat: color-mix(in srgb, rgb(var(--c-accent)) 50%, rgb(var(--c-led))); }
   &.is-beat-2 { --beat: rgb(var(--c-led)); }
 
+  position: absolute;
+  top: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -29,6 +41,13 @@
   display: flex;
   flex-direction: row;
   gap: 3px;
+}
+
+// where a key of a beat shown in part would be
+.seq-key-space {
+  flex: none;
+  width: 22px;
+  height: 28px;
 }
 
 .seq-strip {
@@ -103,18 +122,8 @@
     box-shadow: 0 0 6px 1px var(--led-glow);
   }
 
-  // the running light: brighter on a lit step, a faint glow on one that isn't
-  .is-now > & {
-    background: var(--led);
-    box-shadow: 0 0 9px 2px var(--led-glow);
-  }
-  .is-now:not(.is-lit) > & {
-    background: color-mix(in srgb, var(--led) 50%, var(--led-off));
-    box-shadow: 0 0 6px 1px var(--led-glow);
-  }
-
   // a muted row's lit steps are dim
-  .is-muted .is-lit:not(.is-now) > & {
+  .is-muted .is-lit > & {
     background: color-mix(in srgb, var(--led) 45%, var(--led-off));
     box-shadow: none;
   }
@@ -189,9 +198,100 @@
       0 0 0 1px var(--ft-line-strong),
       0 var(--depth) 0 var(--ft-line-strong);
   }
-  // the running light: an amber ring
-  .seq-key.is-now {
-    outline: 2px solid rgb(var(--c-led));
-    outline-offset: 1px;
+}
+
+// ── past the pattern's end: a bar of greyed keys, to click to make the
+// pattern longer. plain caps sunk toward the tray, whatever the style ──
+[data-keys] .seq-key.is-greyed {
+  --cap-top: color-mix(in srgb, var(--ft-cap-top) 40%, var(--ft-tray));
+  --cap-bottom: color-mix(in srgb, var(--ft-cap-bottom) 40%, var(--ft-tray));
+  --edge: color-mix(in srgb, var(--ft-line-strong) 45%, var(--ft-tray));
+
+  background: linear-gradient(180deg, var(--cap-top), var(--cap-bottom));
+  box-shadow:
+    0 0 0 1px var(--edge),
+    0 var(--depth) 0 var(--edge);
+
+  &:active {
+    box-shadow: 0 0 0 1px var(--edge), 0 1px 0 var(--edge);
+  }
+
+  .seq-led {
+    background: color-mix(in srgb, var(--ft-line) 50%, var(--ft-tray));
+    box-shadow: none;
+  }
+}
+
+[data-keys='tr909'] .seq-beat.is-greyed .seq-strip {
+  background: color-mix(in srgb, var(--ft-line-strong) 45%, var(--ft-tray));
+}
+
+// ── a row's notes when they aren't plain steps: a panel for each bar,
+// where its keys would be, and the notes drawn across them ──
+.seq-preview {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  background: none;
+
+  &.is-open {
+    cursor: pointer;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ft-focus);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+.seq-preview-bar {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 4px;
+  background: rgb(var(--c-raised));
+  box-shadow: inset 0 0 0 1px var(--ft-line-strong);
+
+  .seq-preview.is-open:hover & {
+    box-shadow: inset 0 0 0 1px var(--ft-ink-faint);
+  }
+}
+
+// ── the step playing: one column over every row, moved from step to step
+// by its transform (see PlayingStep). it's drawn after the rows and above
+// them, so they're left as they are: in WebKit, keys painted after something
+// that moves are put on layers of their own and drawn a sub-pixel off. it
+// snaps, with no transition, and its colours are mixed rather than faded
+// (an element whose opacity changes gets a layer too). it lights the column
+// in the style's LED colour: amber, red on the 808, the theme's LED on the
+// 8S ──
+.seq-now {
+  --now: var(--ft-led-amber-on);
+  --now-glow: var(--ft-led-amber-glow);
+
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 26px;
+  margin-left: -2px;
+  border-radius: 6px;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--now) 14%, transparent);
+  box-shadow:
+    inset 0 0 0 2px color-mix(in srgb, var(--now) 75%, transparent),
+    0 0 10px var(--now-glow);
+
+  [data-keys='tr808'] > & {
+    --now: var(--ft-led-red-on);
+    --now-glow: var(--ft-led-red-glow);
+  }
+
+  [data-keys='tr8s'] > & {
+    --now: rgb(var(--c-led));
+    --now-glow: rgb(var(--c-led) / .45);
   }
 }

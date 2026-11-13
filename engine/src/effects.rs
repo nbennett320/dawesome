@@ -555,7 +555,7 @@ impl Effects {
       let info = self.plugins.find(plugin_id)
         .ok_or_else(|| "That plugin isn't among the installed plugins. Try scanning for plugins again".to_string())?;
       if info.kind == PluginKind::Instrument {
-        return Err(format!("{} is an instrument: add it to the Note Sequencer's synths", info.name));
+        return Err(format!("{} is an instrument: add it to the Pattern Sequencer as a row", info.name));
       }
       let desc = Desc {
         id: self.new_id(),

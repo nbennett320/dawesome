@@ -2,7 +2,7 @@ import { Note, sortNotes, stepsPerBar } from '../../types/sequencer'
 import {
   DEFAULT_LENGTH, NEW_VELOCITY, allIndices, carriedNotes, centerPitch, clampNote, copyNotes, cutNotes, deleteNotes, drawnLength,
   fitSelection, followPlaces, inSteps, isBlackKey, markerStep, moveNotes, newNote, noteBoxes, noteCut, pasteNotes, pasteStep,
-  pitchName, pressKind, repeatNotes, rollSnapping, sameNotes, snapStep, snapStepDown, sortedWithPlaces, trimNotes,
+  parsePitch, pitchName, pressKind, repeatNotes, rollSnapping, sameNotes, snapStep, snapStepDown, sortedWithPlaces, trimNotes,
 } from './notes'
 import {
   DEFAULT_STEP_WIDTH, MAX_STEP_WIDTH, MIN_STEP_WIDTH, ROW_HEIGHT, pitchAtY, rowAtY, rowTop, stepAtX, zoomGrid,
@@ -272,6 +272,12 @@ describe('the grid', () => {
     expect(pitchName(0)).toBe('C-1')
     expect(pitchName(61)).toBe('C#4')
     expect([60, 61, 62, 63, 64, 65, 66].map(isBlackKey)).toEqual([false, true, false, true, false, false, true])
+  })
+
+  it('reads a pitch typed as its name or its number', () => {
+    expect(['C4', 'c4', ' D#3 ', 'Eb3', 'B#3', 'C-1', 'G9', '72'].map(parsePitch)).toEqual([60, 60, 51, 51, 60, 0, 127, 72])
+    // not a pitch, or not one MIDI has
+    expect(['', 'H2', 'C', '4C', 'Ab9', '128', '-1', 'C##4'].map(parsePitch)).toEqual(Array(8).fill(null))
   })
 
   it('opens on the middle of the notes, or middle C', () => {

@@ -16,14 +16,14 @@ window).
 
 | Mac | Windows/Linux | Action |
 | --- | --- | --- |
-| **Space** | **Space** | Play or pause the playlist. In the **Sequencer** or **Piano Roll** tab, loop the selected pattern (or pause). |
+| **Space** | **Space** | Play or pause the playlist. In the **Pattern Sequencer** or **Piano Roll** tab, loop the selected pattern (or pause). |
 | **⌘N** | **Ctrl+N** | **File ▸ New Project** |
 | **⌘O** | **Ctrl+O** | **File ▸ Open…** |
 | **⌘S** | **Ctrl+S** | **File ▸ Save** |
 | **⇧⌘S** | **Ctrl+Shift+S** | **File ▸ Save As…** |
 | **⌘,** | **Ctrl+,** | **Dawesome ▸ Preferences…** (opens the **Preferences** tab) |
 | **⇧⌘M** | **Ctrl+Shift+M** | **Window ▸ Mixer** |
-| **⇧⌘E** | **Ctrl+Shift+E** | **Window ▸ Sequencer** |
+| **⇧⌘E** | **Ctrl+Shift+E** | **Window ▸ Pattern Sequencer** |
 
 **File ▸ Mixdown…**, **Quit**, and the other **Window** and **Preferences**
 menu items have no shortcut.
@@ -42,7 +42,7 @@ doesn't matter; an unknown command is named in the info bar.
 | Command | Action |
 | --- | --- |
 | `:playlist`, `:sample`, `:mixer`, `:transport` | Open that tab, or select it where it's already open |
-| `:sequencer` (`:seq`), `:note-sequencer` (`:notes`) | Open the Drum or Note Sequencer |
+| `:sequencer` (`:seq`, `:notes`) | Open the Pattern Sequencer |
 | `:piano-roll` (`:piano`), `:effects-rack` (`:fx`) | Open the Piano Roll or Effects Rack |
 | `:audio`, `:mixdown`, `:controls` | Open the Audio, Mixdown or Controls tab |
 | `:preferences` (`:prefs`, `:appearance`) | Open the Preferences tab |
@@ -87,7 +87,7 @@ These work while the **Playlist** is the selected tab in the focused pane.
 | **Esc** | **Esc** | Clear the selection. While dragging a clip edge, cancel the drag. |
 
 Don't confuse **Shift+E** (explode) with **⇧⌘E (Ctrl+Shift+E)** (open the
-Sequencer), or the **cut tool** (**C**) with **Cut (⌘X)**.
+Pattern Sequencer), or the **cut tool** (**C**) with **Cut (⌘X)**.
 
 See [Playlist](./manual/playlist.md).
 
@@ -112,7 +112,7 @@ See [Piano roll](./manual/piano-roll.md).
 | **Enter** / **Esc** | **Enter** / **Esc** | While renaming a folder, take, track or pattern: keep the name / cancel |
 | **Esc** | **Esc** | Close a clip or browser menu |
 | **Esc** | **Esc** | While dragging something from the sidebar: cancel the drag |
-| **Enter** | **Enter** | On a step in the **Sequencer**: switch it on or off |
+| **Enter** | **Enter** | On a step in the **Pattern Sequencer**: switch it on or off |
 
 ## Knobs and faders
 

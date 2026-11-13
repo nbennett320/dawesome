@@ -54,7 +54,7 @@ describe('the project notice', () => {
     setup({ kind: 'missing', samples: [], effects: [effect(0, 'Verb')], synths: [synth] })
     expect(screen.getByText(PLUGINS)).toBeTruthy()
     expect(screen.getByText(/This instrument isn’t installed, so its notes are silent/)).toBeTruthy()
-    expect(screen.getByText('Pad 2 (Acme) in the Note Sequencer')).toBeTruthy()
+    expect(screen.getByText('Pad 2 (Acme) in the Pattern Sequencer')).toBeTruthy()
   })
 
   it('says what the project left out', () => {

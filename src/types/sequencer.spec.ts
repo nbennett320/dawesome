@@ -1,8 +1,12 @@
 import {
   Note,
   UNCONFIRMED,
+  addedEnd,
+  barsReached,
   clipContents,
   clipPasses,
+  greyedSteps,
+  grownLength,
   keepNotes,
   keepUnchanged,
   samePattern,
@@ -31,6 +35,9 @@ import {
 import { pattern, sampleRow, step, steps, synthRow } from './sequencer.fixture'
 
 const note = (pitch: number, start: number, length = 1, velocity = 0.8): Note => ({ pitch, start, length, velocity })
+
+// steps in a 4/4 bar
+const BAR = 16
 
 describe('patternLabel', () => {
   it('is the name, or "Sequence" and the number from the id', () => {
@@ -85,14 +92,59 @@ describe('rowNotes', () => {
 describe('withNotes', () => {
   it('replaces one row’s notes, leaving out a row with none', () => {
     const p = pattern(0, { notes: { 1: steps(0), 2: steps(4) } })
-    expect(withNotes(p, 2, steps(8)).notes).toEqual({ 1: steps(0), 2: steps(8) })
-    expect(withNotes(p, 1, []).notes).toEqual({ 2: steps(4) })
+    expect(withNotes(p, 2, steps(8), BAR).notes).toEqual({ 1: steps(0), 2: steps(8) })
+    expect(withNotes(p, 1, [], BAR).notes).toEqual({ 2: steps(4) })
     // the others' lists are the same lists
-    expect(withNotes(p, 2, []).notes[1]).toBe(p.notes[1])
+    expect(withNotes(p, 2, [], BAR).notes[1]).toBe(p.notes[1])
   })
 
   it('is unconfirmed until the engine answers', () => {
-    expect(withNotes(pattern(0), 2, steps(8)).rev).toBe(UNCONFIRMED)
+    expect(withNotes(pattern(0), 2, steps(8), BAR).rev).toBe(UNCONFIRMED)
+  })
+
+  it('grows the pattern to fit the notes added, as the engine does', () => {
+    expect(withNotes(pattern(0), 2, [note(60, 30, 4)], BAR).length).toBe(48)
+    expect(withNotes(pattern(0), 2, [note(60, 12, 4)], BAR).length).toBe(16)
+    // in 3/4
+    expect(withNotes(pattern(0, { length: 12 }), 2, [note(60, 12)], 12).length).toBe(24)
+    // never shrinking it, nor raising its floor
+    const long = withNotes(pattern(0, { length: 64 }), 2, [note(60, 0)], BAR)
+    expect([long.length, long.floor]).toEqual([64, 64])
+  })
+
+  it('doesn’t grow back for notes kept past an end made shorter', () => {
+    // 2 bars once, 1 bar now, a note in each
+    const p = pattern(0, { length: 16, notes: { 2: [note(60, 0), note(60, 20)] } })
+    expect(withNotes(p, 2, [note(60, 2), note(60, 20)], BAR).length).toBe(16)
+    expect(withNotes(p, 2, [note(60, 0), note(60, 24)], BAR).length).toBe(32)
+  })
+})
+
+describe('grownLength', () => {
+  it('reaches the end of the bar holding the end, never shorter, never past 128 bars', () => {
+    expect(grownLength(16, 16, BAR)).toBe(16)
+    expect(grownLength(16, 16.5, BAR)).toBe(32)
+    expect(grownLength(48, 1, BAR)).toBe(48)
+    expect(grownLength(16, 5000, BAR)).toBe(2048)
+    expect(grownLength(3000, 1, BAR)).toBe(3000)
+    expect(grownLength(12, 13, 12)).toBe(24)
+  })
+})
+
+describe('addedEnd', () => {
+  const [a, b, c] = [note(60, 0), note(62, 4, 4), note(64, 6)]
+
+  it('is where the notes added end, the furthest, or 0 for none', () => {
+    expect(addedEnd([a, b], [a, b])).toBe(0)
+    expect(addedEnd([a, b], [a])).toBe(0)
+    expect(addedEnd([a], [a, b, c])).toBe(8)
+    expect(addedEnd([a, b, a], [a, c, a])).toBe(7)
+  })
+
+  it('counts a note changed in any way, and a second copy of one, as added', () => {
+    expect(addedEnd([b], [{ ...b, velocity: 0.1 }])).toBe(8)
+    expect(addedEnd([c], [c, c])).toBe(7)
+    expect(addedEnd([c, c], [c, c])).toBe(0)
   })
 })
 
@@ -100,43 +152,59 @@ describe('withStep', () => {
   const row = sampleRow(7, { stepPitch: 62 })
 
   it('lights a step as a 1-step note at the row’s step pitch, in order', () => {
-    const lit = withStep(withStep(pattern(0), row, 8, true), row, 0, true)
+    const lit = withStep(withStep(pattern(0), row, 8, true, BAR), row, 0, true, BAR)
     expect(lit.notes).toEqual({ 7: [step(0, 62), step(8, 62)] })
   })
 
   it('puts a lit step in order among the row’s other notes', () => {
     const p = pattern(0, { notes: { 7: [note(60, 4), note(64, 4)] } })
-    expect(withStep(p, row, 4, true).notes[7]).toEqual([note(60, 4), step(4, 62), note(64, 4)])
+    expect(withStep(p, row, 4, true, BAR).notes[7]).toEqual([note(60, 4), step(4, 62), note(64, 4)])
   })
 
   it('counts any note at the step and pitch as lit, whatever its length or velocity', () => {
     const odd = note(62, 4, 3, 0.5)
     const p = pattern(0, { notes: { 7: [odd] } })
-    expect(withStep(p, row, 4, true)).toBe(p)
+    expect(withStep(p, row, 4, true, BAR)).toBe(p)
   })
 
   it('leaves a pattern alone when the step is already as asked', () => {
     const p = pattern(0, { notes: { 7: [step(4, 62)] } })
-    expect(withStep(p, row, 4, true)).toBe(p)
-    expect(withStep(p, row, 5, false)).toBe(p)
+    expect(withStep(p, row, 4, true, BAR)).toBe(p)
+    expect(withStep(p, row, 5, false, BAR)).toBe(p)
   })
 
   it('clears every note at the step and pitch, whatever its length or velocity', () => {
     const p = pattern(0, { notes: { 7: [note(62, 4, 3, 0.2), step(4, 62), note(60, 4), step(8, 62)] } })
-    expect(withStep(p, row, 4, false).notes).toEqual({ 7: [note(60, 4), step(8, 62)] })
+    expect(withStep(p, row, 4, false, BAR).notes).toEqual({ 7: [note(60, 4), step(8, 62)] })
     // a row with no notes left has no entry, like the engine
-    expect(withStep(pattern(0, { notes: { 7: [step(4, 62)] } }), row, 4, false).notes).toEqual({})
+    expect(withStep(pattern(0, { notes: { 7: [step(4, 62)] } }), row, 4, false, BAR).notes).toEqual({})
   })
 
   it("doesn't change the pattern it was given", () => {
     const p = pattern(0, { notes: { 7: [step(4, 62)] } })
-    withStep(p, row, 5, true)
+    withStep(p, row, 5, true, BAR)
     expect(p.notes).toEqual({ 7: [step(4, 62)] })
   })
 
   it('is unconfirmed until the engine answers', () => {
-    expect(withStep(pattern(0), row, 4, true).rev).toBe(UNCONFIRMED)
-    expect(withStep(pattern(0, { notes: { 7: [step(4, 62)] } }), row, 4, false).rev).toBe(UNCONFIRMED)
+    expect(withStep(pattern(0), row, 4, true, BAR).rev).toBe(UNCONFIRMED)
+    expect(withStep(pattern(0, { notes: { 7: [step(4, 62)] } }), row, 4, false, BAR).rev).toBe(UNCONFIRMED)
+  })
+
+  it('grows the pattern to the end of a lit step’s bar, the bars between empty', () => {
+    const grown = withStep(pattern(0), row, 37, true, BAR)
+    expect([grown.length, grown.floor]).toEqual([48, 16])
+    expect(grown.notes[7]).toEqual([step(37, 62)])
+    expect(withStep(pattern(0), row, 30, true, 12).length).toBe(36)
+  })
+
+  it('grows for a step lit already, past an end made shorter, and not for one cleared', () => {
+    const p = pattern(0, { notes: { 7: [step(20, 62)] } })
+    const grown = withStep(p, row, 20, true, BAR)
+    expect([grown.length, grown.rev]).toEqual([32, UNCONFIRMED])
+    expect(grown.notes).toBe(p.notes)
+    const cleared = withStep(p, row, 20, false, BAR)
+    expect([cleared.length, cleared.notes]).toEqual([16, {}])
   })
 })
 
@@ -169,7 +237,7 @@ describe('keepUnchanged', () => {
   })
 
   it('never keeps what the frontend changed itself', () => {
-    const shown = withStep(a, sampleRow(7), 0, true)
+    const shown = withStep(a, sampleRow(7), 0, true, BAR)
     const confirmed = { ...shown, rev: a.rev + 1000 }
     expect(keepUnchanged([shown], [confirmed], samePattern)[0]).toBe(confirmed)
   })
@@ -231,6 +299,29 @@ describe('stepView', () => {
 
   it('leaves out notes past the end, whatever they are', () => {
     expect(stepView(synth, [step(4), note(72, 17.5, 3)], 16)).toEqual([4])
+  })
+
+  it('shows a synth row’s 1-step notes at its step pitch as steps, and a chord as notes', () => {
+    expect(stepView(synth, steps(0, 8), 16)).toEqual([0, 8])
+    expect(stepView(synth, [step(0), step(0, 64)], 16)).toBeNull()
+  })
+})
+
+describe('greyedSteps', () => {
+  it('is a bar past the end, or what’s left of the longest a pattern can be', () => {
+    expect(greyedSteps(16, BAR)).toBe(16)
+    expect(greyedSteps(12, 12)).toBe(12)
+    expect(greyedSteps(2040, BAR)).toBe(8)
+    expect(greyedSteps(2048, BAR)).toBe(0)
+    // longer than 128 bars of the time signature now
+    expect(greyedSteps(2048, 12)).toBe(0)
+  })
+})
+
+describe('barsReached', () => {
+  it('counts the bars a pattern reaches into', () => {
+    expect(barsReached(pattern(0, { length: 32 }), 4)).toBe(2)
+    expect(barsReached(pattern(0, { length: 16 }), 3)).toBe(2)
   })
 })
 

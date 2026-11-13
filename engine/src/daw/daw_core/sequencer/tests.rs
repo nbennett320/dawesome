@@ -120,7 +120,6 @@ fn test_notes_past_the_end_come_back() {
   // shortened: the note is kept, but doesn't play
   seq.set_pattern_bars(pattern, 1, 4).unwrap();
   assert!(hit_starts(&seq, pattern).is_empty());
-  assert!(seq.set_step(pattern, kick, 20, true).unwrap_err().contains("there's no step 20"));
 
   seq.set_pattern_bars(pattern, 2, 4).unwrap();
   assert_eq!(hit_starts(&seq, pattern), vec![20.]);
@@ -158,7 +157,130 @@ fn test_a_step_is_a_note_at_the_rows_step_pitch() {
 
   assert!(seq.set_step(pattern, 99, 0, true).unwrap_err().contains("no row with id 99"));
   assert!(seq.set_step(99, kick, 0, true).is_err());
-  assert!(seq.set_step(pattern, kick, 16, true).is_err());
+  // past the longest the pattern can grow to
+  assert_eq!(seq.set_step(pattern, kick, 2048, true).unwrap_err(), format!("pattern {} has 16 steps, there's no step 2048", pattern));
+}
+
+#[test]
+fn test_a_step_past_the_end_grows_the_pattern_to_its_bar() {
+  let (mut seq, kick, _, pattern) = kit();
+  let length = |seq: &Sequencer| seq.pattern(pattern).unwrap().length;
+  let floor = |seq: &Sequencer| seq.pattern(pattern).unwrap().floor;
+
+  // the bars between come along empty, and the floor stays where it was
+  seq.set_pattern_step(pattern, kick, 37, true, 4).unwrap();
+  assert_eq!(length(&seq), 48);
+  assert_eq!(floor(&seq), 16);
+  assert_eq!(seq.pattern(pattern).unwrap().notes_of(kick), &[step(37.)]);
+  // a step inside it: no change
+  seq.set_pattern_step(pattern, kick, 3, true, 4).unwrap();
+  assert_eq!(length(&seq), 48);
+  // in bars of the time signature now
+  seq.set_pattern_step(pattern, kick, 50, true, 3).unwrap();
+  assert_eq!(length(&seq), 60);
+}
+
+#[test]
+fn test_a_lit_step_past_the_end_grows_the_pattern_back() {
+  let (mut seq, kick, _, pattern) = kit();
+  seq.set_pattern_bars(pattern, 2, 4).unwrap();
+  seq.set_step(pattern, kick, 20, true).unwrap();
+  seq.set_pattern_bars(pattern, 1, 4).unwrap();
+  let rev = seq.pattern(pattern).unwrap().rev.get();
+
+  // shown unlit in the greyed bar, and clicked: it was on already, and the
+  // pattern grows to show it
+  seq.set_step(pattern, kick, 20, true).unwrap();
+  let grown = seq.pattern(pattern).unwrap();
+  assert_eq!((grown.length, grown.floor), (32, 16));
+  assert_eq!(grown.notes_of(kick), &[step(20.)]);
+  assert_ne!(grown.rev.get(), rev);
+
+  // turned off past the end: taken out, and nothing grows
+  seq.set_pattern_bars(pattern, 1, 4).unwrap();
+  seq.set_step(pattern, kick, 20, false).unwrap();
+  let cleared = seq.pattern(pattern).unwrap();
+  assert_eq!(cleared.length, 16);
+  assert!(cleared.notes.is_empty());
+  // and with nothing to do, nothing changes
+  let rev = cleared.rev.get();
+  seq.set_step(pattern, kick, 20, false).unwrap();
+  assert_eq!(seq.pattern(pattern).unwrap().rev.get(), rev);
+}
+
+#[test]
+fn test_a_pattern_never_grows_past_the_longest() {
+  let (mut seq, kick, _, pattern) = kit();
+  seq.set_pattern_bars(pattern, 127, 4).unwrap();
+  seq.set_step(pattern, kick, 2047, true).unwrap();
+  assert_eq!(seq.pattern(pattern).unwrap().length, 2048);
+  assert!(seq.set_step(pattern, kick, 2048, true).is_err());
+  seq.edit_pattern_notes(pattern, kick, vec![note(60, 2047., 8.)], 4).unwrap();
+  assert_eq!(seq.pattern(pattern).unwrap().length, 2048);
+
+  // nor shrinks: 128 bars of 4/4 are longer than 128 of 3/4, and a step in
+  // them can still be set
+  seq.set_pattern_step(pattern, kick, 2000, true, 3).unwrap();
+  assert_eq!(seq.pattern(pattern).unwrap().length, 2048);
+  assert!(seq.set_pattern_step(pattern, kick, 2048, true, 3).is_err());
+}
+
+#[test]
+fn test_notes_drawn_past_the_end_grow_the_pattern() {
+  let (mut seq, kick, _, pattern) = kit();
+  let length = |seq: &Sequencer| seq.pattern(pattern).unwrap().length;
+  // ending on the bar line: it fits
+  seq.edit_pattern_notes(pattern, kick, vec![note(60, 12., 4.)], 4).unwrap();
+  assert_eq!(length(&seq), 16);
+  seq.edit_pattern_notes(pattern, kick, vec![note(60, 12., 4.), note(62, 30., 4.)], 4).unwrap();
+  assert_eq!(length(&seq), 48);
+  assert_eq!(seq.pattern(pattern).unwrap().floor, 16);
+  // a row that isn't there: nothing changes
+  assert!(seq.edit_pattern_notes(pattern, 99, vec![note(60, 60., 1.)], 4).is_err());
+  assert_eq!(length(&seq), 48);
+}
+
+#[test]
+fn test_notes_kept_past_a_shortened_end_dont_grow_it_back() {
+  let (mut seq, kick, _, pattern) = kit();
+  seq.set_pattern_bars(pattern, 2, 4).unwrap();
+  seq.edit_pattern_notes(pattern, kick, vec![note(60, 0., 1.), note(62, 20., 1.)], 4).unwrap();
+  seq.set_pattern_bars(pattern, 1, 4).unwrap();
+
+  // another note moved, the one past the end sent back as it was
+  seq.edit_pattern_notes(pattern, kick, vec![note(60, 2., 1.), note(62, 20., 1.)], 4).unwrap();
+  assert_eq!(seq.pattern(pattern).unwrap().length, 16);
+  // the one past the end moved: it grows to fit it
+  seq.edit_pattern_notes(pattern, kick, vec![note(60, 2., 1.), note(62, 24., 1.)], 4).unwrap();
+  assert_eq!(seq.pattern(pattern).unwrap().length, 32);
+}
+
+#[test]
+fn test_grown_length() {
+  // to the end of the bar holding the end
+  assert_eq!(grown_length(16, 16., 16), 16);
+  assert_eq!(grown_length(16, 16.5, 16), 32);
+  assert_eq!(grown_length(16, 0.5, 16), 16);
+  // never shorter, never past 128 bars
+  assert_eq!(grown_length(48, 1., 16), 48);
+  assert_eq!(grown_length(16, 5_000., 16), 2048);
+  assert_eq!(grown_length(3_000, 1., 16), 3_000);
+  assert_eq!(grown_length(12, 13., 12), 24);
+}
+
+#[test]
+fn test_added_end() {
+  let (a, b, c) = (note(60, 0., 1.), note(62, 4., 4.), note(64, 6., 1.));
+  assert_eq!(added_end(&[a, b], &[a, b]), 0.);
+  assert_eq!(added_end(&[a, b], &[a]), 0.);
+  assert_eq!(added_end(&[a], &[a, b, c]), 8.);
+  // in the middle, among notes alike
+  assert_eq!(added_end(&[a, b, a], &[a, c, a]), 7.);
+  // changed in any way: added
+  assert_eq!(added_end(&[b], &[PatternNote { velocity: 0.1, ..b }]), 8.);
+  // twice where it was once: once added
+  assert_eq!(added_end(&[c], &[c, c]), 7.);
+  assert_eq!(added_end(&[c, c], &[c, c]), 0.);
 }
 
 #[test]

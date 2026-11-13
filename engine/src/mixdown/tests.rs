@@ -456,7 +456,7 @@ fn test_a_synth_added_just_now_is_mixed_down_once_it_has_set_itself_up() {
 
   // mixed down as soon as it's added, without waiting for it: silent
   let first = crate::commands::synth::add(&state, &synth().id).unwrap().row_id;
-  crate::commands::sequencer::set_notes(&state, pattern, first, vec![note(60, 3., 3.), note(62, 14., 4.)], None).unwrap();
+  crate::commands::sequencer::set_notes(&state, pattern, first, vec![note(60, 3., 3.), note(62, 14., 2.)], None).unwrap();
   assert!(sounding(&mixdown(&state, 48_000)).is_empty());
 
   // with the wait, the same, straight after another is added in its place:
@@ -464,7 +464,7 @@ fn test_a_synth_added_just_now_is_mixed_down_once_it_has_set_itself_up() {
   rig.effects().use_settle(settle);
   crate::commands::sequencer::edit(&state, None, |seq| seq.remove_row(first)).unwrap();
   let second = crate::commands::synth::add(&state, &synth().id).unwrap().row_id;
-  crate::commands::sequencer::set_notes(&state, pattern, second, vec![note(60, 3., 3.), note(62, 14., 4.)], None).unwrap();
+  crate::commands::sequencer::set_notes(&state, pattern, second, vec![note(60, 3., 3.), note(62, 14., 2.)], None).unwrap();
   let mixed = mixdown(&state, 48_000);
   assert_eq!(sounding(&mixed), vec![(18_000, 36_000), (84_000, 96_000)]);
   assert_eq!(mixed[20_000 * 2], START_GAIN);

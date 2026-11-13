@@ -250,11 +250,14 @@ fn test_every_sequencer_edit_can_be_undone_and_redone() {
     ("replace a row's sample", Box::new(|| replace_sample(s, kick, SNARE).map(|_| ()))),
     ("light a step", Box::new(|| set_step(s, pattern, kick, 8, true, None).map(|_| ()))),
     ("clear a step", Box::new(|| set_step(s, pattern, kick, 0, false, None).map(|_| ()))),
+    ("grow with a step past the end", Box::new(|| set_step(s, pattern, snare, 20, true, None).map(|_| ()))),
     ("rename a pattern", Box::new(|| edit(s, None, |seq| seq.rename_pattern(pattern, "verse")).map(|_| ()))),
     ("set the notes", Box::new(|| set_notes(s, notes, synth, vec![note(60, 1.), note(64, 2.)], None).map(|_| ()))),
     ("set a sample row's notes", Box::new(|| set_notes(s, pattern, snare, vec![note(48, 2.5)], None).map(|_| ()))),
     ("a long pattern", Box::new(|| edit(s, None, |seq| seq.set_pattern_bars(notes, 128, 4)).map(|_| ()))),
+    ("grow with notes past the end", Box::new(|| set_notes(s, notes, synth, vec![note(60, 1.), note(64, 40.)], None).map(|_| ()))),
     ("synth volume", Box::new(|| edit(s, None, |seq| seq.set_row_volume(synth, 0.5)).map(|_| ()))),
+    ("replace a synth's plugin", Box::new(|| crate::commands::synth::replace(s, synth, &crate::effects::testing::synth().id).map(|_| ()))),
     ("mute a synth", Box::new(|| edit(s, None, |seq| seq.set_row_muted(synth, true)).map(|_| ()))),
     ("pattern length", Box::new(|| edit(s, None, |seq| seq.set_pattern_bars(pattern, 2, 4)).map(|_| ()))),
     ("add a pattern", Box::new(|| add_pattern_of(s, 4).map(|_| ()))),
@@ -356,7 +359,7 @@ fn test_an_edit_that_fails_is_no_step() {
   let (state, kick, _, pattern, _, _) = drums();
   let had = steps(&state);
   assert!(set_step(&state, pattern, 99, 0, true, None).is_err());
-  assert!(set_step(&state, pattern, kick, 999, true, None).is_err());
+  assert!(set_step(&state, pattern, kick, 2048, true, None).is_err());
   assert!(remove_pattern_of(&state, 99).is_err());
   assert!(add_sample(&state, "assets/nope.wav").is_err());
   // nor is one that changes nothing: the step was lit already
@@ -745,6 +748,29 @@ fn test_a_pattern_edit_replies_with_the_pattern_and_undo_puts_its_rev_back() {
   assert_eq!(json["pattern"]["rev"], revs(s).1[&pattern]);
   assert_eq!(json["pattern"]["notes"][kick.to_string()][2]["start"], 12.);
   assert!(set_step(s, 99, kick, 0, true, None).is_err());
+}
+
+#[test]
+fn test_a_step_or_notes_past_the_end_grow_the_pattern_in_bars_of_the_time_signature() {
+  let (state, kick, _, pattern, _, _) = drums();
+  let s: &daw::InnerState = &state;
+  state.playlist.time_signature.lock().unwrap().numerator = 3;
+  let had = steps(s);
+
+  // a greyed step: the pattern of one 4/4 bar grows to the end of the 3/4
+  // bar holding it, with its floor where it was
+  let grown = set_step(s, pattern, kick, 30, true, Some(5)).unwrap().pattern;
+  assert_eq!((grown.length, grown.floor), (36, 16));
+  assert!(grown.notes[&kick].iter().any(|n| n.start == 30.));
+  assert_eq!(steps(s), had + 1);
+  history::undo(&state).unwrap();
+  assert_eq!(sequencer_state(s).pattern(pattern).unwrap().length, 16);
+  // past the longest it can be: refused, with no step
+  assert!(set_step(s, pattern, kick, 128 * 12, true, None).unwrap_err().contains("there's no step 1536"));
+
+  // notes: to fit the ones added
+  let grown = set_notes(s, pattern, kick, vec![note(60, 0.), note(60, 40.)], None).unwrap().pattern;
+  assert_eq!(grown.length, 48);
 }
 
 #[test]

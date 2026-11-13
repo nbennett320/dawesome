@@ -43,7 +43,7 @@ const MuteKey = ({ row }: { row: Row<SynthInstrument> }) => {
 // one plugin's own interface, in a tab of its own: a thin bar, and the
 // interface docked below. an effect's bar has its On key and its channel
 // (to find it in the Effects Rack); a synth row's, its mute and a key to
-// find it in the Note Sequencer. both pop out to a window
+// find it in the Pattern Sequencer. both pop out to a window
 const PluginTab = ({ slotId }: { slotId: number }) => {
   const dispatch = useAppDispatch()
   const racks = useAppSelector(selectRacks)
@@ -77,8 +77,8 @@ const PluginTab = ({ slotId }: { slotId: number }) => {
         {synthRow && (
           <>
             <MuteKey row={synthRow} />
-            <WhereKey title='Show it in the Note Sequencer' onPress={() => dispatch(openTab(View.NoteSequencer))}>
-              Note Sequencer
+            <WhereKey title='Show it in the Pattern Sequencer' onPress={() => dispatch(openTab(View.PatternSequencer))}>
+              Pattern Sequencer
             </WhereKey>
           </>
         )}

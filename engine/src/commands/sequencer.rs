@@ -1,5 +1,5 @@
-// the Sequencer tab's commands (see daw/daw_core/sequencer.rs), and placing
-// patterns in the playlist
+// the Pattern Sequencer's commands (see daw/daw_core/sequencer.rs), and
+// placing patterns in the playlist
 //
 // every edit returns what it changed (one row, one pattern, or the whole
 // sequencer), so the frontend's copy stays the same as the engine's. edits
@@ -336,7 +336,8 @@ pub fn set_pattern_bars(state: daw::TState<'_>, pattern_id: u64, bars: u32) -> R
   edit_pattern(&state, None, pattern_id, |seq| seq.set_pattern_bars(pattern_id, bars, beats))
 }
 
-// turn one of a row's steps on or off in a pattern (see Sequencer::set_step)
+// turn one of a row's steps on or off in a pattern, growing it to fit a
+// step past its end (see Sequencer::set_pattern_step)
 #[tauri::command]
 pub fn set_pattern_step(
   state: daw::TState<'_>,
@@ -357,11 +358,13 @@ fn set_step(
   on: bool,
   gesture: Option<u64>,
 ) -> Result<daw::PatternChange, String> {
-  edit_pattern(state, gesture, pattern_id, |seq| seq.set_step(pattern_id, row_id, step, on))
+  let beats = beats_per_bar(state);
+  edit_pattern(state, gesture, pattern_id, |seq| seq.set_pattern_step(pattern_id, row_id, step, on, beats))
 }
 
-// replace a row's notes in a pattern (the Piano Roll), sorted. one drag of
-// the mouse (the same gesture) is one step to undo
+// replace a row's notes in a pattern (the Piano Roll), sorted, growing it to
+// fit the notes added (see Sequencer::edit_pattern_notes). one drag of the
+// mouse (the same gesture) is one step to undo
 #[tauri::command]
 pub fn set_pattern_notes(
   state: daw::TState<'_>,
@@ -380,7 +383,8 @@ pub(crate) fn set_notes(
   notes: Vec<daw::PatternNote>,
   gesture: Option<u64>,
 ) -> Result<daw::PatternChange, String> {
-  edit_pattern(state, gesture, pattern_id, |seq| seq.set_pattern_notes(pattern_id, row_id, notes))
+  let beats = beats_per_bar(state);
+  edit_pattern(state, gesture, pattern_id, |seq| seq.edit_pattern_notes(pattern_id, row_id, notes, beats))
 }
 
 // loop a pattern on its own, from `from_step` (its start if not given),

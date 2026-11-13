@@ -72,6 +72,16 @@ pub fn add(state: &daw::InnerState, plugin_id: &str) -> Result<AddedRow, String>
   Ok(AddedRow { row_id, sequencer: sequencer_state(state) })
 }
 
+// another installed instrument on a synth row, in a new slot: the row keeps
+// its id, notes and settings, and the old plugin goes (undo brings it back,
+// with its own settings: see follow). one step to undo
+pub fn replace(state: &daw::InnerState, row_id: u64, plugin_id: &str) -> Result<daw::RowChange, String> {
+  // (checked first, so a refusal loads nothing)
+  state.playlist.sequencer.lock().unwrap().check_synth_row(row_id)?;
+  let synth = state.playlist.effects.load_synth(plugin_id)?;
+  crate::commands::sequencer::edit_row(state, None, row_id, |seq| seq.replace_row_synth(row_id, synth))
+}
+
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct AddedOnTrack {
@@ -167,6 +177,11 @@ fn key_on(state: &daw::InnerState, row_id: u64) -> Result<KeyOn, String> {
 #[tauri::command]
 pub fn add_synth_row(state: daw::TState<'_>, plugin_id: String) -> Result<AddedRow, String> {
   add(&state, &plugin_id)
+}
+
+#[tauri::command]
+pub fn replace_row_synth(state: daw::TState<'_>, row_id: u64, plugin_id: String) -> Result<daw::RowChange, String> {
+  replace(&state, row_id, &plugin_id)
 }
 
 #[tauri::command]

@@ -241,15 +241,15 @@ describe('commands', () => {
     expect(paneTree.paneWithTab(root(), tabKey(View.Plugin, 1))?.id).toBe(rackPane)
   })
 
-  it('opens a synth row’s tab, by its slot, in the pane the Note Sequencer is in', () => {
+  it('opens a synth row’s tab, by its slot, in the pane the Pattern Sequencer is in', () => {
     const store = makeStore()
     // row 1's plugin is in slot 40; there's no row 40
     store.dispatch(setSequencer(sequencerOf({ rows: [synthRow(1, { slot: 40 })] })))
     store.dispatch(openTab(View.EffectsRack))
     store.dispatch(splitPane('root', tabKey(View.EffectsRack), 'horizontal'))
-    store.dispatch(openTab(View.NoteSequencer))
+    store.dispatch(openTab(View.PatternSequencer))
     const root = () => state(store).window.windowPane.root
-    const notesPane = paneTree.paneWithTab(root(), tabKey(View.NoteSequencer))?.id
+    const notesPane = paneTree.paneWithTab(root(), tabKey(View.PatternSequencer))?.id
     const rackPane = paneTree.paneWithTab(root(), tabKey(View.EffectsRack))?.id
     expect(notesPane).not.toBe(rackPane)
 

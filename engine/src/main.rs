@@ -186,6 +186,7 @@ fn init_tauri() {
       set_row_pan,
       set_row_muted,
       replace_row_sample,
+      replace_row_synth,
       preview_row,
       set_row_step_pitch,
       set_row_sample_pitch,

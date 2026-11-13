@@ -7,8 +7,24 @@ import { NameInput } from '../../components/common'
 import { CloseIcon, PanIcon, VolumeIcon } from '../../components/icons'
 import ClipMenu from '../playlist/ClipMenu'
 
-// the longest a row's name can be (as the engine keeps it)
-const MAX_NAME_CHARS = 40
+// a field in place of the name, opened from the right-click menu
+export interface RowField {
+  // read out
+  label: string
+  // what it starts with, and shows when empty
+  initial: string
+  placeholder: string
+  maxLength: number
+  // what was typed, on Enter or when the field is left (on Escape, nothing)
+  onDone: (text: string) => void
+}
+
+// an item of the right-click menu: one that does something, or one that
+// opens a field in place of the name (Rename…, a pitch)
+export type RowMenuItem = { label: string, title?: string } & (
+  | { onSelect: () => void }
+  | { field: RowField }
+)
 
 interface Props {
   name: string
@@ -19,24 +35,16 @@ interface Props {
   disabled?: boolean
   // said after the name, faintly ("Not installed", or the sample's name)
   note?: string
-  // renamed from the right-click menu: what the field starts with, what it
-  // shows when empty, and the new name (blank to clear it). left out, the
-  // name can't be renamed
-  rename?: {
-    initial: string
-    placeholder: string
-    onRename: (name: string) => void
-  }
+  // the right-click menu, before Remove
+  menu: RowMenuItem[]
   muted: boolean
   onMute: (muted: boolean) => void
   volume: number
   onVolume: (volume: number) => void
-  // left out, there's no pan knob
-  pan?: number
-  onPan?: (pan: number) => void
-  // pressed on the grip at the left, to drag the row up or down. left out,
-  // there's no grip
-  onGripDown?: (ev: React.MouseEvent) => void
+  pan: number
+  onPan: (pan: number) => void
+  // pressed on the grip at the left, to drag the row up or down
+  onGripDown: (ev: React.MouseEvent) => void
   // what the remove key's tooltip says it takes away
   removeTitle: string
   onRemove: () => void
@@ -45,14 +53,15 @@ interface Props {
 // a volume as a percentage of the sample's (or synth's) own level
 const percent = (volume: number) => `${Math.round(volume * 100)}%`
 
-// the left end of a sequencer's row, the same for a sample and a synth: its
-// name, mute, volume, pan (samples) and, set apart, remove. right-click it
-// for a menu (rename, remove)
+// the left end of a row of the Pattern Sequencer, the same for a sample and
+// a synth: its grip, name, mute, volume, pan and, set apart, remove.
+// right-click it for a menu (`menu`, then Remove)
 const RowControls = ({
-  name, nameTitle, onName, disabled = false, note, rename, muted, onMute, volume, onVolume, pan, onPan,
+  name, nameTitle, onName, disabled = false, note, menu: items, muted, onMute, volume, onVolume, pan, onPan,
   onGripDown, removeTitle, onRemove,
 }: Props) => {
-  const [renaming, setRenaming] = React.useState(false)
+  // the field open in place of the name
+  const [field, setField] = React.useState<RowField | null>(null)
   // where the right-click menu is open, in the window
   const [menu, setMenu] = React.useState<{ x: number, y: number } | null>(null)
   const closeMenu = React.useCallback(() => setMenu(null), [])
@@ -65,26 +74,24 @@ const RowControls = ({
         setMenu({ x: ev.clientX, y: ev.clientY })
       }}
     >
-      {onGripDown && (
-        <div
-          className='shrink-0 self-stretch flex items-center px-0.5 mr-1 text-ink-faint hover:text-ink-soft cursor-grab leading-none tracking-[-0.2em] text-sm'
-          title='Drag to move the row'
-          aria-hidden='true'
-          onMouseDown={onGripDown}
-        >
-          ⋮⋮
-        </div>
-      )}
-      {renaming && rename ? (
+      <div
+        className='shrink-0 self-stretch flex items-center px-0.5 mr-1 text-ink-faint hover:text-ink-soft cursor-grab leading-none tracking-[-0.2em] text-sm'
+        title='Drag to move the row'
+        aria-hidden='true'
+        onMouseDown={onGripDown}
+      >
+        ⋮⋮
+      </div>
+      {field ? (
         <NameInput
-          initial={rename.initial}
-          aria-label='Row name'
-          placeholder={rename.placeholder}
-          maxLength={MAX_NAME_CHARS}
+          initial={field.initial}
+          aria-label={field.label}
+          placeholder={field.placeholder}
+          maxLength={field.maxLength}
           className='flex-1 min-w-0 h-7 mr-2'
           onDone={text => {
-            if(text !== null) rename.onRename(text)
-            setRenaming(false)
+            if(text !== null) field.onDone(text)
+            setField(null)
           }}
         />
       ) : (
@@ -127,21 +134,19 @@ const RowControls = ({
           formatValue={percent}
           title={`Volume ${percent(volume)}. Double-click for 100%`}
         />
-        {pan !== undefined && onPan && (
-          <Knob
-            size={24}
-            icon={<PanIcon />}
-            min={-1}
-            max={1}
-            center={0}
-            step={0.01}
-            value={pan}
-            onChange={onPan}
-            label={`${name} pan`}
-            formatValue={formatPan}
-            title={`Pan ${formatPan(pan)}. Double-click to center`}
-          />
-        )}
+        <Knob
+          size={24}
+          icon={<PanIcon />}
+          min={-1}
+          max={1}
+          center={0}
+          step={0.01}
+          value={pan}
+          onChange={onPan}
+          label={`${name} pan`}
+          formatValue={formatPan}
+          title={`Pan ${formatPan(pan)}. Double-click to center`}
+        />
       </div>
 
       <div className='self-stretch w-px my-2.5 mx-2 bg-line' aria-hidden='true' />
@@ -165,7 +170,11 @@ const RowControls = ({
             x={menu.x}
             y={menu.y}
             items={[
-              ...(rename ? [{ label: 'Rename…', onSelect: () => setRenaming(true) }] : []),
+              ...items.map(item => ({
+                label: item.label,
+                title: item.title,
+                onSelect: 'field' in item ? () => setField(item.field) : item.onSelect,
+              })),
               'divider',
               { label: 'Remove', title: removeTitle, danger: true, onSelect: onRemove },
             ]}

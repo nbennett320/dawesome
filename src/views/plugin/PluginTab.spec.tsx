@@ -282,7 +282,7 @@ describe('a synth row’s tab', () => {
     await waitFor(() => expect(calls('dock_effect')[0]?.[1]).toMatchObject({ slotId: 20 }))
   })
 
-  it('has mute, a key to the Note Sequencer, and pop out in its bar', async () => {
+  it('has mute, a key to the Pattern Sequencer, and pop out in its bar', async () => {
     const store = setupSynth()
     expect(screen.queryByRole('button', { name: 'Pad on' })).toBeNull()
 
@@ -290,8 +290,8 @@ describe('a synth row’s tab', () => {
     await waitFor(() => expect(calls('set_row_muted')).toEqual([['set_row_muted', { rowId: 2, muted: true, gesture: null }]]))
     await waitFor(() => expect(store.getState().sequencer.rows[0].muted).toBe(true))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Note Sequencer' }))
-    expect(selectFocusedView(store.getState() as never)).toBe(View.NoteSequencer)
+    fireEvent.click(screen.getByRole('button', { name: 'Pattern Sequencer' }))
+    expect(selectFocusedView(store.getState() as never)).toBe(View.PatternSequencer)
 
     fireEvent.click(screen.getByRole('button', { name: 'Open Pad in a window' }))
     await waitFor(() => expect(calls('open_effect_window')).toEqual([['open_effect_window', { slotId: 20 }]]))

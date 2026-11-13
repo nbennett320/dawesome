@@ -30,7 +30,7 @@ pub enum PluginView {
   Tab,
 }
 
-// how the Drum Sequencer's step keys look, after Roland's drum machines:
+// how the Pattern Sequencer's step keys look, after Roland's drum machines:
 // coloured caps (TR-808), plain caps over a coloured strip (TR-909), or
 // pads that light up (TR-8S)
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Default)]

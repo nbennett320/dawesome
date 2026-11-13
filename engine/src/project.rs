@@ -295,13 +295,13 @@ fn drop_stage_one(project: &mut serde_json::Value) -> Vec<String> {
   let plural = |n: usize, one: &str, many: &str| if n == 1 { format!("1 {}", one) } else { format!("{} {}", n, many) };
   if instruments > 0 {
     dropped.push(format!(
-      "{} in a mixer channel's effects {} left out: instruments are synths in the Note Sequencer now",
+      "{} in a mixer channel's effects {} left out: instruments are rows of the Pattern Sequencer now",
       plural(instruments, "instrument", "instruments"), if instruments == 1 { "was" } else { "were" }));
   }
   if patterns > 0 {
     dropped.push(format!(
-      "The notes in {} were left out: notes are in note patterns now",
-      plural(patterns, "drum pattern", "drum patterns")));
+      "The notes in {} were left out: notes belong to a row of the Pattern Sequencer now",
+      plural(patterns, "pattern", "patterns")));
   }
   dropped
 }

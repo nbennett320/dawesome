@@ -180,8 +180,8 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
   // selection are brought up to date as soon as a command changes them, so
   // commands that arrive faster than the page draws act on each other's
   // results (⌘R pressed three times lays three copies end to end)
-  const latest = React.useRef({ notes, selected, patternId: pattern.id, rowId, length })
-  latest.current = { notes, selected, patternId: pattern.id, rowId, length }
+  const latest = React.useRef({ notes, selected, patternId: pattern.id, rowId, length, stepsPerBar })
+  latest.current = { notes, selected, patternId: pattern.id, rowId, length, stepsPerBar }
 
   const setOverlay = (next: Overlay) => setOverlayState(prev => (sameOverlay(prev, next) ? prev : next))
 
@@ -325,7 +325,7 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
   // (at most every so often while dragging; see setPatternNotes)
   const change = (next: Note[]) => {
     setDraft(next)
-    dispatch(setPatternNotes(pattern.id, rowId, next))
+    dispatch(setPatternNotes(pattern.id, rowId, next, stepsPerBar))
   }
 
   // a change that's finished: put in order, with the notes at `keep`
@@ -334,7 +334,7 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
     const sorted = sortedWithPlaces(next)
     select(followPlaces(keep, sorted.at))
     latest.current.notes = sorted.notes
-    dispatch(setPatternNotes(pattern.id, rowId, sorted.notes))
+    dispatch(setPatternNotes(pattern.id, rowId, sorted.notes, stepsPerBar))
     flushNoteSends()
   }
 
@@ -621,7 +621,9 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
     const apply = (command: NoteCommand) => {
       // not in the middle of a drag, whichever way the command came
       if(press.current) return
-      const { notes: current, selected: chosen, patternId, rowId: row, length: patternLength } = latest.current
+      const {
+        notes: current, selected: chosen, patternId, rowId: row, length: patternLength, stepsPerBar: bar,
+      } = latest.current
 
       // a paste goes where the mouse is over the grid, or else at the
       // first snap line in view
@@ -639,7 +641,7 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
       if(!outcome) return
       if(outcome.notes) {
         latest.current.notes = outcome.notes
-        dispatch(setPatternNotes(patternId, row, outcome.notes))
+        dispatch(setPatternNotes(patternId, row, outcome.notes, bar))
         flushNoteSends()
       }
       if(outcome.selected) {
