@@ -4,7 +4,7 @@ import { ROW_VOLUME_MAX } from '../../types/sequencer'
 import { formatPan } from '../../types/mixer'
 import { AnalogButton, Knob, Led } from '../../components/fourtrack'
 import { NameInput } from '../../components/common'
-import { PanIcon, VolumeIcon } from '../../components/icons'
+import { CloseIcon, PanIcon, VolumeIcon } from '../../components/icons'
 import ClipMenu from '../playlist/ClipMenu'
 
 // the longest a row's name can be (as the engine keeps it)
@@ -59,7 +59,7 @@ const RowControls = ({
 
   return (
     <div
-      className={`ft-strip ft-strip--module shrink-0 w-80 h-11 flex flex-row items-center pl-1.5 pr-1 ${disabled ? 'opacity-60' : ''}`}
+      className={`ft-strip ft-strip--module shrink-0 w-80 h-11 flex flex-row items-center px-2 ${disabled ? 'opacity-60' : ''}`}
       onContextMenu={ev => {
         ev.preventDefault()
         setMenu({ x: ev.clientX, y: ev.clientY })
@@ -144,7 +144,7 @@ const RowControls = ({
         )}
       </div>
 
-      <div className='self-stretch w-px my-2.5 mx-1.5 bg-line' aria-hidden='true' />
+      <div className='self-stretch w-px my-2.5 mx-2 bg-line' aria-hidden='true' />
       <AnalogButton
         variant='text'
         size='xs'
@@ -152,7 +152,9 @@ const RowControls = ({
         title={removeTitle}
         onPress={onRemove}
       >
-        ×
+        {/* an icon, not "×": a key's letter-spacing put the character off
+            centre */}
+        <CloseIcon width={10} height={10} />
       </AnalogButton>
 
       {menu && createPortal(
