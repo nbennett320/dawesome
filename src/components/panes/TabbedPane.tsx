@@ -14,7 +14,7 @@ import {
 import { leaves } from '../../state/paneTree'
 import { useAppDispatch, useAppSelector } from '../../hooks/redux'
 import { matchViewComponent } from '../../views/matchViewComponent'
-import { keyOf, PaneTab, TabKey, WindowNode } from '../../types/ui'
+import { keyOf, PaneTab, TabKey, viewHints, WindowNode } from '../../types/ui'
 import { cssVar } from '../../theme/apply'
 import { AnalogButton, Led } from '../fourtrack'
 import { DraggedTab, PANE_TAB, useDraggingTab } from './dragTab'
@@ -84,6 +84,7 @@ const TabItem = ({ pane, tab, index, selected, lit }: TabItemProps) => {
     <div
       ref={node => { dragRef(dropRef(node)) }}
       className='group flex flex-row items-center gap-2 h-8 pl-3 pr-1.5'
+      data-hint={`${label}: ${viewHints[tab.component]}. Drag the tab to move it, or onto a pane to split it`}
       style={{ boxShadow: isOver ? `inset 2px 0 0 ${cssVar('accent')}` : undefined }}
     >
       <Led color='blue' state={lit ? 'on' : 'off'} />
