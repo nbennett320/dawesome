@@ -1,12 +1,13 @@
 import React from 'react'
-import { describe, expect, it, vi, afterEach } from 'vitest'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
 import RowControls from './RowControls'
 
 const setup = (withRename = true) => {
   const onName = vi.fn()
   const onRename = vi.fn()
   const onPan = vi.fn()
+  const onRemove = vi.fn()
   render(
     <RowControls
       name='Snare'
@@ -21,13 +22,11 @@ const setup = (withRename = true) => {
       pan={-0.4}
       onPan={onPan}
       removeTitle='Remove'
-      onRemove={() => {}}
+      onRemove={onRemove}
     />,
   )
-  return { onName, onRename, onPan, name: screen.getByTitle('Click to hear it') }
+  return { onName, onRename, onPan, onRemove, name: screen.getByTitle('Click to hear it') }
 }
-
-afterEach(() => { vi.useRealTimers() })
 
 describe("a sequencer row's controls", () => {
   it('shows the name, then the sample faintly', () => {
@@ -35,22 +34,17 @@ describe("a sequencer row's controls", () => {
     expect(name.textContent).toBe('Snareassets_66-sd-01')
   })
 
-  it('does what a click does once it is sure it is not a double-click', () => {
-    vi.useFakeTimers()
+  it('does what a click does straight away', () => {
     const { onName, name } = setup()
-    fireEvent.click(name, { detail: 1 })
-    expect(onName).not.toHaveBeenCalled()
-    act(() => { vi.advanceTimersByTime(300) })
+    fireEvent.click(name)
     expect(onName).toHaveBeenCalledOnce()
   })
 
-  it('renames on a double-click, without doing what a click does', () => {
-    vi.useFakeTimers()
+  it('renames from the right-click menu', () => {
     const { onName, onRename, name } = setup()
-    fireEvent.click(name, { detail: 1 })
-    fireEvent.click(name, { detail: 2 })
-    fireEvent.doubleClick(name)
-    act(() => { vi.advanceTimersByTime(300) })
+    fireEvent.contextMenu(name)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename…' }))
+    expect(screen.queryByRole('menu')).toBeNull()
     expect(onName).not.toHaveBeenCalled()
 
     const input = screen.getByLabelText('Row name') as HTMLInputElement
@@ -63,17 +57,24 @@ describe("a sequencer row's controls", () => {
 
   it('leaves the name as it was on Escape', () => {
     const { onRename, name } = setup()
-    fireEvent.doubleClick(name)
+    fireEvent.contextMenu(name)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename…' }))
     fireEvent.keyDown(screen.getByLabelText('Row name'), { key: 'Escape' })
     expect(onRename).not.toHaveBeenCalled()
   })
 
-  it('does what a click does straight away when it cannot be renamed', () => {
-    const { onName, name } = setup(false)
-    fireEvent.click(name, { detail: 1 })
-    expect(onName).toHaveBeenCalledOnce()
-    fireEvent.doubleClick(name)
-    expect(screen.queryByLabelText('Row name')).toBeNull()
+  it('removes from the right-click menu', () => {
+    const { onRemove, name } = setup()
+    fireEvent.contextMenu(name)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove' }))
+    expect(onRemove).toHaveBeenCalledOnce()
+  })
+
+  it('has no Rename when it cannot be renamed', () => {
+    const { name } = setup(false)
+    fireEvent.contextMenu(name)
+    expect(screen.queryByRole('menuitem', { name: 'Rename…' })).toBeNull()
+    expect(screen.getByRole('menuitem', { name: 'Remove' })).toBeTruthy()
   })
 
   it('has a pan knob', () => {

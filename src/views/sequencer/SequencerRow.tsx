@@ -33,7 +33,7 @@ interface Props {
   onStep: (rowId: number, step: number, on: boolean) => void
 }
 
-// one sample: its name (click to hear it, double-click to rename), mute,
+// one sample: its name (click to hear it, right-click to rename), mute,
 // volume, pan and remove, then a key for each of the pattern's steps
 const SequencerRow = ({ row, pattern, beatsPerBar, playingStep, paint, onStep }: Props) => {
   const dispatch = useAppDispatch()
@@ -97,7 +97,7 @@ const SequencerRow = ({ row, pattern, beatsPerBar, playingStep, paint, onStep }:
       <RowControls
         name={name}
         note={row.label ? sample : undefined}
-        nameTitle={`${row.path}. Click to hear it, double-click to rename`}
+        nameTitle={`${row.path}. Click to hear it, right-click to rename`}
         onName={() => dispatch(previewSequencerRow(row.id))}
         rename={{
           initial: row.label ?? '',

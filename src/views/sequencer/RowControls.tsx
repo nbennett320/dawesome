@@ -1,15 +1,13 @@
 import React from 'react'
+import { createPortal } from 'react-dom'
 import { ROW_VOLUME_MAX } from '../../types/sequencer'
 import { formatPan } from '../../types/mixer'
 import { AnalogButton, Knob, Led } from '../../components/fourtrack'
 import { NameInput } from '../../components/common'
+import ClipMenu from '../playlist/ClipMenu'
 
 // the longest a row's name can be (as the engine keeps it)
 const MAX_NAME_CHARS = 40
-
-// how long a click on the name waits to see whether it's a double-click
-// (which renames) before doing what a click does
-const CLICK_WAIT_MS = 220
 
 interface Props {
   name: string
@@ -20,9 +18,9 @@ interface Props {
   disabled?: boolean
   // said after the name, faintly ("Not installed", or the sample's name)
   note?: string
-  // renamed by double-clicking the name: what the field starts with, what
-  // it shows when empty, and the new name (blank to clear it). left out,
-  // the name can't be renamed
+  // renamed from the right-click menu: what the field starts with, what it
+  // shows when empty, and the new name (blank to clear it). left out, the
+  // name can't be renamed
   rename?: {
     initial: string
     placeholder: string
@@ -52,22 +50,25 @@ const CaptionedKnob = ({ caption, ...knob }: React.ComponentProps<typeof Knob> &
 )
 
 // the left end of a sequencer's row, the same for a sample and a synth: its
-// name, mute, volume, pan (samples) and, set apart, remove
+// name, mute, volume, pan (samples) and, set apart, remove. right-click it
+// for a menu (rename, remove)
 const RowControls = ({
   name, nameTitle, onName, disabled = false, note, rename, muted, onMute, volume, onVolume, pan, onPan,
   removeTitle, onRemove,
 }: Props) => {
   const [renaming, setRenaming] = React.useState(false)
-  const clickTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const cancelClick = () => {
-    if(clickTimer.current) clearTimeout(clickTimer.current)
-    clickTimer.current = null
-  }
-  React.useEffect(() => cancelClick, [])
+  // where the right-click menu is open, in the window
+  const [menu, setMenu] = React.useState<{ x: number, y: number } | null>(null)
+  const closeMenu = React.useCallback(() => setMenu(null), [])
 
   return (
-    <div className={`ft-strip shrink-0 w-80 h-11 flex flex-row items-center px-1.5 ${disabled ? 'opacity-60' : ''}`}>
+    <div
+      className={`ft-strip shrink-0 w-80 h-11 flex flex-row items-center px-1.5 ${disabled ? 'opacity-60' : ''}`}
+      onContextMenu={ev => {
+        ev.preventDefault()
+        setMenu({ x: ev.clientX, y: ev.clientY })
+      }}
+    >
       {renaming && rename ? (
         <NameInput
           initial={rename.initial}
@@ -86,24 +87,7 @@ const RowControls = ({
           disabled={disabled}
           className={`ft-scribble flex-1 min-w-0 mr-3 flex flex-row items-baseline gap-1.5 text-left text-xs font-medium px-1 py-0.5 enabled:hover:bg-surface-alt ${muted || disabled ? 'text-ink-faint italic' : ''}`}
           title={nameTitle}
-          onClick={ev => {
-            if(!rename) {
-              onName()
-              return
-            }
-            // the second click of a double-click: that renames instead
-            if(ev.detail > 1) return
-            cancelClick()
-            clickTimer.current = setTimeout(() => {
-              clickTimer.current = null
-              onName()
-            }, CLICK_WAIT_MS)
-          }}
-          onDoubleClick={() => {
-            if(!rename) return
-            cancelClick()
-            setRenaming(true)
-          }}
+          onClick={onName}
         >
           <span className='truncate'>{name}</span>
           {note && <span className='truncate text-[10px] font-normal text-ink-faint shrink-[2]'>{note}</span>}
@@ -162,6 +146,24 @@ const RowControls = ({
       >
         ×
       </AnalogButton>
+
+      {menu && createPortal(
+        // over the whole window, so the sequencer's scrolling box doesn't
+        // cut it off
+        <div className='fixed inset-0 z-50 pointer-events-none [&>*]:pointer-events-auto'>
+          <ClipMenu
+            x={menu.x}
+            y={menu.y}
+            items={[
+              ...(rename ? [{ label: 'Rename…', onSelect: () => setRenaming(true) }] : []),
+              'divider',
+              { label: 'Remove', title: removeTitle, danger: true, onSelect: onRemove },
+            ]}
+            onClose={closeMenu}
+          />
+        </div>,
+        document.body,
+      )}
     </div>
   )
 }
