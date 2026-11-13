@@ -6,10 +6,10 @@
 // from the earliest start to the latest end, with silence in the gaps and
 // overlaps added together
 //
-// pattern clips make a new pattern holding their steps and notes one after
-// another, and are replaced by one clip of it (or, for the halves of a cut
-// clip, by one clip of the pattern they were cut from)
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+// pattern clips make a new pattern holding their notes one after another,
+// each row's together, and are replaced by one clip of it (or, for the
+// halves of a cut clip, by one clip of the pattern they were cut from)
+use std::collections::{BTreeMap, HashSet};
 use std::time::Duration;
 use serde::Serialize;
 
@@ -237,9 +237,7 @@ fn join_patterns(state: &daw::InnerState, clips: Vec<daw::PatternNode>) -> Resul
 
     let mut sequencer = audiograph.sequencer.lock().unwrap();
     let beats_per_bar = state.playlist.time_signature.lock().unwrap().numerator;
-    let mut steps: BTreeMap<u64, BTreeSet<u32>> = BTreeMap::new();
     let mut notes: BTreeMap<u64, Vec<daw::PatternNote>> = BTreeMap::new();
-    let mut kinds = BTreeSet::new();
     let mut names = Vec::new();
     // how many steps the clips span, from the first's start
     let mut span = 0f64;
@@ -247,26 +245,19 @@ fn join_patterns(state: &daw::InnerState, clips: Vec<daw::PatternNode>) -> Resul
     for clip in &clips {
       let pattern = sequencer.pattern(clip.pattern_id)
         .ok_or_else(|| format!("no pattern with id {}", clip.pattern_id))?;
-      kinds.insert(pattern.kind);
-      if kinds.len() > 1 { return Err("Drum patterns and note patterns can't be joined".into()); }
       names.push(label(pattern));
       let (from, to) = clip.span(pattern.length);
-      // where its steps go in the new pattern: it has to start a whole
+      // where its notes go in the new pattern: it has to start a whole
       // number of steps after the first clip, on a step of its own pattern
       let after = (clip.start_offset - clips[0].start_offset).as_secs_f64() / step;
       let (at, from_step) = whole(after).zip(whole(from)).ok_or(SAME_GRID)?;
 
-      for (row, lit) in &pattern.steps {
-        for &step in lit.iter().filter(|&&step| clip.plays(step, pattern.length)) {
-          steps.entry(*row).or_default().insert(at + step - from_step);
-        }
-      }
-      // and its notes, as the clip plays them: those that start in it, cut
-      // at its end
-      for (synth, synth_notes) in &pattern.notes {
-        for note in synth_notes.iter().filter(|note| note.start >= from && note.start < to) {
-          notes.entry(*synth).or_default().push(daw::PatternNote {
-            start: note.start - from + at as f64,
+      // its notes as the clip plays them: those that start in it, cut at its
+      // end, each row's with the other clips' notes of that row
+      for (&row, row_notes) in &pattern.notes {
+        for note in row_notes.iter().filter(|note| clip.plays(note.start, pattern.length)) {
+          notes.entry(row).or_default().push(daw::PatternNote {
+            start: note.start - from_step as f64 + at as f64,
             length: note.end().min(to) - note.start,
             ..*note
           });
@@ -278,7 +269,7 @@ fn join_patterns(state: &daw::InnerState, clips: Vec<daw::PatternNode>) -> Resul
     // as long as the clips' span, up to the next bar line
     let bar = daw::steps_in_bars(1, beats_per_bar);
     let length = ((span - 1e-6) / bar as f64).ceil().max(1.) as u32 * bar;
-    let made = sequencer.add_pattern_after(clips[0].pattern_id, joined_name(&names), length, steps, notes)?;
+    let made = sequencer.add_pattern_after(clips[0].pattern_id, joined_name(&names), length, notes)?;
 
     drop(sequencer);
 

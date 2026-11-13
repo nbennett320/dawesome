@@ -15,6 +15,7 @@ import {
   toTrack,
 } from '../../types/effects'
 import { LoadedProject } from '../../types/project'
+import { synthRowBySlot } from '../../types/sequencer'
 import { tabKey, View } from '../../types/ui'
 import { paneWithTab } from '../paneTree'
 import { reduceLoadedProject, reduceProjectView } from './playlistSlice'
@@ -233,12 +234,12 @@ export const showInRack = (slotId: number) => (dispatch: Dispatch, getState: () 
   dispatch(highlightSlot(slotId))
 }
 
-// open an effect's own tab in the pane the rack is in, or a synth's in the
-// Note Sequencer's (or select it where it's open). docking it there closes
-// its window
+// open an effect's own tab in the pane the rack is in, or a synth row's in
+// the Note Sequencer's (or select it where it's open). docking it there
+// closes its window
 export const showPluginTab = (slotId: number) => (dispatch: Dispatch, getState: () => RootState) => {
   const state = getState()
-  const synth = state.sequencer.synths.some(s => s.id === slotId)
+  const synth = synthRowBySlot(state.sequencer.rows, slotId) !== undefined
   const home = paneWithTab(state.window.windowPane.root, tabKey(synth ? View.NoteSequencer : View.EffectsRack))
   dispatch(openPluginTab({ slotId, paneId: home?.id }))
 }

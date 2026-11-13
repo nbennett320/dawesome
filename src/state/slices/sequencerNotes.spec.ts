@@ -6,19 +6,16 @@ import sequencerReducer, {
 } from './sequencerSlice'
 import { beginGesture, endGesture, resetGestures } from '../gesture'
 import { Note, SequencerState } from '../../types/sequencer'
+import { pattern, sequencerOf } from '../../types/sequencer.fixture'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 const mockInvoke = invoke as Mock
 
 const note = (pitch: number, start = 0): Note => ({ pitch, start, length: 1, velocity: 0.8 })
 
-// synth 7's notes in note pattern 2
-const sequencer = (notes: Note[]): SequencerState => ({
-  rows: [],
-  synths: [],
-  patterns: [{ id: 2, name: null, kind: 'note', length: 16, steps: {}, notes: notes.length ? { 7: notes } : {} }],
-  folders: [],
-})
+// row 7's notes in pattern 2
+const sequencer = (notes: Note[]): SequencerState =>
+  sequencerOf({ patterns: [pattern(2, { notes: notes.length ? { 7: notes } : {} })] })
 
 const makeStore = () => {
   const store = configureStore({ reducer: { sequencer: sequencerReducer } })
@@ -26,7 +23,7 @@ const makeStore = () => {
   return store
 }
 
-const notesShown = (store: ReturnType<typeof makeStore>) => store.getState().sequencer.patterns[0].notes?.[7] ?? []
+const notesShown = (store: ReturnType<typeof makeStore>) => store.getState().sequencer.patterns[0].notes[7] ?? []
 
 const sends = () => mockInvoke.mock.calls.filter(([command]) => command === 'set_pattern_notes').map(([, args]) => args)
 
@@ -51,11 +48,19 @@ afterEach(() => {
 })
 
 describe('setPatternNotes', () => {
-  it('keeps each synth’s notes apart, sending only the one changed', () => {
+  it('keeps each row’s notes apart, sending only the one changed', () => {
     const store = makeStore()
     store.dispatch(setPatternNotes(2, 8, [note(50)]))
     expect(store.getState().sequencer.patterns[0].notes).toEqual({ 8: [note(50)] })
-    expect(sends()).toEqual([{ patternId: 2, synthId: 8, notes: [note(50)], gesture: null }])
+    expect(sends()).toEqual([{ patternId: 2, rowId: 8, notes: [note(50)], gesture: null }])
+  })
+
+  it('puts the notes in order, by start then pitch, before showing and sending them', () => {
+    const store = makeStore()
+    store.dispatch(setPatternNotes(2, 7, [note(64, 4), note(60, 4), note(72, 0)]))
+    const inOrder = [note(72, 0), note(60, 4), note(64, 4)]
+    expect(notesShown(store)).toEqual(inOrder)
+    expect(sends()).toEqual([{ patternId: 2, rowId: 7, notes: inOrder, gesture: null }])
   })
 
   it('shows the notes straight away, and sends the whole list with the drag’s gesture', () => {
@@ -64,13 +69,13 @@ describe('setPatternNotes', () => {
     store.dispatch(setPatternNotes(2, 7, [note(60)]))
 
     expect(notesShown(store)).toEqual([note(60)])
-    expect(sends()).toEqual([{ patternId: 2, synthId: 7, notes: [note(60)], gesture }])
+    expect(sends()).toEqual([{ patternId: 2, rowId: 7, notes: [note(60)], gesture }])
   })
 
   it('a change made without the mouse is a step of its own', () => {
     const store = makeStore()
     store.dispatch(setPatternNotes(2, 7, []))
-    expect(sends()).toEqual([{ patternId: 2, synthId: 7, notes: [], gesture: null }])
+    expect(sends()).toEqual([{ patternId: 2, rowId: 7, notes: [], gesture: null }])
   })
 
   it('sends at most every so often while dragging, the latest last, all in one gesture', () => {
@@ -88,8 +93,8 @@ describe('setPatternNotes', () => {
     endGesture()
     flushNoteSends()
     expect(sends()).toEqual([
-      { patternId: 2, synthId: 7, notes: [note(60)], gesture },
-      { patternId: 2, synthId: 7, notes: [note(62)], gesture },
+      { patternId: 2, rowId: 7, notes: [note(60)], gesture },
+      { patternId: 2, rowId: 7, notes: [note(62)], gesture },
     ])
   })
 

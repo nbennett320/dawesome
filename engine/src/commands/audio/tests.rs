@@ -41,7 +41,7 @@ fn test_a_moved_take_is_found_when_the_project_is_opened_again() {
   let (loaded, _) = reopen(&file);
   assert!(loaded.missing.is_empty(), "{:?}", loaded.missing);
   assert_eq!(loaded.clips[0].path, moved.path);
-  assert_eq!(loaded.sequencer.rows[0].path, moved.path);
+  assert_eq!(loaded.sequencer.rows[0].sample_path(), Some(moved.path.as_str()));
   let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -59,7 +59,7 @@ fn test_renamed_takes_and_folders_are_found_when_the_project_is_opened_again() {
   let expected = dir.join("song").join("recordings").join("Old").join("Lead vocals").join("lead.wav");
   assert!(loaded.missing.is_empty(), "{:?}", loaded.missing);
   assert_eq!(loaded.clips[0].path, expected.to_string_lossy());
-  assert_eq!(loaded.sequencer.rows[0].path, expected.to_string_lossy());
+  assert_eq!(loaded.sequencer.rows[0].sample_path(), Some(&*expected.to_string_lossy()));
   let _ = std::fs::remove_dir_all(&dir);
 }
 

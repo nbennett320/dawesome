@@ -1,4 +1,5 @@
 import React from 'react'
+import { createSelector } from '@reduxjs/toolkit'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppSelector } from '../../hooks/redux'
 import {
@@ -12,7 +13,11 @@ import { RootState } from '../../state/store'
 import { PlaylistTransport } from '../../types/transport'
 
 const selectClipSettings = (state: RootState) => state.playlist.clipSettings
-const selectPatterns = (state: RootState) => state.sequencer.patterns
+// each pattern's length, as one string: the same while only notes change
+const selectPatternLengths = createSelector(
+  [(state: RootState) => state.sequencer.patterns],
+  patterns => patterns.map(p => `${p.id}:${p.length}`).join(),
+)
 
 // settings are sent to the engine a little behind (see sendSettings in
 // playlistSlice), so it's asked again once they've got there
@@ -27,8 +32,8 @@ export const useTransport = () => {
   const loopEnabled = useAppSelector(selectLoopEnabled)
   // a clip's pitch changes how long it plays, so where the song ends
   const clipSettings = useAppSelector(selectClipSettings)
-  // a pattern's length changes where its clips end
-  const patterns = useAppSelector(selectPatterns)
+  // a pattern's length changes where its clips end (its notes don't)
+  const patternLengths = useAppSelector(selectPatternLengths)
   const revision = useAppSelector(selectTransportRevision)
   const [transport, setTransport] = React.useState<PlaylistTransport | null>(null)
 
@@ -59,7 +64,7 @@ export const useTransport = () => {
     refresh()
     const timer = setTimeout(refresh, ASK_AGAIN_MS)
     return () => clearTimeout(timer)
-  }, [refresh, playing, items, tempo, loopEnabled, clipSettings, patterns, revision])
+  }, [refresh, playing, items, tempo, loopEnabled, clipSettings, patternLengths, revision])
 
   React.useEffect(() => () => {
     if(again.current) clearTimeout(again.current)

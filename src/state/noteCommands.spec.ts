@@ -25,9 +25,10 @@ describe('the note commands', () => {
     expect(noteClipboard()).toEqual([notes[0], notes[1]])
 
     const pasted = noteCommand('paste', target({ pasteAt: 8, selected: new Set() }))
-    expect(pasted?.notes).toEqual([...notes, note(60, 8), note(64, 10)])
-    // the copies become the selection
-    expect([...pasted?.selected ?? []]).toEqual([3, 4])
+    // in order, by start: the copies before the note at 12
+    expect(pasted?.notes).toEqual([notes[0], notes[1], note(60, 8), note(64, 10), notes[2]])
+    // the copies become the selection, where they went
+    expect([...pasted?.selected ?? []]).toEqual([2, 3])
   })
 
   it('cut the selection to the clipboard, and keep it across patterns', () => {
@@ -44,8 +45,8 @@ describe('the note commands', () => {
 
   it('repeat the selection where it ends, the copies selected', () => {
     const repeated = noteCommand('repeat', target())
-    expect(repeated?.notes).toEqual([...notes, note(60, 8), note(64, 10)])
-    expect([...repeated?.selected ?? []]).toEqual([3, 4])
+    expect(repeated?.notes).toEqual([notes[0], notes[1], note(60, 8), note(64, 10), notes[2]])
+    expect([...repeated?.selected ?? []]).toEqual([2, 3])
   })
 
   it('make nothing past the pattern’s end, leaving the selection as it was', () => {

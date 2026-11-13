@@ -8,7 +8,8 @@ import playlistReducer from '../../../state/slices/playlistSlice'
 import projectReducer from '../../../state/slices/projectSlice'
 import windowReducer, { selectFocusedView } from '../../../state/slices/windowSlice'
 import sequencerReducer from '../../../state/slices/sequencerSlice'
-import { PatternKind, SequencerState } from '../../../types/sequencer'
+import { SequencerState } from '../../../types/sequencer'
+import { pattern, sampleRow, sequencerOf, steps, synthRow } from '../../../types/sequencer.fixture'
 import { View } from '../../../types/ui'
 import PatternBrowser from './PatternBrowser'
 
@@ -18,25 +19,24 @@ vi.mock('@tauri-apps/plugin-fs', () => ({ readDir: vi.fn() }))
 vi.mock('@tauri-apps/api/path', () => ({ dirname: vi.fn(), documentDir: vi.fn(), join: vi.fn() }))
 const mockInvoke = invoke as Mock
 
-// drum patterns Beat (no kind: an older project's) and Fill, note patterns
-// Verse and Chorus, and a folder of each kind
-const sequencer: SequencerState = {
-  rows: [],
-  synths: [],
+// Beat and Fill (steps on the sample row), Verse and Chorus (notes on the
+// synth row), and two folders
+const sequencer: SequencerState = sequencerOf({
+  rows: [sampleRow(0), synthRow(1)],
   patterns: [
-    { id: 0, name: 'Beat', length: 16, steps: {} },
-    { id: 1, name: 'Verse', kind: 'note', length: 16, steps: {}, notes: {} },
-    { id: 2, name: 'Fill', kind: 'drum', length: 16, steps: {}, folder: 10 },
-    { id: 3, name: 'Chorus', kind: 'note', length: 16, steps: {}, notes: {}, folder: 11 },
+    pattern(0, { name: 'Beat', notes: { 0: steps(0) } }),
+    pattern(1, { name: 'Verse', notes: { 1: steps(0) } }),
+    pattern(2, { name: 'Fill', folder: 10 }),
+    pattern(3, { name: 'Chorus', notes: { 1: steps(4) }, folder: 11 }),
   ],
-  folders: [{ id: 10, name: 'Fills', kind: 'drum' }, { id: 11, name: 'Choruses', kind: 'note' }],
-}
+  folders: [{ id: 10, name: 'Fills' }, { id: 11, name: 'Choruses' }],
+})
 
-const setup = async (kind: PatternKind) => {
+const setup = async () => {
   const store = configureStore({
     reducer: { playlist: playlistReducer, project: projectReducer, window: windowReducer, sequencer: sequencerReducer },
   })
-  render(<Provider store={store}><PatternBrowser kind={kind} /></Provider>)
+  render(<Provider store={store}><PatternBrowser /></Provider>)
   await act(async () => {})
   return store
 }
@@ -52,44 +52,39 @@ beforeEach(() => {
   })
 })
 
-describe('the pattern pages', () => {
-  it('Drum Patterns lists drum patterns and folders, and shows one in the Drum Sequencer', async () => {
-    const store = await setup('drum')
-    expect(screen.getByRole('tree', { name: 'Drum patterns' })).toBeTruthy()
+describe('the pattern browser', () => {
+  it('lists every pattern and folder', async () => {
+    await setup()
+    expect(screen.getByRole('tree', { name: 'Patterns' })).toBeTruthy()
     expect(rows().some(row => row.startsWith('Fills'))).toBe(true)
+    expect(rows().some(row => row.startsWith('Choruses'))).toBe(true)
     expect(rows().some(row => row.startsWith('Beat'))).toBe(true)
-    expect(screen.queryByText('Verse')).toBeNull()
-    expect(screen.queryByText('Choruses')).toBeNull()
-
-    fireEvent.click(screen.getByText('Beat'))
-    expect(selectFocusedView(store.getState() as never)).toBe(View.Sequencer)
-    expect(store.getState().sequencer.selected.drum).toBe(0)
+    expect(rows().some(row => row.startsWith('Verse'))).toBe(true)
   })
 
-  it('Note Patterns lists note patterns and folders, and shows one in the Note Sequencer', async () => {
-    const store = await setup('note')
-    expect(screen.getByRole('tree', { name: 'Note patterns' })).toBeTruthy()
-    expect(rows().some(row => row.startsWith('Choruses'))).toBe(true)
-    expect(rows().some(row => row.startsWith('Verse'))).toBe(true)
-    expect(screen.queryByText('Beat')).toBeNull()
-    expect(screen.queryByText('Fills')).toBeNull()
+  it('shows a pattern in the sequencer tab that shows its notes', async () => {
+    const store = await setup()
+    fireEvent.click(screen.getByText('Beat'))
+    expect(selectFocusedView(store.getState() as never)).toBe(View.Sequencer)
+    expect(store.getState().sequencer.selected).toBe(0)
 
     fireEvent.click(screen.getByText('Verse'))
     expect(selectFocusedView(store.getState() as never)).toBe(View.NoteSequencer)
-    expect(store.getState().sequencer.selected).toEqual({ drum: 0, note: 1 })
+    expect(store.getState().sequencer.selected).toBe(1)
   })
 
-  it('searches its own kind only', async () => {
-    await setup('note')
+  it('searches every pattern', async () => {
+    await setup()
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'e' } })
     expect(screen.getByText('Verse')).toBeTruthy()
-    expect(screen.queryByText('Beat')).toBeNull()
+    expect(screen.getByText('Beat')).toBeTruthy()
+    expect(screen.queryByText('Fill')).toBeNull()
   })
 
-  it('makes folders of its own kind', async () => {
-    await setup('note')
+  it('makes folders', async () => {
+    await setup()
     fireEvent.click(screen.getByRole('button', { name: 'New folder' }))
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith(
-      'add_pattern_folder', { name: 'New folder', parent: null, kind: 'note' }))
+      'add_pattern_folder', { name: 'New folder', parent: null }))
   })
 })

@@ -2,9 +2,9 @@ import type { Mock } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import { configureStore } from '@reduxjs/toolkit'
 import reducer, {
-  addSynth, addSynthOnTrack, changeTempo, moveSequencerRow, selectFoldersOf, selectLastSelectedPattern, selectPatternsOf, sequencerSlice, selectPattern,
-  setPatternStep, setPianoRollSynth, setSequencer, setSequencerRowMuted, setSequencerRowVolume, setSynthVolume,
-  showPattern,
+  addSampleRow, addSynthOnTrack, addSynthRow, changeTempo, moveRow, selectLastSelectedPattern, selectPattern,
+  selectPianoRollRow, selectSampleRows, selectSynthRows, sequencerSlice, sequencerTabFor, setPatternStep,
+  setPianoRollRow, setRowMuted, setRowVolume, setSequencer, showPattern,
 } from './sequencerSlice'
 import { beginGesture, resetGestures } from '../gesture'
 import playlistReducer, { paintPatternClips, reduceLoadedProject, reducePainted, setPlaying } from './playlistSlice'
@@ -18,88 +18,63 @@ import mixdownReducer from './mixdownSlice'
 import appearanceReducer from './appearanceSlice'
 import pianoRollReducer from './pianoRollSlice'
 import { LoadedProject, ProjectView } from '../../types/project'
-import { SequencerState, Synth } from '../../types/sequencer'
+import { Note, SequencerState } from '../../types/sequencer'
+import { pattern, sampleRow, sequencerOf, step, steps, synthRow } from '../../types/sequencer.fixture'
 import { View } from '../../types/ui'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 
-const synth = (id: number, name = `Synth ${id}`): Synth => ({
-  id, pluginId: `vst3:${id}`, name, vendor: 'Acme', volume: 1, muted: false, missing: false, hasEditor: true,
-})
+const note = (pitch: number, start: number, length = 4): Note => ({ pitch, start, length, velocity: 0.8 })
 
-const sequencer: SequencerState = {
-  rows: [{ id: 0, path: '/drums/kick.wav', label: null, volume: 1, pan: 0, muted: false }],
-  synths: [],
+// a sample row (0), then synth rows 3 and 1 (slots 103 and 101), shown in
+// that order. patterns 0 (the kick's steps), 2 (row 3's notes), 4 and 6
+const sequencer: SequencerState = sequencerOf({
+  rows: [sampleRow(0), synthRow(3), synthRow(1)],
   patterns: [
-    { id: 0, name: null, length: 16, steps: { 0: [0, 8] } },
-    { id: 4, name: 'fill', length: 32, steps: {}, folder: 1 },
+    pattern(0, { notes: { 0: steps(0, 8) } }),
+    pattern(2, { name: 'lead', length: 64, notes: { 3: [note(60, 0)] } }),
+    pattern(4, { name: 'fill', length: 32, folder: 1 }),
+    pattern(6),
   ],
   folders: [{ id: 1, name: 'Fills' }],
-}
-
-// drum patterns 0 and 4, note patterns 2 and 6, and two synths
-const both: SequencerState = {
-  ...sequencer,
-  synths: [synth(10), synth(11)],
-  patterns: [
-    sequencer.patterns[0],
-    { id: 2, name: 'lead', kind: 'note', length: 64, steps: {}, notes: { 10: [{ pitch: 60, start: 0, length: 4, velocity: 0.8 }] } },
-    { ...sequencer.patterns[1], kind: 'drum' },
-    { id: 6, name: null, kind: 'note', length: 16, steps: {}, notes: {} },
-  ],
-  folders: [{ id: 1, name: 'Fills', kind: 'drum' }, { id: 3, name: 'Leads', kind: 'note' }],
-}
+})
 
 const init = () => reducer(undefined, { type: 'init' })
+const asRoot = (state: ReturnType<typeof init>) => ({ sequencer: state }) as unknown as Parameters<typeof selectSampleRows>[0]
 
 describe('sequencerSlice', () => {
-  it('keeps the pattern folders the engine sends', () => {
+  it('keeps the rows, patterns and folders the engine sends', () => {
     const state = reducer(init(), setSequencer(sequencer))
+    expect(state.rows.map(r => r.id)).toEqual([0, 3, 1])
     expect(state.folders).toEqual([{ id: 1, name: 'Fills' }])
-    expect(state.patterns[1].folder).toBe(1)
+    expect(state.patterns[2].folder).toBe(1)
     expect(reducer(state, setSequencer({ ...sequencer, folders: [] })).folders).toEqual([])
   })
 
   it('selects the first pattern, and keeps the selection while it exists', () => {
     let state = reducer(init(), setSequencer(sequencer))
-    expect(state.selected.drum).toBe(0)
+    expect(state.selected).toBe(0)
 
     state = reducer(state, selectPattern(4))
     state = reducer(state, setSequencer({ ...sequencer, rows: [] }))
-    expect(state.selected.drum).toBe(4)
+    expect(state.selected).toBe(4)
 
     // the selected one deleted: back to the first
-    state = reducer(state, setSequencer({ ...sequencer, patterns: [sequencer.patterns[0]] }))
-    expect(state.selected.drum).toBe(0)
+    state = reducer(state, setSequencer({ ...sequencer, patterns: [sequencer.patterns[1]] }))
+    expect(state.selected).toBe(2)
 
     // and nothing without patterns
-    state = reducer(state, setSequencer({ rows: [], synths: [], patterns: [], folders: [] }))
-    expect(state.selected.drum).toBeNull()
+    state = reducer(state, setSequencer(sequencerOf()))
+    expect(state.selected).toBeNull()
   })
 
   it("won't select a pattern that doesn't exist", () => {
     const state = reducer(reducer(init(), setSequencer(sequencer)), selectPattern(99))
-    expect(state.selected.drum).toBe(0)
+    expect(state.selected).toBe(0)
   })
 
-  it('keeps a selected pattern of each kind, a pattern without a kind being a drum pattern', () => {
-    let state = reducer(init(), setSequencer(both))
-    expect(state.selected).toEqual({ drum: 0, note: 2 })
-
-    // picking one changes only its own kind's
-    state = reducer(state, selectPattern(6))
-    state = reducer(state, selectPattern(4))
-    expect(state.selected).toEqual({ drum: 4, note: 6 })
-
-    // a note pattern deleted: the first note pattern, not a drum one
-    state = reducer(state, setSequencer({ ...both, patterns: both.patterns.filter(p => p.id !== 6) }))
-    expect(state.selected).toEqual({ drum: 4, note: 2 })
-    state = reducer(state, setSequencer(sequencer))
-    expect(state.selected).toEqual({ drum: 4, note: null })
-  })
-
-  it('remembers the pattern last selected, of either kind', () => {
-    let state = reducer(init(), setSequencer(both))
+  it('remembers the pattern last selected', () => {
+    let state = reducer(init(), setSequencer(sequencer))
     // a pattern selected for the project being opened isn't one picked
     expect(state.lastSelected).toBeNull()
 
@@ -107,82 +82,86 @@ describe('sequencerSlice', () => {
     expect(state.lastSelected).toBe(6)
     state = reducer(state, selectPattern(4))
     expect(state.lastSelected).toBe(4)
-    expect(selectLastSelectedPattern({ sequencer: state } as unknown as Parameters<typeof selectLastSelectedPattern>[0])).toBe(4)
+    expect(selectLastSelectedPattern(asRoot(state))).toBe(4)
     // (one that isn't there isn't)
     state = reducer(state, selectPattern(99))
     expect(state.lastSelected).toBe(4)
 
     // kept while it's there
-    state = reducer(state, setSequencer({ ...both, rows: [] }))
+    state = reducer(state, setSequencer({ ...sequencer, rows: [] }))
     expect(state.lastSelected).toBe(4)
-    // gone with it, and not replaced: the other kind's selection stays its own
-    state = reducer(state, setSequencer({ ...both, patterns: both.patterns.filter(p => p.id !== 4) }))
+    // gone with it, and not replaced
+    state = reducer(state, setSequencer({ ...sequencer, patterns: sequencer.patterns.filter(p => p.id !== 4) }))
     expect(state.lastSelected).toBeNull()
-    expect(state.selected).toEqual({ drum: 0, note: 6 })
+    expect(state.selected).toBe(0)
   })
 
   it('forgets the pattern last selected when a project is opened', () => {
-    let state = reducer(reducer(init(), setSequencer(both)), selectPattern(2))
-    state = reducer(state, reduceLoadedProject({ sequencer: both, patternClips: [] } as unknown as LoadedProject))
+    let state = reducer(reducer(init(), setSequencer(sequencer)), selectPattern(2))
+    state = reducer(state, reduceLoadedProject({ sequencer, patternClips: [] } as unknown as LoadedProject))
     expect(state.lastSelected).toBeNull()
+    expect(state.selected).toBe(0)
   })
 
   it('selects the pattern clips were painted with', () => {
-    let state = reducer(init(), setSequencer(both))
-    // a new note pattern the paint made
+    let state = reducer(init(), setSequencer(sequencer))
+    // a new pattern the paint made
     const painted = {
       clips: [{ id: 40, patternId: 8, trackNumber: 1, startBeat: 0, window: null }],
       patternId: 8,
-      sequencer: { ...both, patterns: [...both.patterns, { id: 8, name: null, kind: 'note' as const, length: 32, steps: {}, notes: {} }] },
+      sequencer: { ...sequencer, patterns: [...sequencer.patterns, pattern(8, { length: 32 })] },
       mixer: { tracks: [], master: { volumeDb: 0, pan: 0, mute: false, solo: false } },
       trackCount: 4,
     }
     state = reducer(state, reducePainted(painted))
     expect(state.patterns).toHaveLength(5)
-    expect(state.selected).toEqual({ drum: 0, note: 8 })
+    expect(state.selected).toBe(8)
     expect(state.lastSelected).toBe(8)
   })
 
-  it('keeps the synth the Piano Roll edits while it’s there, or the first', () => {
-    let state = reducer(init(), setSequencer(both))
-    expect(state.synths.map(s => s.id)).toEqual([10, 11])
-    expect(state.pianoRollSynthId).toBe(10)
-
-    state = reducer(state, setPianoRollSynth(11))
-    state = reducer(state, setPianoRollSynth(99))
-    expect(state.pianoRollSynthId).toBe(11)
-
-    state = reducer(state, setSequencer({ ...both, synths: [synth(10)] }))
-    expect(state.pianoRollSynthId).toBe(10)
-    state = reducer(state, setSequencer(sequencer))
-    expect(state.pianoRollSynthId).toBeNull()
-  })
-
-  it('lists each kind’s patterns and folders apart', () => {
-    const state = { sequencer: reducer(init(), setSequencer(both)) } as never
-    expect(selectPatternsOf('drum')(state).map(p => p.id)).toEqual([0, 4])
-    expect(selectPatternsOf('note')(state).map(p => p.id)).toEqual([2, 6])
-    expect(selectFoldersOf('drum')(state).map(f => f.name)).toEqual(['Fills'])
-    expect(selectFoldersOf('note')(state).map(f => f.name)).toEqual(['Leads'])
-    // the same list until the patterns change
-    expect(selectPatternsOf('note')(state)).toBe(selectPatternsOf('note')(state))
-  })
-
-  it('shows a synth’s notes straight away', () => {
-    const { reduceNotes } = sequencerSlice.actions
-    let state = reducer(init(), setSequencer(both))
-    const note = { pitch: 62, start: 2, length: 1, velocity: 0.8 }
-    state = reducer(state, reduceNotes({ patternId: 2, synthId: 11, notes: [note] }))
-    expect(Object.keys(state.patterns[1].notes ?? {})).toEqual(['10', '11'])
-    state = reducer(state, reduceNotes({ patternId: 2, synthId: 10, notes: [] }))
-    expect(state.patterns[1].notes).toEqual({ 11: [note] })
-  })
-
-  it('shows a step straight away', () => {
-    const { reduceStep } = sequencerSlice.actions
+  it('keeps the synth row the Piano Roll edits while it’s there, or the first', () => {
     let state = reducer(init(), setSequencer(sequencer))
+    // the first synth row on screen, whatever the ids
+    expect(state.pianoRollRowId).toBe(3)
+
+    state = reducer(state, setPianoRollRow(1))
+    // not a row, nor a sample row
+    state = reducer(state, setPianoRollRow(99))
+    state = reducer(state, setPianoRollRow(0))
+    expect(state.pianoRollRowId).toBe(1)
+    expect(selectPianoRollRow(asRoot(state))?.instrument.slot).toBe(101)
+
+    state = reducer(state, setSequencer({ ...sequencer, rows: [sampleRow(0), synthRow(3)] }))
+    expect(state.pianoRollRowId).toBe(3)
+    state = reducer(state, setSequencer({ ...sequencer, rows: [sampleRow(0)] }))
+    expect(state.pianoRollRowId).toBeNull()
+  })
+
+  it('lists the sample rows and the synth rows apart, each the same list until the rows change', () => {
+    const root = asRoot(reducer(init(), setSequencer(sequencer)))
+    expect(selectSampleRows(root).map(r => r.id)).toEqual([0])
+    expect(selectSynthRows(root).map(r => r.id)).toEqual([3, 1])
+    expect(selectSynthRows(root)).toBe(selectSynthRows(root))
+  })
+
+  it('shows a row’s notes straight away, in order', () => {
+    const { reduceNotes } = sequencerSlice.actions
+    let state = reducer(init(), setSequencer(sequencer))
+    state = reducer(state, reduceNotes({ patternId: 2, rowId: 1, notes: [note(62, 2)] }))
+    expect(Object.keys(state.patterns[1].notes)).toEqual(['1', '3'])
+    state = reducer(state, reduceNotes({ patternId: 2, rowId: 3, notes: [] }))
+    expect(state.patterns[1].notes).toEqual({ 1: [note(62, 2)] })
+  })
+
+  it('shows a step straight away, at the row’s step pitch', () => {
+    const { reduceStep } = sequencerSlice.actions
+    let state = reducer(init(), setSequencer({ ...sequencer, rows: [sampleRow(0, { stepPitch: 48 })] }))
     state = reducer(state, reduceStep({ patternId: 0, rowId: 0, step: 4, on: true }))
-    expect(state.patterns[0].steps).toEqual({ 0: [0, 4, 8] })
+    expect(state.patterns[0].notes).toEqual({ 0: [step(0), step(4, 48), step(8)] })
+    // (a row that's gone changes nothing)
+    const before = state.patterns
+    state = reducer(state, reduceStep({ patternId: 0, rowId: 9, step: 4, on: true }))
+    expect(state.patterns).toBe(before)
   })
 
   it('forgets the run once the engine stops', () => {
@@ -195,20 +174,35 @@ describe('sequencerSlice', () => {
   })
 
   it("takes a loaded project's sequencer", () => {
-    let state = reducer(init(), setSequencer({ rows: [], synths: [], patterns: [{ id: 9, name: null, length: 16, steps: {} }], folders: [] }))
+    let state = reducer(init(), setSequencer(sequencerOf({ patterns: [pattern(9)] })))
     state = reducer(state, selectPattern(9))
+    state = reducer(state, setPianoRollRow(3))
 
-    state = reducer(state, reduceLoadedProject({ sequencer: both, patternClips: [] } as unknown as LoadedProject))
+    state = reducer(state, reduceLoadedProject({ sequencer, patternClips: [] } as unknown as LoadedProject))
     expect(state.patterns).toHaveLength(4)
-    expect(state.rows).toHaveLength(1)
-    expect(state.synths).toHaveLength(2)
-    expect(state.selected).toEqual({ drum: 0, note: 2 })
+    expect(state.rows).toHaveLength(3)
+    expect(state.selected).toBe(0)
+    expect(state.pianoRollRowId).toBe(3)
   })
 
-  it('takes a project from an older engine, without synths', () => {
-    const state = reducer(init(), reduceLoadedProject({ sequencer, patternClips: [] } as unknown as LoadedProject))
-    expect(state.synths).toEqual([])
-    expect(state.pianoRollSynthId).toBeNull()
+  it('takes a project with no sequencer', () => {
+    const state = reducer(init(), reduceLoadedProject({ sequencer: null, patternClips: [] } as unknown as LoadedProject))
+    expect(state.rows).toEqual([])
+    expect(state.pianoRollRowId).toBeNull()
+  })
+})
+
+describe('sequencerTabFor', () => {
+  const rows = [sampleRow(0), synthRow(3)]
+
+  it('is the Note Sequencer when every note is on a synth row', () => {
+    expect(sequencerTabFor(pattern(0, { notes: { 3: [note(60, 0)] } }), rows)).toBe(View.NoteSequencer)
+  })
+
+  it('is the Drum Sequencer for steps, for both, and for nothing', () => {
+    expect(sequencerTabFor(pattern(0, { notes: { 0: steps(0) } }), rows)).toBe(View.Sequencer)
+    expect(sequencerTabFor(pattern(0, { notes: { 0: steps(0), 3: [note(60, 0)] } }), rows)).toBe(View.Sequencer)
+    expect(sequencerTabFor(pattern(0), rows)).toBe(View.Sequencer)
   })
 })
 
@@ -263,14 +257,16 @@ describe('sequencer edits and undo', () => {
     await setPatternStep(0, 0, 6, true)(dispatch)
     // the next press: a volume knob
     const drag = beginGesture()
-    await setSequencerRowVolume(0, 0.8)(dispatch)
-    await setSequencerRowVolume(0, 0.6)(dispatch)
+    await setRowVolume(3, 0.8)(dispatch)
+    await setRowVolume(3, 0.6)(dispatch)
 
     expect(stroke).not.toBe(drag)
     expect(sent()).toEqual([
       ['set_pattern_step', stroke], ['set_pattern_step', stroke], ['set_pattern_step', stroke],
-      ['set_sequencer_row_volume', drag], ['set_sequencer_row_volume', drag],
+      ['set_row_volume', drag], ['set_row_volume', drag],
     ])
+    expect(mockInvoke).toHaveBeenCalledWith('set_pattern_step', { patternId: 0, rowId: 0, step: 4, on: true, gesture: stroke })
+    expect(mockInvoke).toHaveBeenCalledWith('set_row_volume', { rowId: 3, volume: 0.6, gesture: drag })
   })
 
   it('sends a step toggled from the keyboard, and a mute, as steps of their own', async () => {
@@ -278,13 +274,14 @@ describe('sequencer edits and undo', () => {
     await setPatternStep(0, 0, 4, true)(dispatch)
     // a click is a press too, but a mute is always its own step
     beginGesture()
-    await setSequencerRowMuted(0, true)(dispatch)
+    await setRowMuted(1, true)(dispatch)
 
-    expect(sent()).toEqual([['set_pattern_step', null], ['set_sequencer_row_muted', undefined]])
+    expect(sent()).toEqual([['set_pattern_step', null], ['set_row_muted', null]])
+    expect(mockInvoke).toHaveBeenCalledWith('set_row_muted', { rowId: 1, muted: true, gesture: null })
   })
 })
 
-describe('synths', () => {
+describe('adding rows', () => {
   const mockInvoke = invoke as Mock
 
   const makeStore = () => configureStore({
@@ -308,36 +305,41 @@ describe('synths', () => {
     resetGestures()
   })
 
-  it('adds a dropped instrument, bringing a note pattern along with the first', async () => {
+  const withSynth = sequencerOf({ rows: [synthRow(4)] })
+
+  it('adds a dropped instrument as a synth row, bringing a pattern along with the first', async () => {
     mockInvoke.mockImplementation(async (command: string) => {
-      if(command === 'add_synth') return { synthId: 10, sequencer: { ...sequencer, synths: [synth(10)] } }
-      if(command === 'add_pattern') {
-        return { id: 6, sequencer: { ...sequencer, synths: [synth(10)], patterns: [...sequencer.patterns, both.patterns[3]] } }
-      }
+      if(command === 'add_synth_row') return { rowId: 4, sequencer: withSynth }
+      if(command === 'add_pattern') return { id: 6, sequencer: { ...withSynth, patterns: [pattern(6)] } }
       return undefined
     })
     const store = makeStore()
 
-    expect(await store.dispatch(addSynth('vst3:10'))).toBe(10)
+    expect(await store.dispatch(addSynthRow('vst3:4'))).toBe(4)
     expect(mockInvoke.mock.calls.map(([command, args]) => [command, args])).toEqual([
-      ['add_synth', { pluginId: 'vst3:10' }],
-      ['add_pattern', { bars: 1, kind: 'note' }],
+      ['add_synth_row', { pluginId: 'vst3:4' }],
+      ['add_pattern', { bars: 1 }],
     ])
-    expect(store.getState().sequencer.selected.note).toBe(6)
+    expect(store.getState().sequencer.selected).toBe(6)
+  })
+
+  it('adds a dropped sample as a sample row, with a pattern only when there’s none', async () => {
+    mockInvoke.mockImplementation(async (command: string) => {
+      if(command === 'add_sample_row') return { rowId: 0, sequencer }
+      return undefined
+    })
+    const store = makeStore()
+
+    await store.dispatch(addSampleRow('/drums/kick.wav'))
+    expect(mockInvoke.mock.calls).toEqual([['add_sample_row', { path: '/drums/kick.wav' }]])
+    expect(store.getState().sequencer.rows).toHaveLength(3)
   })
 
   it('says why an instrument couldn’t be added', async () => {
     mockInvoke.mockRejectedValue(new Error('not an instrument'))
     const store = makeStore()
-    expect(await store.dispatch(addSynth('vst3:x'))).toBeNull()
+    expect(await store.dispatch(addSynthRow('vst3:x'))).toBeNull()
     expect(store.getState().project.notice).toEqual({ kind: 'error', message: 'Couldn’t add the instrument: not an instrument' })
-  })
-
-  it('sends one knob drag as one gesture', async () => {
-    mockInvoke.mockResolvedValue(both)
-    const drag = beginGesture()
-    await setSynthVolume(10, 0.5)(vi.fn())
-    expect(mockInvoke).toHaveBeenCalledWith('set_synth_volume', { synthId: 10, volume: 0.5, gesture: drag })
   })
 
   it('paints clips into the playlist, the sequencer and the mixer', async () => {
@@ -353,7 +355,7 @@ describe('synths', () => {
           { id: 41, patternId: 6, trackNumber: 4, startBeat: 6, window: { start: 0, end: 8 } },
         ],
         patternId: 6,
-        sequencer: both,
+        sequencer,
         mixer,
         trackCount: 5,
       }
@@ -370,7 +372,7 @@ describe('synths', () => {
     ])
     expect(state.playlist.clipWindows).toEqual({ 41: { start: 0, end: 8 } })
     expect(state.playlist.ui.trackCount).toBe(5)
-    expect(state.sequencer.selected.note).toBe(6)
+    expect(state.sequencer.selected).toBe(6)
     expect(state.sequencer.lastSelected).toBe(6)
     expect(state.mixer.tracks[4]).toMatchObject({ volumeDb: -3 })
   })
@@ -383,17 +385,17 @@ describe('synths', () => {
     expect(store.getState().playlist.playlistItems).toEqual([])
   })
 
-  it('starts a synth on a track at the playhead, and opens the Piano Roll on its pattern', async () => {
+  it('starts a synth row on a track at the playhead, and opens the Piano Roll on its pattern', async () => {
     const project: ProjectView = {
       tempo: 120,
       clips: [],
       patternClips: [{ id: 30, patternId: 6, trackNumber: 2, startBeat: 8, window: null }],
       mixer: { tracks: [], master: { volumeDb: 0, pan: 0, mute: false, solo: false } },
-      sequencer: { ...both, synths: [synth(10), synth(11), synth(12)] },
+      sequencer: { ...sequencer, rows: [...sequencer.rows, synthRow(12)] },
     }
     mockInvoke.mockImplementation(async (command: string) => {
       if(command === 'get_playlist_transport') return { positionMs: 4000, beatIntervalMs: 500 }
-      if(command === 'add_synth_on_track') return { synthId: 12, patternId: 6, project }
+      if(command === 'add_synth_on_track') return { rowId: 12, patternId: 6, project }
       return undefined
     })
     const store = makeStore()
@@ -401,27 +403,26 @@ describe('synths', () => {
     await store.dispatch(addSynthOnTrack('vst3:12', 2))
     expect(mockInvoke).toHaveBeenCalledWith('add_synth_on_track', { pluginId: 'vst3:12', trackNumber: 2, dropBeat: 8 })
     const state = store.getState()
-    expect(state.sequencer.selected.note).toBe(6)
-    expect(state.sequencer.pianoRollSynthId).toBe(12)
+    expect(state.sequencer.selected).toBe(6)
+    expect(state.sequencer.pianoRollRowId).toBe(12)
     expect(state.playlist.playlistItems.map(item => item.patternId)).toEqual([6])
     expect(selectFocusedView(state)).toBe(View.PianoRoll)
   })
 
-  it('opens a pattern in the sequencer of its kind', () => {
+  it('opens a pattern in the sequencer tab that shows its notes', () => {
     const store = makeStore()
-    store.dispatch(setSequencer(both))
-    store.dispatch(showPattern(6))
+    store.dispatch(setSequencer(sequencer))
+    store.dispatch(showPattern(2))
     expect(selectFocusedView(store.getState())).toBe(View.NoteSequencer)
-    expect(store.getState().sequencer.selected.note).toBe(6)
-    store.dispatch(showPattern(4))
+    expect(store.getState().sequencer.selected).toBe(2)
+    store.dispatch(showPattern(0))
     expect(selectFocusedView(store.getState())).toBe(View.Sequencer)
   })
 })
 
 describe('moving a row', () => {
   const mockInvoke = invoke as Mock
-  const row = (id: number) => ({ id, path: `/drums/${id}.wav`, label: null, volume: 1, pan: 0, muted: false })
-  const three: SequencerState = { ...sequencer, rows: [row(0), row(1), row(2)] }
+  const three: SequencerState = { ...sequencer, rows: [sampleRow(0), synthRow(1), sampleRow(2)] }
   const order = (store: { getState: () => { sequencer: { rows: Array<{ id: number }> } } }) =>
     store.getState().sequencer.rows.map(r => r.id)
 
@@ -437,11 +438,11 @@ describe('moving a row', () => {
     mockInvoke.mockImplementation(() => new Promise(resolve => { answer = resolve }))
     const store = makeStore()
 
-    const moved = store.dispatch(moveSequencerRow(2, 0))
+    const moved = store.dispatch(moveRow(2, 0))
     expect(order(store)).toEqual([2, 0, 1])
-    expect(mockInvoke).toHaveBeenCalledWith('move_sequencer_row', { rowId: 2, index: 0 })
+    expect(mockInvoke).toHaveBeenCalledWith('move_row', { rowId: 2, index: 0 })
 
-    answer({ ...three, rows: [row(2), row(0), row(1)] })
+    answer({ ...three, rows: [sampleRow(2), sampleRow(0), synthRow(1)] })
     await moved
     expect(order(store)).toEqual([2, 0, 1])
   })
@@ -449,13 +450,13 @@ describe('moving a row', () => {
   it('goes back to the engine\'s rows when the move fails', async () => {
     mockInvoke.mockReset()
     mockInvoke.mockImplementation(async (command: string) => {
-      if(command === 'move_sequencer_row') throw new Error('no such row')
+      if(command === 'move_row') throw new Error('no row with id 0')
       return three
     })
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const store = makeStore()
 
-    await store.dispatch(moveSequencerRow(0, 2))
+    await store.dispatch(moveRow(0, 2))
     expect(order(store)).toEqual([0, 1, 2])
     expect(mockInvoke).toHaveBeenCalledWith('get_sequencer', {})
   })

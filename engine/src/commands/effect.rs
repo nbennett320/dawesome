@@ -5,7 +5,7 @@
 // every change returns all of the racks, which the frontend replaces its
 // copy with, and is recorded so it can be undone. knob turns inside a
 // plugin's own window aren't undoable. instruments aren't effects: they're
-// the Note Sequencer's synths (see commands/synth.rs)
+// the sequencer's synth rows (see commands/synth.rs)
 use serde::Serialize;
 
 use crate::daw::{self, Channel};

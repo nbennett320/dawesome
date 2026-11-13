@@ -6,8 +6,8 @@ export enum View {
   Mixer,
   // the tape deck: a cassette and its play, pause, stop and wind keys
   Transport,
-  // the Drum Sequencer: rows of samples, and drum patterns of 16th note
-  // steps
+  // the Drum Sequencer: a row per sample row, and its 16th note steps in
+  // the selected pattern
   Sequencer,
   // which devices the engine plays and records through, and its buffer size
   AudioSettings,
@@ -22,7 +22,8 @@ export enum View {
   // one plugin's own interface (an effect's or a synth's). any number can
   // be open, one per slot
   Plugin,
-  // the Note Sequencer: a row per synth, and note patterns of their notes
+  // the Note Sequencer: a row per synth row, and its notes in the selected
+  // pattern
   NoteSequencer,
   // Preferences › Controls…: how the app is worked (plugins, command bar)
   Controls,
@@ -51,14 +52,14 @@ export const viewHints: Record<View, string> = {
   [View.SamplePreview]: 'Inspect a clip from the playlist and adjust how it plays',
   [View.Mixer]: "Every track's volume, pan, mute and solo, and the master",
   [View.Transport]: 'The tape deck: a cassette and its play, pause, stop and wind keys',
-  [View.Sequencer]: 'The Drum Sequencer: rows of samples, and drum patterns of 16th-note steps',
+  [View.Sequencer]: 'The Drum Sequencer: rows of samples, and their 16th-note steps in the selected pattern',
   [View.AudioSettings]: 'Which devices the engine plays and records through, and its buffer size',
   [View.Mixdown]: 'Export the song to a WAV or MP3 file',
   [View.Preferences]: 'How the app looks: appearance, themes and step key style',
   [View.EffectsRack]: "One channel's effects, in the order the sound goes through them",
   [View.PianoRoll]: "A pattern's notes on a grid of steps, against a piano keyboard",
   [View.Plugin]: "A plugin's own interface",
-  [View.NoteSequencer]: 'The Note Sequencer: a row per synth, and note patterns of their notes',
+  [View.NoteSequencer]: 'The Note Sequencer: a row per synth, and its notes in the selected pattern',
   [View.Controls]: 'How the app is worked: where plugins open, and the command bar',
 }
 
@@ -101,9 +102,9 @@ export type WindowPane = {
 export enum SidebarPage {
   // the samples folder, to hear samples and drag them into the playlist
   Samples = 'samples',
-  // the Drum Sequencer's patterns, to drag into the playlist
+  // the project's patterns, to drag into the playlist
   Patterns = 'patterns',
-  // the Note Sequencer's patterns, likewise
+  // the same, under a second key (the sequencer is still two tabs)
   NotePatterns = 'note-patterns',
   // the project's recorded takes
   Recordings = 'recordings',

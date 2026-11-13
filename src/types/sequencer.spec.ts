@@ -1,11 +1,17 @@
 import {
-  Pattern,
-  isLit,
-  litRows,
+  Note,
+  clipContents,
+  noteBars,
   patternBars,
   patternLabel,
   patternSeconds,
+  rowName,
+  rowNotes,
+  sortNotes,
   stepAt,
+  stepView,
+  synthRowBySlot,
+  withNotes,
   withStep,
   patternHint,
   searchPatterns,
@@ -14,56 +20,160 @@ import {
   folderPathLabel,
   patternFolderInfos,
 } from './sequencer'
+import { pattern, sampleRow, step, steps, synthRow } from './sequencer.fixture'
 
-const pattern = (steps: Record<string, number[]> = {}, length = 16): Pattern =>
-  ({ id: 2, name: null, length, steps })
+const note = (pitch: number, start: number, length = 1, velocity = 0.8): Note => ({ pitch, start, length, velocity })
 
 describe('patternLabel', () => {
-  it('is the name, or the number from the id', () => {
-    expect(patternLabel({ id: 2, name: null })).toBe('Loop 3')
-    expect(patternLabel({ id: 2, name: null, kind: 'drum' })).toBe('Loop 3')
-    expect(patternLabel({ id: 2, name: null, kind: 'note' })).toBe('Sequence 3')
+  it('is the name, or "Sequence" and the number from the id', () => {
+    expect(patternLabel({ id: 2, name: null })).toBe('Sequence 3')
     expect(patternLabel({ id: 2, name: 'verse' })).toBe('verse')
   })
 })
 
-describe('withStep', () => {
-  it('lights and clears steps, keeping them in order', () => {
-    const lit = withStep(withStep(pattern(), 7, 8, true), 7, 0, true)
-    expect(lit.steps).toEqual({ 7: [0, 8] })
-    expect(isLit(lit, 7, 8)).toBe(true)
+describe('rowName', () => {
+  it('is the label, or the sample without its folders and extension, or the synth', () => {
+    expect(rowName(sampleRow(0, { path: '/drums/Kick 2.wav' }))).toBe('Kick 2')
+    expect(rowName(sampleRow(0, { path: '/drums/kick.wav', label: 'Boom' }))).toBe('Boom')
+    expect(rowName(synthRow(3, { name: 'DecentSampler 2' }))).toBe('DecentSampler 2')
+    expect(rowName(synthRow(3, { label: 'Pad' }))).toBe('Pad')
+  })
+})
 
-    const cleared = withStep(withStep(lit, 7, 0, false), 7, 8, false)
-    // a row with no steps lit has no entry, like the engine
-    expect(cleared.steps).toEqual({})
+describe('synthRowBySlot', () => {
+  const rows = [sampleRow(0), synthRow(2, { slot: 10 }), synthRow(10, { slot: 30 })]
+
+  it('finds a synth row by its plugin’s slot, not its id', () => {
+    expect(synthRowBySlot(rows, 10)?.id).toBe(2)
+    expect(synthRowBySlot(rows, 30)?.id).toBe(10)
+    expect(synthRowBySlot(rows, 2)).toBeUndefined()
+    // a sample row has no slot
+    expect(synthRowBySlot(rows, 0)).toBeUndefined()
+  })
+})
+
+describe('sortNotes', () => {
+  it('orders by start, then pitch, keeping notes alike in their order', () => {
+    const quiet = note(60, 4, 1, 0.2)
+    const loud = note(60, 4, 2, 1)
+    const notes = [note(64, 4), loud, note(72, 0), quiet, note(60, 0.5)]
+    expect(sortNotes(notes)).toEqual([note(72, 0), note(60, 0.5), loud, quiet, note(64, 4)])
+  })
+
+  it("doesn't change the list it was given", () => {
+    const notes = [note(64, 4), note(60, 0)]
+    sortNotes(notes)
+    expect(notes).toEqual([note(64, 4), note(60, 0)])
+  })
+})
+
+describe('rowNotes', () => {
+  it('is the same empty list for a row without notes', () => {
+    expect(rowNotes(pattern(0), 4)).toBe(rowNotes(pattern(1), 9))
+    expect(rowNotes(pattern(0, { notes: { 4: steps(1) } }), 4)).toEqual(steps(1))
+  })
+})
+
+describe('withNotes', () => {
+  it('replaces one row’s notes, leaving out a row with none', () => {
+    const p = pattern(0, { notes: { 1: steps(0), 2: steps(4) } })
+    expect(withNotes(p, 2, steps(8)).notes).toEqual({ 1: steps(0), 2: steps(8) })
+    expect(withNotes(p, 1, []).notes).toEqual({ 2: steps(4) })
+    // the others' lists are the same lists
+    expect(withNotes(p, 2, []).notes[1]).toBe(p.notes[1])
+  })
+})
+
+describe('withStep', () => {
+  const row = sampleRow(7, { stepPitch: 62 })
+
+  it('lights a step as a 1-step note at the row’s step pitch, in order', () => {
+    const lit = withStep(withStep(pattern(0), row, 8, true), row, 0, true)
+    expect(lit.notes).toEqual({ 7: [step(0, 62), step(8, 62)] })
+  })
+
+  it('puts a lit step in order among the row’s other notes', () => {
+    const p = pattern(0, { notes: { 7: [note(60, 4), note(64, 4)] } })
+    expect(withStep(p, row, 4, true).notes[7]).toEqual([note(60, 4), step(4, 62), note(64, 4)])
+  })
+
+  it('counts any note at the step and pitch as lit, whatever its length or velocity', () => {
+    const odd = note(62, 4, 3, 0.5)
+    const p = pattern(0, { notes: { 7: [odd] } })
+    expect(withStep(p, row, 4, true)).toBe(p)
+  })
+
+  it('leaves a pattern alone when the step is already as asked', () => {
+    const p = pattern(0, { notes: { 7: [step(4, 62)] } })
+    expect(withStep(p, row, 4, true)).toBe(p)
+    expect(withStep(p, row, 5, false)).toBe(p)
+  })
+
+  it('clears every note at the step and pitch, whatever its length or velocity', () => {
+    const p = pattern(0, { notes: { 7: [note(62, 4, 3, 0.2), step(4, 62), note(60, 4), step(8, 62)] } })
+    expect(withStep(p, row, 4, false).notes).toEqual({ 7: [note(60, 4), step(8, 62)] })
+    // a row with no notes left has no entry, like the engine
+    expect(withStep(pattern(0, { notes: { 7: [step(4, 62)] } }), row, 4, false).notes).toEqual({})
   })
 
   it("doesn't change the pattern it was given", () => {
-    const p = pattern({ 1: [4] })
-    withStep(p, 1, 5, true)
-    expect(p.steps).toEqual({ 1: [4] })
+    const p = pattern(0, { notes: { 7: [step(4, 62)] } })
+    withStep(p, row, 5, true)
+    expect(p.notes).toEqual({ 7: [step(4, 62)] })
+  })
+})
+
+describe('stepView', () => {
+  const oneShot = sampleRow(0)
+  const gated = sampleRow(0, { gated: true })
+  const synth = synthRow(0)
+
+  it('lists the steps lit, in order, or none', () => {
+    expect(stepView(oneShot, steps(0, 4, 12), 16)).toEqual([0, 4, 12])
+    expect(stepView(oneShot, [], 16)).toEqual([])
+  })
+
+  it('lights a step once for two notes on it, whatever their velocity', () => {
+    expect(stepView(synth, [step(4), { ...step(4), velocity: 0.3 }], 16)).toEqual([4])
+  })
+
+  it('is notes for a note off the grid, or at another pitch', () => {
+    expect(stepView(oneShot, [step(0), note(60, 2.5)], 16)).toBeNull()
+    expect(stepView(oneShot, [step(0), step(4, 64)], 16)).toBeNull()
+    expect(stepView(sampleRow(0, { stepPitch: 64 }), [step(4, 64)], 16)).toEqual([4])
+  })
+
+  it('takes notes of any length on a one-shot sample row only', () => {
+    const long = note(60, 4, 3)
+    expect(stepView(oneShot, [long], 16)).toEqual([4])
+    expect(stepView(gated, [long], 16)).toBeNull()
+    expect(stepView(synth, [long], 16)).toBeNull()
+  })
+
+  it('leaves out notes past the end, whatever they are', () => {
+    expect(stepView(synth, [step(4), note(72, 17.5, 3)], 16)).toEqual([4])
   })
 })
 
 describe('patternBars', () => {
   it('counts bars of the time signature', () => {
-    expect(patternBars(pattern({}, 32), 4)).toBe(2)
-    expect(patternBars(pattern({}, 24), 3)).toBe(2)
+    expect(patternBars(pattern(0, { length: 32 }), 4)).toBe(2)
+    expect(patternBars(pattern(0, { length: 24 }), 3)).toBe(2)
     // set in 4/4, now in 3/4
-    expect(patternBars(pattern({}, 16), 3)).toBeNull()
+    expect(patternBars(pattern(0, { length: 16 }), 3)).toBeNull()
   })
 })
 
 describe('patternSeconds', () => {
   it('is the steps as 16th notes at the tempo', () => {
-    expect(patternSeconds(pattern({}, 16), 120)).toBe(2)
-    expect(patternSeconds(pattern({}, 64), 60)).toBe(16)
+    expect(patternSeconds(pattern(0, { length: 16 }), 120)).toBe(2)
+    expect(patternSeconds(pattern(0, { length: 64 }), 60)).toBe(16)
   })
 })
 
 describe('stepAt', () => {
   it('follows the run, wrapping at the end', () => {
-    const p = pattern({}, 16)
+    const p = pattern(0, { length: 16 })
     expect(stepAt(0, p, 500)).toBe(0)
     expect(stepAt(130, p, 500)).toBe(1)
     expect(stepAt(2_000, p, 500)).toBe(0)
@@ -72,15 +182,36 @@ describe('stepAt', () => {
   })
 })
 
-describe('litRows', () => {
-  it("lists each row's steps in row order, inside the pattern", () => {
-    const rows = [5, 3].map(id => ({ id, path: '', label: null, volume: 1, pan: 0, muted: false }))
-    expect(litRows(pattern({ 3: [1, 20], 9: [2] }), rows)).toEqual([[], [1]])
+describe('clipContents', () => {
+  it("gives each sample row a lane of its notes' starts inside the pattern, in row order", () => {
+    const rows = [sampleRow(5), synthRow(1), sampleRow(3)]
+    const p = pattern(0, { notes: { 3: [step(1), step(20)], 1: [note(72, 2, 4)], 9: steps(2) } })
+    expect(clipContents(p, rows)).toEqual({ lanes: [[], [1]], notes: [note(72, 2, 4)] })
+  })
+
+  it("draws every synth row's notes as bars: those starting in the clip's part, cut at its end", () => {
+    const rows = [synthRow(1), sampleRow(0), synthRow(2)]
+    const p = pattern(0, { notes: { 1: [note(60, 0, 4), note(64, 6, 8)], 0: steps(0), 2: [note(72, 12, 2)] } })
+    const { notes } = clipContents(p, rows)
+    expect(noteBars(notes, p.length, 0, 16)).toEqual({
+      rows: 13,
+      bars: [{ start: 0, end: 4, row: 12 }, { start: 6, end: 14, row: 8 }, { start: 12, end: 14, row: 0 }],
+    })
+    // trimmed to steps 4 to 10: the first note began before it, the second is cut short
+    expect(noteBars(notes, p.length, 4, 10).bars).toEqual([{ start: 6, end: 10, row: 5 }])
+    expect(noteBars(clipContents(pattern(0), rows).notes, 16, 0, 16)).toEqual({ rows: 0, bars: [] })
   })
 })
 
-const named = (id: number, name: string | null, length = 16): Pattern =>
-  ({ id, name, length, steps: {} })
+describe('noteBars', () => {
+  it('draws the notes started in the part played, cut at its end, with their range in the middle', () => {
+    const { rows, bars } = noteBars([note(60, 0, 4), note(62, 6, 4), note(64, 12)], 16, 0, 8)
+    expect(rows).toBe(12)
+    expect(bars).toEqual([{ start: 0, end: 4, row: 6 }, { start: 6, end: 8, row: 4 }])
+  })
+})
+
+const named = (id: number, name: string | null, length = 16) => pattern(id, { name, length })
 
 describe('searchPatterns', () => {
   const patterns = [named(0, 'Verse beat'), named(1, null), named(2, 'Chorus'), named(11, 'verse fill')]

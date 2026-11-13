@@ -28,54 +28,53 @@ const SAMPLES: [&str; 8] = [
 ];
 const SAMPLE_ROWS: usize = 16;
 const SYNTHS: u64 = 8;
-// the longest pattern today: a note pattern (128 bars once patterns merge)
+// the long pattern. patterns can be 128 bars now, but this stays the
+// baseline's 64 (the longest a pattern was then), so the numbers compare
 const LONG_BARS: u32 = 64;
 const RATE: u32 = 44_100;
 const TEMPO: f32 = 120.;
 
-// project (b) of make_big_project.py, as today's sequencer can hold it:
-// 16 sample rows and 8 synths, and
-// - drums: 4 bars (a drum pattern's longest), every step lit on every row
-// - short: 4 bars, a note on every step for every synth
-// - long: LONG_BARS bars, a note on every step for every synth
+// project (b) of make_big_project.py: 16 sample rows and 8 synth rows, and
+// - drums: 4 bars, every step on every sample row
+// - short: 4 bars, a note on every step for every synth row
+// - long: LONG_BARS bars, a note on every step for every synth row
 struct Big {
+  samples: Vec<u64>,
   drums: u64,
   short: u64,
   long: u64,
 }
 
 fn big_project(seq: &mut daw::Sequencer) -> Big {
-  let rows: Vec<u64> = (0..SAMPLE_ROWS).map(|n| seq.add_row(SAMPLES[n % SAMPLES.len()]).unwrap()).collect();
-  for n in 0..SYNTHS {
-    seq.add_synth(daw::Synth {
-      id: 1_000 + n, plugin_id: "vst3:perf".into(), path: String::new(), name: format!("Synth {}", n + 1),
-      vendor: String::new(), volume: 1., muted: false,
-    }).unwrap();
-  }
+  let samples: Vec<u64> = (0..SAMPLE_ROWS).map(|n| seq.add_row(SAMPLES[n % SAMPLES.len()]).unwrap()).collect();
+  let synths: Vec<u64> = (0..SYNTHS).map(|n| seq.add_synth_row(daw::Synth {
+    id: 1_000 + n, plugin_id: "vst3:perf".into(), path: String::new(), name: format!("Synth {}", n + 1),
+    vendor: String::new(), volume: 1., muted: false,
+  })).collect();
 
-  let drums = seq.add_pattern(4, 4, daw::PatternKind::Drum).unwrap();
+  let drums = seq.add_pattern(4, 4).unwrap();
   let length = seq.pattern(drums).unwrap().length;
-  for &row in &rows {
+  for &row in &samples {
     for step in 0..length {
       seq.set_step(drums, row, step, true).unwrap();
     }
   }
 
   let mut notes_pattern = |bars: u32| {
-    let id = seq.add_pattern(bars, 4, daw::PatternKind::Note).unwrap();
+    let id = seq.add_pattern(bars, 4).unwrap();
     let length = seq.pattern(id).unwrap().length;
-    for n in 0..SYNTHS {
+    for (n, &row) in synths.iter().enumerate() {
       // a rising line, an octave per synth
       let notes = (0..length).map(|step| daw::PatternNote {
         pitch: (36 + n as u32 * 6 + step % 12) as u8, start: step as f64, length: 1., velocity: 0.8,
       }).collect();
-      seq.set_pattern_notes(id, 1_000 + n, notes).unwrap();
+      seq.set_pattern_notes(id, row, notes).unwrap();
     }
     id
   };
   let short = notes_pattern(4);
   let long = notes_pattern(LONG_BARS);
-  Big { drums, short, long }
+  Big { samples, drums, short, long }
 }
 
 // a graph holding project (b), with these clips: (pattern, bar, track)
@@ -217,7 +216,7 @@ fn held() -> isize {
 fn perf_history() {
   let mut seq = daw::Sequencer::default();
   let big = big_project(&mut seq);
-  let rows: Vec<u64> = seq.rows().iter().map(|r| r.id).collect();
+  let rows = big.samples.clone();
   let drum_steps = seq.pattern(big.drums).unwrap().length;
   // the n-th step edit: a different step cleared each time
   let edit = |seq: &mut daw::Sequencer, n: u32| {
@@ -255,13 +254,12 @@ fn perf_history() {
   let mut work = seq.clone();
   report("history: one step edit's undo step", &time(&mut |n| step_edit(&mut work, &mut history, n)), 0);
 
-  // what the history holds: 100 steps (its limit) of step edits
-  let notes: usize = [big.short, big.long].iter()
-    .flat_map(|&id| seq.pattern(id).unwrap().notes.values())
-    .map(Vec::len)
-    .sum();
-  let steps: usize = seq.pattern(big.drums).unwrap().steps.values().map(|s| s.len()).sum();
-  let payload = notes * std::mem::size_of::<daw::PatternNote>() + steps * std::mem::size_of::<u32>();
+  // what the history holds: 100 steps (its limit) of step edits. the lit
+  // steps are notes now, so they count as notes
+  let count = |id: u64| -> usize { seq.pattern(id).unwrap().notes.values().map(|notes| notes.len()).sum() };
+  let notes = count(big.short) + count(big.long);
+  let steps = count(big.drums);
+  let payload = (notes + steps) * std::mem::size_of::<daw::PatternNote>();
 
   let before = held();
   let copy = seq.clone();
@@ -279,8 +277,8 @@ fn perf_history() {
   black_box(&history);
 
   println!(
-    "perf history: memory: {} notes and {} lit steps ({} KiB as notes and steps); one copy of the sequencer holds {} KiB; \
-     100 step edits' history holds {} KiB, {:.0} times the notes and steps",
+    "perf history: memory: {} synth notes and {} step notes ({} KiB as notes); one copy of the sequencer holds {} KiB; \
+     100 step edits' history holds {} KiB, {:.0} times the notes",
     notes, steps, payload / 1024, copy_bytes / 1024, history_bytes / 1024, history_bytes as f64 / payload as f64,
   );
 }

@@ -577,8 +577,8 @@ pub fn pattern_step(state: &state::InnerState, id: u64) -> Option<f64> {
 
 // loop a pattern on its own (Play in a sequencer tab, or the Piano Roll),
 // stopping whatever was playing: from `from_step` (the Piano Roll's start
-// marker, fractional) to its end, then the whole pattern over and over. a
-// note pattern's notes are played by the synths' copies on the master. the
+// marker, fractional) to its end, then the whole pattern over and over. its
+// synth rows' notes are played by their plugins' master copies. the
 // playlist's playhead stays where it is
 pub fn start_pattern(state: &Arc<state::InnerState>, id: u64, from_step: f64) -> Result<(), String> {
   println!("playing pattern {} from step {}", id, from_step);

@@ -14,6 +14,7 @@ import { DragItem, beginSampleDrag } from '../../state/sampleDrag'
 import { ProjectView } from '../../types/project'
 import { View } from '../../types/ui'
 import { DROP_CHANNEL, useChannelDrop } from './useChannelDrop'
+import { pattern, sequencerOf, synthRow } from '../../types/sequencer.fixture'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ ask: vi.fn(), open: vi.fn(), save: vi.fn() }))
@@ -39,12 +40,8 @@ const project: ProjectView = {
   clips: [],
   patternClips: [{ id: 40, patternId: 5, trackNumber: 2, startBeat: 6, window: null }],
   mixer: { tracks: [], master: { volumeDb: 0, pan: 0, mute: false, solo: false } },
-  sequencer: {
-    rows: [],
-    synths: [{ id: 9, pluginId: 'vst3:pad', name: 'Pad', vendor: 'Acme', volume: 1, muted: false, missing: false, hasEditor: true }],
-    patterns: [{ id: 5, name: null, kind: 'note', length: 16, steps: {}, notes: {} }],
-    folders: [],
-  },
+  // the new synth row (9, in slot 109) and its pattern
+  sequencer: sequencerOf({ rows: [synthRow(9, { pluginId: 'vst3:pad', name: 'Pad' })], patterns: [pattern(5)] }),
 }
 
 const setup = () => {
@@ -80,21 +77,21 @@ beforeEach(() => {
   mockInvoke.mockReset()
   mockInvoke.mockImplementation(async (command: string) => {
     if(command === 'get_playlist_transport') return { positionMs: 3000, beatIntervalMs: 500 }
-    if(command === 'add_synth_on_track') return { synthId: 9, patternId: 5, project }
+    if(command === 'add_synth_on_track') return { rowId: 9, patternId: 5, project }
     return undefined
   })
 })
 
 describe('an instrument dropped on a mixer strip', () => {
-  it('starts a note pattern on the track at the playhead, and opens the Piano Roll on it', async () => {
+  it('starts a synth row’s pattern on the track at the playhead, and opens the Piano Roll on it', async () => {
     const store = setup()
     expect(await dropOn(instrument, 'Track 3')).toBe('2')
 
     expect(mockInvoke).toHaveBeenCalledWith('add_synth_on_track', { pluginId: 'vst3:pad', trackNumber: 2, dropBeat: 6 })
     const state = store.getState()
     expect(selectFocusedView(state as never)).toBe(View.PianoRoll)
-    expect(state.sequencer.selected.note).toBe(5)
-    expect(state.sequencer.pianoRollSynthId).toBe(9)
+    expect(state.sequencer.selected).toBe(5)
+    expect(state.sequencer.pianoRollRowId).toBe(9)
     expect(state.playlist.playlistItems.map(item => item.id)).toEqual([40])
   })
 

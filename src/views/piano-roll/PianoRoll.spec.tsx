@@ -16,7 +16,8 @@ import pianoRollReducer, {
 import { resetGestures } from '../../state/gesture'
 import { clearNoteClipboard, runNoteCommandFromMenu } from '../../state/noteCommands'
 import { Tool } from '../../editing/tools'
-import { Note, SequencerState, Synth } from '../../types/sequencer'
+import { Note, SequencerState, sortNotes } from '../../types/sequencer'
+import { pattern, sampleRow, sequencerOf, steps, synthRow } from '../../types/sequencer.fixture'
 import { View } from '../../types/ui'
 import PianoRoll from './PianoRoll'
 import { DEFAULT_STEP_WIDTH, ROW_HEIGHT, rowTop } from './draw'
@@ -30,23 +31,18 @@ const mockInvoke = invoke as Mock
 
 const note = (pitch: number, start: number, length = 4): Note => ({ pitch, start, length, velocity: 0.8 })
 
-const synth = (id: number, name: string): Synth => ({
-  id, pluginId: `vst3:${id}`, name, vendor: 'Acme', volume: 1, muted: false, missing: false, hasEditor: true,
-})
-
 let sequencer: SequencerState
 
-// note patterns 0 and 1 (and a drum pattern, 2, which isn't offered), with
-// synth 7's notes in 0, and synth 8's in 1
-const makeSequencer = (notes: Note[] = []): SequencerState => ({
-  rows: [],
-  synths: [synth(7, 'Pad'), synth(8, 'Bass')],
+// synth rows Pad (7) and Bass (8), with a sample row (2) between them that
+// the Piano Roll doesn't offer. patterns 0 and 1, with Pad's notes and the
+// kick's steps in 0, and Bass's in 1. the notes in order, as the engine
+// keeps them
+const makeSequencer = (notes: Note[] = []): SequencerState => sequencerOf({
+  rows: [synthRow(7, { name: 'Pad' }), sampleRow(2), synthRow(8, { name: 'Bass' })],
   patterns: [
-    { id: 0, name: 'Verse', kind: 'note', length: 16, steps: {}, notes: { 7: notes } },
-    { id: 1, name: null, kind: 'note', length: 32, steps: {}, notes: { 8: [note(40, 0)] } },
-    { id: 2, name: 'Beat', length: 16, steps: {} },
+    pattern(0, { name: 'Verse', notes: notes.length ? { 7: sortNotes(notes), 2: steps(0, 8) } : { 2: steps(0, 8) } }),
+    pattern(1, { length: 32, notes: { 8: [note(40, 0)] } }),
   ],
-  folders: [],
 })
 
 const stopped = { playing: false, patternId: null, startTimeMs: null, beatIntervalMs: 500, beatsPerBar: 4 }
@@ -84,7 +80,7 @@ const open = async (notes: Note[] = [], tool: Tool = 'draw') => {
 
 const calls = (command: string) => mockInvoke.mock.calls.filter(([name]) => name === command).map(([, args]) => args)
 const lastNotes = () => calls('set_pattern_notes').at(-1)?.notes as Note[]
-const lastSynth = () => calls('set_pattern_notes').at(-1)?.synthId as number
+const lastRow = () => calls('set_pattern_notes').at(-1)?.rowId as number
 
 // the grid sits at the page's top-left, 600 by 400
 const grid = () => screen.getByTestId('note-grid')
@@ -147,7 +143,7 @@ beforeEach(() => {
       sequencer = {
         ...sequencer,
         patterns: sequencer.patterns.map(p => (p.id === args.patternId
-          ? { ...p, notes: { ...p.notes, [args.synthId as number]: args.notes as Note[] } }
+          ? { ...p, notes: { ...p.notes, [args.rowId as number]: sortNotes(args.notes as Note[]) } }
           : p)),
       }
       return sequencer
@@ -158,40 +154,40 @@ beforeEach(() => {
 })
 
 describe('the Piano Roll', () => {
-  it('offers to add a note pattern when there’s none', async () => {
-    sequencer = { ...makeSequencer(), patterns: [makeSequencer().patterns[2]] }
+  it('offers to add a pattern when there’s none', async () => {
+    sequencer = { ...makeSequencer(), patterns: [] }
     setup()
     fireEvent.click(await screen.findByRole('button', { name: 'New pattern' }))
-    await waitFor(() => expect(calls('add_pattern')).toEqual([{ bars: 1, kind: 'note' }]))
+    await waitFor(() => expect(calls('add_pattern')).toEqual([{ bars: 1 }]))
     expect(await screen.findByRole('combobox', { name: 'Pattern' })).toBeTruthy()
   })
 
-  it('picks the note pattern and the synth whose notes it edits, and plays the whole pattern', async () => {
+  it('picks the pattern and the synth row whose notes it edits, and plays the whole pattern', async () => {
     setup()
 
-    const pattern = await screen.findByRole('combobox', { name: 'Pattern' }) as HTMLSelectElement
-    expect(Array.from(pattern.options).map(o => o.text)).toEqual(['Verse', 'Sequence 2'])
-    fireEvent.change(pattern, { target: { value: '1' } })
-    expect(store.getState().sequencer.selected.note).toBe(1)
+    const picker = await screen.findByRole('combobox', { name: 'Pattern' }) as HTMLSelectElement
+    expect(Array.from(picker.options).map(o => o.text)).toEqual(['Verse', 'Sequence 2'])
+    fireEvent.change(picker, { target: { value: '1' } })
+    expect(store.getState().sequencer.selected).toBe(1)
     expect(screen.getByText('2 bars')).toBeTruthy()
 
     const synthPicker = screen.getByRole('combobox', { name: 'Synth' }) as HTMLSelectElement
     expect(Array.from(synthPicker.options).map(o => o.text)).toEqual(['Pad', 'Bass'])
     expect(synthPicker.value).toBe('7')
     fireEvent.change(synthPicker, { target: { value: '8' } })
-    expect(store.getState().sequencer.pianoRollSynthId).toBe(8)
+    expect(store.getState().sequencer.pianoRollRowId).toBe(8)
 
     // Bass's note is under the mouse now: right-click removes it
     fireEvent.contextMenu(grid(), at(0.5, 40))
     await waitFor(() => expect(lastNotes()).toEqual([]))
-    expect(lastSynth()).toBe(8)
+    expect(lastRow()).toBe(8)
 
     fireEvent.click(screen.getByRole('button', { name: 'Play the pattern' }))
     await waitFor(() => expect(calls('toggle_pattern')).toEqual([{ patternId: 1 }]))
   })
 
-  it('sends to the Note Sequencer when there’s no synth yet', async () => {
-    sequencer = { ...makeSequencer(), synths: [] }
+  it('sends to the Note Sequencer when there’s no synth row yet', async () => {
+    sequencer = { ...makeSequencer(), rows: [sampleRow(2)] }
     setup()
     expect(await screen.findByText(/No synth yet/)).toBeTruthy()
     expect(screen.queryByRole('combobox', { name: 'Synth' })).toBeNull()
@@ -221,19 +217,19 @@ describe('the Piano Roll', () => {
   })
 
   describe('the Draw tool', () => {
-    it('draws a quarter note with a click, hearing its pitch briefly on the synth', async () => {
+    it('draws a quarter note with a click, hearing its pitch briefly on the synth row', async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
       await open()
 
       click(at(3.5, 62))
 
       expect(lastNotes()).toEqual([note(62, 3, 4)])
-      expect(lastSynth()).toBe(7)
-      expect(calls('play_note')).toEqual([{ synthId: 7, pitch: 62, velocity: 0.8 }])
+      expect(lastRow()).toBe(7)
+      expect(calls('play_row_note')).toEqual([{ rowId: 7, pitch: 62, velocity: 0.8 }])
       // let go: it stops
-      expect(calls('stop_note')).toEqual([{ synthId: 7, pitch: 62 }])
+      expect(calls('stop_row_note')).toEqual([{ rowId: 7, pitch: 62 }])
       vi.advanceTimersByTime(SHORT_MS)
-      expect(calls('stop_note')).toHaveLength(1)
+      expect(calls('stop_row_note')).toHaveLength(1)
       vi.useRealTimers()
     })
 
@@ -273,10 +269,10 @@ describe('the Piano Roll', () => {
       fireEvent.pointerDown(grid(), at(4.5, 64))
       fireEvent.pointerMove(grid(), at(4.5, 63))
       await waitFor(() => expect(lastNotes()).toEqual([note(63, 4, 4)]))
-      expect(calls('play_note').map(args => args.pitch)).toEqual([64, 63])
+      expect(calls('play_row_note').map(args => args.pitch)).toEqual([64, 63])
       // still on that key: not heard again
       fireEvent.pointerMove(grid(), at(4.6, 63))
-      expect(calls('play_note')).toHaveLength(2)
+      expect(calls('play_row_note')).toHaveLength(2)
       fireEvent.pointerUp(grid(), at(4.6, 63))
       await waitFor(() => expect(lastNotes()).toEqual([note(63, 4, 4)]))
 
@@ -302,7 +298,7 @@ describe('the Piano Roll', () => {
 
       drag(at(3, 60), at(4.2, 62))
       await waitFor(() => expect(lastNotes()).toEqual([note(62, 3, 2), note(64, 8, 2)]))
-      expect(calls('play_note').map(args => args.pitch)).toEqual([60, 60, 62])
+      expect(calls('play_row_note').map(args => args.pitch)).toEqual([60, 60, 62])
     })
 
     it('carries a note with the mouse, landing on the key nearest where it has it', async () => {
@@ -319,7 +315,7 @@ describe('the Piano Roll', () => {
       // most of the way down: it lands on the key below, and is heard there
       fireEvent.pointerMove(grid(), by(1.2, 9))
       await waitFor(() => expect(lastNotes()).toEqual([note(59, 3, 2)]))
-      expect(calls('play_note').at(-1)?.pitch).toBe(59)
+      expect(calls('play_row_note').at(-1)?.pitch).toBe(59)
       fireEvent.pointerUp(grid(), by(1.2, 9))
       await waitFor(() => expect(lastNotes()).toEqual([note(59, 3, 2)]))
     })
@@ -366,7 +362,7 @@ describe('the Piano Roll', () => {
       drag(at(7.9, 60), at(9.9, 60))
       act(() => { store.dispatch(setPianoRollTool('draw')) })
       click(at(0.5, 70))
-      await waitFor(() => expect(lastNotes().at(-1)).toEqual(note(70, 0, 6)))
+      await waitFor(() => expect(lastNotes()).toEqual([note(70, 0, 6), note(60, 4, 6)]))
     })
 
     it('pans with a drag on empty space, and clears the selection with a click there', async () => {
@@ -689,13 +685,53 @@ describe('the Piano Roll', () => {
     await waitFor(() => expect(lastNotes()).toEqual([note(60, 0, 2)]))
   })
 
-  it('plays a key of the keyboard on the synth while it’s held', async () => {
+  it('plays a key of the keyboard on the synth row while it’s held', async () => {
     setup()
     await screen.findByRole('combobox', { name: 'Synth' })
     const keys = screen.getByTitle('Click a key to hear it')
     fireEvent.pointerDown(keys, { clientY: rowTop(60) - grid().scrollTop + 2, button: 0 })
-    expect(calls('play_note')).toEqual([{ synthId: 7, pitch: 60, velocity: 0.8 }])
+    expect(calls('play_row_note')).toEqual([{ rowId: 7, pitch: 60, velocity: 0.8 }])
     fireEvent.pointerUp(keys)
-    expect(calls('stop_note')).toEqual([{ synthId: 7, pitch: 60 }])
+    expect(calls('stop_row_note')).toEqual([{ rowId: 7, pitch: 60 }])
+  })
+
+  // the notes are kept in order, by start then pitch, and what's selected
+  // is kept by place in that list: it follows its notes as they're put in
+  // order
+  describe('keeping the notes in order', () => {
+    const allSentInOrder = () => calls('set_pattern_notes')
+      .every(args => (args.notes as Note[]).every((n, i, list) => i === 0 || sortNotes([list[i - 1], n])[0] === list[i - 1]))
+
+    it('keeps a note drawn before another selected, and sends them in order', async () => {
+      await open([note(60, 8, 2)])
+      click(at(2.5, 64))
+      await waitFor(() => expect(lastNotes()).toEqual([note(64, 2, 4), note(60, 8, 2)]))
+      await deleteSelection([note(60, 8, 2)])
+      expect(allSentInOrder()).toBe(true)
+    })
+
+    it('keeps a note moved past another selected', async () => {
+      await open([note(60, 0, 2), note(64, 4, 2)], 'select')
+      drag(at(1, 60), at(7.2, 60))
+      await waitFor(() => expect(lastNotes()).toEqual([note(64, 4, 2), note(60, 6, 2)]))
+      await deleteSelection([note(64, 4, 2)])
+      expect(allSentInOrder()).toBe(true)
+    })
+
+    it('keeps both halves of a selected note cut selected, the second before a later note', async () => {
+      await open([note(60, 0, 4), note(62, 3, 1)], 'cut')
+      click(at(1, 60, { shiftKey: true }))
+      click(at(2.2, 60))
+      await waitFor(() => expect(lastNotes()).toEqual([note(60, 0, 2), note(60, 2, 2), note(62, 3, 1)]))
+      await deleteSelection([note(62, 3, 1)])
+    })
+
+    it('keeps the copies ⌘R makes selected, wherever they go', async () => {
+      await open([note(60, 0, 2), note(64, 8, 2)], 'select')
+      click(at(1, 60))
+      key('r', { ctrlKey: true })
+      await waitFor(() => expect(lastNotes()).toEqual([note(60, 0, 2), note(60, 2, 2), note(64, 8, 2)]))
+      await deleteSelection([note(60, 0, 2), note(64, 8, 2)])
+    })
   })
 })

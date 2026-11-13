@@ -10,7 +10,7 @@ import { Rect } from '../../editing/lasso'
 import { groupLanding } from '../../editing/move'
 import { SnapNote, Snapping, snapDown, snapNoteBeats, snapPoint } from '../../editing/snap'
 import { Tool } from '../../editing/tools'
-import { Note, STEPS_PER_BEAT } from '../../types/sequencer'
+import { Note, STEPS_PER_BEAT, noteOrder } from '../../types/sequencer'
 import { clamp } from '../../util/helpers'
 
 // MIDI note numbers
@@ -255,8 +255,9 @@ export const noteCut = (
 
 // the notes `ids` each cut in two at `at`, both halves the same pitch and
 // velocity. the first half keeps its note's place in the list and the
-// second goes after every note, so no other note's index changes. `halves`
-// maps each note cut to its second half
+// second goes after every note, so no other note's index changes (until the
+// list is put in order: see sortedWithPlaces). `halves` maps each note cut
+// to its second half
 export const cutNotes = (notes: Note[], ids: ReadonlyArray<number>, at: number): {
   notes: Note[]
   halves: Map<number, number>
@@ -321,6 +322,25 @@ export const pasteStep = (mouseStep: number | null, firstInView: number, snap: S
   const { every } = inSteps(snap)
   return Math.max(0, Math.ceil(firstInView / every - 1e-9) * every)
 }
+
+// ---- keeping notes in order ----
+
+// notes put in order (as sortNotes puts them, and the engine keeps them),
+// and where each one went: `at[i]` is the new place of `notes[i]`. what's
+// kept by a note's place in the list, like the selection, follows its
+// notes through `at` (see followPlaces)
+export const sortedWithPlaces = (notes: Note[]): { notes: Note[], at: number[] } => {
+  // (alike notes keep their order, as in a stable sort)
+  const order = notes.map((_, i) => i).sort((a, b) => noteOrder(notes[a], notes[b]) || a - b)
+  const at: number[] = []
+  order.forEach((from, to) => { at[from] = to })
+  return { notes: order.map(i => notes[i]), at }
+}
+
+// places in a list, moved to where their notes went when it was put in
+// order (see sortedWithPlaces). a place past the list's end is left out
+export const followPlaces = (places: Iterable<number>, at: number[]): Set<number> =>
+  new Set([...places].flatMap(i => (at[i] === undefined ? [] : [at[i]])))
 
 // ---- deleting and selecting ----
 

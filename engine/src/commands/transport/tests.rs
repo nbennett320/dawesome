@@ -287,7 +287,7 @@ fn test_song_end_in_transport() {
 #[test]
 fn test_a_pattern_started_part_way_in_reports_when_its_start_was_heard() {
   let state = daw::InnerState::default();
-  let pattern = state.playlist.sequencer.lock().unwrap().add_pattern(1, 4, daw::PatternKind::Drum).unwrap();
+  let pattern = state.playlist.sequencer.lock().unwrap().add_pattern(1, 4).unwrap();
   *state.playlist.mode.lock().unwrap() = daw::PlayMode::Pattern(pattern);
   *state.playlist.started_time.lock().unwrap() = Some(Instant::now());
   state.playlist.set_playing(true);

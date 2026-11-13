@@ -28,7 +28,7 @@ const KINDS: Record<PluginKind, { plural: string, where: string, Icon: typeof Kn
   },
   instrument: {
     plural: 'instruments',
-    where: 'Drag into the Note Sequencer to add it as a synth, or onto a track in the Mixer to start a note pattern there',
+    where: 'Drag into the Note Sequencer to add it as a synth, or onto a track in the Mixer to start a pattern there',
     Icon: KeysIcon,
   },
 }

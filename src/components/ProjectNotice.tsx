@@ -76,7 +76,7 @@ const ProjectNotice = () => {
                 </p>
                 <ul className='mt-1 list-disc pl-5'>
                   {synths.map(synth => (
-                    <li key={synth.id} className='truncate'>
+                    <li key={synth.slot} className='truncate'>
                       {`${synth.name}${synth.vendor ? ` (${synth.vendor})` : ''} in the Note Sequencer`}
                     </li>
                   ))}

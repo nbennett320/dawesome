@@ -8,7 +8,7 @@ import { P5BoundingBox, State as ComponentState } from '../../../render/P5Compon
 import { paint, theme } from './theme'
 import { mixRgba } from '../../../theme/color'
 import type { SectionKey } from '../../../theme/keys'
-import { STEPS_PER_BEAT, clipNoteBars, kindOf, litRows, patternLabel } from '../../../types/sequencer'
+import { STEPS_PER_BEAT, clipContents, noteBars, patternLabel } from '../../../types/sequencer'
 import { hiddenBeyond } from './edges'
 import { drawEdgeBar } from '../../../editing/look'
 
@@ -286,9 +286,9 @@ class PlaylistObject extends PlaylistComponent<State> {
     this.p.pop()
   }
 
-  // a pattern clip's body, over faint beat lines: a drum pattern's lane per
-  // row, with a cell for each lit step, or a note pattern's notes (every
-  // synth's) as small bars
+  // a pattern clip's body, over faint beat lines: a lane per sample row,
+  // with a cell where each of its notes starts, and the synth rows' notes
+  // as small bars
   drawPattern = () => {
     const pattern = this.#pattern()
     const { left, top, width, height } = this.waveform.boundingBox()
@@ -316,10 +316,9 @@ class PlaylistObject extends PlaylistComponent<State> {
       this.p.line(x, bodyTop, x, bodyTop + bodyHeight)
     }
 
-    // (a pattern is one or the other, but would draw both, hits above)
-    const note = kindOf(pattern) === 'note'
-    const lanes = note ? [] : litRows(pattern, (this.renderer as Renderer).sequencer.rows)
-    const { rows, bars } = note ? clipNoteBars(pattern, from, to) : { rows: 0, bars: [] }
+    // (with both, the hits go above the bars)
+    const { lanes, notes } = clipContents(pattern, (this.renderer as Renderer).sequencer.rows)
+    const { rows, bars } = noteBars(notes, pattern.length, from, to)
     const hits = lanes.some(steps => steps.length)
     if(bars.length) {
       const notesTop = hits ? bodyTop + bodyHeight / 2 : bodyTop

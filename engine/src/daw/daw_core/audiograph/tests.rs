@@ -370,7 +370,7 @@ fn test_sample_lengths_use_the_file_rate() {
 
   let mut seq = daw::Sequencer::default();
   let row = seq.add_row(&path).unwrap();
-  let row_dur = seq.row(row).unwrap().duration();
+  let row_dur = seq.row(row).unwrap().one_shot().unwrap().duration();
   assert!(second(row_dur), "sequencer row: {:?}", row_dur);
 
   let _ = std::fs::remove_file(&path);
@@ -677,7 +677,7 @@ fn graph_with_pattern() -> (AudioGraph<'static>, u64, u64) {
   let (row, pattern) = {
     let mut seq = graph.sequencer.lock().unwrap();
     let row = seq.add_row(KICK).unwrap();
-    let pattern = seq.add_pattern(1, 4, daw::PatternKind::Drum).unwrap();
+    let pattern = seq.add_pattern(1, 4).unwrap();
     seq.set_step(pattern, row, 0, true).unwrap();
     seq.set_step(pattern, row, 8, true).unwrap();
     (row, pattern)
@@ -746,17 +746,19 @@ fn test_pattern_nodes_count_toward_tracks_and_the_end() {
   assert_eq!(graph.end(), ms(7_000));
 }
 
-// a graph with a synth (id 7) and a one bar note pattern of its notes
+// a graph with a synth row (its plugin in slot 7, after a sample row) and a
+// one bar pattern of its notes
 fn graph_with_notes(notes: Vec<daw::PatternNote>) -> (AudioGraph<'static>, u64) {
   let graph = AudioGraph::new(44_100, 120., 16);
   let pattern = {
     let mut seq = graph.sequencer.lock().unwrap();
-    seq.add_synth(daw::Synth {
+    seq.add_row("assets/assets_66-bd-01.wav").unwrap();
+    let row = seq.add_synth_row(daw::Synth {
       id: 7, plugin_id: "vst3:synth".into(), path: String::new(), name: "Synth".into(),
       vendor: String::new(), volume: 1., muted: false,
-    }).unwrap();
-    let pattern = seq.add_pattern(1, 4, daw::PatternKind::Note).unwrap();
-    seq.set_pattern_notes(pattern, 7, notes).unwrap();
+    });
+    let pattern = seq.add_pattern(1, 4).unwrap();
+    seq.set_pattern_notes(pattern, row, notes).unwrap();
     pattern
   };
   (graph, pattern)
@@ -786,7 +788,7 @@ fn test_a_note_still_sounding_at_the_loops_end_ends_there() {
 fn test_the_synths_each_track_plays() {
   let note = |pitch, start, length| daw::PatternNote { pitch, start, length, velocity: 1. };
   let (mut graph, pattern) = graph_with_notes(vec![note(60, 20., 4.)]);
-  let empty = graph.sequencer.lock().unwrap().add_pattern(1, 4, daw::PatternKind::Note).unwrap();
+  let empty = graph.sequencer.lock().unwrap().add_pattern(1, 4).unwrap();
   graph.add_pattern_node::<daw::timing::QuarterNote>(pattern, ms(0), 2, None).unwrap();
   graph.add_pattern_node::<daw::timing::QuarterNote>(pattern, ms(4_000), 5, None).unwrap();
   graph.add_pattern_node::<daw::timing::QuarterNote>(empty, ms(0), 3, None).unwrap();
@@ -808,7 +810,7 @@ fn test_the_synths_each_track_plays() {
 #[test]
 fn test_deleting_a_pattern_takes_its_clips() {
   let (mut graph, _, pattern) = graph_with_pattern();
-  let other = graph.sequencer.lock().unwrap().add_pattern(1, 4, daw::PatternKind::Drum).unwrap();
+  let other = graph.sequencer.lock().unwrap().add_pattern(1, 4).unwrap();
   let a = graph.add_pattern_node::<daw::timing::QuarterNote>(pattern, ms(0), 0, None).unwrap();
   let b = graph.add_pattern_node::<daw::timing::QuarterNote>(pattern, ms(2_000), 0, None).unwrap();
   let keep = graph.add_pattern_node::<daw::timing::QuarterNote>(other, ms(0), 1, None).unwrap();
@@ -911,7 +913,7 @@ fn test_explode_a_pattern_clip() {
 #[test]
 fn test_an_empty_pattern_clip_stays() {
   let mut graph = AudioGraph::new(44_100, 120., 16);
-  let pattern = graph.sequencer.lock().unwrap().add_pattern(1, 4, daw::PatternKind::Drum).unwrap();
+  let pattern = graph.sequencer.lock().unwrap().add_pattern(1, 4).unwrap();
   let clip = graph.add_pattern_node::<daw::timing::QuarterNote>(pattern, ms(0), 0, None).unwrap();
   assert!(graph.explode_pattern_node(clip).is_err());
   assert!(graph.get_pattern_node_by_id(clip).is_some());

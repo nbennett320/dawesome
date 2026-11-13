@@ -9,6 +9,7 @@ import projectReducer, {
   cleanProjectName, confirmQuit, quitIfSaved, saveAndQuit, nameProject, setUnsaved, windowTitle, openRecentProject, projectName, runProjectCommand, setProjectPath,
 } from './projectSlice'
 import { LoadedProject, SavedProject } from '../../types/project'
+import { sampleRow, synthRow } from '../../types/sequencer.fixture'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ ask: vi.fn(), message: vi.fn(), open: vi.fn(), save: vi.fn() }))
@@ -35,7 +36,7 @@ const emptyProject: LoadedProject = {
   clips: [],
   missing: [],
   mixer: { tracks: [], master: { volumeDb: 0, pan: 0, mute: false, solo: false } },
-  sequencer: { rows: [], synths: [], patterns: [], folders: [] },
+  sequencer: { rows: [], patterns: [], folders: [] },
   patternClips: [],
 }
 
@@ -247,15 +248,15 @@ describe('runProjectCommand', () => {
     const store = makeStore()
     const verb = { track: 2, name: 'Verb', vendor: 'Acme', path: '/x/Verb.vst3', reason: 'not installed' }
     const pad = { track: null, name: 'Pad', vendor: 'Acme', path: '/x/Pad.vst3', reason: 'not installed' }
-    const synth = (id: number, name: string, missing: boolean) => ({
-      id, pluginId: `vst3:${id}`, name, vendor: 'Acme', volume: 1, muted: false, missing, hasEditor: true,
-    })
-    const synths = [synth(1, 'Pad', true), synth(2, 'Pad 2', true), synth(3, 'Keys', false)]
+    const rows = [
+      synthRow(1, { name: 'Pad', missing: true }), sampleRow(0), synthRow(2, { name: 'Pad 2', missing: true }), synthRow(3, { name: 'Keys' }),
+    ]
+    const synths = [rows[0].instrument, rows[2].instrument]
     const dropped = ['Track 1’s instrument was saved by an older version, and was left out.']
     engine({
       load_project: {
         ...emptyProject,
-        sequencer: { ...emptyProject.sequencer, synths },
+        sequencer: { ...emptyProject.sequencer, rows },
         missingEffects: [verb, pad, { ...pad }],
         dropped,
       },
@@ -265,7 +266,7 @@ describe('runProjectCommand', () => {
     await run(store, 'open')
 
     expect(store.getState().project.notice).toEqual({
-      kind: 'missing', samples: [], effects: [verb], synths: synths.slice(0, 2), dropped,
+      kind: 'missing', samples: [], effects: [verb], synths, dropped,
     })
   })
 

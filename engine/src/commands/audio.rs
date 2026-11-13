@@ -335,10 +335,8 @@ fn repoint(state: &daw::InnerState, from: &Path, to: &Path) -> (Vec<crate::proje
   }
 
   let mut seq = state.playlist.sequencer.lock().unwrap();
-  let moved: Vec<(String, String)> = seq.rows().iter()
-    .filter_map(|row| moved_path(&row.path, from, to).map(|path| (row.path.clone(), path)))
-    .collect();
-  let sequencer = if !moved.is_empty() && seq.move_row_samples(&moved) { Some(seq.state(&*state.playlist.effects)) } else { None };
+  let moved = seq.repoint_rows(&|path| moved_path(path, from, to));
+  let sequencer = if moved { Some(seq.state(&*state.playlist.effects)) } else { None };
   drop(seq);
   drop(audiograph);
   // clips and rows that undoing would put back follow the file too
@@ -354,7 +352,7 @@ fn repoint(state: &daw::InnerState, from: &Path, to: &Path) -> (Vec<crate::proje
 // back does
 fn in_use(state: &daw::InnerState, path: &Path) -> bool {
   state.playlist.audiograph.lock().unwrap().nodes.iter().any(|node| Path::new(node.sample_path()).starts_with(path))
-    || state.playlist.sequencer.lock().unwrap().rows().iter().any(|row| Path::new(&row.path).starts_with(path))
+    || state.playlist.sequencer.lock().unwrap().plays_under(path)
     || state.history.lock().unwrap().uses(path)
 }
 

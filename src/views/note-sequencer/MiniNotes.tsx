@@ -15,26 +15,20 @@ interface Props {
   length: number
   beatsPerBar: number
   muted: boolean
-  onOpen: () => void
+  // opens the Piano Roll on them. without it, the picture is only looked at
+  onOpen?: () => void
 }
 
-// a small picture of a synth's notes in a pattern, where a drum row has its
-// steps: click it to edit them in the Piano Roll
+// a small picture of a row's notes in a pattern, where steps would be: click
+// it to edit them in the Piano Roll
 const MiniNotes = ({ name, notes, length, beatsPerBar, muted, onOpen }: Props) => {
   const { rows, bars } = React.useMemo(() => noteBars(notes, length, 0, length), [notes, length])
   const width = clamp(length * PX_PER_STEP, MIN_WIDTH, MAX_WIDTH)
   const bar = stepsPerBar(beatsPerBar)
   const lines = Array.from({ length: Math.max(0, Math.ceil(length / bar) - 1) }, (_, i) => (i + 1) * bar)
 
-  return (
-    <button
-      type='button'
-      className='relative shrink-0 h-11 rounded-md border border-line-strong bg-raised hover:border-ink-faint overflow-hidden'
-      style={{ width }}
-      aria-label={`${name} notes`}
-      title={`${bars.length ? `${bars.length} note${bars.length === 1 ? '' : 's'}` : 'No notes yet'}. Click to edit them in the Piano Roll`}
-      onClick={onOpen}
-    >
+  const picture = (
+    <>
       <svg
         className='absolute inset-0 w-full h-full'
         viewBox={`0 0 ${Math.max(1, length)} ${Math.max(1, rows)}`}
@@ -65,6 +59,34 @@ const MiniNotes = ({ name, notes, length, beatsPerBar, muted, onOpen }: Props) =
         ))}
       </svg>
       {!bars.length && <span className='relative text-[10px] text-ink-faint'>No notes</span>}
+    </>
+  )
+  const shape = 'relative shrink-0 h-11 rounded-md border border-line-strong bg-raised overflow-hidden'
+
+  if(!onOpen) {
+    return (
+      <div
+        role='img'
+        className={`${shape} flex items-center justify-center`}
+        style={{ width }}
+        aria-label={`${name} notes`}
+        title='Notes that aren’t plain steps, so they can’t be clicked here'
+      >
+        {picture}
+      </div>
+    )
+  }
+
+  return (
+    <button
+      type='button'
+      className={`${shape} hover:border-ink-faint`}
+      style={{ width }}
+      aria-label={`${name} notes`}
+      title={`${bars.length ? `${bars.length} note${bars.length === 1 ? '' : 's'}` : 'No notes yet'}. Click to edit them in the Piano Roll`}
+      onClick={onOpen}
+    >
+      {picture}
     </button>
   )
 }

@@ -14,6 +14,18 @@ export const moveIndex = (from: number, gap: number): number | null => {
   return to === from ? null : to
 }
 
+// a tab shows some of the rows. a row moved to `index` among those shown
+// goes, among all the rows (both counted without it), just before the
+// shown row now at `index`, or just after the last one shown (with no other
+// shown, it stays where it is)
+export const indexAmongAll = (allIds: number[], shownIds: number[], rowId: number, index: number): number => {
+  const all = allIds.filter(id => id !== rowId)
+  const shown = shownIds.filter(id => id !== rowId)
+  if(!shown.length) return allIds.indexOf(rowId)
+  if(index < shown.length) return all.indexOf(shown[index])
+  return all.indexOf(shown[shown.length - 1]) + 1
+}
+
 // the gap between rows nearest `clientY`: past the middle of a row is below it
 export const gapAt = (mids: number[], clientY: number): number =>
   mids.filter(mid => clientY > mid).length

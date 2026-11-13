@@ -8,6 +8,7 @@ import { openTab } from './slices/windowSlice'
 import { setPianoRollStart } from './slices/pianoRollSlice'
 import { listenForTransportKey } from '../util/keys'
 import { View } from '../types/ui'
+import { pattern, sequencerOf } from '../types/sequencer.fixture'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 // the store's project slice opens dialogs and lists folders
@@ -25,16 +26,7 @@ const sent = () => mockInvoke.mock.calls
   .map(([command, args]) => [command, args])
   .filter(([command]) => !(command as string).startsWith('get_'))
 
-// drum patterns, and note patterns 13 and 15
-const patterns = (ids: number[], noteIds: number[] = []) => ({
-  rows: [],
-  synths: [],
-  patterns: [
-    ...ids.map(id => ({ id, name: null, length: 16, steps: {} })),
-    ...noteIds.map(id => ({ id, name: null, kind: 'note' as const, length: 16, steps: {} })),
-  ],
-  folders: [],
-})
+const patterns = (ids: number[]) => sequencerOf({ patterns: ids.map(id => pattern(id)) })
 
 // what the topbar's Play key and Space both dispatch
 const pressPlay = () => store.dispatch(togglePlayHere())
@@ -44,8 +36,7 @@ describe('the Play key and Space', () => {
     mockInvoke.mockReset()
     mockInvoke.mockImplementation(async (command: string) =>
       (command === 'get_playlist_transport' ? stopped : undefined))
-    store.dispatch(setSequencer(patterns([3, 5], [13, 15])))
-    store.dispatch(selectPattern(5))
+    store.dispatch(setSequencer(patterns([3, 5, 13, 15])))
     store.dispatch(selectPattern(15))
   })
 
@@ -61,18 +52,16 @@ describe('the Play key and Space', () => {
     expect(sent()).toEqual([['toggle_playlist', {}]])
   })
 
-  it('loops the selected drum pattern when the Drum Sequencer has the focus', async () => {
+  it('loops the selected pattern from either sequencer and the Piano Roll', async () => {
     store.dispatch(openTab(View.Sequencer))
     await pressPlay()
-    expect(sent()).toEqual([['toggle_pattern', { patternId: 5 }]])
-  })
-
-  it('loops the selected note pattern from the Note Sequencer and the Piano Roll', async () => {
     store.dispatch(openTab(View.NoteSequencer))
     await pressPlay()
     store.dispatch(openTab(View.PianoRoll))
     await pressPlay()
-    expect(sent()).toEqual([['toggle_pattern', { patternId: 15 }], ['toggle_pattern', { patternId: 15 }]])
+    expect(sent()).toEqual([
+      ['toggle_pattern', { patternId: 15 }], ['toggle_pattern', { patternId: 15 }], ['toggle_pattern', { patternId: 15 }],
+    ])
   })
 
   it('loops from the Piano Roll’s start marker, set on its ruler, and only from the Piano Roll', async () => {

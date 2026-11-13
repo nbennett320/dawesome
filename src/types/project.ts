@@ -2,7 +2,7 @@ import { ArmedTrack } from './audio'
 import { ClipInfo, ClipWindow } from './clip'
 import { Racks } from './effects'
 import { MixerSettings } from './mixer'
-import { SequencerState, Synth } from './sequencer'
+import { Row, SequencerState, SynthInstrument, isSynthRow } from './sequencer'
 import type { SnapNote } from '../state/slices/playlistSlice'
 
 // project files (.dawesome) hold the playlist's clips and settings, and the
@@ -125,16 +125,16 @@ export interface LoadedProject extends ProjectSettings {
   dropped?: string[]
 }
 
-// the engine lists missing synths with the missing effects. the synths say
-// which they are (`missing`), so each takes the first entry with its name
-// (or its plugin's name, which a numbered synth's starts with) and vendor,
-// and the rest are effects
+// the engine lists missing synths with the missing effects. the synth rows
+// say which they are (`missing`), so each takes the first entry with its
+// name (or its plugin's name, which a numbered synth's starts with) and
+// vendor, and the rest are effects
 export const splitMissing = (
   missingEffects: MissingEffect[],
-  synths: Synth[],
-): { effects: MissingEffect[], synths: Synth[] } => {
+  rows: Row[],
+): { effects: MissingEffect[], synths: SynthInstrument[] } => {
   const effects = [...missingEffects]
-  const missing = synths.filter(synth => synth.missing)
+  const missing = rows.filter(isSynthRow).map(row => row.instrument).filter(synth => synth.missing)
   missing.forEach(synth => {
     const i = effects.findIndex(effect => effect.vendor === synth.vendor
       && (effect.name === synth.name || synth.name.startsWith(`${effect.name} `)))

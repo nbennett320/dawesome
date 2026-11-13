@@ -55,8 +55,9 @@ pub fn render_sample(node: &daw::AudioNode, rate: u32) -> Vec<f32> {
 
 // a pattern clip's hits as they are now, ready to be mixed (see
 // mix_pattern): how many frames the clip lasts, and each hit's sound with
-// the frame of the clip it starts on. the steps lit, each row at its
-// volume, muted rows silent, at the tempo as it is
+// the frame of the clip it starts on. the sample rows' notes, each row at
+// its volume, muted rows silent, at the tempo as it is (synth rows' notes
+// aren't written out)
 pub struct PatternHits {
   frames: usize,
   hits: Vec<(usize, daw::VoiceSource)>,
@@ -71,12 +72,12 @@ pub fn pattern_hits(audiograph: &daw::AudioGraph<'static>, node: &daw::PatternNo
 
   let starts = frame(node.start_offset);
   let frames = (frame(node.start_offset + node.duration(pattern.length, beat)) - starts).max(0) as usize;
-  let hits = sequencer.hit_steps(node.pattern_id).into_iter()
-    .filter(|(_, step)| node.plays(*step, pattern.length))
+  let hits = sequencer.sample_hits(node.pattern_id).into_iter()
+    .filter(|(_, start)| node.plays(*start, pattern.length))
     // on the frame the engine would start it on
-    .map(|(row, step)| {
-      let at = (frame(node.hit_at(step, beat)) - starts).max(0) as usize;
-      (at, Box::new(row.source()) as daw::VoiceSource)
+    .map(|(hit, start)| {
+      let at = (frame(node.hit_at(start, beat)) - starts).max(0) as usize;
+      (at, Box::new(hit.source()) as daw::VoiceSource)
     })
     .collect();
   Ok(PatternHits { frames, hits })

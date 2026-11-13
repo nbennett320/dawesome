@@ -1,17 +1,17 @@
-// the synths' plugins
+// the synth rows' plugins
 //
-// the synth list itself (names, volume, mute, order) is the sequencer's (see
-// daw_core/sequencer.rs), and undo and projects go through it. this keeps
-// each synth's plugins in line with that list: follow_synths is told the
-// list and which tracks play which synths, and loads or lets go of plugins
-// to match
+// the synth rows themselves (names, volume, mute, order) are the
+// sequencer's (see daw_core/sequencer.rs), and undo and projects go through
+// them. this keeps each synth's plugins in line with those rows:
+// follow_synths is told the synths (by slot id) and which tracks play
+// which, and loads or lets go of plugins to match
 //
 // one plugin instance mixes every note it's sent into one output, so a
 // synth that two tracks play needs two instances, or each track would hear
 // the other's notes. so each synth has copies of its plugin:
 //
 //   - its master copy, first in the master's chain, which plays a pattern on
-//     its own and keys auditioned. its slot id is the synth's id, and its
+//     its own and keys auditioned. its slot id is the synth's slot, and its
 //     interface is the one shown (with_plugin, slot_name and so on reach it)
 //   - a copy on each track that has a clip with notes for it, first in that
 //     track's chain (before its effects), with a slot id of its own
@@ -143,16 +143,16 @@ impl daw::SynthPlugins for Effects {
 }
 
 impl Effects {
-  // stop following the synth list until what's returned is dropped (while
-  // a project replaces it, plugins first and list after)
+  // stop following the synth rows until what's returned is dropped (while
+  // a project replaces them, plugins first and rows after)
   pub fn pause_synths(&self) -> SynthPause<'_> {
     self.synth_pauses.fetch_add(1, Ordering::SeqCst);
     SynthPause(self)
   }
 
   // load an installed instrument as a new synth's master copy, under a new
-  // id. it's heard once the synth list has it (see follow_synths). gives the
-  // synth as the list will have it (named after the plugin)
+  // slot id. it's heard once a synth row has it (see follow_synths). gives
+  // the synth for the row (named after the plugin)
   pub fn load_synth(&self, plugin_id: &str) -> Result<daw::Synth, String> {
     main_thread::run(|| {
       let info = self.plugins.find(plugin_id)
@@ -187,10 +187,13 @@ impl Effects {
     })?
   }
 
-  // a project's synths, with their settings, replacing any there are (the
-  // list follows: see follow_synths). one whose plugin can't be loaded is
-  // kept as missing, with its settings, and listed
-  pub fn load_synths(&self, saved: &[daw::SavedSynth]) -> Vec<MissingEffect> {
+  // a project's synth rows' plugins, with their settings, replacing any
+  // there are (the rows follow: see follow_synths). one whose plugin can't
+  // be loaded is kept as missing, with its settings, and listed
+  pub fn load_synths(&self, rows: &[daw::SavedRow]) -> Vec<MissingEffect> {
+    let saved: Vec<(&daw::SavedRow, &daw::SavedSynth)> = rows.iter()
+      .filter_map(|row| Some((row, row.instrument.synth()?)))
+      .collect();
     let done = main_thread::run(|| {
       let old: Vec<(u64, Loaded)> = {
         let mut inner = self.inner.lock().unwrap();
@@ -210,11 +213,11 @@ impl Effects {
       let rate = if saved.is_empty() { DEFAULT_RATE } else { self.load_rate() };
       let mut missing = Vec::new();
       let mut loaded = Vec::new();
-      for synth in saved {
+      for &(row, synth) in &saved {
         let found = self.plugins.find(&synth.plugin_id);
         let path = found.as_ref().map_or_else(|| synth.path.clone(), |info| info.path.clone());
         let desc = Desc {
-          id: synth.id,
+          id: synth.slot,
           plugin_id: synth.plugin_id.clone(),
           path,
           name: synth.name.clone(),
@@ -245,13 +248,13 @@ impl Effects {
           self.keep_window_position(desc.id, position);
         }
         let spec = daw::Synth {
-          id: synth.id,
+          id: synth.slot,
           plugin_id: synth.plugin_id.clone(),
           path: desc.path.clone(),
           name: synth.name.clone(),
           vendor: synth.vendor.clone(),
-          volume: synth.volume,
-          muted: synth.muted,
+          volume: row.volume,
+          muted: row.muted,
         };
         loaded.push(live(desc, &spec, master));
       }
@@ -269,11 +272,12 @@ impl Effects {
     })
   }
 
-  // bring the synths' plugins in line with the synth list and the (synth,
-  // track) pairs that need a copy: load the synths new to the list (with
-  // the settings they had, if they've been in it before), let go of ones
-  // that have left it (keeping their settings), make the copies that are
-  // needed and put aside the ones that aren't, and set every copy's volume
+  // bring the synths' plugins in line with the synth rows' (`list`, by
+  // slot) and the (slot, track) pairs that need a copy: load the synths new
+  // to the list (with the settings they had, if they've been in it before),
+  // let go of ones that have left it (keeping their settings), make the
+  // copies that are needed and put aside the ones that aren't, and set
+  // every copy's volume
   pub fn follow_synths(&self, list: &[daw::Synth], needed: &BTreeSet<(u64, u32)>) {
     if self.synth_pauses.load(Ordering::SeqCst) > 0 { return; }
     {

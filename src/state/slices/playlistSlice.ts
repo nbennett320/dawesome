@@ -21,7 +21,7 @@ import {
 } from '../../types/project'
 import { currentGesture } from '../gesture'
 import { Wind } from '../../types/transport'
-import { SequencerState, Synth } from '../../types/sequencer'
+import { SequencerState, SynthInstrument } from '../../types/sequencer'
 import { MixerSettings } from '../../types/mixer'
 import { openTab } from './windowSlice'
 
@@ -644,8 +644,8 @@ const placedNow = (getState: () => RootState, ids: number[]): MovedNode[] =>
     .map(({ id, startBeat, trackNumber }) => ({ id, startBeat, trackNumber }))
 
 // move a clip. it's moved at once to `shownBeat` (where the playlist showed
-// it landing), as the engine can take a moment to answer (a note pattern on
-// a new track waits for its synths' plugins), then to where the engine put it
+// it landing), as the engine can take a moment to answer (a pattern on a
+// new track waits for its synths' plugins), then to where the engine put it
 export const moveNodeInPlaylist = (
   id: number,
   path: string,
@@ -919,7 +919,7 @@ export const { setClipboardCount, selectClips, reducePainted } = playlistSlice.a
 
 // paint clips of a pattern along a track with the Draw tool, from startBeat
 // to endBeat (already snapped): end to end, the last cut short at the end.
-// with no pattern (null), a new empty note pattern long enough to hold the
+// with no pattern (null), a new empty pattern long enough to hold the
 // drag, and one clip of it. one step to undo. a track below the last makes
 // one. null if the engine refused
 export const paintPatternClips = (
@@ -1232,7 +1232,7 @@ export const dropQueuedClipSettings = (): void => {
 export interface LoadedMissing {
   samples: MissingSample[]
   effects: MissingEffect[]
-  synths: Synth[]
+  synths: SynthInstrument[]
   dropped: string[]
 }
 
@@ -1249,7 +1249,7 @@ const showLoadedProject = async (
   // the playlist's length depends on its clips
   await initPlaylist()(dispatch)
 
-  const { effects, synths } = splitMissing(project.missingEffects ?? [], project.sequencer?.synths ?? [])
+  const { effects, synths } = splitMissing(project.missingEffects ?? [], project.sequencer?.rows ?? [])
   return { samples: project.missing, effects, synths, dropped: project.dropped ?? [] }
 }
 

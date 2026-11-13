@@ -1,8 +1,8 @@
-import { Note, Pattern, clipNoteBars, stepsPerBar, synthNotes, withNotes } from '../../types/sequencer'
+import { Note, sortNotes, stepsPerBar } from '../../types/sequencer'
 import {
   DEFAULT_LENGTH, NEW_VELOCITY, allIndices, carriedNotes, centerPitch, clampNote, copyNotes, cutNotes, deleteNotes, drawnLength,
-  fitSelection, inSteps, isBlackKey, markerStep, moveNotes, newNote, noteBoxes, noteCut, pasteNotes, pasteStep, pitchName,
-  pressKind, repeatNotes, rollSnapping, sameNotes, snapStep, snapStepDown, trimNotes,
+  fitSelection, followPlaces, inSteps, isBlackKey, markerStep, moveNotes, newNote, noteBoxes, noteCut, pasteNotes, pasteStep,
+  pitchName, pressKind, repeatNotes, rollSnapping, sameNotes, snapStep, snapStepDown, sortedWithPlaces, trimNotes,
 } from './notes'
 import {
   DEFAULT_STEP_WIDTH, MAX_STEP_WIDTH, MIN_STEP_WIDTH, ROW_HEIGHT, pitchAtY, rowAtY, rowTop, stepAtX, zoomGrid,
@@ -309,30 +309,19 @@ describe('the grid', () => {
   })
 })
 
-describe('a pattern’s notes', () => {
-  const pattern = (notes?: Record<string, Note[]>): Pattern =>
-    ({ id: 0, name: null, kind: 'note', length: 16, steps: {}, notes })
-
-  it('are none for a synth without any, or when an older engine leaves them out', () => {
-    expect(synthNotes(pattern(), 3)).toEqual([])
-    expect(synthNotes(pattern({ 4: [note(60, 0)] }), 3)).toBe(synthNotes(pattern(), 3))
-    expect(synthNotes(pattern({ 4: [note(60, 0)] }), 4)).toEqual([note(60, 0)])
+describe('keeping notes in order', () => {
+  it('sorts as sortNotes does, saying where each note went', () => {
+    const quiet = { ...note(60, 4), velocity: 0.2 }
+    const notes = [note(64, 4), note(60, 4), note(72, 0), quiet]
+    const { notes: sorted, at } = sortedWithPlaces(notes)
+    expect(sorted).toEqual(sortNotes(notes))
+    expect(sorted).toEqual([note(72, 0), note(60, 4), quiet, note(64, 4)])
+    expect(at).toEqual([3, 1, 0, 2])
   })
 
-  it('are replaced a synth at a time, a synth left without any left out', () => {
-    const p = withNotes(pattern({ 4: [note(60, 0)] }), 5, [note(62, 1)])
-    expect(p.notes).toEqual({ 4: [note(60, 0)], 5: [note(62, 1)] })
-    expect(withNotes(p, 4, []).notes).toEqual({ 5: [note(62, 1)] })
-  })
-
-  it('show in a clip as bars, every synth’s: those starting in its part, cut at its end', () => {
-    const p = pattern({ 1: [note(60, 0, 4), note(64, 6, 8)], 2: [note(72, 12, 2)] })
-    expect(clipNoteBars(p, 0, 16)).toEqual({
-      rows: 13,
-      bars: [{ start: 0, end: 4, row: 12 }, { start: 6, end: 14, row: 8 }, { start: 12, end: 14, row: 0 }],
-    })
-    // trimmed to steps 4 to 10: the first note began before it, the second is cut short
-    expect(clipNoteBars(p, 4, 10).bars).toEqual([{ start: 6, end: 10, row: 5 }])
-    expect(clipNoteBars(pattern(), 0, 16)).toEqual({ rows: 0, bars: [] })
+  it('moves places to where their notes went, leaving out places past the end', () => {
+    const { at } = sortedWithPlaces([note(64, 4), note(60, 0)])
+    expect(followPlaces([0], at)).toEqual(new Set([1]))
+    expect(followPlaces(new Set([0, 1, 5]), at)).toEqual(new Set([1, 0]))
   })
 })

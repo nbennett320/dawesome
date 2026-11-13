@@ -40,7 +40,7 @@ const loaded: LoadedProject = {
   ],
   missing: [],
   mixer: { tracks: [], master: { volumeDb: 0, pan: 0, mute: false, solo: false } },
-  sequencer: { rows: [], synths: [], patterns: [], folders: [] },
+  sequencer: { rows: [], patterns: [], folders: [] },
   patternClips: [{ id: 9, patternId: 2, trackNumber: 1, startBeat: 8, window: { start: 4, end: null } }],
 }
 

@@ -209,7 +209,7 @@ fn test_what_join_refuses() {
   let pattern = {
     let mut sequencer = state.playlist.sequencer.lock().unwrap();
     let row = sequencer.add_row(KICK).unwrap();
-    let pattern = sequencer.add_pattern(1, 4, daw::PatternKind::Drum).unwrap();
+    let pattern = sequencer.add_pattern(1, 4).unwrap();
     sequencer.set_step(pattern, row, 0, true).unwrap();
     pattern
   };
@@ -237,13 +237,18 @@ fn two_patterns(state: &daw::InnerState) -> (u64, u64, u64, u64) {
   let mut sequencer = state.playlist.sequencer.lock().unwrap();
   let kick = sequencer.add_row(KICK).unwrap();
   let snare = sequencer.add_row(SNARE).unwrap();
-  let a = sequencer.add_pattern(1, 4, daw::PatternKind::Drum).unwrap();
-  let b = sequencer.add_pattern(1, 4, daw::PatternKind::Drum).unwrap();
+  let a = sequencer.add_pattern(1, 4).unwrap();
+  let b = sequencer.add_pattern(1, 4).unwrap();
   sequencer.rename_pattern(a, "a").unwrap();
   for (pattern, row, step) in [(a, kick, 0), (a, kick, 8), (b, snare, 4), (b, snare, 12), (b, kick, 15)] {
     sequencer.set_step(pattern, row, step, true).unwrap();
   }
   (kick, snare, a, b)
+}
+
+// where a row's notes start in a pattern
+fn starts(pattern: &daw::PatternState, row: u64) -> Vec<f64> {
+  pattern.notes[&row].iter().map(|note| note.start).collect()
 }
 
 fn pattern_clip(state: &daw::InnerState, pattern: u64, beat: f64) -> u64 {
@@ -280,10 +285,11 @@ fn test_pattern_clips_become_one_clip_of_a_new_pattern() {
   assert_eq!(sequencer.patterns[2], patterns_before.patterns[1]);
   let made = &sequencer.patterns[1];
   assert_eq!(made.id, clip.pattern_id);
-  assert_eq!((made.name.as_deref(), made.length), (Some("a + Loop 2"), 48));
-  // the first's steps, an empty bar, then the second's
-  assert_eq!(made.steps[&kick], BTreeSet::from([0, 8, 47]));
-  assert_eq!(made.steps[&snare], BTreeSet::from([36, 44]));
+  assert_eq!((made.name.as_deref(), made.length, made.floor), (Some("a + Sequence 2"), 48, 48));
+  // the first's steps, an empty bar, then the second's, each row's together
+  assert_eq!(starts(made, kick), vec![0., 8., 47.]);
+  assert_eq!(starts(made, snare), vec![36., 44.]);
+  assert!(made.notes[&kick].iter().all(|note| note.length == 1.));
   // three bars is the whole pattern: no window
   assert_eq!(clip.window, None);
 
@@ -321,8 +327,8 @@ fn test_joined_pattern_clips_keep_their_span_and_merge_where_they_overlap() {
   assert_eq!(joined.clips.pattern_clips[0].window, Some(ClipWindow { start: 0., end: Some(22.) }));
   // the kick's two steps, and the snare's from step 8 on (the second
   // clip's kick on step 15 was trimmed off)
-  assert_eq!(made.steps[&kick], BTreeSet::from([0, 8]));
-  assert_eq!(made.steps[&snare], BTreeSet::from([12, 20]));
+  assert_eq!(starts(&made, kick), vec![0., 8.]);
+  assert_eq!(starts(&made, snare), vec![12., 20.]);
   assert!(play(&state, rate, total) == original);
   assert_eq!(state.playlist.audiograph.lock().unwrap().end(), Duration::from_millis(1_000 + 2_750));
 }
@@ -333,15 +339,15 @@ fn test_joined_pattern_clips_keep_the_notes_they_play() {
   let note = |pitch, start, length| daw::PatternNote { pitch, start, length, velocity: 0.5 };
   let (a, b, s) = {
     let mut sequencer = state.playlist.sequencer.lock().unwrap();
-    sequencer.add_synth(daw::Synth {
+    let s = sequencer.add_synth_row(daw::Synth {
       id: 40, plugin_id: "vst3:synth".into(), path: String::new(), name: "Synth".into(),
       vendor: String::new(), volume: 1., muted: false,
-    }).unwrap();
-    let a = sequencer.add_pattern(1, 4, daw::PatternKind::Note).unwrap();
-    let b = sequencer.add_pattern(1, 4, daw::PatternKind::Note).unwrap();
-    sequencer.set_pattern_notes(a, 40, vec![note(60, 2., 4.), note(61, 13., 3.)]).unwrap();
-    sequencer.set_pattern_notes(b, 40, vec![note(62, 0.5, 1.)]).unwrap();
-    (a, b, 40)
+    });
+    let a = sequencer.add_pattern(1, 4).unwrap();
+    let b = sequencer.add_pattern(1, 4).unwrap();
+    sequencer.set_pattern_notes(a, s, vec![note(60, 2., 4.), note(61, 13., 3.)]).unwrap();
+    sequencer.set_pattern_notes(b, s, vec![note(62, 0.5, 1.)]).unwrap();
+    (a, b, s)
   };
   let first = pattern_clip(&state, a, 4.);
   let second = pattern_clip(&state, b, 8.);
@@ -351,14 +357,18 @@ fn test_joined_pattern_clips_keep_the_notes_they_play() {
   let joined = join(&state, &[first, second], Some(44_100)).unwrap();
   let sequencer = joined.sequencer.expect("a new pattern");
   let made = sequencer.patterns.iter().find(|p| p.id == joined.clips.pattern_clips[0].pattern_id).unwrap();
-  assert_eq!(made.kind, daw::PatternKind::Note);
-  assert_eq!(made.notes[&s], vec![note(60, 2., 4.), note(61, 13., 1.), note(62, 16.5, 1.)]);
+  assert_eq!(*made.notes[&s], vec![note(60, 2., 4.), note(61, 13., 1.), note(62, 16.5, 1.)]);
 
-  // a drum pattern's clip and a note pattern's aren't joined
-  let (_, _, drums, _) = two_patterns(&state);
-  let third = pattern_clip(&state, drums, 16.);
+  // a clip of steps on sample rows and one of a synth's notes make one
+  // pattern of both
+  let (kick, _, steps, _) = two_patterns(&state);
+  let third = pattern_clip(&state, steps, 16.);
   let fourth = pattern_clip(&state, a, 20.);
-  assert!(join(&state, &[third, fourth], Some(44_100)).unwrap_err().contains("can't be joined"));
+  let joined = join(&state, &[third, fourth], Some(44_100)).unwrap();
+  let sequencer = joined.sequencer.expect("a new pattern");
+  let made = sequencer.patterns.iter().find(|p| p.id == joined.clips.pattern_clips[0].pattern_id).unwrap();
+  assert_eq!(starts(made, kick), vec![0., 8.]);
+  assert_eq!(*made.notes[&s], vec![note(60, 18., 4.), note(61, 29., 3.)]);
 }
 
 #[test]

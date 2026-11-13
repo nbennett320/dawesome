@@ -17,8 +17,9 @@ import styles from './styles.module.scss'
 
 const pages: Record<SidebarPage, () => React.ReactElement> = {
   [SidebarPage.Samples]: () => <SampleBrowser />,
-  [SidebarPage.Patterns]: () => <PatternBrowser kind='drum' />,
-  [SidebarPage.NotePatterns]: () => <PatternBrowser kind='note' />,
+  // (two keys for the one list of patterns, until the sequencer is one tab)
+  [SidebarPage.Patterns]: () => <PatternBrowser />,
+  [SidebarPage.NotePatterns]: () => <PatternBrowser />,
   [SidebarPage.Recordings]: () => <RecordingsBrowser />,
   [SidebarPage.Clips]: () => <ClipsBrowser />,
   [SidebarPage.Effects]: () => <PluginBrowser kind='effect' />,

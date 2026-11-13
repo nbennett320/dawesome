@@ -4,15 +4,15 @@ import {
   addPattern, loadSequencer, selectPatternRun, selectSelectedPattern,
 } from '../../state/slices/sequencerSlice'
 import { DragItem, onSampleDrag } from '../../state/sampleDrag'
-import { Pattern, PatternKind } from '../../types/sequencer'
+import { Pattern } from '../../types/sequencer'
 import { AnalogButton } from '../../components/fourtrack'
 import { useTransport } from '../transport/useTransport'
 import PatternStrip from './PatternStrip'
 import { useStopWhenUnfocused } from './useStopWhenUnfocused'
 
-// what the Drum Sequencer and the Note Sequencer share: patterns of their
-// kind along the top, a row for each sample or synth, and things dragged
-// from the sidebar becoming rows
+// what the Drum Sequencer and the Note Sequencer share: the patterns along
+// the top, a row for each sample row or synth row, and things dragged from
+// the sidebar becoming rows
 
 // things of one kind dragged from the sidebar onto `ref` are dropped there
 // (`onDrop` is told where, in the window). returns whether one is being
@@ -36,12 +36,12 @@ export const useDropOn = <T extends DragItem>(
   return over
 }
 
-// a sequencer tab's pattern, and the time signature's bar. the engine owns
-// the sequencer: it's caught up with when the tab opens. a pattern playing
-// on its own stops when focus leaves the sequencers and the Piano Roll
-export const useSequencerTab = (kind: PatternKind) => {
+// the selected pattern, and the time signature's bar. the engine owns the
+// sequencer: it's caught up with when the tab opens. a pattern playing on
+// its own stops when focus leaves the sequencers and the Piano Roll
+export const useSequencerTab = () => {
   const dispatch = useAppDispatch()
-  const pattern = useAppSelector(selectSelectedPattern(kind))
+  const pattern = useAppSelector(selectSelectedPattern)
   const run = useAppSelector(selectPatternRun)
   const { transport } = useTransport()
 
@@ -52,7 +52,6 @@ export const useSequencerTab = (kind: PatternKind) => {
 }
 
 interface Props {
-  kind: PatternKind
   pattern: Pattern | null
   beatsPerBar: number
   playingId: number | null
@@ -66,14 +65,14 @@ interface Props {
   children: React.ReactNode
 }
 
-// a sequencer's tab: its pattern strip, its rows, and a box under them to
-// drop things in. with no pattern of its kind, it offers to make one
-const SequencerFrame = ({ kind, pattern, beatsPerBar, playingId, dropRef, dropping, hint, children }: Props) => {
+// a sequencer's tab: the pattern strip, its rows, and a box under them to
+// drop things in. with no pattern, it offers to make one
+const SequencerFrame = ({ pattern, beatsPerBar, playingId, dropRef, dropping, hint, children }: Props) => {
   const dispatch = useAppDispatch()
 
   return (
     <div ref={dropRef} className='ft-panel h-full w-full flex flex-col text-sm select-none'>
-      <PatternStrip kind={kind} beatsPerBar={beatsPerBar} playingId={playingId} />
+      <PatternStrip beatsPerBar={beatsPerBar} playingId={playingId} />
 
       <div
         className={`flex-1 min-h-0 overflow-auto m-2 rounded-lg p-2 ft-tray ${dropping ? 'ring-2 ring-accent-focus' : ''}`}
@@ -86,7 +85,7 @@ const SequencerFrame = ({ kind, pattern, beatsPerBar, playingId, dropRef, droppi
                 variant='text'
                 size='sm'
                 title='A new, empty pattern'
-                onPress={() => dispatch(addPattern(1, kind))}
+                onPress={() => dispatch(addPattern(1))}
               >
                 Make one
               </AnalogButton>

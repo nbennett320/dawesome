@@ -7,7 +7,7 @@
 // the mouse, while mouse events keep p5's draw loop running as normal
 
 // the sidebar browsers that have folders
-export type FolderScope = 'recordings' | 'clips' | 'patterns' | 'note-patterns'
+export type FolderScope = 'recordings' | 'clips' | 'patterns'
 
 // what's being dragged. a folder only moves within its browser: it can't be
 // placed in the playlist or a sequencer. an effect (from the sidebar) and a

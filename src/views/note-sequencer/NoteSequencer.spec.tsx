@@ -12,7 +12,8 @@ import effectsReducer from '../../state/slices/effectsSlice'
 import appearanceReducer, { setPreferences } from '../../state/slices/appearanceSlice'
 import sequencerReducer from '../../state/slices/sequencerSlice'
 import { DragItem, beginSampleDrag, onSampleDrag } from '../../state/sampleDrag'
-import { Note, SequencerState, Synth } from '../../types/sequencer'
+import { Note, SequencerState } from '../../types/sequencer'
+import { pattern, sampleRow, sequencerOf, steps, synthRow } from '../../types/sequencer.fixture'
 import { View } from '../../types/ui'
 import NoteSequencer from './NoteSequencer'
 import Sequencer from '../sequencer/Sequencer'
@@ -25,20 +26,16 @@ const mockInvoke = invoke as Mock
 
 const note = (pitch: number, start: number): Note => ({ pitch, start, length: 2, velocity: 0.8 })
 
-const synth = (id: number, name: string, change: Partial<Synth> = {}): Synth => ({
-  id, pluginId: `vst3:${id}`, name, vendor: 'Acme', volume: 1, muted: false, missing: false, hasEditor: true, ...change,
-})
-
-// a drum pattern (0) and two note patterns (1, 2), with Pad's notes in 1
-const makeSequencer = (change: Partial<SequencerState> = {}): SequencerState => ({
-  rows: [{ id: 0, path: '/drums/kick.wav', label: null, volume: 1, pan: 0, muted: false }],
-  synths: [synth(7, 'Pad'), synth(8, 'Gone', { missing: true })],
+// the kick (a sample row, 0), then Pad and Gone (synth rows 3 and 1, in
+// slots 103 and 101). patterns Beat (the kick's first step), Verse (Pad's
+// notes) and Chorus (empty, 4 bars)
+const makeSequencer = (change: Partial<SequencerState> = {}): SequencerState => sequencerOf({
+  rows: [sampleRow(0, { path: '/drums/kick.wav' }), synthRow(3, { name: 'Pad' }), synthRow(1, { name: 'Gone', missing: true })],
   patterns: [
-    { id: 0, name: 'Beat', length: 16, steps: { 0: [0] } },
-    { id: 1, name: 'Verse', kind: 'note', length: 16, steps: {}, notes: { 7: [note(60, 0), note(64, 4)] } },
-    { id: 2, name: 'Chorus', kind: 'note', length: 64, steps: {}, notes: {} },
+    pattern(0, { name: 'Beat', notes: { 0: steps(0) } }),
+    pattern(1, { name: 'Verse', notes: { 3: [note(60, 0), note(64, 4)] } }),
+    pattern(2, { name: 'Chorus', length: 64 }),
   ],
-  folders: [],
   ...change,
 })
 
@@ -84,17 +81,17 @@ beforeEach(() => {
   mockInvoke.mockImplementation(async (command: string, args: Record<string, unknown>) => {
     if(command === 'get_sequencer') return sequencer
     if(command === 'get_playlist_transport') return stopped
-    if(command === 'add_synth') {
-      sequencer = { ...sequencer, synths: [...sequencer.synths, synth(9, 'Keys')] }
-      return { synthId: 9, sequencer }
+    if(command === 'add_synth_row') {
+      sequencer = { ...sequencer, rows: [...sequencer.rows, synthRow(9, { name: 'Keys' })] }
+      return { rowId: 9, sequencer }
     }
-    if(command === 'remove_synth') {
-      sequencer = { ...sequencer, synths: sequencer.synths.filter(s => s.id !== args.synthId) }
+    if(command === 'remove_row') {
+      sequencer = { ...sequencer, rows: sequencer.rows.filter(row => row.id !== args.rowId) }
       return sequencer
     }
-    if(command === 'set_synth_muted' || command === 'set_pattern_bars') return sequencer
+    if(command === 'set_row_muted' || command === 'set_pattern_bars' || command === 'set_pattern_step') return sequencer
     if(command === 'add_pattern') {
-      sequencer = { ...sequencer, patterns: [...sequencer.patterns, { id: 5, name: null, kind: 'note', length: 16, steps: {}, notes: {} }] }
+      sequencer = { ...sequencer, patterns: [...sequencer.patterns, pattern(5)] }
       return { id: 5, sequencer }
     }
     return undefined
@@ -102,14 +99,15 @@ beforeEach(() => {
 })
 
 describe('the Note Sequencer', () => {
-  it('has a row per synth, a missing one greyed, and only note patterns along the top', async () => {
+  it('has a row per synth row, a missing one greyed, and every pattern along the top', async () => {
     await setup()
 
-    expect(screen.getByRole('button', { name: 'Verse' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Beat' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Chorus' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Beat' })).toBeNull()
-    // no drum steps, nor a Piano Roll key: the rows' notes open it
+    fireEvent.click(screen.getByRole('button', { name: 'Verse' }))
+    // no sample rows' steps, nor a Piano Roll key: the rows' notes open it
     expect(screen.queryByRole('button', { name: /step/ })).toBeNull()
+    expect(screen.queryByText('kick.wav')).toBeNull()
 
     expect(screen.getByRole('button', { name: 'Pad notes' }).getAttribute('title')).toMatch(/^2 notes\./)
     expect(screen.getByText('Not installed')).toBeTruthy()
@@ -117,70 +115,70 @@ describe('the Note Sequencer', () => {
     expect(screen.getByRole('button', { name: 'Gone notes' }).getAttribute('title')).toMatch(/^No notes yet/)
   })
 
-  it('opens the Piano Roll on a synth’s notes in the pattern', async () => {
+  it('opens the Piano Roll on a synth row’s notes in the pattern', async () => {
     const { store } = await setup()
     fireEvent.click(screen.getByRole('button', { name: 'Chorus' }))
     fireEvent.click(screen.getByRole('button', { name: 'Gone notes' }))
 
     const state = store.getState()
     expect(selectFocusedView(state as never)).toBe(View.PianoRoll)
-    expect(state.sequencer.selected.note).toBe(2)
-    expect(state.sequencer.pianoRollSynthId).toBe(8)
+    expect(state.sequencer.selected).toBe(2)
+    expect(state.sequencer.pianoRollRowId).toBe(1)
   })
 
-  it('opens a synth’s own interface from its name, where Preferences say', async () => {
+  it('opens a synth’s own interface from its name, by its slot, where Preferences say', async () => {
     await setup()
     fireEvent.click(screen.getByRole('button', { name: 'Pad' }))
-    await waitFor(() => expect(calls('open_effect_window')).toEqual([{ slotId: 7 }]))
+    await waitFor(() => expect(calls('open_effect_window')).toEqual([{ slotId: 103 }]))
   })
 
-  it('mutes and removes a synth', async () => {
+  it('mutes and removes a synth row, by its id', async () => {
     await setup()
     fireEvent.click(screen.getByRole('button', { name: 'Mute Pad' }))
-    await waitFor(() => expect(calls('set_synth_muted')).toEqual([{ synthId: 7, muted: true }]))
+    await waitFor(() => expect(calls('set_row_muted')).toEqual([{ rowId: 3, muted: true, gesture: null }]))
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove Pad' }))
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Pad notes' })).toBeNull())
-    expect(calls('remove_synth')).toEqual([{ synthId: 7 }])
+    expect(calls('remove_row')).toEqual([{ rowId: 3 }])
   })
 
   it('adds an instrument dropped anywhere on it, and nothing else', async () => {
     const { container } = await setup()
     await dragOnto({ kind: 'sample', path: '/x.wav' }, container.firstElementChild as Element)
     await dragOnto({ kind: 'effect', pluginId: 'vst3:verb', label: 'Verb' }, container.firstElementChild as Element)
-    expect(mockInvoke.mock.calls.map(([command]) => command)).not.toContain('add_synth')
+    expect(mockInvoke.mock.calls.map(([command]) => command)).not.toContain('add_synth_row')
 
     // on the pattern strip, not just the rows
     await dragOnto({ kind: 'instrument', pluginId: 'vst3:keys', label: 'Keys' }, screen.getByRole('button', { name: 'Verse' }))
-    expect(calls('add_synth')).toEqual([{ pluginId: 'vst3:keys' }])
+    expect(calls('add_synth_row')).toEqual([{ pluginId: 'vst3:keys' }])
     expect(await screen.findByRole('button', { name: 'Keys notes' })).toBeTruthy()
   })
 
-  it('asks for an instrument while it has no synths', async () => {
-    sequencer = makeSequencer({ synths: [] })
+  it('asks for an instrument while it has no synth rows', async () => {
+    sequencer = makeSequencer({ rows: [sampleRow(0)] })
     await setup()
     expect(screen.getByText('Drag an instrument here')).toBeTruthy()
   })
 
-  it('offers to make a note pattern when there’s none', async () => {
-    sequencer = makeSequencer({ patterns: [makeSequencer().patterns[0]] })
+  it('offers to make a pattern when there’s none', async () => {
+    sequencer = makeSequencer({ patterns: [] })
     await setup()
     expect(screen.queryByRole('button', { name: 'Pad notes' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Make one' }))
-    await waitFor(() => expect(calls('add_pattern')).toEqual([{ bars: 1, kind: 'note' }]))
+    await waitFor(() => expect(calls('add_pattern')).toEqual([{ bars: 1 }]))
     expect(await screen.findByRole('button', { name: 'Pad notes' })).toBeTruthy()
   })
 
-  it('sets a note pattern’s length as a number of bars, 1 to 64', async () => {
+  it('sets a pattern’s length as a number of bars, 1 to 128', async () => {
     await setup()
     const bars = screen.getByRole('spinbutton', { name: 'Bars' }) as HTMLInputElement
     expect(bars.value).toBe('1')
 
+    fireEvent.change(bars, { target: { value: '129' } })
+    fireEvent.keyDown(bars, { key: 'Enter' })
     fireEvent.change(bars, { target: { value: '99' } })
     fireEvent.keyDown(bars, { key: 'Enter' })
-    fireEvent.change(bars, { target: { value: '12' } })
-    fireEvent.keyDown(bars, { key: 'Enter' })
-    await waitFor(() => expect(calls('set_pattern_bars')).toEqual([{ patternId: 1, bars: 12 }]))
+    await waitFor(() => expect(calls('set_pattern_bars')).toEqual([{ patternId: 0, bars: 99 }]))
   })
 
   it('has no Play key of its own: the top bar plays its pattern', async () => {
@@ -192,11 +190,11 @@ describe('the Note Sequencer', () => {
     const { store } = await setup()
     fireEvent.click(screen.getByRole('button', { name: 'All patterns' }))
     const items = screen.getAllByRole('menuitemradio')
-    expect(items.map(i => i.textContent)).toEqual(['✓Verse', 'Chorus'])
+    expect(items.map(i => i.textContent)).toEqual(['✓Beat', 'Verse', 'Chorus'])
     expect(items[0].getAttribute('aria-checked')).toBe('true')
 
-    fireEvent.click(items[1])
-    expect(store.getState().sequencer.selected.note).toBe(2)
+    fireEvent.click(items[2])
+    expect(store.getState().sequencer.selected).toBe(2)
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
@@ -211,7 +209,7 @@ describe('the Note Sequencer', () => {
 
     fireEvent.change(search, { target: { value: 'chorus' } })
     fireEvent.keyDown(search, { key: 'Enter' })
-    expect(store.getState().sequencer.selected.note).toBe(2)
+    expect(store.getState().sequencer.selected).toBe(2)
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
@@ -238,20 +236,38 @@ describe('the Note Sequencer', () => {
 })
 
 describe('the Drum Sequencer', () => {
-  it('shows drum patterns only, with 1, 2 or 4 bars and no Piano Roll key', async () => {
+  it('shows every pattern, and the sample rows only, with no Piano Roll key', async () => {
     await setup(Sequencer, View.Sequencer)
     expect(screen.getByRole('button', { name: 'Beat' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Verse' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Verse' })).toBeTruthy()
     expect(screen.getAllByRole('button', { name: /kick\.wav, step/ })).toHaveLength(16)
+    expect(screen.queryByRole('button', { name: 'Pad notes' })).toBeNull()
     expect(screen.queryByRole('button', { name: /piano roll/i })).toBeNull()
-    expect(screen.queryByRole('spinbutton', { name: 'Bars' })).toBeNull()
-    expect(screen.getByRole('button', { name: '4' })).toBeTruthy()
+    expect((screen.getByRole('spinbutton', { name: 'Bars' }) as HTMLInputElement).value).toBe('1')
   })
 
-  it('makes drum patterns', async () => {
+  it('makes patterns', async () => {
     await setup(Sequencer, View.Sequencer)
     fireEvent.click(screen.getByRole('button', { name: 'New pattern' }))
-    await waitFor(() => expect(calls('add_pattern')).toEqual([{ bars: 1, kind: 'drum' }]))
+    await waitFor(() => expect(calls('add_pattern')).toEqual([{ bars: 1 }]))
+  })
+
+  it('lights a step straight away, as a note at the row’s step pitch', async () => {
+    const { store } = await setup(Sequencer, View.Sequencer)
+    const key = () => screen.getAllByRole('button', { name: /kick\.wav, step/ })[4]
+    fireEvent.mouseDown(key(), { button: 0 })
+    expect(key().getAttribute('aria-pressed')).toBe('true')
+    expect(store.getState().sequencer.patterns[0].notes[0]).toEqual(steps(0, 4))
+    expect(calls('set_pattern_step')).toEqual([{ patternId: 0, rowId: 0, step: 4, on: true, gesture: null }])
+  })
+
+  it('shows a sample row’s notes that aren’t plain steps as a picture, and changes nothing', async () => {
+    sequencer = makeSequencer({ patterns: [pattern(0, { name: 'Beat', notes: { 0: [...steps(0), note(60, 2.5)] } })] })
+    await setup(Sequencer, View.Sequencer)
+    expect(screen.queryByRole('button', { name: /kick\.wav, step/ })).toBeNull()
+    expect(screen.getByRole('img', { name: 'kick.wav notes' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('img', { name: 'kick.wav notes' }))
+    expect(mockInvoke.mock.calls.map(([command]) => command)).not.toContain('set_pattern_notes')
   })
 
   it('draws its step keys in the style the preferences pick', async () => {
@@ -273,15 +289,15 @@ describe('the Drum Sequencer', () => {
     await setup(Sequencer, View.Sequencer)
     const step = screen.getAllByRole('button', { name: /kick\.wav, step/ })[3]
     await dragOnto({ kind: 'sample', path: '/drums/snare.wav' }, step)
-    expect(calls('replace_sequencer_row_sample')).toEqual([{ rowId: 0, path: '/drums/snare.wav' }])
-    expect(calls('add_sequencer_row')).toEqual([])
+    expect(calls('replace_row_sample')).toEqual([{ rowId: 0, path: '/drums/snare.wav' }])
+    expect(calls('add_sample_row')).toEqual([])
   })
 
   it('adds a row for a sample dropped anywhere else', async () => {
     await setup(Sequencer, View.Sequencer)
     await dragOnto({ kind: 'sample', path: '/drums/snare.wav' }, screen.getByText('Drop more samples here to add rows'))
-    expect(calls('add_sequencer_row')).toEqual([{ path: '/drums/snare.wav' }])
-    expect(calls('replace_sequencer_row_sample')).toEqual([])
+    expect(calls('add_sample_row')).toEqual([{ path: '/drums/snare.wav' }])
+    expect(calls('replace_row_sample')).toEqual([])
   })
 
   it('shows which row a sample dragged over it would replace', async () => {

@@ -27,7 +27,7 @@ export const projectParts = (state: RootState): unknown[] => {
     playlist.tempo, playlist.metronomeEnabled, playlist.loopEnabled,
     playlist.snapEnabled, playlist.snapNote,
     state.mixer,
-    sequencer.rows, sequencer.synths, sequencer.patterns, sequencer.folders,
+    sequencer.rows, sequencer.patterns, sequencer.folders,
     state.effects.racks,
     // a take lands in the playlist when recording stops
     recording.armed, recording.countIn, recording.recording,

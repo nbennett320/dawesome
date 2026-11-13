@@ -442,7 +442,8 @@ pub fn clip_edit<T>(
   all.extend(made(&result));
   let after = clips(state, &all);
   record(state, Step::new().in_gesture(gesture).with_clips(before, after));
-  // a clip of a note pattern on a track that hasn't its synths yet
+  // a clip of a pattern with synth rows' notes, on a track that hasn't
+  // their copies yet
   crate::commands::synth::follow(state);
 
   Ok(result)

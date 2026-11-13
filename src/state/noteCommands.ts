@@ -4,7 +4,7 @@
 // focused one
 import { Note } from '../types/sequencer'
 import {
-  allIndices, copyNotes, deleteNotes, pasteNotes, repeatNotes,
+  allIndices, copyNotes, deleteNotes, followPlaces, pasteNotes, repeatNotes, sortedWithPlaces,
 } from '../views/piano-roll/notes'
 
 // the commands with a ⌘ shortcut, which can arrive by more than one route
@@ -25,7 +25,7 @@ export const clearNoteClipboard = (): void => {
 }
 
 export interface NoteTarget {
-  // the synth's notes in the pattern shown, and which are selected
+  // the row's notes in the pattern shown, in order, and which are selected
   notes: Note[]
   selected: ReadonlySet<number>
   // the pattern's length, in steps: no copy starts at or past it
@@ -36,18 +36,21 @@ export interface NoteTarget {
   focused: boolean
 }
 
-// what a command changed: the notes, and what's selected after
+// what a command changed: the notes (in order), and what's selected after
 export interface NoteOutcome {
   notes?: Note[]
   selected?: ReadonlySet<number>
 }
 
-// run a command on the notes in `target`. null when it does nothing: the
-// Piano Roll isn't focused, nothing's selected to copy, cut, repeat or
-// delete, there's nothing to paste, or every copy would be past the
-// pattern's end (and what's selected stays as it was). copy and cut fill
-// the clipboard
-export const noteCommand = (command: NoteCommand, target: NoteTarget): NoteOutcome | null => {
+// a command's notes put in order, the selection following them
+const inOrder = (outcome: NoteOutcome, selected: ReadonlySet<number>): NoteOutcome => {
+  if(!outcome.notes) return outcome
+  const sorted = sortedWithPlaces(outcome.notes)
+  return { notes: sorted.notes, selected: followPlaces(outcome.selected ?? selected, sorted.at) }
+}
+
+// what a command does to the notes, before they're put in order
+const changeNotes = (command: NoteCommand, target: NoteTarget): NoteOutcome | null => {
   if(!target.focused) return null
   const { notes, selected, patternLength, pasteAt } = target
   const none = new Set<number>()
@@ -76,6 +79,16 @@ export const noteCommand = (command: NoteCommand, target: NoteTarget): NoteOutco
     case 'escape': return { selected: none }
     default: return null
   }
+}
+
+// run a command on the notes in `target`. null when it does nothing: the
+// Piano Roll isn't focused, nothing's selected to copy, cut, repeat or
+// delete, there's nothing to paste, or every copy would be past the
+// pattern's end (and what's selected stays as it was). copy and cut fill
+// the clipboard
+export const noteCommand = (command: NoteCommand, target: NoteTarget): NoteOutcome | null => {
+  const outcome = changeNotes(command, target)
+  return outcome && inOrder(outcome, target.selected)
 }
 
 // the Piano Roll registers how it runs a command, so the Edit menu's items

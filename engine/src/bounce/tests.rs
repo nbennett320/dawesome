@@ -360,7 +360,7 @@ fn test_a_pattern_clip_becomes_a_sample_clip_of_what_it_played() {
     // (a long sample, still sounding when the clip ends)
     let snare = sequencer.add_row("assets/slide_guitar.wav").unwrap();
     let muted = sequencer.add_row("assets/assets_66-hh-01-or.wav").unwrap();
-    let pattern = sequencer.add_pattern(1, 4, daw::PatternKind::Drum).unwrap();
+    let pattern = sequencer.add_pattern(1, 4).unwrap();
     sequencer.rename_pattern(pattern, "Verse: A").unwrap();
     for (row, step) in [(kick, 0), (kick, 6), (snare, 4), (snare, 15), (muted, 2)] {
       sequencer.set_step(pattern, row, step, true).unwrap();

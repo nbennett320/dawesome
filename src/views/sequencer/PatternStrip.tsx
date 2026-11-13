@@ -6,14 +6,14 @@ import {
   removePattern,
   renamePattern,
   selectPattern,
-  selectPatternsOf,
+  selectPatterns,
   selectSelectedPattern,
   setPatternBars,
 } from '../../state/slices/sequencerSlice'
 import { selectPlaylistItems } from '../../state/slices/playlistSlice'
 import { beginSampleDrag } from '../../state/sampleDrag'
 import {
-  BAR_CHOICES, MAX_NOTE_BARS, Pattern, PatternKind, patternBars, patternLabel, unnamedLabel,
+  MAX_PATTERN_BARS, Pattern, patternBars, patternLabel, unnamedLabel,
 } from '../../types/sequencer'
 import { AnalogButton, Led } from '../../components/fourtrack'
 import { NameInput } from '../../components/common'
@@ -121,32 +121,10 @@ const DeletePattern = ({ pattern }: { pattern: Pattern }) => {
   )
 }
 
-// a drum pattern's length: 1, 2 or 4 bars
-const BarChoices = ({ pattern, bars }: { pattern: Pattern, bars: number | null }) => {
-  const dispatch = useAppDispatch()
+// whether a typed length is one a pattern can be
+const validBars = (bars: number) => Number.isInteger(bars) && bars >= 1 && bars <= MAX_PATTERN_BARS
 
-  return (
-    <div className='flex flex-row gap-1'>
-      {BAR_CHOICES.map(n => (
-        <AnalogButton
-          key={n}
-          variant='text'
-          size='sm'
-          latched={bars === n}
-          title={`Make the pattern ${n} bar${n === 1 ? '' : 's'} long`}
-          onPress={() => dispatch(setPatternBars(pattern.id, n))}
-        >
-          {n}
-        </AnalogButton>
-      ))}
-    </div>
-  )
-}
-
-// whether a typed length is one a note pattern can be
-const validBars = (bars: number) => Number.isInteger(bars) && bars >= 1 && bars <= MAX_NOTE_BARS
-
-// a note pattern's length: any number of bars up to MAX_NOTE_BARS, typed.
+// a pattern's length: any number of bars up to MAX_PATTERN_BARS, typed.
 // taken up on Enter or when the field is left
 const BarsField = ({ pattern, bars }: { pattern: Pattern, bars: number | null }) => {
   const dispatch = useAppDispatch()
@@ -162,11 +140,11 @@ const BarsField = ({ pattern, bars }: { pattern: Pattern, bars: number | null })
     <input
       type='number'
       min={1}
-      max={MAX_NOTE_BARS}
+      max={MAX_PATTERN_BARS}
       step={1}
       className='ft-readout text-sm py-0.5 w-14 h-7'
       aria-label='Bars'
-      title={`How many bars long the pattern is, 1 to ${MAX_NOTE_BARS}. Notes past its end are kept, but don’t play`}
+      title={`How many bars long the pattern is, 1 to ${MAX_PATTERN_BARS}. Notes past its end are kept, but don’t play`}
       value={draft ?? (bars ?? '')}
       onChange={e => setDraft(e.currentTarget.value)}
       onBlur={e => takeUp(e.currentTarget.value)}
@@ -191,18 +169,16 @@ const useNarrow = (ref: React.RefObject<HTMLElement>, px: number): boolean => {
   return narrow
 }
 
-// the patterns of a kind along the top, in one line that scrolls, then the
-// selected one's length, Copy and Delete (under them, when the strip is
-// narrow). a sequencer's own: the Drum Sequencer's drum patterns, or the
-// Note Sequencer's note patterns. the top bar's Play loops the selected one
-const PatternStrip = ({ kind, beatsPerBar, playingId }: {
-  kind: PatternKind
+// the patterns along the top, in one line that scrolls, then the selected
+// one's length, Copy and Delete (under them, when the strip is narrow). the
+// top bar's Play loops the selected one
+const PatternStrip = ({ beatsPerBar, playingId }: {
   beatsPerBar: number
   playingId: number | null
 }) => {
   const dispatch = useAppDispatch()
-  const patterns = useAppSelector(selectPatternsOf(kind))
-  const selected = useAppSelector(selectSelectedPattern(kind))
+  const patterns = useAppSelector(selectPatterns)
+  const selected = useAppSelector(selectSelectedPattern)
   const bars = selected ? patternBars(selected, beatsPerBar) : null
   const ref = React.useRef<HTMLDivElement>(null)
   const narrow = useNarrow(ref, NARROW_PX)
@@ -211,9 +187,7 @@ const PatternStrip = ({ kind, beatsPerBar, playingId }: {
     <>
       <div className='shrink-0 flex flex-col gap-1'>
         <span className='ft-label'>Bars</span>
-        {kind === 'drum'
-          ? <BarChoices pattern={selected} bars={bars} />
-          : <BarsField key={selected.id} pattern={selected} bars={bars} />}
+        <BarsField key={selected.id} pattern={selected} bars={bars} />
       </div>
 
       <div className='shrink-0 flex flex-row gap-1 ml-auto'>
@@ -260,7 +234,7 @@ const PatternStrip = ({ kind, beatsPerBar, playingId }: {
                 variant='text'
                 title='A new, empty pattern'
                 aria-label='New pattern'
-                onPress={() => dispatch(addPattern(bars ?? 1, kind))}
+                onPress={() => dispatch(addPattern(bars ?? 1))}
               >
                 +
               </AnalogButton>

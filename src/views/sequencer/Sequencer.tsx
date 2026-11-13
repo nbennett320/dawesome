@@ -2,18 +2,19 @@ import React from 'react'
 import { useAppDispatch, useAppSelector } from '../../hooks/redux'
 import {
   PatternRun,
-  addSequencerRow,
-  moveSequencerRow,
-  replaceSequencerRowSample,
-  selectSequencerRows,
+  addSampleRow,
+  moveRow,
+  replaceRowSample,
+  selectRows,
+  selectSampleRows,
   setPatternStep,
 } from '../../state/slices/sequencerSlice'
 import { DragItem, onSampleDrag } from '../../state/sampleDrag'
-import { Pattern, stepAt } from '../../types/sequencer'
+import { Pattern, rowNotes, stepAt } from '../../types/sequencer'
 import { fileName } from '../../util/helpers'
 import SequencerFrame, { useDropOn, useSequencerTab } from './SequencerFrame'
 import SequencerRow, { Paint } from './SequencerRow'
-import { useRowDrag } from './useRowDrag'
+import { indexAmongAll, useRowDrag } from './useRowDrag'
 
 // the step of `pattern` playing now, or null when it isn't the pattern
 // playing. followed every frame, but only a new step re-renders: rows
@@ -70,20 +71,21 @@ const useReplacing = (tab: React.RefObject<HTMLElement>): Replacing | null => {
   return replacing
 }
 
-// the drum machine: drum patterns along the top, a row per sample, and a
-// key for each 16th note step. Play loops the selected pattern while this
+// the drum machine: the patterns along the top, a row per sample row, and
+// a key for each 16th note step. Play loops the selected pattern while this
 // tab is focused
 const Sequencer = () => {
   const dispatch = useAppDispatch()
-  const rows = useAppSelector(selectSequencerRows)
-  const { pattern, run, beatsPerBar } = useSequencerTab('drum')
+  const allRows = useAppSelector(selectRows)
+  const rows = useAppSelector(selectSampleRows)
+  const { pattern, run, beatsPerBar } = useSequencerTab()
   const tabRef = React.useRef<HTMLDivElement>(null)
   // samples dragged from the sidebar become rows, or dropped on a row,
   // replace its sample (its steps and settings stay)
   const dropping = useDropOn(tabRef, isSample, (item, { clientX, clientY }) => {
     const rowId = rowAt(tabRef.current, clientX, clientY)
-    if(rowId === null) dispatch(addSequencerRow(item.path))
-    else dispatch(replaceSequencerRowSample(rowId, item.path))
+    if(rowId === null) dispatch(addSampleRow(item.path))
+    else dispatch(replaceRowSample(rowId, item.path))
   })
   const replacing = useReplacing(tabRef)
 
@@ -103,11 +105,13 @@ const Sequencer = () => {
     if(pattern) dispatch(setPatternStep(pattern.id, rowId, step, on))
   }, [dispatch, pattern?.id])
 
-  // rows dragged by their grips to move them
+  // rows dragged by their grips to move them. the synth rows between them
+  // stay where they are
   const rowIds = React.useMemo(() => rows.map(r => r.id), [rows])
+  const allIds = React.useMemo(() => allRows.map(r => r.id), [allRows])
   const onMove = React.useCallback((rowId: number, index: number) => {
-    dispatch(moveSequencerRow(rowId, index)).catch(() => {})
-  }, [dispatch])
+    dispatch(moveRow(rowId, indexAmongAll(allIds, rowIds, rowId, index))).catch(() => {})
+  }, [dispatch, allIds, rowIds])
   const { draggingId, line, onGripDown } = useRowDrag(tabRef, rowIds, onMove)
 
   // the step highlight follows the shown pattern while it plays
@@ -118,12 +122,11 @@ const Sequencer = () => {
   if(dropping) hint = 'Let go to add the sample'
   const replaced = replacing && rows.find(r => r.id === replacing.rowId)
   if(dropping && replaced) {
-    hint = `Let go to replace ${replaced.label ?? fileName(replaced.path)}’s sample with ${replacing.sample}`
+    hint = `Let go to replace ${replaced.label ?? fileName(replaced.instrument.path)}’s sample with ${replacing.sample}`
   }
 
   return (
     <SequencerFrame
-      kind='drum'
       pattern={pattern}
       beatsPerBar={beatsPerBar}
       playingId={run?.patternId ?? null}
@@ -135,7 +138,8 @@ const Sequencer = () => {
         <SequencerRow
           key={row.id}
           row={row}
-          pattern={pattern}
+          notes={rowNotes(pattern, row.id)}
+          length={pattern.length}
           beatsPerBar={beatsPerBar}
           playingStep={playingStep}
           paint={paint}

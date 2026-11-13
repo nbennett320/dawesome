@@ -5,7 +5,7 @@ import { readDir } from '@tauri-apps/plugin-fs'
 import { dirname, documentDir, join } from '@tauri-apps/api/path'
 import type { RootState } from 'state/store'
 import { MissingEffect, MissingSample, PROJECT_EXTENSION } from '../../types/project'
-import { Synth } from '../../types/sequencer'
+import { SynthInstrument } from '../../types/sequencer'
 import { newProject, openProject, saveProject } from './playlistSlice'
 import { clearPendingMixerSends } from './mixerSlice'
 import { setSequencer } from './sequencerSlice'
@@ -19,7 +19,7 @@ export type ProjectCommand = 'new' | 'open' | 'save' | 'save-as'
 export type ProjectNotice =
   // what a project couldn't find, or left out. (older notices may not have
   // the synths and what was dropped)
-  | { kind: 'missing', samples: MissingSample[], effects: MissingEffect[], synths?: Synth[], dropped?: string[] }
+  | { kind: 'missing', samples: MissingSample[], effects: MissingEffect[], synths?: SynthInstrument[], dropped?: string[] }
   | { kind: 'error', message: string }
   // something worth knowing, like where a take was saved
   | { kind: 'info', message: string }

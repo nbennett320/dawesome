@@ -125,12 +125,12 @@ fn test_first_save_makes_a_folder_and_brings_in_takes() {
   assert_eq!(audiograph.get_node_by_id(sample).unwrap().sample_path(), daw::METRONOME_TICK_PATH);
   drop(audiograph);
   let rows = saved.sequencer.expect("the sequencer, with its row moved").rows;
-  assert_eq!(rows.iter().find(|r| r.id == row).unwrap().path, recorded.to_string_lossy());
+  assert_eq!(rows.iter().find(|r| r.id == row).unwrap().sample_path(), Some(&*recorded.to_string_lossy()));
 
   // saved relative to the project, so the folder can be moved
   let project = saved_json(&saved.path);
   assert_eq!(project.clips[0].path, "recordings/song_11092026_0.wav");
-  assert_eq!(project.sequencer.rows[0].path, "recordings/song_11092026_0.wav");
+  assert_eq!(project.sequencer.rows[0].instrument.sample_path(), Some("recordings/song_11092026_0.wav"));
 
   // and takes recorded from now on go in its recordings folder
   let mut location = state.project.lock().unwrap();
@@ -447,7 +447,7 @@ fn test_patterns_saved_and_loaded() {
     let (row, pattern) = {
       let mut seq = audiograph.sequencer.lock().unwrap();
       let row = seq.add_row(kick.to_str().unwrap()).unwrap();
-      let pattern = seq.add_pattern(2, 4, daw::PatternKind::Drum).unwrap();
+      let pattern = seq.add_pattern(2, 4).unwrap();
       seq.set_step(pattern, row, 0, true).unwrap();
       seq.set_step(pattern, row, 12, true).unwrap();
       seq.rename_pattern(pattern, "intro").unwrap();
@@ -463,11 +463,11 @@ fn test_patterns_saved_and_loaded() {
   save_to(&state, &project_path).unwrap();
 
   let saved = Project::from_json(&fs::read_to_string(&project_path).unwrap()).unwrap();
-  assert_eq!(saved.version, PROJECT_VERSION_WITHOUT_WINDOWS);
+  assert_eq!(saved.version, PROJECT_VERSION);
   // inside the project's folder, so saved relative to it
-  assert_eq!(saved.sequencer.rows[0].path, "drums/kick.wav");
-  // in the order they start
-  assert_eq!(saved.pattern_clips.iter().map(|c| c.start_beat).collect::<Vec<_>>(), vec![0., 4.]);
+  assert_eq!(saved.sequencer.rows[0].instrument.sample_path(), Some("drums/kick.wav"));
+  // in the order they start, each the whole of its pattern
+  assert_eq!(saved.pattern_clips.iter().map(|c| (c.start_beat, c.start, c.length)).collect::<Vec<_>>(), vec![(0., 0., 32.), (4., 0., 32.)]);
 
   let other = daw::InnerState::default();
   let loaded = load_from(&other, &project_path).unwrap();
@@ -475,8 +475,9 @@ fn test_patterns_saved_and_loaded() {
   assert_eq!(loaded.sequencer.rows.len(), 1);
   assert_eq!(loaded.sequencer.rows[0].volume, 0.5);
   assert_eq!(loaded.sequencer.patterns[0].name.as_deref(), Some("intro"));
-  assert_eq!(loaded.sequencer.patterns[0].length, 32);
+  assert_eq!((loaded.sequencer.patterns[0].length, loaded.sequencer.patterns[0].floor), (32, 32));
   assert_eq!(loaded.pattern_clips.len(), 2);
+  assert!(loaded.pattern_clips.iter().all(|c| c.window.is_none()));
   assert!(loaded.pattern_clips.iter().all(|c| c.pattern_id == pattern));
   assert_eq!(other.playlist.audiograph.lock().unwrap().pattern_nodes.len(), 2);
 
@@ -491,11 +492,11 @@ fn test_projects_without_patterns_stay_version_1() {
   let state = daw::InnerState::default();
   add_clip(&state, daw::METRONOME_TICK_PATH, 0, 0.);
   let project = capture(&state, None);
-  assert_eq!(project.version, PROJECT_VERSION_WITHOUT_PATTERNS);
+  assert_eq!(project.version, PROJECT_VERSION_WITHOUT_WINDOWS);
 
   // and leave the new fields out of the file
   let json = serde_json::to_value(&project).unwrap();
-  assert!(json.get("sequencer").is_none());
+  assert!(json.get("patternSequencer").is_none() && json.get("sequencer").is_none());
   assert!(json.get("patternClips").is_none());
 }
 
@@ -508,7 +509,7 @@ fn add_pattern_clip(state: &daw::InnerState, bars: u32, beat: f64) -> (u64, u64)
   let pattern = {
     let mut seq = state.playlist.sequencer.lock().unwrap();
     let row = seq.add_row("assets/assets_66-bd-01.wav").unwrap();
-    let pattern = seq.add_pattern(bars, 4, daw::PatternKind::Drum).unwrap();
+    let pattern = seq.add_pattern(bars, 4).unwrap();
     seq.set_step(pattern, row, 0, true).unwrap();
     pattern
   };
@@ -597,35 +598,68 @@ fn test_the_version_follows_what_a_project_uses() {
   assert_eq!(trimmed.version, 3);
   assert!(serde_json::to_string(&trimmed).unwrap().contains("\"window\""));
 
-  // patterns, not trimmed
+  // a sequencer, whatever its clips: version 4
   let state = daw::InnerState::default();
   let (_, clip) = add_pattern_clip(&state, 1, 0.);
-  assert_eq!(capture(&state, None).version, 2);
-
-  // a trimmed pattern clip
+  assert_eq!(capture(&state, None).version, 4);
   crate::commands::clip::set_windows(&state, &[edit(clip, 4., Some(12.))]).unwrap();
   let trimmed = capture(&state, None);
-  assert_eq!(trimmed.version, 3);
-  assert_eq!(trimmed.pattern_clips[0].window, Some(ClipWindow { start: 4., end: Some(12.) }));
+  assert_eq!(trimmed.version, 4);
+  // a pattern clip has a start and a length, never a window
+  assert_eq!((trimmed.pattern_clips[0].start, trimmed.pattern_clips[0].length), (4., 8.));
+  assert!(!serde_json::to_string(&trimmed).unwrap().contains("\"window\""));
+  let state = daw::InnerState::default();
+  state.playlist.sequencer.lock().unwrap().add_folder("Empty", None).unwrap();
+  assert_eq!(capture(&state, None).version, 4);
 }
 
 #[test]
-fn test_a_pattern_clips_window_is_kept_past_the_patterns_end() {
+fn test_a_pattern_clip_is_saved_as_the_part_it_plays() {
   let dir = test_dir("pattern-window");
   let file = dir.join("song.dawesome");
   let state = daw::InnerState::default();
   let (pattern, clip) = add_pattern_clip(&state, 2, 0.);
-  crate::commands::clip::set_windows(&state, &[edit(clip, 4., Some(24.))]).unwrap();
+  let (_, middle) = add_pattern_clip(&state, 2, 16.);
+  crate::commands::clip::set_windows(&state, &[edit(clip, 4., Some(24.)), edit(middle, 2., Some(10.))]).unwrap();
+  // the first now runs past its pattern's end: it plays from step 4 to 16
   state.playlist.sequencer.lock().unwrap().set_pattern_bars(pattern, 1, 4).unwrap();
   save_to(&state, &file).unwrap();
+  let saved = saved_json(file.to_str().unwrap());
+  let parts: Vec<(f64, f64)> = saved.pattern_clips.iter().map(|c| (c.start, c.length)).collect();
+  assert_eq!(parts, vec![(4., 12.), (2., 8.)]);
 
+  // loaded, the first follows its pattern's end, and the other keeps its own
   let other = daw::InnerState::default();
   let loaded = load_from(&other, &file).unwrap();
-  let window = Some(daw::PatternWindow { start: 4., end: Some(24.) });
-  assert_eq!(other.playlist.audiograph.lock().unwrap().pattern_nodes[0].window, window);
-  assert_eq!(loaded.pattern_clips[0].window, Some(ClipWindow { start: 4., end: Some(24.) }));
+  let windows: Vec<Option<daw::PatternWindow>> = other.playlist.audiograph.lock().unwrap().pattern_nodes.iter().map(|n| n.window).collect();
+  assert_eq!(windows, vec![
+    Some(daw::PatternWindow { start: 4., end: None }),
+    Some(daw::PatternWindow { start: 2., end: Some(10.) }),
+  ]);
+  assert_eq!(loaded.pattern_clips[1].window, Some(ClipWindow { start: 2., end: Some(10.) }));
 
   fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn test_a_saved_pattern_clips_start_and_length_are_made_sensible() {
+  let clip = |start: f64, length: f64| ProjectPatternClip { pattern_id: 0, track_number: 0, start_beat: 0., start, length };
+  let window = |start: f64, end: Option<f64>| Some(daw::PatternWindow { start, end });
+  // the whole pattern, or past its end: none
+  assert_eq!(clip_window(&clip(0., 16.), 16), None);
+  assert_eq!(clip_window(&clip(0., 40.), 16), None);
+  assert_eq!(clip_window(&clip(4., 8.), 16), window(4., Some(12.)));
+  assert_eq!(clip_window(&clip(4., 12.), 16), window(4., None));
+  // a length left out (0), or that makes no sense: to the pattern's end
+  assert_eq!(clip_window(&clip(4., 0.), 16), window(4., None));
+  assert_eq!(clip_window(&clip(4., f64::NAN), 16), window(4., None));
+  assert_eq!(clip_window(&clip(4., 0.5), 16), window(4., None));
+  assert_eq!(clip_window(&clip(0., -3.), 16), None);
+  // a start that makes no sense: the pattern's start
+  assert_eq!(clip_window(&clip(-2., 8.), 16), window(0., Some(8.)));
+  assert_eq!(clip_window(&clip(f64::NAN, 8.), 16), window(0., Some(8.)));
+  // past the pattern's end: kept, a step long (it plays nothing)
+  assert_eq!(clip_window(&clip(20., 0.), 16), window(20., None));
 }
 
 #[test]
@@ -668,19 +702,20 @@ fn test_an_older_file_loads_whole_and_is_left_alone() {
 
 #[test]
 fn test_a_newer_file_is_refused() {
-  let error = Project::from_json(r#"{"version": 4}"#).unwrap_err();
+  let error = Project::from_json(r#"{"version": 5}"#).unwrap_err();
   assert!(error.contains("saved by a newer version"), "{}", error);
-  assert!(Project::from_json(r#"{"version": 3}"#).is_ok());
+  assert!(Project::from_json(r#"{"version": 4}"#).is_ok());
 }
 
 #[test]
 fn test_missing_row_samples_and_unknown_patterns() {
   let state = daw::InnerState::default();
   let project = Project::from_json(r#"{
-      "version": 2,
-      "sequencer": {
-        "rows": [{ "id": 0, "path": "/nowhere/kick.wav" }],
-        "patterns": [{ "id": 3, "name": null, "length": 16, "steps": { "0": [0, 4] } }]
+      "version": 4,
+      "patternSequencer": {
+        "rows": [{ "id": 0, "instrument": { "kind": "sample", "path": "/nowhere/kick.wav" } }],
+        "patterns": [{ "id": 3, "name": null, "length": 16,
+          "notes": { "0": [{ "pitch": 60, "start": 0, "length": 1, "velocity": 1 }] } }]
       },
       "patternClips": [
         { "patternId": 3, "trackNumber": 0, "startBeat": 2 },
@@ -691,9 +726,11 @@ fn test_missing_row_samples_and_unknown_patterns() {
   let loaded = apply(&state, &project, None);
   assert_eq!(loaded.missing.len(), 1);
   assert_eq!(loaded.missing[0].path, "/nowhere/kick.wav");
-  // the pattern is kept, without the missing row's steps
+  // the pattern is kept, without the missing row's notes
   assert_eq!(loaded.sequencer.patterns.len(), 1);
-  assert!(loaded.sequencer.patterns[0].steps.is_empty());
+  assert!(loaded.sequencer.patterns[0].notes.is_empty());
+  // (a floor left out is its length)
+  assert_eq!(loaded.sequencer.patterns[0].floor, 16);
   // only the clip of a pattern that exists
   assert_eq!(loaded.pattern_clips.len(), 1);
   assert_eq!(loaded.pattern_clips[0].start_beat, 2.);
@@ -841,53 +878,60 @@ fn test_new_project_clears_the_effects() {
 }
 
 #[test]
-fn test_synths_and_note_patterns_saved_and_loaded() {
+fn test_synth_rows_saved_and_loaded() {
   use crate::effects::testing::*;
+  use crate::commands::sequencer::edit;
   use std::sync::atomic::Ordering::SeqCst;
   let dir = test_dir("synths");
   let file = dir.join("keys.dawesome");
 
   let rig = rig();
   let state = rig.state.clone();
-  let synth = crate::commands::synth::add(&state, &synth().id).unwrap().synth_id;
-  let quiet = crate::commands::synth::add(&state, &crate::effects::testing::synth().id).unwrap().synth_id;
-  rig.turn(synth, 0.3);
-  crate::commands::synth::set_volume(&state, synth, 0.5, None).unwrap();
-  crate::commands::synth::set_muted(&state, quiet, true).unwrap();
-  state.playlist.effects.keep_window_position(synth, crate::effects::WindowPosition { x: 5., y: 6. });
-  let pattern = state.playlist.sequencer.lock().unwrap().add_pattern(8, 4, daw::PatternKind::Note).unwrap();
+  let synth = crate::commands::synth::add(&state, &synth().id).unwrap().row_id;
+  let quiet = crate::commands::synth::add(&state, &crate::effects::testing::synth().id).unwrap().row_id;
+  let slot = rig.slot_of(synth);
+  rig.turn(slot, 0.3);
+  edit(&state, None, |seq| seq.set_row_volume(synth, 0.5)).unwrap();
+  edit(&state, None, |seq| seq.set_row_muted(quiet, true)).unwrap();
+  state.playlist.effects.keep_window_position(slot, crate::effects::WindowPosition { x: 5., y: 6. });
+  let pattern = state.playlist.sequencer.lock().unwrap().add_pattern(8, 4).unwrap();
   let note = daw::PatternNote { pitch: 64, start: 2., length: 3., velocity: 0.5 };
   crate::commands::sequencer::set_notes(&state, pattern, synth, vec![note], None).unwrap();
-  let folder = state.playlist.sequencer.lock().unwrap().add_folder("Keys", None, daw::PatternKind::Note).unwrap();
+  let folder = state.playlist.sequencer.lock().unwrap().add_folder("Keys", None).unwrap();
   state.playlist.sequencer.lock().unwrap().move_pattern(pattern, Some(folder)).unwrap();
   crate::commands::sequencer::add_pattern_clip_for_tests(&state, pattern, 3, Some(0.));
   save_to(&state, &file).unwrap();
 
   let json: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
-  let saved = &json["sequencer"]["synths"][0];
-  assert_eq!((saved["name"].as_str(), saved["volume"].as_f64(), saved["muted"].as_bool()), (Some("Synth"), Some(0.5), Some(false)));
-  assert_eq!(base64::decode(saved["state"].as_str().unwrap()).unwrap(), 0.3f32.to_le_bytes());
-  assert_eq!(saved["window"], serde_json::json!({ "x": 5., "y": 6. }));
-  assert_eq!(json["sequencer"]["synths"][1]["name"], "Synth 2");
-  assert_eq!(json["sequencer"]["patterns"][0]["kind"], "note");
-  assert_eq!(json["sequencer"]["folders"][0]["kind"], "note");
+  assert!(json.get("sequencer").is_none());
+  let saved = &json["patternSequencer"]["rows"][0];
+  assert_eq!((saved["id"].as_u64(), saved["volume"].as_f64(), saved["muted"].as_bool()), (Some(synth), Some(0.5), Some(false)));
+  let plugin = &saved["instrument"];
+  assert_eq!((plugin["kind"].as_str(), plugin["name"].as_str(), plugin["slot"].as_u64()), (Some("synth"), Some("Synth"), Some(slot)));
+  assert_eq!(base64::decode(plugin["state"].as_str().unwrap()).unwrap(), 0.3f32.to_le_bytes());
+  assert_eq!(plugin["window"], serde_json::json!({ "x": 5., "y": 6. }));
+  assert_eq!(json["patternSequencer"]["rows"][1]["instrument"]["name"], "Synth 2");
+  assert_eq!(json["patternSequencer"]["patterns"][0]["notes"][synth.to_string()][0]["pitch"], 64);
 
   let mut other = rig_with_an_effect();
   let loaded = load_from(&other.state, &file).unwrap();
   assert!(loaded.missing_effects.is_empty() && loaded.dropped.is_empty());
-  let synths = &loaded.sequencer.synths;
-  assert_eq!(synths.iter().map(|s| (s.name.as_str(), s.volume, s.muted, s.missing)).collect::<Vec<_>>(),
-    vec![("Synth", 0.5, false, false), ("Synth 2", 1., true, false)]);
-  // with their notes (under the ids they have now)
-  let id = synths[0].id;
+  let rows = &loaded.sequencer.rows;
+  let shown: Vec<(u64, &str, f32, bool, bool)> = rows.iter()
+    .map(|row| { let s = row.synth().unwrap(); (row.id, s.name.as_str(), row.volume, row.muted, s.missing) })
+    .collect();
+  assert_eq!(shown, vec![(synth, "Synth", 0.5, false, false), (quiet, "Synth 2", 1., true, false)]);
+  // in new slots, its notes still its row's
+  let slot = rows[0].synth().unwrap().slot;
+  assert_ne!(slot, rig.slot_of(synth));
   let made = loaded.sequencer.pattern(pattern).unwrap();
-  assert_eq!((made.kind, made.length, made.folder), (daw::PatternKind::Note, 128, Some(folder)));
-  assert_eq!(made.notes[&id], vec![note]);
-  assert!((other.gain_of(id) - 0.3).abs() < 1e-6);
-  assert_eq!(other.effects().window_position(id), Some(crate::effects::WindowPosition { x: 5., y: 6. }));
+  assert_eq!((made.length, made.floor, made.folder), (128, 128, Some(folder)));
+  assert_eq!(*made.notes[&synth], vec![note]);
+  assert!((other.gain_of(slot) - 0.3).abs() < 1e-6);
+  assert_eq!(other.effects().window_position(slot), Some(crate::effects::WindowPosition { x: 5., y: 6. }));
   // the track's copy is there, playing the master copy's settings
-  assert_eq!(other.copy_gain(id, Some(3)), Some(0.3));
-  assert!((other.hear_notes(id, Some(3), &[(60, 0, 300)], 400)[100] - 0.3 * 0.5).abs() < 1e-6);
+  assert_eq!(other.copy_gain(slot, Some(3)), Some(0.3));
+  assert!((other.hear_notes(slot, Some(3), &[(60, 0, 300)], 400)[100] - 0.3 * 0.5).abs() < 1e-6);
   // (the old project's effect went: two masters and a copy)
   assert_eq!(other.loader.alive.load(SeqCst), 3);
 
@@ -896,8 +940,8 @@ fn test_synths_and_note_patterns_saved_and_loaded() {
   save_to(&other.state, &again).unwrap();
   let mut first = saved_json(file.to_str().unwrap()).sequencer;
   let mut second = saved_json(again.to_str().unwrap()).sequencer;
-  first.renumber_synths({ let mut n = 0; move || { n += 1; n } });
-  second.renumber_synths({ let mut n = 0; move || { n += 1; n } });
+  first.renumber_slots({ let mut n = 0; move || { n += 1; n } });
+  second.renumber_slots({ let mut n = 0; move || { n += 1; n } });
   assert_eq!(first, second);
 
   fs::remove_dir_all(dir).unwrap();
@@ -908,13 +952,13 @@ fn test_a_missing_synth_keeps_its_notes_and_settings() {
   use crate::effects::testing::*;
   let gone = gone_synth();
   let json = serde_json::json!({
-    "version": 2,
-    "sequencer": {
-      "rows": [],
-      "synths": [{ "id": 4, "pluginId": gone.id, "name": "Gone Synth", "vendor": "Fake Audio",
-        "path": "/gone/Synth.vst3", "volume": 0.75, "state": base64::encode([7u8, 8]) }],
-      "patterns": [{ "id": 0, "name": null, "kind": "note", "length": 16, "steps": {},
-        "notes": { "4": [{ "pitch": 60, "start": 0, "length": 1, "velocity": 1 }] } }],
+    "version": 4,
+    "patternSequencer": {
+      "rows": [{ "id": 2, "volume": 0.75, "instrument": {
+        "kind": "synth", "slot": 4, "pluginId": gone.id, "name": "Gone Synth", "vendor": "Fake Audio",
+        "path": "/gone/Synth.vst3", "state": base64::encode([7u8, 8]) } }],
+      "patterns": [{ "id": 0, "name": null, "length": 16,
+        "notes": { "2": [{ "pitch": 60, "start": 0, "length": 1, "velocity": 1 }] } }],
     },
     "patternClips": [{ "patternId": 0, "trackNumber": 1, "startBeat": 0 }],
   });
@@ -922,16 +966,18 @@ fn test_a_missing_synth_keeps_its_notes_and_settings() {
   let loaded = apply(&rig.state, &Project::from_json(&json.to_string()).unwrap(), None);
   assert_eq!(loaded.missing_effects.len(), 1);
   assert_eq!((loaded.missing_effects[0].track, loaded.missing_effects[0].name.as_str()), (None, "Gone Synth"));
-  let synth = &loaded.sequencer.synths[0];
+  let row = &loaded.sequencer.rows[0];
+  let synth = row.synth().unwrap();
   assert!(synth.missing && !synth.has_editor);
-  assert_eq!(loaded.sequencer.patterns[0].notes[&synth.id].len(), 1);
+  assert_eq!(loaded.sequencer.patterns[0].notes[&row.id].len(), 1);
   // silent: no copies
   assert!(rig.effects().copy_ids().is_empty());
 
   let saved = capture(&rig.state, None).sequencer;
-  assert_eq!(base64::decode(&saved.synths[0].state).unwrap(), vec![7u8, 8]);
-  assert_eq!((saved.synths[0].path.as_str(), saved.synths[0].volume), ("/gone/Synth.vst3", 0.75));
-  assert_eq!(saved.patterns[0].notes[&saved.synths[0].id].len(), 1);
+  let kept = saved.rows[0].instrument.synth().unwrap();
+  assert_eq!(base64::decode(&kept.state).unwrap(), vec![7u8, 8]);
+  assert_eq!((kept.path.as_str(), saved.rows[0].volume), ("/gone/Synth.vst3", 0.75));
+  assert_eq!(saved.patterns[0].notes[&saved.rows[0].id].len(), 1);
 }
 
 #[test]
@@ -965,8 +1011,8 @@ fn test_a_stage_one_project_loads_without_its_instruments_and_notes() {
   assert_eq!(serde_json::to_value(&loaded).unwrap()["dropped"].as_array().unwrap().len(), 2);
   assert_eq!(rack_shape(&loaded.effects), vec![(Some(0), vec![("Gain".into(), false, false)])]);
   assert_eq!(loaded.sequencer.patterns.len(), 3);
-  assert!(loaded.sequencer.patterns.iter().all(|p| p.kind == daw::PatternKind::Drum && p.notes.is_empty()));
-  assert!(loaded.sequencer.synths.is_empty());
+  assert!(loaded.sequencer.patterns.iter().all(|p| p.notes.is_empty()));
+  assert!(loaded.sequencer.rows.is_empty());
   // nothing dropped: nothing said
   assert!(Project::from_json(r#"{"tempo": 100}"#).unwrap().dropped.is_empty());
 }

@@ -422,13 +422,13 @@ export class Renderer extends RendererBase {
   #cutHover: { ids: number[], beat: number } | null = null
   // clips being painted with the Draw tool, while the mouse is held
   #paint: Paint | null = null
-  // the pattern the Draw tool paints: the one last selected in either
-  // sequencer. null paints a new empty note pattern
+  // the pattern the Draw tool paints: the one last selected in a
+  // sequencer. null paints a new empty pattern
   paintPatternId: number | null = null
 
-  // the sequencers' rows and patterns, which pattern clips draw. read every
+  // the sequencer's rows and patterns, which pattern clips draw. read every
   // frame, so editing a pattern shows straight away without rebuilding
-  sequencer: SequencerState = { rows: [], synths: [], patterns: [], folders: [] }
+  sequencer: SequencerState = { rows: [], patterns: [], folders: [] }
 
   // the clips picked with shift+click or a shift+drag box, by id
   selectedIds: Set<number> = new Set()
@@ -471,7 +471,7 @@ export class Renderer extends RendererBase {
   // in two at `beat`
   onClipsCut!: (ids: number[], beat: number) => Promise<unknown>
   // clips were painted with the Draw tool: clips of `patternId` (null for a
-  // new note pattern) on trackNumber from startBeat to endBeat, snapped
+  // new pattern) on trackNumber from startBeat to endBeat, snapped
   onPaint!: (patternId: number | null, trackNumber: number, startBeat: number, endBeat: number) => Promise<unknown>
   // the plus below the last track was clicked: an empty track goes under it
   onAddTrack!: () => Promise<unknown>
@@ -773,7 +773,7 @@ export class Renderer extends RendererBase {
   }
 
   // the clips the paint would lay down if let go now (see paintedSpans):
-  // the pattern's, or one of the note pattern it would make
+  // the pattern's, or one of the pattern it would make
   #paintSpans = (painting: Paint): Span[] => {
     const pattern = this.paintPatternId === null ? undefined : this.patternOf(this.paintPatternId)
     const beatsPerBar = this.transport?.beatsPerBar || theme.beatsPerBar

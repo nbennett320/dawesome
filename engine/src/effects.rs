@@ -2,8 +2,8 @@
 // its effects in the order the sound goes through them. racks hold effects
 // only
 //
-// and the synths' plugins (see synths.rs): instruments the note patterns
-// play, kept here as the copies of each that the channels' chains start with
+// and the synth rows' plugins (see synths.rs): instruments patterns play,
+// kept here as the copies of each that the channels' chains start with
 //
 // an effect is a loaded plugin (its main-thread half lives here, its audio
 // half in a Slot in the engine's chain for that channel) or, if its plugin
@@ -217,7 +217,7 @@ pub struct SavedRack {
 }
 
 // an effect a project has whose plugin couldn't be loaded. it's in its rack,
-// marked missing (or a synth, in the synth list)
+// marked missing (or a synth row's, in its row)
 #[derive(Serialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct MissingEffect {
@@ -394,7 +394,8 @@ struct Inner {
   // the synths, by id (see synths.rs), and their order in the list
   synths: BTreeMap<u64, synths::LiveSynth>,
   synth_order: Vec<u64>,
-  // the synth list and the copies wanted when they were last followed
+  // the synth rows' plugins and the copies wanted when they were last
+  // followed
   followed: Option<synths::Followed>,
 }
 
@@ -524,7 +525,7 @@ impl Effects {
   }
 
   // an effect's plugin (or a synth's master copy's), while it's in a rack
-  // or the synth list, or being unloaded
+  // or a synth row, or being unloaded
   fn hosted(&self, slot_id: u64) -> Option<Arc<Mutex<Box<dyn Hosted>>>> {
     {
       let inner = self.inner.lock().unwrap();
@@ -1481,6 +1482,12 @@ pub mod testing {
     pub fn gain_of(&self, slot_id: u64) -> f32 {
       let state = self.effects().state_of(slot_id).unwrap();
       f32::from_le_bytes(state.try_into().unwrap())
+    }
+
+    // a synth row's plugin's slot
+    pub fn slot_of(&self, row: u64) -> u64 {
+      let sequencer = self.state.playlist.sequencer.lock().unwrap();
+      sequencer.row(row).and_then(|row| row.synth()).expect("a synth row").slot
     }
 
     // turn a fake plugin's knob (not undoable)

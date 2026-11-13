@@ -140,7 +140,7 @@ test('a project brings its armed tracks', () => {
     clips: [],
     missing: [],
     mixer: { tracks: [], master: { volumeDb: 0, pan: 0, mute: false, solo: false } },
-    sequencer: { rows: [], synths: [], patterns: [], folders: [] },
+    sequencer: { rows: [], patterns: [], folders: [] },
     patternClips: [],
     armed: [{ trackNumber: 0, input: { first: 0, stereo: false } }],
     countIn: true,
