@@ -1,9 +1,14 @@
-import { BEATS_IN_VIEW, gridSteps, openingScale, panForWidth, visibleBeats } from './grid'
+import {
+  BEATS_IN_VIEW, MIN_LABEL_GAP, gridSteps, maxScale, openingScale, panForWidth, rulerLabel, visibleBeats,
+} from './grid'
+import { MAX_PIXELS_PER_BEAT, MIN_LINE_GAP } from '../../../editing/beatGrid'
 
 describe('gridSteps', () => {
-  it('draws every beat when there is room', () => {
-    // a 960px playlist showing 16 beats: 60px a beat
-    expect(gridSteps(60, 4)).toEqual({ lineEvery: 1, labelEvery: 1 })
+  it('splits beats into finer lines when there is room', () => {
+    // a 960px playlist showing 16 beats: 60px a beat, a line every 1/16 note
+    expect(gridSteps(60, 4)).toEqual({ lineEvery: 1 / 4, labelEvery: 1 })
+    // zoomed in further: still 1/16 notes, the finest there is
+    expect(gridSteps(160, 4).lineEvery).toBe(1 / 4)
   })
 
   it('thins the numbers before the lines', () => {
@@ -21,18 +26,30 @@ describe('gridSteps', () => {
     const steps = gridSteps(960 / 256, 4)
     expect(steps.lineEvery).toBe(4)
     expect(steps.labelEvery).toBe(8)
-    // and on a narrow canvas: every bar line stays, the numbers thin out
-    expect(gridSteps(300 / 256, 4)).toEqual({ lineEvery: 4, labelEvery: 32 })
+    // and on a narrow canvas: bar lines thin out too, to every 4 bars
+    expect(gridSteps(300 / 256, 4)).toEqual({ lineEvery: 16, labelEvery: 32 })
   })
 
   it('always numbers a beat that has a line', () => {
-    [0.5, 1, 3, 7, 9, 20, 27, 29, 60].forEach(pixelsPerBeat => {
+    [0.5, 1, 3, 7, 9, 20, 27, 29, 60, 200].forEach(pixelsPerBeat => {
       [3, 4].forEach(beatsPerBar => {
         const { lineEvery, labelEvery } = gridSteps(pixelsPerBeat, beatsPerBar)
         expect(labelEvery % lineEvery).toBe(0)
-        expect(lineEvery).toBeLessThanOrEqual(beatsPerBar)
+        // every beat, or whole bars
+        expect(labelEvery === 1 || labelEvery % beatsPerBar === 0).toBe(true)
+        expect(lineEvery * pixelsPerBeat).toBeGreaterThanOrEqual(MIN_LINE_GAP)
+        // and the numbers have room
+        expect(labelEvery * pixelsPerBeat).toBeGreaterThanOrEqual(MIN_LABEL_GAP)
       })
     })
+  })
+
+  it('numbers beats once the grid is down to 1/8 notes', () => {
+    // 30px a beat: 1/8 note lines
+    expect(gridSteps(30, 4)).toEqual({ lineEvery: 1 / 2, labelEvery: 1 })
+    expect(gridSteps(30, 3).labelEvery).toBe(1)
+    // 25px a beat: lines on beats, numbers on bars only
+    expect(gridSteps(25, 4)).toEqual({ lineEvery: 1, labelEvery: 4 })
   })
 
   it('follows the bar length', () => {
@@ -43,6 +60,21 @@ describe('gridSteps', () => {
   it('never returns a step of zero', () => {
     expect(gridSteps(0, 4).lineEvery).toBeGreaterThan(0)
     expect(gridSteps(NaN, 4).labelEvery).toBeGreaterThan(0)
+  })
+})
+
+describe('rulerLabel', () => {
+  it('names bars by number and beats as bar.beat, from 1', () => {
+    expect(rulerLabel(0, 4)).toBe('1')
+    expect(rulerLabel(1, 4)).toBe('1.2')
+    expect(rulerLabel(3, 4)).toBe('1.4')
+    expect(rulerLabel(4, 4)).toBe('2')
+    expect(rulerLabel(9, 4)).toBe('3.2')
+  })
+
+  it('follows the bar length', () => {
+    expect(rulerLabel(2, 3)).toBe('1.3')
+    expect(rulerLabel(3, 3)).toBe('2')
   })
 })
 
@@ -65,6 +97,27 @@ describe('visibleBeats', () => {
   it('stays within the playlist', () => {
     expect(visibleBeats(60, -250 * 60, 960, 256)).toEqual([249, 256])
     expect(visibleBeats(0, 0, 960, 256)).toEqual([0, 0])
+  })
+})
+
+describe('maxScale', () => {
+  it('stops where a beat is MAX_PIXELS_PER_BEAT wide', () => {
+    const scale = maxScale(960, 256)
+    expect(960 * scale / 256).toBeCloseTo(MAX_PIXELS_PER_BEAT)
+    expect(gridSteps(960 * scale / 256, 4).lineEvery).toBe(1 / 4)
+  })
+
+  it('lets the playlist open where it does', () => {
+    expect(maxScale(960, 256)).toBeGreaterThan(openingScale(256))
+  })
+
+  it('never stops short of the whole playlist', () => {
+    // 4 beats on a 2000px canvas: past the limit even zoomed all the way out
+    expect(maxScale(2000, 4)).toBe(1)
+  })
+
+  it('has no limit without a width to work from', () => {
+    expect(maxScale(0, 256)).toBe(Infinity)
   })
 })
 

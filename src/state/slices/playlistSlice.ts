@@ -50,6 +50,9 @@ export interface PlaylistState {
   snapNote: SnapNote,
   // the playlist's mouse tool. not saved with the project
   tool: Tool
+  // the playlist grid's step at its zoom, in beats (see adaptiveStep). not
+  // saved with the project
+  gridStep: number
   playlistItems: Array<PlaylistItem>
   // counts projects opened (or started), so the playlist goes back to how
   // it opens: its first bars
@@ -90,6 +93,7 @@ const initialState = {
   snapNote: 'QuarterNote',
   // not saved with the project
   tool: 'select',
+  gridStep: 1,
   playlistItems: [],
   viewRevision: 0,
   travelled: { count: 0, ids: [] },
@@ -365,6 +369,9 @@ export const playlistSlice = createSlice({
     },
     setTool: (state, action: PayloadAction<Tool>) => {
       state.tool = action.payload
+    },
+    setGridStep: (state, action: PayloadAction<number>) => {
+      state.gridStep = action.payload
     },
     // replace the playlist with a project the engine just loaded (or a new,
     // empty one). the engine has already stopped playback
@@ -1192,6 +1199,10 @@ export const selectSnapNote = (state: RootState) =>
 export const { setTool } = playlistSlice.actions
 
 export const selectTool = (state: RootState) => state.playlist.tool
+
+export const { setGridStep } = playlistSlice.actions
+
+export const selectGridStep = (state: RootState) => state.playlist.gridStep
 
 export const { reduceLoadedProject, reduceProjectView } = playlistSlice.actions
 

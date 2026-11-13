@@ -2,7 +2,8 @@ import PlaylistComponent from './PlaylistComponent'
 import { Renderer } from './index'
 import { P5BoundingBox } from '../../../render/P5Component'
 import { paint, theme } from './theme'
-import { MIN_LABEL_GAP, gridSteps, visibleBeats } from './grid'
+import { MIN_LABEL_GAP, gridSteps, rulerLabel, visibleBeats } from './grid'
+import { lineLevel } from '../../../editing/beatGrid'
 
 class Timeline extends PlaylistComponent {
   boundingBox = (): P5BoundingBox => {
@@ -27,8 +28,9 @@ class Timeline extends PlaylistComponent {
     const renderer = this.renderer as Renderer
     const limit = renderer.beatsDisplayed
     const beatWidth = this.timelineWidth * this.currentScale / limit
-    // zoomed out, ticks and then numbers thin out so they never overlap,
-    // and only the beats on screen are drawn
+    // a tick on each grid line (see adaptiveStep), and bar numbers that thin
+    // out so they never overlap, with bar.beat on each beat when zoomed in
+    // (see rulerLabel). only the beats on screen are drawn
     const { lineEvery, labelEvery } = gridSteps(beatWidth, theme.beatsPerBar)
     // (a number is drawn to the right of its beat, so one just off the left
     // edge may still show)
@@ -37,20 +39,24 @@ class Timeline extends PlaylistComponent {
     // unscaled, so the numbers and ticks don't stretch when zoomed
     p.push()
     p.scale(1 / this.currentScale, 1)
-    for(let i = Math.ceil(first / lineEvery) * lineEvery; i < last; i += lineEvery) {
+    // (counted in steps, so a fine step doesn't drift)
+    for(let n = Math.ceil(first / lineEvery); n * lineEvery < last; n++) {
+      const i = n * lineEvery
       const x = i * beatWidth
-      const bar = i % theme.beatsPerBar === 0
+      const level = lineLevel(i, theme.beatsPerBar)
 
-      // a tick up from the bottom, taller on each bar
-      paint.stroke(p, 'rulerLine')
+      // a tick up from the bottom: tallest on each bar, short between beats
+      paint.stroke(p, 'rulerLine', level === 0 ? 0.6 : 1)
       p.strokeWeight(1)
-      p.line(x, this.timelineHeight - (bar ? 10 : 5), x, this.timelineHeight)
+      p.line(x, this.timelineHeight - [3, 5, 10][level], x, this.timelineHeight)
 
+      // (labelEvery is whole beats, so a number is always on a beat or bar)
       if(i % labelEvery === 0) {
+        const bar = level === 2
         p.noStroke()
         paint.fill(p, bar ? 'rulerBarText' : 'rulerText')
         p.textStyle(bar ? p.BOLD : p.NORMAL)
-        p.text(i + 1, x + 3, this.timelineHeight - 8)
+        p.text(rulerLabel(i, theme.beatsPerBar), x + 3, this.timelineHeight - 8)
       }
     }
     p.textStyle(p.NORMAL)

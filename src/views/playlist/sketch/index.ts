@@ -38,7 +38,8 @@ import type { MovedNode as Landed } from '../../../state/slices/playlistSlice'
 import { PlaceableItem as DragItem, dragItemKey } from '../../../state/sampleDrag'
 import { Pattern, SequencerState, patternSeconds } from '../../../types/sequencer'
 import { decodeLevels } from '../../../util/waveform'
-import { gridSteps, openingScale, panForWidth, visibleBeats } from './grid'
+import { gridSteps, maxScale, openingScale, panForWidth, visibleBeats } from './grid'
+import { lineLevel, tileStep } from '../../../editing/beatGrid'
 import {
   Edge, MAX_PITCH, Snapping, Span, StretchClip, TrimClip, edgeAt, patternTrimClip, pitchOf, sampleTrimClip,
   snapPoint, stretchAll, stretchSet, trimAll, trimmedWindow,
@@ -92,6 +93,8 @@ export interface CanvasProps extends SketchProps {
   onClipsCut: (ids: number[], beat: number) => Promise<unknown>
   // clips were painted with the Draw tool (see Renderer.onPaint)
   onPaint: (patternId: number | null, trackNumber: number, startBeat: number, endBeat: number) => Promise<unknown>
+  // the grid's step changed, in beats
+  onGridStep?: (beats: number) => void
 }
 
 // how the Cut tool's cursor is drawn: a razor blade, its middle on the
@@ -468,6 +471,15 @@ export class Renderer extends RendererBase {
   // clips were painted with the Draw tool: clips of `patternId` (null for a
   // new note pattern) on trackNumber from startBeat to endBeat, snapped
   onPaint!: (patternId: number | null, trackNumber: number, startBeat: number, endBeat: number) => Promise<unknown>
+  // the grid's step changed, in beats (see adaptiveStep): for the readout
+  // by the snap control
+  onGridStep?: (beats: number) => void
+  #gridStep = 0
+  #reportGridStep = (beats: number) => {
+    if(beats === this.#gridStep) return
+    this.#gridStep = beats
+    this.onGridStep?.(beats)
+  }
 
   // return the current zoom/scale
   getCurrentScale = (): number => this.currentScale
@@ -1668,12 +1680,13 @@ export class Renderer extends RendererBase {
       mute: fourtrackPaint.rgba('ledAmberOn'),
       solo: fourtrackPaint.rgba('ledLimeOn'),
     }
-    // every other lane is shaded (see draw)
-    const lanes = [paint.rgba('background'), paint.rgba('laneAlt')]
+    // (lanes aren't shaded: the lines between them set them apart, so a
+    // lip sits on the plain background)
+    const lane = paint.rgba('background')
 
     this.#lipBoxes().forEach(({ track, box, text }) => {
       const led = this.trackRgba(track)
-      drawLip(ctx, box, text, { ...base, lane: lanes[track % 2], led }, { lit: sounding.has(track), ring: this.#ring(track) })
+      drawLip(ctx, box, text, { ...base, lane, led }, { lit: sounding.has(track), ring: this.#ring(track) })
     })
   }
 
@@ -1692,12 +1705,27 @@ export class Renderer extends RendererBase {
   }
 
   // zoom the timeline by `factor`, keeping the point at canvas x `aroundX`
-  // in place. never zooms out past the whole playlist
+  // in place. never zooms out past the whole playlist, or in past a 1/16
+  // note grid (see maxScale)
   #zoomBy = (factor: number, aroundX: number) => {
-    const zoom = zoomAround({ scale: this.currentScale, pan: this.transformX }, factor, aroundX, 1)
+    const most = maxScale(this.width, this.beatsDisplayed)
+    const zoom = zoomAround({ scale: this.currentScale, pan: this.transformX }, factor, aroundX, 1, most)
     this.currentScale = zoom.scale
     this.transformX = zoom.pan
 
+    this.playlistObjects.forEach(obj => {
+      obj.currentScale = this.currentScale
+    })
+  }
+
+  // pull the zoom back within maxScale, keeping the beat at the left edge.
+  // the limit depends on the canvas width and the playlist's length, so a
+  // resize or a new project can leave the zoom past it without any zooming
+  #clampZoom = () => {
+    const most = maxScale(this.width, this.beatsDisplayed)
+    if(!(this.currentScale > most)) return
+    this.transformX *= most / this.currentScale
+    this.currentScale = most
     this.playlistObjects.forEach(obj => {
       obj.currentScale = this.currentScale
     })
@@ -2124,6 +2152,11 @@ export class Renderer extends RendererBase {
       this.onClipsStretch = props.onClipsStretch
       this.onClipsCut = props.onClipsCut
       this.onPaint = props.onPaint
+      if(props.onGridStep !== this.onGridStep) {
+        this.onGridStep = props.onGridStep
+        // (so a new listener hears the step there is now)
+        this.#gridStep = 0
+      }
 
       // ask the engine where the playhead is when playback starts or stops,
       // or after any other transport command. other prop updates (drops,
@@ -2250,6 +2283,7 @@ export class Renderer extends RendererBase {
       // something does (see wake)
       if(!this.#animating() && performance.now() - this.#lastWake > IDLE_MS) p.noLoop()
 
+      this.#clampZoom()
       const { width, trackCount, currentScale, beatsDisplayed } = this
 
       const timeline = new Timeline(
@@ -2307,24 +2341,35 @@ export class Renderer extends RendererBase {
       p.translate(this.transformX, 1 - this.scrollY)
       p.scale(currentScale, 1)
 
-      // every other track lane is shaded a little
-      p.noStroke()
-      paint.fill(p, 'laneAlt')
-      for(let n = 1; n < trackCount; n += 2) {
-        p.rect(0, trackTop(n), width, staticDefaults.trackHeight)
-      }
-
-      // render vertical grid lines: one per beat, darker on each bar. 1px
-      // wide whatever the zoom. zoomed out, beat lines (then bars) thin out
-      // so they don't smear together, and only what's on screen is drawn
-      p.strokeWeight(1 / currentScale)
+      // the grid follows the zoom (see adaptiveStep): its lines stay about
+      // GRID_GAP pixels apart, splitting beats into finer notes zoomed in and
+      // thinning to every few bars zoomed out. only what's on screen is drawn
       const gridBottom = trackTop(trackCount)
       const pixelsPerBeat = width * currentScale / beatsDisplayed
       const { lineEvery } = gridSteps(pixelsPerBeat, theme.beatsPerBar)
+      this.#reportGridStep(lineEvery)
       const [firstBeat, lastBeat] = visibleBeats(pixelsPerBeat, this.transformX, width, beatsDisplayed)
-      for(let beat = Math.ceil(firstBeat / lineEvery) * lineEvery; beat < lastBeat; beat += lineEvery) {
-        const x = beat * width / beatsDisplayed
-        paint.stroke(p, beat % theme.beatsPerBar === 0 ? 'barLine' : 'beatLine')
+      const beatX = (beat: number) => beat * width / beatsDisplayed
+
+      // every other band of a few lines is shaded, so where you are along
+      // time reads at a glance whatever the zoom
+      const tile = tileStep(lineEvery, theme.beatsPerBar)
+      p.noStroke()
+      paint.fill(p, 'gridTile')
+      for(let n = Math.floor(firstBeat / tile); n * tile < lastBeat; n++) {
+        if(n % 2 === 1) p.rect(beatX(n * tile), 0, beatX(tile), gridBottom)
+      }
+
+      // the lines, 1px wide whatever the zoom: strongest on bars, then
+      // beats, then (faint) the notes between. counted in steps, so a fine
+      // step doesn't drift
+      p.strokeWeight(1 / currentScale)
+      for(let n = Math.ceil(firstBeat / lineEvery); n * lineEvery < lastBeat; n++) {
+        const beat = n * lineEvery
+        const level = lineLevel(beat, theme.beatsPerBar)
+        if(level === 2) paint.stroke(p, 'barLine')
+        else paint.stroke(p, 'beatLine', level === 1 ? 1 : 0.55)
+        const x = beatX(beat)
         p.line(x, 0, x, gridBottom)
       }
 
