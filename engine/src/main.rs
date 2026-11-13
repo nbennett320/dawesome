@@ -21,6 +21,8 @@ mod effects;
 mod effect_windows;
 #[cfg(test)]
 mod test_support;
+#[cfg(test)]
+mod perf;
 
 use std::env;
 use std::sync::Arc;
