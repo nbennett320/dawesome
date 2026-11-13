@@ -6,98 +6,182 @@ title: Piano roll
 
 <!-- PROVISIONAL -->
 
-The **Piano Roll** tab shows the selected pattern's notes on a grid of 16th-note
-steps, against a piano keyboard. Notes are played by an instrument plugin on
-a track (see [9 Instruments and effects](./plugins.md)).
+The **Piano Roll** tab shows one row's notes in the selected pattern, on a
+grid of 16th-note steps against a piano keyboard. The other rows' notes are
+drawn faintly behind them. Any row can be edited here, a sample row or a
+synth row (see [7-3 Rows](./patterns.md#_7-3-rows)).
+
+<!-- VERIFY: at db48287 the Piano Roll edits synth rows only; stage 7 of the pattern merge (context/pattern-merge-project/02-plan.md) makes it edit any row. Check once stage 7 lands. -->
 
 ## 8-1 Opening the Piano Roll
 
 Do one of the following:
 
 - Choose **Window ▸ Piano Roll**.
-- In the Sequencer, click **Piano roll**.
+- In the Pattern Sequencer, *click* a row's note preview (see
+  [7-4-2](./patterns.md#_7-4-2-steps-or-a-note-preview)). The Piano Roll
+  opens on that row.
+- Drop an instrument on a track's strip in the **Mixer** (see
+  [9-3-1](./plugins.md#_9-3-1-instruments)). The Piano Roll opens on the new
+  synth row.
 
-The Piano Roll shows the same pattern as the Sequencer. If the project has no
-pattern, click **New pattern**.
+The Piano Roll shows the same pattern as the Pattern Sequencer. If the
+project has no pattern, click **New pattern**. If it has no rows yet, it
+says so, with a key that opens the Pattern Sequencer.
 
 ![The Piano Roll tab](./img/piano-roll.png)
-<!-- SCREENSHOT: Piano Roll with a few notes, one selected, numbered 1–8 -->
+<!-- SCREENSHOT: retake: Piano Roll on a synth row with ghost notes from sample rows, a few notes, one selected, the shaded area past the pattern's end, numbered 1–9 -->
 
 1. **Pattern** — Which pattern is shown.
-2. **Plays on** — The track whose instrument plays the notes while the
-   pattern plays on its own, and when you audition notes. Shows **No
-   instrument** until a track has one.
-3. **Play** — Loops the pattern on its own. Click again to stop. Its light is
-   lit while it plays.
-4. **Length** — The pattern's length in bars. Change it in the Sequencer
-   (see [7-2-3 Pattern length](./patterns.md)).
-5. Ruler — A number at each bar.
-6. Keyboard — Each C is named (middle C is C4).
-7. Grid — One row per semitone, one column per step. Beats and bars are
-   drawn stronger; the area past the pattern's end is shaded.
-8. Notes — Selected notes are drawn in the accent color.
+2. **Row** — Which row's notes you edit. Its instrument plays the keys and
+   the notes you draw. Lists every row, sample and synth.
+3. **Play** — Loops the pattern on its own, every row's notes, from the
+   playhead. Click again to stop. Its light is lit while it plays.
+4. **Bars** — The pattern's length, on the same counter as the Pattern
+   Sequencer's (see [7-2-3 Pattern length](./patterns.md#_7-2-3-pattern-length)).
+5. Tools and snap — **Select**, **Draw** and **Cut**, **Snap to grid** and
+   the snap amount ([8-2](#_8-2-tools-and-snap)).
+6. Ruler — A number at each bar, a tick at each beat. *Click* or *drag* here
+   to move the playhead ([8-9](#_8-9-playing-the-pattern)). A marker shows
+   where the pattern ends.
+7. Keyboard — Each C is named (middle C is C4).
+8. Grid — One row per semitone, one column per step. Beats and bars are
+   drawn stronger. The grid goes on past the pattern's end, which is
+   shaded.
+9. Notes — The row's notes. Selected notes are drawn in the accent color.
+   The other rows' notes are drawn faintly behind them; they can't be
+   selected or edited here.
 
-::: tip NOTE
-To hear notes, a track needs an instrument. Drag one from the sidebar onto a
-track in the Mixer. Until then the Piano Roll shows "Drag an instrument onto a
-track in the Mixer to hear notes".
-:::
+<!-- VERIFY: stage 7 details, from 02-plan.md stage 7 and 01-answers.md L3, L4, P5. At db48287 the picker is labelled "Synth" and lists synth rows only; the header shows "Length" as text, not the Bars counter; the grid stops at the pattern's end, with no end marker in the ruler; and the no-rows text is "No synth yet. Drag an instrument into the Pattern Sequencer to draw its notes". Check the picker's label, the counter, the end marker and the empty text once stage 7 lands. -->
 
-## 8-2 Drawing notes
+## 8-2 Tools and snap
+
+The Piano Roll has the playlist's three mouse tools. Only one is active at a
+time; its light is lit.
+
+| Key | Tool | What it does |
+| --- | --- | --- |
+| **S** | **Select** | Selects, moves and trims notes. A *drag* on empty grid scrolls it; a *click* there clears the selection. |
+| **D** | **Draw** | A *click* on empty grid draws a note. On a note, it works as **Select**. |
+| **C** | **Cut** | A *click* on a note cuts it in two. |
+
+The keys work while the Piano Roll is the focused pane's tab. With every
+tool, *Shift-click* and *Shift-drag* select ([8-4](#_8-4-selecting-notes)).
+
+**Snap to grid** turns snap on or off; its light is lit when on. The menu
+beside it sets the grid: **1 bar**, **1/2 bar**, **1 beat**, **1/2 beat** or
+**1/4 beat**. The Piano Roll's snap is its own, apart from the playlist's.
+
+With snap off, or while you hold **Option (Alt)**, notes land on the nearest
+step. Notes always start on a whole step and are whole steps long.
+
+## 8-3 Drawing notes
+
+With the **Draw** tool:
 
 - *Click* an empty place on the grid to draw a note there. It starts on the
-  step you clicked and is as long as the last note you drew or resized (a
-  quarter note at first).
-- *Drag* right while drawing to set the note's length.
+  snap line at or before where you clicked, and is as long as the last note
+  you drew or trimmed (a quarter note at first).
+- Without letting go, *drag* up or down to move it to another key, and
+  *drag* right to set its length.
 
 You hear each note as you draw it.
 
-Notes always start on a whole step and are whole steps long. There is no
-snap setting in the Piano Roll. Notes can't run past the pattern's end.
+You can draw past the pattern's end. The pattern grows to the end of the
+bar the note ends in, up to 128 bars (see
+[7-2-3 Pattern length](./patterns.md#_7-2-3-pattern-length)).
 
-## 8-3 Selecting notes
+<!-- VERIFY: drawing past the end (and growing the pattern) lands in stage 7; at db48287 a press past the end draws nothing and notes are kept inside the pattern. -->
+
+## 8-4 Selecting notes
 
 | To | Do this |
 | --- | --- |
-| Select a note | *Click* it |
+| Select a note | *Click* it (with **Select** or **Draw**) |
 | Add or remove a note from the selection | *Shift-click* it |
 | Select notes with a box | *Shift-drag* on an empty place; touched notes are added to the selection |
 | Select every note | **⌘A (Ctrl+A)**, or **Edit ▸ Select All** |
-| Clear the selection | **Escape**, or click past the pattern's end |
+| Clear the selection | **Escape**, or *click* empty grid with **Select** |
 
 Keys work while the Piano Roll is the focused pane's tab.
 
-## 8-4 Moving and resizing notes
+## 8-5 Moving, trimming and cutting notes
 
 - **Move**: *drag* a note's body. If the note is selected, every selected
-  note moves with it. Notes move by whole steps and semitones, and keep their
-  shape at the pattern's edges and the ends of the keyboard. You hear the
-  note at each new pitch.
-- **Resize**: *drag* a note's right edge (the pointer changes to a
-  left-right arrow). Every selected note gets longer or shorter by the same
-  number of steps. A note is at least one step long.
+  note moves with it. The notes follow the mouse, with an outline where they
+  will land: the nearest snap line and key. You hear the note at each new
+  pitch.
+- **Trim**: *drag* a note's left or right edge (the pointer changes to a
+  left-right arrow, and a bar marks the edge). The same edge of every
+  selected note moves by the same amount. A note is at least one step long.
+- **Cut**: with the **Cut** tool, *click* a note. A line shows where it
+  will be cut: the snap line nearest the mouse. If the note is selected,
+  every selected note under that line is cut too. Neither half can be
+  shorter than a step.
 
-## 8-5 Deleting notes
+Press **Escape** while dragging to put the notes back.
+
+## 8-6 Copy, paste and repeat
+
+| Command | Keys | What it does |
+| --- | --- | --- |
+| Copy | **⌘C (Ctrl+C)** | Copies the selected notes. |
+| Cut | **⌘X (Ctrl+X)** | Copies the selected notes and deletes them. |
+| Paste | **⌘V (Ctrl+V)** | Pastes the notes, the earliest on the snap line at or before the mouse (or the first snap line in view, when the mouse isn't over the grid). |
+| Repeat | **⌘R (Ctrl+R)** | Places a copy of the selected notes straight after them. Press again to lay more copies end to end. |
+
+These are on the **Edit** menu too. The Piano Roll has its own clipboard:
+copying notes doesn't change the system clipboard or the playlist's. Copied
+notes stay on it when you show another pattern or row. Pasted and repeated
+notes are selected.
+
+## 8-7 Deleting notes
 
 - Select notes and press **Delete** (or **Backspace**).
 - *Right-click* a note to delete it.
+- **Cut (⌘X)** deletes the selected notes after copying them.
+
+Deleting the notes in the pattern's last bars can make it shorter (see
+[7-2-4 Auto-trim](./patterns.md#_7-2-4-auto-trim)).
 
 Each drag, and each delete, is one step to undo with **⌘Z (Ctrl+Z)**.
 
-## 8-6 Velocity
+## 8-8 Velocity and auditioning
 
-All notes are drawn at the same velocity. Velocity can't be edited yet.
-
-## 8-7 Auditioning
+Notes you draw have a velocity of 80%. Steps lit in the Pattern Sequencer
+have full velocity. Velocity can't be edited yet.
 
 - *Click* a key on the keyboard to hear it while you hold the mouse button.
   *Drag* along the keys to play each in turn.
 - Drawing a note, or moving one to a new pitch, plays it briefly.
 
-Notes sound on the **Plays on** track's instrument.
+Notes sound on the row's instrument, straight to the master. On a sample
+row, the sample plays at that pitch (see
+[7-3-1](./patterns.md#_7-3-1-sample-rows-and-synth-rows)). A muted sample
+row's keys still sound; a muted synth row's keys are silent.
 
-## 8-8 Playing the pattern
+## 8-9 Playing the pattern
 
-Click **Play**, or press **Space** while the Piano Roll is the focused pane's
-tab. A line shows where the pattern is. Playback stops when you leave the
-Piano Roll and the Sequencer (see [7-3-4 Playing a pattern](./patterns.md)).
+Click **Play**, or press **Space** while the Piano Roll is the focused
+pane's tab. The pattern plays from the playhead, then loops from its start.
+A line shows where it is.
+
+- **Stopped:** *click* or *drag* in the ruler to move the playhead. It lands
+  on the snap line nearest the mouse, inside the pattern. **Play** starts
+  from there.
+- **Playing:** *click* or *drag* in the ruler, and playback jumps there when
+  you let go.
+
+Playback stops when you leave the Piano Roll and the Pattern Sequencer (see
+[7-5 Playing a pattern](./patterns.md#_7-5-playing-a-pattern)).
+
+## 8-10 Scrolling and zooming
+
+- **Scroll:** mouse wheel or two-finger swipe. Up and down scrolls through
+  the pitches; left and right (or **Shift** with the wheel) scrolls along
+  time. With **Select**, you can also *drag* empty grid.
+- **Zoom:** **⌘ (Ctrl)** with the wheel, or pinch on a trackpad, zooms
+  along time about the mouse.
+
+These work over the grid, the ruler and the keyboard. A pattern opens with
+its notes in the middle of the view, or C3 to C5 when it has none.

@@ -107,13 +107,14 @@ above. A thin line holds the latest peak for a moment.
 The **FX** jack at the foot of each strip shows the channel's effects:
 
 - Empty — The channel has no effects.
-- Plugged, with a number — How many plugins are on the channel. A keys icon
-  means one of them is the track's instrument.
+- Plugged, with a number — How many effects are on the channel.
 - Blue light — Lit while at least one of them is on.
 
 Click the jack to open the **Effects Rack** on that channel.
 
 *Drag* an effect from the sidebar onto a strip to add it to the end of that
-channel's chain. *Drag* an instrument onto a track's strip to make it the
-track's instrument. The strip is highlighted while a drop would go on it. See
+channel's chain. *Drag* an instrument onto a track's strip to add it as a
+synth row, with a new pattern of it on that track (see
+[9-3-1 Instruments](./plugins.md#_9-3-1-instruments)). The strip is
+highlighted while a drop would go on it. See
 [9-3 Adding a plugin to a channel](./plugins.md).

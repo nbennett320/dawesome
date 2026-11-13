@@ -79,7 +79,7 @@ Each item opens its tab, or selects it if it is already open.
 | **Sample** | — |
 | **Mixer** | **⇧⌘M (Ctrl+Shift+M)** |
 | **Transport** | — |
-| **Sequencer** | **⇧⌘E (Ctrl+Shift+E)** |
+| **Pattern Sequencer** | **⇧⌘E (Ctrl+Shift+E)** |
 | **Piano Roll** <!-- PROVISIONAL --> | — |
 | **Effects Rack** <!-- PROVISIONAL --> | — |
 
@@ -100,8 +100,9 @@ Each item opens its tab, or selects it if it is already open.
    down while recording; press it again to stop. Arm a track first, with the
    **R** key on its mixer strip. See [Basic recording](./recording.md).
 2. **Play** / **Pause** — Starts playback, and pauses it. The key stays down
-   while playing. Same as **Space**. When the **Sequencer** (or **Piano
-   Roll**) tab is the one you are working in, it loops the selected pattern instead.
+   while playing. Same as **Space**. When the **Pattern Sequencer** (or
+   **Piano Roll**) tab is the one you are working in, it loops the selected
+   pattern instead.
 3. **Stop** — Stops playback and goes back to the start.
 4. **Metronome** — Turns the click on and off. The blue LED above the key is
    lit when it is on.
@@ -123,37 +124,39 @@ the top bar. See [Playlist](./playlist.md).
 ## 3-4 Sidebar
 
 ![The sidebar](./img/sidebar.png)
-<!-- SCREENSHOT: sidebar rail and samples browser, numbered 1–5 on the rail keys -->
+<!-- SCREENSHOT: retake: sidebar rail and samples browser, numbered 1–6 on the rail keys -->
 
 Each key on the rail shows its browser. Press the latched key again to hide
 the sidebar. Every browser has a **Search** field at the top; press **Esc**
 to clear it.
 
 1. **Samples** — The samples folder as a tree. *Click* a folder to open it,
-   *click* a sample to hear it, *drag* a sample into the playlist to add it.
-   The **Refresh samples** key lists the folder again. See
-   [Samples](./samples.md).
-2. **Patterns** — The Sequencer's patterns, in folders. *Click* a pattern to
-   show it in the Sequencer; *drag* it into the playlist to place it.
-   *Right-click* for **New folder**, **Rename** and **Delete**. See
-   [Patterns and sequencer](./patterns.md).
+   *click* a sample to hear it, *drag* a sample into the playlist to add it,
+   or into the Pattern Sequencer to add it as a row. The **Refresh samples**
+   key lists the folder again. See [Samples](./samples.md).
+2. **Patterns** — The project's patterns, in one tree of folders. Badges
+   show whether a pattern plays samples, instruments or both. *Click* a
+   pattern to show it in the Pattern Sequencer; *drag* it into the playlist
+   to place it. *Right-click* for **New folder**, **Rename** and **Delete**.
+   See [7-6 The pattern browser](./patterns.md#_7-6-the-pattern-browser).
 3. **Recordings** — The project's recorded takes. *Click* a take to hear it;
-   *drag* it into the playlist, the Sequencer or a folder. *Right-click* for
-   **Rename**, **Move to Trash** and **New folder**. A dot marks takes the
-   project uses; takes it doesn't use are dimmed. A take in use can't be
-   moved to the Trash.
+   *drag* it into the playlist, the Pattern Sequencer or a folder.
+   *Right-click* for **Rename**, **Move to Trash** and **New folder**. A dot
+   marks takes the project uses; takes it doesn't use are dimmed. A take in
+   use can't be moved to the Trash.
 4. **Clips** — Files Dawesome wrote itself, with **Deep copy** and **Join**,
    in the project's `clips` folder. It works like **Recordings**. See
    [Playlist](./playlist.md).
 <!-- PROVISIONAL -->
-5. **Effects** — The plugins found on your computer, in **Effects** and
-   **Instruments** sections, in folders by category. *Drag* an effect onto a
-   mixer channel or into the **Effects Rack**; *drag* an instrument onto a
-   track in the Mixer. The **Rescan plugins** key looks for plugins again.
-   **Couldn’t be read** lists plugins that failed during the scan. See
+5. **Effects** — The effect plugins found on your computer, in folders by
+   category. *Drag* an effect onto a mixer channel or into the **Effects
+   Rack**. The **Rescan plugins** key looks for plugins again. **Couldn’t be
+   read** lists plugins that failed during the scan. See
    [Instruments and effects](./plugins.md).
-
-<!-- VERIFY: the Effects page (and its Instruments section) is VST work not on main, and is being reworked in the working tree; recheck its labels. -->
+6. **Instruments** — The instrument plugins found, in folders by category.
+   *Drag* an instrument into the Pattern Sequencer to add it as a synth row,
+   or onto a track's strip in the Mixer to start a pattern there. It has
+   **Rescan plugins** and **Couldn’t be read** too.
 
 ## 3-5 Tabs and panes
 
@@ -185,7 +188,7 @@ The tabs are:
 | **Sample** | A clip's sample, and how it plays. | Window menu |
 | **Mixer** | Every track's channel strip, and the master. | Window menu |
 | **Transport** | The tape deck ([3-6](#_3-6-transport-tab)). | Window menu |
-| **Sequencer** | Rows of samples and patterns of steps. | Window menu |
+| **Pattern Sequencer** | A row per sample or synth, and its steps or notes in the selected pattern. | Window menu |
 | **Piano Roll** <!-- PROVISIONAL --> | A pattern's notes against a keyboard. | Window menu |
 | **Effects Rack** <!-- PROVISIONAL --> | One channel's effects, in order. | Window menu |
 | **Audio** | Audio settings. | **Preferences ▸ Audio Settings…** |
@@ -194,8 +197,8 @@ The tabs are:
 | **Controls** | Where plugins open, and the command bar. | **Preferences ▸ Controls…** |
 | *plugin name* <!-- PROVISIONAL --> | A plugin's own interface, when plugins open in a tab. | The plugin's open key |
 
-A new window opens with **Playlist**, **Mixer**, **Transport** and
-**Sequencer** in one pane.
+A new window opens with **Playlist**, **Mixer** and **Pattern Sequencer**
+in one pane.
 
 <!-- VERIFY: whether the pane layout is kept between launches or saved with projects (initial state is hard-coded in windowSlice). -->
 

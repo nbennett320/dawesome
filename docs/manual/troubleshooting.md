@@ -88,7 +88,6 @@ The message names the plugin and the reason, for example:
   rate. Choose an output running at another rate.
 - **… can't process 32-bit audio**, **… has no audio output** — the plugin
   can't be used by Dawesome.
-- **Track N already has an instrument** — a track takes one instrument.
 
 **Plugin windows on Windows and Linux**
 
