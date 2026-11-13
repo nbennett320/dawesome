@@ -15,5 +15,8 @@ cd "$(dirname "$0")/.."
 sed -i.bak -E "s/^  \"version\": \"[^\"]*\"/  \"version\": \"$version\"/" package.json engine/tauri.conf.json
 sed -i.bak -E "s/^version = \"[^\"]*\"/version = \"$version\"/" engine/Cargo.toml
 rm package.json.bak engine/tauri.conf.json.bak engine/Cargo.toml.bak
+# a change to VERSION on main publishes the release (.github/workflows/auto-release.yaml)
+echo "$version" > VERSION
 
 grep -H -m1 -E '"version"|^version' package.json engine/tauri.conf.json engine/Cargo.toml
+grep -H . VERSION
