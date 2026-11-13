@@ -11,7 +11,7 @@ import windowReducer, { openTab, selectFocusedView } from '../../state/slices/wi
 import effectsReducer from '../../state/slices/effectsSlice'
 import appearanceReducer, { setPreferences } from '../../state/slices/appearanceSlice'
 import sequencerReducer from '../../state/slices/sequencerSlice'
-import { DragItem, beginSampleDrag } from '../../state/sampleDrag'
+import { DragItem, beginSampleDrag, onSampleDrag } from '../../state/sampleDrag'
 import { Note, SequencerState, Synth } from '../../types/sequencer'
 import { View } from '../../types/ui'
 import NoteSequencer from './NoteSequencer'
@@ -183,10 +183,57 @@ describe('the Note Sequencer', () => {
     await waitFor(() => expect(calls('set_pattern_bars')).toEqual([{ patternId: 1, bars: 12 }]))
   })
 
-  it('plays and stops the pattern from its strip', async () => {
+  it('has no Play key of its own: the top bar plays its pattern', async () => {
     await setup()
-    fireEvent.click(screen.getByRole('button', { name: 'Play the pattern' }))
-    await waitFor(() => expect(calls('toggle_pattern')).toEqual([{ patternId: 1 }]))
+    expect(screen.queryByRole('button', { name: 'Play the pattern' })).toBeNull()
+  })
+
+  it('lists every pattern under ▾, to pick one', async () => {
+    const { store } = await setup()
+    fireEvent.click(screen.getByRole('button', { name: 'All patterns' }))
+    const items = screen.getAllByRole('menuitemradio')
+    expect(items.map(i => i.textContent)).toEqual(['✓Verse', 'Chorus'])
+    expect(items[0].getAttribute('aria-checked')).toBe('true')
+
+    fireEvent.click(items[1])
+    expect(store.getState().sequencer.selected.note).toBe(2)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('searches the list, and Enter picks the first found', async () => {
+    const { store } = await setup()
+    fireEvent.click(screen.getByRole('button', { name: 'All patterns' }))
+    const search = screen.getByRole('searchbox', { name: 'Search patterns' })
+    fireEvent.change(search, { target: { value: 'cho' } })
+    expect(screen.getAllByRole('menuitemradio').map(i => i.textContent)).toEqual(['Chorus'])
+    fireEvent.change(search, { target: { value: 'zzz' } })
+    expect(screen.getByText('No patterns match')).toBeTruthy()
+
+    fireEvent.change(search, { target: { value: 'chorus' } })
+    fireEvent.keyDown(search, { key: 'Enter' })
+    expect(store.getState().sequencer.selected.note).toBe(2)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('drags a pattern out of the list, closing it', async () => {
+    await setup()
+    fireEvent.click(screen.getByRole('button', { name: 'All patterns' }))
+    const dropped: DragItem[] = []
+    const off = onSampleDrag(({ type, item }) => { if(type === 'drop') dropped.push(item) })
+
+    fireEvent.mouseDown(screen.getByRole('menuitemradio', { name: 'Chorus' }), { button: 0, clientX: 10, clientY: 10 })
+    act(() => { window.dispatchEvent(new MouseEvent('mousemove', { clientX: 200, clientY: 300 })) })
+    expect(screen.queryByRole('menu')).toBeNull()
+    act(() => { window.dispatchEvent(new MouseEvent('mouseup', { clientX: 200, clientY: 300 })) })
+    off()
+    expect(dropped).toEqual([{ kind: 'pattern', patternId: 2, label: 'Chorus' }])
+  })
+
+  it('closes the list on Escape', async () => {
+    await setup()
+    fireEvent.click(screen.getByRole('button', { name: 'All patterns' }))
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByRole('menu')).toBeNull()
   })
 })
 

@@ -9,7 +9,6 @@ import {
   selectPatternsOf,
   selectSelectedPattern,
   setPatternBars,
-  togglePattern,
 } from '../../state/slices/sequencerSlice'
 import { selectPlaylistItems } from '../../state/slices/playlistSlice'
 import { beginSampleDrag } from '../../state/sampleDrag'
@@ -17,8 +16,12 @@ import {
   BAR_CHOICES, MAX_NOTE_BARS, Pattern, PatternKind, patternBars, patternLabel, unnamedLabel,
 } from '../../types/sequencer'
 import { AnalogButton, Led } from '../../components/fourtrack'
-import { PlayIcon, StopIcon } from '../../components/icons'
 import { NameInput } from '../../components/common'
+import { PatternMenu, ScrollingKeys } from './PatternKeys'
+
+// narrower than this, the selected pattern's length and keys go on a line
+// of their own under the patterns
+const NARROW_PX = 560
 
 const MAX_NAME_CHARS = 24
 
@@ -34,23 +37,30 @@ const PatternKey = ({ pattern, selected, playing }: {
   const label = patternLabel(pattern)
 
   if(renaming) {
+    // the size of the key it stands in for: as tall, and about as wide as
+    // the name (the light above stays, so nothing moves)
+    const chars = Math.min(Math.max(label.length, 6), MAX_NAME_CHARS) + 2
     return (
-      <NameInput
-        initial={pattern.name ?? ''}
-        aria-label='Pattern name'
-        placeholder={unnamedLabel(pattern)}
-        maxLength={MAX_NAME_CHARS}
-        className='h-7 w-28 text-center'
-        onDone={name => {
-          if(name !== null) dispatch(renamePattern(pattern.id, name))
-          setRenaming(false)
-        }}
-      />
+      <div className='shrink-0 flex flex-col items-center gap-1' data-pattern-id={pattern.id}>
+        <Led color='lime' state={playing ? 'on' : 'off'} />
+        <NameInput
+          initial={pattern.name ?? ''}
+          aria-label='Pattern name'
+          placeholder={unnamedLabel(pattern)}
+          maxLength={MAX_NAME_CHARS}
+          className='h-[22px] text-[10px] text-center rounded'
+          style={{ width: `${chars}ch` }}
+          onDone={name => {
+            if(name !== null) dispatch(renamePattern(pattern.id, name))
+            setRenaming(false)
+          }}
+        />
+      </div>
     )
   }
 
   return (
-    <div className='flex flex-col items-center gap-1'>
+    <div className='shrink-0 flex flex-col items-center gap-1' data-pattern-id={pattern.id}>
       <Led color='lime' state={playing ? 'on' : 'off'} />
       <AnalogButton
         variant='text'
@@ -168,26 +178,23 @@ const BarsField = ({ pattern, bars }: { pattern: Pattern, bars: number | null })
   )
 }
 
-// a pattern's play key: loops it on its own, or stops it
-const PlayKey = ({ pattern, playing }: { pattern: Pattern, playing: boolean }) => {
-  const dispatch = useAppDispatch()
-
-  return (
-    <AnalogButton
-      size='sm'
-      latched={playing}
-      aria-label={playing ? 'Stop the pattern' : 'Play the pattern'}
-      title={playing ? 'Stop' : 'Loop this pattern on its own'}
-      onPress={() => { dispatch(togglePattern(pattern.id)).catch(() => {}) }}
-    >
-      {playing ? <StopIcon /> : <PlayIcon />}
-    </AnalogButton>
-  )
+// whether `ref` is narrower than `px`, following it as it's resized
+const useNarrow = (ref: React.RefObject<HTMLElement>, px: number): boolean => {
+  const [narrow, setNarrow] = React.useState(false)
+  React.useEffect(() => {
+    const el = ref.current
+    if(!el || typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(() => setNarrow(el.clientWidth < px))
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [ref, px])
+  return narrow
 }
 
-// the patterns of a kind along the top, and the selected one's length and
-// keys. a sequencer's own: the Drum Sequencer's drum patterns, or the Note
-// Sequencer's note patterns
+// the patterns of a kind along the top, in one line that scrolls, then the
+// selected one's length, Copy and Delete (under them, when the strip is
+// narrow). a sequencer's own: the Drum Sequencer's drum patterns, or the
+// Note Sequencer's note patterns. the top bar's Play loops the selected one
 const PatternStrip = ({ kind, beatsPerBar, playingId }: {
   kind: PatternKind
   beatsPerBar: number
@@ -197,59 +204,72 @@ const PatternStrip = ({ kind, beatsPerBar, playingId }: {
   const patterns = useAppSelector(selectPatternsOf(kind))
   const selected = useAppSelector(selectSelectedPattern(kind))
   const bars = selected ? patternBars(selected, beatsPerBar) : null
+  const ref = React.useRef<HTMLDivElement>(null)
+  const narrow = useNarrow(ref, NARROW_PX)
 
-  return (
-    <div className='ft-tray rounded-lg m-2 mb-0 p-2 flex flex-row flex-wrap items-end gap-x-4 gap-y-2'>
-      <div className='flex flex-col gap-1 min-w-0'>
-        <span className='ft-label'>Patterns</span>
-        <div className='flex flex-row flex-wrap items-end gap-1.5'>
-          {patterns.map(pattern => (
-            <PatternKey
-              key={pattern.id}
-              pattern={pattern}
-              selected={pattern.id === selected?.id}
-              playing={pattern.id === playingId}
-            />
-          ))}
-          <AnalogButton
-            size='sm'
-            variant='text'
-            title='A new, empty pattern'
-            aria-label='New pattern'
-            onPress={() => dispatch(addPattern(bars ?? 1, kind))}
-          >
-            +
-          </AnalogButton>
-        </div>
+  const controls = selected && (
+    <>
+      <div className='shrink-0 flex flex-col gap-1'>
+        <span className='ft-label'>Bars</span>
+        {kind === 'drum'
+          ? <BarChoices pattern={selected} bars={bars} />
+          : <BarsField key={selected.id} pattern={selected} bars={bars} />}
       </div>
 
-      {selected && (
-        <>
-          <div className='flex flex-col gap-1'>
-            <span className='ft-label'>Bars</span>
-            {kind === 'drum'
-              ? <BarChoices pattern={selected} bars={bars} />
-              : <BarsField key={selected.id} pattern={selected} bars={bars} />}
-          </div>
+      <div className='shrink-0 flex flex-row gap-1 ml-auto'>
+        <AnalogButton
+          variant='text'
+          size='sm'
+          title='A copy of this pattern, to make a variation of it'
+          onPress={() => dispatch(duplicatePattern(selected.id))}
+        >
+          Copy
+        </AnalogButton>
+        <DeletePattern pattern={selected} />
+      </div>
+    </>
+  )
 
-          <div className='flex flex-col gap-1'>
-            <span className='ft-label'>Play</span>
-            <PlayKey pattern={selected} playing={selected.id === playingId} />
+  return (
+    <div ref={ref} className='ft-tray rounded-lg m-2 mb-0 p-2 flex flex-col gap-2'>
+      <div className='flex flex-row items-end gap-x-4'>
+        <div className='flex-1 min-w-0 flex flex-col gap-1'>
+          <span className='ft-label'>Patterns</span>
+          <div className='flex flex-row items-end gap-1.5 min-w-0'>
+            <ScrollingKeys selectedId={selected?.id ?? null}>
+              {patterns.map(pattern => (
+                <PatternKey
+                  key={pattern.id}
+                  pattern={pattern}
+                  selected={pattern.id === selected?.id}
+                  playing={pattern.id === playingId}
+                />
+              ))}
+            </ScrollingKeys>
+            {patterns.length > 0 && (
+              <PatternMenu
+                patterns={patterns}
+                selectedId={selected?.id ?? null}
+                playingId={playingId}
+                onPick={id => dispatch(selectPattern(id))}
+              />
+            )}
+            <div className='shrink-0 pb-1'>
+              <AnalogButton
+                size='sm'
+                variant='text'
+                title='A new, empty pattern'
+                aria-label='New pattern'
+                onPress={() => dispatch(addPattern(bars ?? 1, kind))}
+              >
+                +
+              </AnalogButton>
+            </div>
           </div>
-
-          <div className='flex flex-row gap-1 ml-auto'>
-            <AnalogButton
-              variant='text'
-              size='sm'
-              title='A copy of this pattern, to make a variation of it'
-              onPress={() => dispatch(duplicatePattern(selected.id))}
-            >
-              Copy
-            </AnalogButton>
-            <DeletePattern pattern={selected} />
-          </div>
-        </>
-      )}
+        </div>
+        {!narrow && controls}
+      </div>
+      {narrow && controls && <div className='flex flex-row items-end gap-4'>{controls}</div>}
     </div>
   )
 }
