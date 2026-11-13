@@ -39,9 +39,10 @@
   &--module {
     background: linear-gradient(180deg, var(--ft-cap-top), var(--ft-face));
     box-shadow:
+      inset 0 1px 0 var(--ft-cap-top),
       0 0 0 1px var(--ft-line),
-      0 1px 0 var(--ft-line-strong),
-      0 2px 4px rgb(var(--c-shadow) / .06);
+      0 2px 0 var(--ft-line-strong),
+      0 3px 5px rgb(var(--c-shadow) / .1);
   }
 }
 

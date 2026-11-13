@@ -62,10 +62,13 @@
     0 0 0 1px var(--ft-line-strong),
     0 var(--depth) 0 var(--ft-line-strong),
     0 calc(var(--depth) + 1px) 3px rgb(var(--c-shadow) / .12);
-  transition: transform .05s ease, box-shadow .05s ease;
 
+  // pressed: down a pixel. moved with top, not a transform, and not eased:
+  // in WebKit a transformed (or animating) key gets a layer of its own, and
+  // the keys painted after it are put on layers too and drawn a sub-pixel
+  // off, so they seemed to shift whenever a key was clicked
   &:active {
-    transform: translateY(1px);
+    top: 1px;
     box-shadow:
       0 0 0 1px var(--ft-line-strong),
       0 1px 0 var(--ft-line-strong);
@@ -88,8 +91,12 @@
   border-radius: 2px;
   background: var(--led-off);
   box-shadow: inset 0 1px 1px rgb(var(--c-shadow) / .3);
-  transition: background .06s, box-shadow .06s, opacity .06s;
   pointer-events: none;
+  // no fades and no opacity here: the running light moves every step, and
+  // in WebKit an element whose opacity changes is put on a layer of its own
+  // and back, re-rendering what's around it, so the rows seemed to shimmer
+  // while playing. dimmer LEDs are mixed colours instead, and the light
+  // snaps from step to step as a drum machine's does
 
   .is-lit > & {
     background: var(--led);
@@ -102,12 +109,13 @@
     box-shadow: 0 0 9px 2px var(--led-glow);
   }
   .is-now:not(.is-lit) > & {
-    opacity: .5;
+    background: color-mix(in srgb, var(--led) 50%, var(--led-off));
+    box-shadow: 0 0 6px 1px var(--led-glow);
   }
 
   // a muted row's lit steps are dim
   .is-muted .is-lit:not(.is-now) > & {
-    opacity: .45;
+    background: color-mix(in srgb, var(--led) 45%, var(--led-off));
     box-shadow: none;
   }
 }

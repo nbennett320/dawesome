@@ -51,10 +51,17 @@ export const ScrollingKeys = ({ selectedId, children }: {
   // a key added or taken away changes what overflows
   React.useEffect(measure, [children, measure])
 
+  // (by its own scroll, not scrollIntoView, which would scroll the boxes
+  // around it too)
   React.useEffect(() => {
-    if(selectedId === null) return
-    const key = ref.current?.querySelector(`[data-pattern-id="${selectedId}"]`)
-    key?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+    const el = ref.current
+    if(selectedId === null || !el) return
+    const key = el.querySelector<HTMLElement>(`[data-pattern-id="${selectedId}"]`)
+    if(!key) return
+    const box = el.getBoundingClientRect()
+    const at = key.getBoundingClientRect()
+    if(at.left < box.left + FADE) el.scrollLeft -= box.left + FADE - at.left
+    else if(at.right > box.right - FADE) el.scrollLeft += at.right - (box.right - FADE)
   }, [selectedId])
 
   const mask = `linear-gradient(to right, ${more.left ? 'transparent' : 'black'}, black ${FADE}px, `
@@ -63,7 +70,7 @@ export const ScrollingKeys = ({ selectedId, children }: {
   return (
     <div
       ref={ref}
-      className='min-w-0 flex [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-row items-end gap-1.5 overflow-x-auto pb-1'
+      className='min-w-0 flex [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-row items-end gap-1.5 overflow-x-auto overflow-y-hidden pb-1'
       style={{ maskImage: mask, WebkitMaskImage: mask }}
       onScroll={measure}
     >
