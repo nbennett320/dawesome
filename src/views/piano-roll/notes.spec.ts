@@ -1,8 +1,8 @@
 import { Note, sortNotes, stepsPerBar } from '../../types/sequencer'
 import {
   DEFAULT_LENGTH, NEW_VELOCITY, allIndices, carriedNotes, centerPitch, clampNote, copyNotes, cutNotes, deleteNotes, drawnLength,
-  fitSelection, followPlaces, inSteps, isBlackKey, markerStep, moveNotes, newNote, noteBoxes, noteCut, pasteNotes, pasteStep,
-  parsePitch, pitchName, pressKind, repeatNotes, rollSnapping, sameNotes, snapStep, snapStepDown, sortedWithPlaces, timelineEnd,
+  MIN_NOTE_LENGTH, fitSelection, followPlaces, isBlackKey, markerStep, moveNotes, newNote, noteBoxes, noteCut, pasteNotes, pasteStep,
+  parsePitch, pitchName, pressKind, repeatNotes, rollSnapping, sameNotes, shortestNote, snapStep, snapStepDown, sortedWithPlaces, timelineEnd,
   trimNotes,
 } from './notes'
 import {
@@ -29,13 +29,19 @@ describe('snapping', () => {
     expect(snapStepDown(7.9, beats)).toBe(4)
   })
 
-  it('keeps to whole steps with snap off, or Option held', () => {
-    expect(inSteps(off).every).toBe(1)
-    expect(inSteps(bypassed).every).toBe(1)
-    expect(snapStep(5.6, off)).toBe(6)
-    expect(snapStep(5.6, bypassed)).toBe(6)
-    expect(snapStepDown(7.9, off)).toBe(7)
-    expect(snapStepDown(7.9, bypassed)).toBe(7)
+  it('lands right where the mouse is with snap off, or Option held', () => {
+    expect(snapStep(5.6, off)).toBe(5.6)
+    expect(snapStep(5.6, bypassed)).toBe(5.6)
+    expect(snapStepDown(7.9, off)).toBe(7.9)
+    expect(snapStepDown(7.9, bypassed)).toBe(7.9)
+  })
+
+  it('keeps notes a step long at least while snapping, and as short as a note can be while not', () => {
+    expect(shortestNote(sixteenths)).toBe(1)
+    expect(shortestNote(beats)).toBe(1)
+    expect(shortestNote(off)).toBe(MIN_NOTE_LENGTH)
+    expect(shortestNote(bypassed)).toBe(MIN_NOTE_LENGTH)
+    expect(MIN_NOTE_LENGTH).toBe(1 / 32)
   })
 })
 
@@ -45,7 +51,8 @@ describe('drawing a note', () => {
       .toEqual({ pitch: 60, start: 5, length: 4, velocity: NEW_VELOCITY })
     expect(DEFAULT_LENGTH).toBe(4)
     expect(newNote(5.7, 60, 2, 16, beats).start).toBe(4)
-    expect(newNote(5.7, 60, 2, 16, bypassed).start).toBe(5)
+    expect(newNote(5.7, 60, 2, 16, bypassed).start).toBe(5.7)
+    expect(newNote(5.7, 60, 2, 16, off).start).toBe(5.7)
   })
 
   it('is kept inside the timeline, which runs as far as a pattern can grow', () => {
@@ -69,7 +76,10 @@ describe('drawing a note', () => {
     expect(drawnLength(4, 30, 16, sixteenths)).toBe(12)
     expect(drawnLength(4, 9.5, 16, beats)).toBe(4)
     expect(drawnLength(4, 5, 16, beats)).toBe(4)
-    expect(drawnLength(4, 6.4, 16, off)).toBe(2)
+    // snap off: to the mouse, at least as long as a note can be
+    expect(drawnLength(4, 6.4, 16, off)).toBeCloseTo(2.4)
+    expect(drawnLength(4, 4.01, 16, off)).toBe(MIN_NOTE_LENGTH)
+    expect(drawnLength(4, 2, 16, off)).toBe(MIN_NOTE_LENGTH)
     expect(drawnLength(12, 30, 16, beats)).toBe(4)
   })
 })
@@ -109,7 +119,7 @@ describe('the start marker', () => {
     expect(markerStep(5.4, 16, sixteenths)).toBe(5)
     expect(markerStep(5.6, 16, beats)).toBe(4)
     expect(markerStep(6.1, 16, beats)).toBe(8)
-    expect(markerStep(5.6, 16, bypassed)).toBe(6)
+    expect(markerStep(5.6, 16, bypassed)).toBe(5.6)
     // never past the last line before the pattern's end, nor before it
     expect(markerStep(15.8, 16, sixteenths)).toBe(15)
     expect(markerStep(15.8, 16, beats)).toBe(12)
@@ -158,8 +168,11 @@ describe('trimming notes', () => {
 
   it('moves the right edge of each chosen note as far, each stopping at the timeline’s end', () => {
     expect(trimNotes(notes, [0, 1], 0, 'right', 7, 16)).toEqual([note(60, 2, 5), note(64, 12, 4), note(67, 0, 1)])
-    // never shorter than a step
+    // never shorter than a step while snapping
     expect(trimNotes(notes, [0], 0, 'right', -3, 16)[0]).toEqual(note(60, 2, 1))
+    // and to anywhere while not, as short as a note can be
+    expect(trimNotes(notes, [0], 0, 'right', 4.3, 16, shortestNote(off))[0].length).toBeCloseTo(2.3)
+    expect(trimNotes(notes, [0], 0, 'right', -3, 16, shortestNote(off))[0]).toEqual(note(60, 2, MIN_NOTE_LENGTH))
   })
 
   it('moves the left edge too, ends staying put', () => {
@@ -185,8 +198,8 @@ describe('cutting notes', () => {
     expect(noteCut(notes, 0, new Set([0, 1]), 2.3, sixteenths)).toEqual({ ids: [0, 1], step: 2 })
     // not selected: on its own
     expect(noteCut(notes, 0, new Set([1]), 2.3, sixteenths)).toEqual({ ids: [0], step: 2 })
-    // a whole step with snap off
-    expect(noteCut(notes, 0, new Set(), 2.6, off)).toEqual({ ids: [0], step: 3 })
+    // right where the mouse is with snap off
+    expect(noteCut(notes, 0, new Set(), 2.6, off)).toEqual({ ids: [0], step: 2.6 })
   })
 
   it('cuts nowhere that leaves a half shorter than a step', () => {

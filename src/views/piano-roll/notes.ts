@@ -87,24 +87,27 @@ export const rollSnapping = (enabled: boolean, note: SnapNote, bypass: boolean):
   bypass,
 })
 
-// a line on every step
-const EVERY_STEP: Snapping = { enabled: true, every: 1, playhead: null, bypass: false }
+// the shortest a note can be, in steps: the engine's MIN_NOTE
+// (engine/src/daw/daw_core/sequencer.rs)
+export const MIN_NOTE_LENGTH = 1 / 32
 
-// notes are whole steps: with snap off or bypassed, places land on the steps
-// themselves
-export const inSteps = (snap: Snapping): Snapping =>
-  (snap.enabled && !snap.bypass && Number.isInteger(snap.every) && snap.every >= 1 ? snap : EVERY_STEP)
+// whether anything snaps just now: snap is on, and Option isn't held
+const snaps = (snap: Snapping): boolean => snap.enabled && !snap.bypass && snap.every > 0
+
+// the shortest a note drawn, trimmed or cut can be: a step while snapping,
+// and as short as a note can be while not
+export const shortestNote = (snap: Snapping): number => (snaps(snap) ? 1 : MIN_NOTE_LENGTH)
 
 // where an edge or a moved note lands, with the mouse at `step`: the nearest
-// snap line, or step
-export const snapStep = (step: number, snap: Snapping): number => snapPoint(step, inSteps(snap))
+// snap line, or just where the mouse is while nothing snaps
+export const snapStep = (step: number, snap: Snapping): number => snapPoint(step, snap)
 
-// where something new starts, with the mouse at `step`: the snap line (or
-// step) at or before it
-export const snapStepDown = (step: number, snap: Snapping): number => snapDown(step, inSteps(snap))
+// where something new starts, with the mouse at `step`: the snap line at or
+// before it, or the mouse's place while nothing snaps
+export const snapStepDown = (step: number, snap: Snapping): number => snapDown(step, snap)
 
 // where Play starts from, with the mouse at `step` on the ruler: the nearest
-// snap line (or step), on one inside the pattern
+// snap line (or where the mouse is), on one inside the pattern
 export const markerStep = (step: number, patternLength: number, snap: Snapping): number =>
   Math.max(0, Math.min(snapStep(step, snap), snapStepDown(patternLength - 1, snap)))
 
@@ -150,20 +153,21 @@ export const pressKind = ({ tool, shift, onNote, onEdge }: {
 // ---- drawing ----
 
 // a note drawn by pressing at `step` on `pitch`'s row: it starts on the snap
-// line (or step) at or before the press, `length` long, cut short if it
-// would run past the timeline's end (`limit`: see timelineEnd)
+// line at or before the press (or right there, while nothing snaps),
+// `length` long, cut short if it would run past the timeline's end
+// (`limit`: see timelineEnd)
 export const newNote = (step: number, pitch: number, length: number, limit: number, snap: Snapping): Note => {
-  const start = clamp(snapStepDown(step, snap), 0, Math.max(0, limit - 1))
+  const start = clamp(snapStepDown(step, snap), 0, Math.max(0, limit - shortestNote(snap)))
   return clampNote({ pitch, start, length: Math.min(length, limit - start), velocity: NEW_VELOCITY }, limit)
 }
 
 // as a note is drawn, dragging right sets its length: to the snap line
-// nearest the mouse, at least one snap length (a step, with snap off), and
-// no further than the timeline's end (`limit`)
+// nearest the mouse, at least one snap length, and no further than the
+// timeline's end (`limit`). while nothing snaps, to the mouse itself
 export const drawnLength = (start: number, step: number, limit: number, snap: Snapping): number => {
-  const lines = inSteps(snap)
-  const length = Math.max(snapPoint(step, lines) - start, lines.every)
-  return clamp(length, 1, Math.max(1, limit - start))
+  const shortest = shortestNote(snap)
+  const length = Math.max(snapPoint(step, snap) - start, snaps(snap) ? snap.every : shortest)
+  return clamp(length, shortest, Math.max(shortest, limit - start))
 }
 
 // ---- moving and trimming ----
@@ -215,12 +219,15 @@ export const carriedNotes = (
   return landed.map(p => ({ ...notes[p.id], start: p.beat, pitch: p.track }))
 }
 
-// notes, as far as trimming goes: a step long at least, and reaching as far
-// as the timeline does (`limit`), or the note, if it already reaches further
-export const trimItems = (notes: Note[], indices: ReadonlyArray<number>, limit: number): TrimItem[] =>
+// notes, as far as trimming goes: `shortest` long at least (see
+// shortestNote), and reaching as far as the timeline does (`limit`), or the
+// note, if it already reaches further
+export const trimItems = (
+  notes: Note[], indices: ReadonlyArray<number>, limit: number, shortest: number,
+): TrimItem[] =>
   indices.filter(i => notes[i]).map(i => {
     const end = notes[i].start + notes[i].length
-    return { id: i, start: notes[i].start, end, sourceStart: 0, sourceEnd: Math.max(limit, end), minLength: 1 }
+    return { id: i, start: notes[i].start, end, sourceStart: 0, sourceEnd: Math.max(limit, end), minLength: shortest }
   })
 
 // the notes `indices` trimmed by one edge: the grabbed note's edge goes to
@@ -233,8 +240,9 @@ export const trimNotes = (
   edge: Edge,
   target: number,
   limit: number,
+  shortest = 1,
 ): Note[] => {
-  const spans = new Map(trimAll(trimItems(notes, indices, limit), grabbed, edge, target).map(s => [s.id, s]))
+  const spans = new Map(trimAll(trimItems(notes, indices, limit, shortest), grabbed, edge, target).map(s => [s.id, s]))
 
   let changed = false
   const next = notes.map((note, i) => {
@@ -248,12 +256,14 @@ export const trimNotes = (
 
 // ---- cutting ----
 
-// notes, as far as cutting goes: neither half shorter than a step
-export const cutItems = (notes: Note[]): CutItem[] =>
-  notes.map((note, id) => ({ id, start: note.start, end: note.start + note.length, minLength: 1 }))
+// notes, as far as cutting goes: neither half shorter than `shortest` (see
+// shortestNote)
+export const cutItems = (notes: Note[], shortest: number): CutItem[] =>
+  notes.map((note, id) => ({ id, start: note.start, end: note.start + note.length, minLength: shortest }))
 
 // the cut a click with the Cut tool at `step` on the note `index` makes:
-// where (the snap line, or step, nearest the mouse) and which notes (that
+// where (the snap line nearest the mouse, or the mouse's place while nothing
+// snaps) and which notes (that
 // one, and the rest of the selection under the cut when it's selected).
 // null where it can't be cut
 export const noteCut = (
@@ -263,11 +273,11 @@ export const noteCut = (
   step: number,
   snap: Snapping,
 ): { ids: number[], step: number } | null => {
-  const items = cutItems(notes)
+  const items = cutItems(notes, shortestNote(snap))
   const item = items[index]
   if(!item) return null
 
-  const at = cutPoint(item, step, inSteps(snap))
+  const at = cutPoint(item, step, snap)
   if(at === null) return null
   const ids = cutTargets(items, index, selected, at)
   return ids.length ? { ids, step: at } : null
@@ -334,12 +344,13 @@ export const repeatNotes = (notes: Note[], selected: ReadonlySet<number>, limit:
   return addCopies(notes, copies, repeatShift(spansOf(copies)), limit)
 }
 
-// where a paste puts the earliest note: the snap line (or step) at or
-// before the mouse while it's over the grid (`mouseStep`), else the first
-// snap line in view, which starts at step `firstInView`
+// where a paste puts the earliest note: the snap line at or before the mouse
+// while it's over the grid (`mouseStep`; the mouse's place while nothing
+// snaps), else the first snap line in view (the first step, while nothing
+// snaps), which starts at step `firstInView`
 export const pasteStep = (mouseStep: number | null, firstInView: number, snap: Snapping): number => {
   if(mouseStep !== null) return Math.max(0, snapStepDown(mouseStep, snap))
-  const { every } = inSteps(snap)
+  const every = snaps(snap) ? snap.every : 1
   return Math.max(0, Math.ceil(firstInView / every - 1e-9) * every)
 }
 

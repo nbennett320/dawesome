@@ -272,14 +272,17 @@ describe('the Piano Roll', () => {
       drag(at(5.5, 60), at(9.6, 60))
       await waitFor(() => expect(lastNotes()).toEqual([note(60, 4, 4)]))
 
-      // Option held: on the step
+      // Option held: right where it's pressed
       click(at(9.5, 62, { altKey: true }))
-      await waitFor(() => expect(lastNotes().at(-1)).toEqual(note(62, 9, 4)))
+      await waitFor(() => expect(lastNotes().at(-1)).toEqual(note(62, 9.5, 4)))
 
-      // snap off: on the step too
+      // snap off: right there too, and the end as dragged
       act(() => { store.dispatch(togglePianoRollSnap()) })
       click(at(13.5, 64))
-      await waitFor(() => expect(lastNotes().at(-1)).toEqual(note(64, 13, 4)))
+      await waitFor(() => expect(lastNotes().at(-1)).toEqual(note(64, 13.5, 4)))
+      drag(at(20.25, 65), at(21.4, 65))
+      await waitFor(() => expect(lastNotes().at(-1)?.start).toBe(20.25))
+      expect(lastNotes().at(-1)?.length).toBeCloseTo(1.15)
     })
 
     it('takes the note being drawn to the key under the mouse, hearing it there', async () => {
@@ -656,10 +659,10 @@ describe('the Piano Roll', () => {
       fireEvent.click(playButton())
       await waitFor(() => expect(calls('toggle_pattern')).toEqual([{ patternId: 0, fromStep: 8 }]))
 
-      // Option: on the step, and never past the last one
+      // Option: right where it's clicked, and never past the last step
       fireEvent.pointerDown(ruler(), onRuler(5.6, { altKey: true }))
       fireEvent.pointerUp(ruler(), onRuler(5.6, { altKey: true }))
-      expect(store.getState().pianoRoll.startSteps).toEqual({ 0: 6 })
+      expect(store.getState().pianoRoll.startSteps[0]).toBeCloseTo(5.6)
       fireEvent.pointerDown(ruler(), onRuler(30, { altKey: true }))
       fireEvent.pointerUp(ruler(), onRuler(30, { altKey: true }))
       expect(store.getState().pianoRoll.startSteps).toEqual({ 0: 15 })

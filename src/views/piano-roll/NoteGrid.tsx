@@ -30,7 +30,8 @@ import {
 import { frameDrawer } from './frames'
 import {
   DEFAULT_LENGTH, carriedNotes, centerPitch, clampPitch, cutNotes, drawnLength, fitSelection, followPlaces, markerStep, moveNotes,
-  newNote, noteBoxes, noteCut, pasteStep, pressKind, rollSnapping, sameNotes, snapStep, sortedWithPlaces, timelineEnd, trimNotes,
+  newNote, noteBoxes, noteCut, pasteStep, pressKind, rollSnapping, sameNotes, shortestNote, snapStep, sortedWithPlaces,
+  timelineEnd, trimNotes,
 } from './notes'
 import { clamp } from '../../util/helpers'
 
@@ -512,8 +513,9 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
       } else {
         setCursor('ew-resize')
         setOverlay({ ...NO_OVERLAY, edgeBar: { ids: d.indices, edge: d.edge } })
-        const target = snapStep(point.step + d.grab, snapping())
-        next = trimNotes(d.origin, d.indices, d.index, d.edge, target, limit)
+        const snap = snapping()
+        const target = snapStep(point.step + d.grab, snap)
+        next = trimNotes(d.origin, d.indices, d.index, d.edge, target, limit, shortestNote(snap))
       }
     }
 

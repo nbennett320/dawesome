@@ -76,8 +76,15 @@ tool, *Shift-click* and *Shift-drag* select ([8-4](#_8-4-selecting-notes)).
 beside it sets the grid: **1 bar**, **1/2 bar**, **1 beat**, **1/2 beat** or
 **1/4 beat**. The Piano Roll's snap is its own, apart from the playlist's.
 
-With snap off, or while you hold **Option (Alt)**, notes land on the nearest
-step. Notes always start on a whole step and are whole steps long.
+With snap off, or while you hold **Option (Alt)**, nothing snaps: notes start,
+end, move and cut right where the mouse is, and can be as short as 1/32 of a
+step. With snap on, notes are at least a step long.
+
+::: tip NOTE
+A row whose notes are off the step grid shows them as a note preview in the
+Pattern Sequencer, not as steps (see
+[7-4-2](./patterns.md#_7-4-2-steps-or-a-note-preview)).
+:::
 
 ## 8-3 Drawing notes
 
