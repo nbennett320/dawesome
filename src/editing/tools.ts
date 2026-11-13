@@ -9,9 +9,9 @@ export type Tool = 'select' | 'draw' | 'cut'
 export const TOOLS: ReadonlyArray<Tool> = ['select', 'draw', 'cut']
 
 export const TOOL_LABELS: Record<Tool, string> = {
-  select: 'Select (S)',
-  draw: 'Draw (D)',
-  cut: 'Cut (C)',
+  select: 'Select (S); select and move clips',
+  draw: 'Draw (D); use your cursor to draw an array of clips',
+  cut: 'Cut (C); split clips into pieces',
 }
 
 // S (select), D (draw) or C (cut) with no modifier. matched by the

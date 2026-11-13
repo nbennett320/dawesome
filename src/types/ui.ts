@@ -46,7 +46,6 @@ export const viewLabels: Record<View, string> = {
   [View.Controls]: 'Controls',
 }
 
-// what a view's tab is for, for the info bar while its tab is hovered
 export const viewHints: Record<View, string> = {
   [View.Playlist]: 'The song: clips and patterns laid out along the timeline, a lane per track',
   [View.SamplePreview]: 'Inspect a clip from the playlist and adjust how it plays',

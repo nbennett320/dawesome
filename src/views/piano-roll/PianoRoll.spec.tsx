@@ -202,9 +202,9 @@ describe('the Piano Roll', () => {
   it('has the playlist’s tray: Select, Draw and Cut, with Draw to start, and snap', async () => {
     await open()
     const pressed = (name: string) => screen.getByRole('button', { name }).getAttribute('aria-pressed')
-    expect(pressed('Draw (D)')).toBe('true')
-    expect(pressed('Select (S)')).toBe('false')
-    expect(pressed('Cut (C)')).toBe('false')
+    expect(pressed('Draw (D); use your cursor to draw an array of clips')).toBe('true')
+    expect(pressed('Select (S); select and move clips')).toBe('false')
+    expect(pressed('Cut (C); split clips into pieces')).toBe('false')
 
     key('c')
     expect(store.getState().pianoRoll.tool).toBe('cut')
