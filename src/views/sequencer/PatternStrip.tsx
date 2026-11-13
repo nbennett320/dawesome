@@ -14,7 +14,7 @@ import {
 import { selectPlaylistItems } from '../../state/slices/playlistSlice'
 import { beginSampleDrag } from '../../state/sampleDrag'
 import {
-  BAR_CHOICES, MAX_NOTE_BARS, Pattern, PatternKind, patternBars, patternLabel,
+  BAR_CHOICES, MAX_NOTE_BARS, Pattern, PatternKind, patternBars, patternLabel, unnamedLabel,
 } from '../../types/sequencer'
 import { AnalogButton, Led } from '../../components/fourtrack'
 import { PlayIcon, StopIcon } from '../../components/icons'
@@ -38,7 +38,7 @@ const PatternKey = ({ pattern, selected, playing }: {
       <NameInput
         initial={pattern.name ?? ''}
         aria-label='Pattern name'
-        placeholder={String(pattern.id + 1)}
+        placeholder={unnamedLabel(pattern)}
         maxLength={MAX_NAME_CHARS}
         className='h-7 w-28 text-center'
         onDone={name => {

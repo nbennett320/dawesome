@@ -170,7 +170,7 @@ describe('the Piano Roll', () => {
     setup()
 
     const pattern = await screen.findByRole('combobox', { name: 'Pattern' }) as HTMLSelectElement
-    expect(Array.from(pattern.options).map(o => o.text)).toEqual(['Verse', '2'])
+    expect(Array.from(pattern.options).map(o => o.text)).toEqual(['Verse', 'Sequence 2'])
     fireEvent.change(pattern, { target: { value: '1' } })
     expect(store.getState().sequencer.selected.note).toBe(1)
     expect(screen.getByText('2 bars')).toBeTruthy()

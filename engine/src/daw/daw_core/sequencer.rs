@@ -83,6 +83,14 @@ impl PatternKind {
   pub fn is_drum(&self) -> bool {
     *self == PatternKind::Drum
   }
+
+  // what its patterns are called until they're named: "Loop 3", "Sequence 3"
+  pub fn default_name(&self, n: u64) -> String {
+    match self {
+      PatternKind::Drum => format!("Loop {}", n),
+      PatternKind::Note => format!("Sequence {}", n),
+    }
+  }
 }
 
 // a pattern, as the sequencer keeps it and a project saves it
@@ -90,7 +98,8 @@ impl PatternKind {
 #[serde(rename_all = "camelCase")]
 pub struct Pattern {
   pub id: u64,
-  // unnamed patterns are shown by their number
+  // unnamed patterns (from older projects, or renamed blank) are shown by
+  // their number: see label
   pub name: Option<String>,
   #[serde(default, skip_serializing_if = "PatternKind::is_drum")]
   pub kind: PatternKind,
@@ -296,6 +305,12 @@ fn folder_name(name: &str) -> Result<String, String> {
 }
 
 impl Pattern {
+  // what the pattern is called: its name, or for an unnamed one its kind's
+  // name with its number ("Loop 3")
+  pub fn label(&self) -> String {
+    self.name.clone().unwrap_or_else(|| self.kind.default_name(self.id + 1))
+  }
+
   // whether a row's step is lit
   #[cfg(test)]
   pub fn lit(&self, row_id: u64, step: u32) -> bool {
@@ -688,13 +703,15 @@ impl Sequencer {
     Ok(())
   }
 
-  // a new, empty, unnamed pattern of `bars` bars, at the end. returns its id
+  // a new, empty pattern of `bars` bars, at the end, named "Loop n" or
+  // "Sequence n" (see free_pattern_name). returns its id
   pub fn add_pattern(&mut self, bars: u32, beats_per_bar: u16, kind: PatternKind) -> Result<u64, String> {
     check_bars(kind, bars)?;
     let id = self.next_pattern_id;
+    let name = self.free_pattern_name(kind);
     self.insert_pattern(Pattern {
       id,
-      name: None,
+      name: Some(name),
       kind,
       length: steps_in_bars(bars, beats_per_bar),
       steps: BTreeMap::new(),
@@ -702,6 +719,16 @@ impl Sequencer {
       notes: BTreeMap::new(),
     })?;
     Ok(id)
+  }
+
+  // a new pattern's name: its kind's name with the lowest number no pattern
+  // of that kind is shown with (an unnamed one counts as its label)
+  pub fn free_pattern_name(&self, kind: PatternKind) -> String {
+    let taken: BTreeSet<String> = self.patterns.iter()
+      .filter(|p| p.kind == kind)
+      .map(|p| p.label().to_lowercase())
+      .collect();
+    (1..).map(|n| kind.default_name(n)).find(|name| !taken.contains(&name.to_lowercase())).expect("a free name")
   }
 
   // add a pattern with a known id (from a project)
@@ -864,13 +891,13 @@ impl Sequencer {
   // split a pattern into a pattern per row it uses, each holding just that
   // row's steps, at the same length. a pattern that already holds exactly
   // those steps (made by an earlier split, or by hand) is used rather than
-  // making another; new ones go after the pattern, named like "verse (kick)", or "1 (kick)" unnamed.
+  // making another; new ones go after the pattern, named like "verse (kick)".
   // returns (row's sample, row's name, pattern id), in row order. the
   // pattern itself is left as it is
   pub fn split_pattern(&mut self, id: u64) -> Result<Vec<(String, String, u64)>, String> {
     let source = self.pattern(id).cloned()
       .ok_or_else(|| format!("no pattern with id {}", id))?;
-    let label = source.name.clone().unwrap_or_else(|| (source.id + 1).to_string());
+    let label = source.label();
     // its notes have no sample to go with: exploding would lose them
     if source.kind != PatternKind::Drum {
       return Err(format!("pattern {} is a note pattern, and only a drum pattern can be exploded", label));

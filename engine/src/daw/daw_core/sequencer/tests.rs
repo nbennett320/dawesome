@@ -33,7 +33,7 @@ fn test_a_new_pattern_is_empty_and_its_bars_long() {
   let (seq, _, _, pattern) = kit();
   let p = seq.pattern(pattern).unwrap();
   assert_eq!(p.length, 16);
-  assert_eq!(p.name, None);
+  assert_eq!(p.name.as_deref(), Some("Loop 1"));
   assert!(p.steps.is_empty());
   assert_eq!(seq.pattern_len(pattern, BEAT), Some(ms(2_000)));
 }
@@ -534,8 +534,7 @@ fn test_a_split_is_named_after_a_rows_label() {
   seq.rename_row(kick, "Kick").unwrap();
   let split = seq.split_pattern(pattern).unwrap();
   assert_eq!(split[0].1, "Kick");
-  let name = format!("{} (Kick)", pattern + 1);
-  assert_eq!(seq.pattern(split[0].2).unwrap().name.as_deref(), Some(name.as_str()));
+  assert_eq!(seq.pattern(split[0].2).unwrap().name.as_deref(), Some("Loop 1 (Kick)"));
 }
 
 #[test]
@@ -638,4 +637,56 @@ fn test_labels_and_pan_are_saved_and_restored() {
   // a project from before labels and pan
   let old: SavedRow = serde_json::from_value(serde_json::json!({ "id": 0, "path": KICK, "volume": 1.0 })).unwrap();
   assert_eq!((old.label, old.pan), (None, 0.));
+}
+
+#[test]
+fn test_new_patterns_take_the_lowest_free_number_of_their_kind() {
+  let mut seq = Sequencer::default();
+  let names = |seq: &Sequencer| seq.patterns().iter().map(Pattern::label).collect::<Vec<_>>();
+  let loop1 = seq.add_pattern(1, 4, PatternKind::Drum).unwrap();
+  // each kind counts on its own
+  seq.add_pattern(1, 4, PatternKind::Note).unwrap();
+  let loop2 = seq.add_pattern(1, 4, PatternKind::Drum).unwrap();
+  seq.add_pattern(1, 4, PatternKind::Note).unwrap();
+  assert_eq!(names(&seq), vec!["Loop 1", "Sequence 1", "Loop 2", "Sequence 2"]);
+
+  // a gap is filled first
+  seq.remove_pattern(loop1).unwrap();
+  seq.add_pattern(1, 4, PatternKind::Drum).unwrap();
+  assert_eq!(names(&seq).last().unwrap(), "Loop 1");
+
+  // a pattern renamed off its number frees it; one renamed onto a number
+  // takes it (case aside)
+  seq.rename_pattern(loop2, "verse").unwrap();
+  let fill = seq.add_pattern(1, 4, PatternKind::Drum).unwrap();
+  assert_eq!(seq.pattern(fill).unwrap().label(), "Loop 2");
+  seq.rename_pattern(fill, "loop 3").unwrap();
+  assert_eq!(seq.free_pattern_name(PatternKind::Drum), "Loop 2");
+  seq.rename_pattern(loop2, "Loop 2").unwrap();
+  assert_eq!(seq.free_pattern_name(PatternKind::Drum), "Loop 4");
+}
+
+#[test]
+fn test_unnamed_patterns_are_shown_by_their_kind_and_number() {
+  let mut seq = Sequencer::default();
+  let saved = SavedSequencer {
+    patterns: vec![
+      Pattern { id: 1, name: None, kind: PatternKind::Drum, length: 16, steps: BTreeMap::new(), folder: None, notes: BTreeMap::new() },
+      Pattern { id: 2, name: None, kind: PatternKind::Note, length: 16, steps: BTreeMap::new(), folder: None, notes: BTreeMap::new() },
+    ],
+    ..Default::default()
+  };
+  seq.restore(saved);
+  assert_eq!(seq.pattern(1).unwrap().label(), "Loop 2");
+  assert_eq!(seq.pattern(2).unwrap().label(), "Sequence 3");
+
+  // a new pattern doesn't take a number an old unnamed one is shown with
+  let a = seq.add_pattern(1, 4, PatternKind::Drum).unwrap();
+  let b = seq.add_pattern(1, 4, PatternKind::Drum).unwrap();
+  assert_eq!(seq.pattern(a).unwrap().label(), "Loop 1");
+  assert_eq!(seq.pattern(b).unwrap().label(), "Loop 3");
+
+  // and a pattern renamed blank goes back to its number
+  seq.rename_pattern(a, " ").unwrap();
+  assert_eq!(seq.pattern(a).unwrap().label(), format!("Loop {}", a + 1));
 }

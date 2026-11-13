@@ -20,7 +20,9 @@ const pattern = (steps: Record<string, number[]> = {}, length = 16): Pattern =>
 
 describe('patternLabel', () => {
   it('is the name, or the number from the id', () => {
-    expect(patternLabel({ id: 2, name: null })).toBe('3')
+    expect(patternLabel({ id: 2, name: null })).toBe('Loop 3')
+    expect(patternLabel({ id: 2, name: null, kind: 'drum' })).toBe('Loop 3')
+    expect(patternLabel({ id: 2, name: null, kind: 'note' })).toBe('Sequence 3')
     expect(patternLabel({ id: 2, name: 'verse' })).toBe('verse')
   })
 })
