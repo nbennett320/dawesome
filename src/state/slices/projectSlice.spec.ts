@@ -6,7 +6,7 @@ import { readDir } from '@tauri-apps/plugin-fs'
 import { dirname, documentDir, join } from '@tauri-apps/api/path'
 import playlistReducer, { playlistSlice } from './playlistSlice'
 import projectReducer, {
-  cleanProjectName, confirmQuit, nameProject, setUnsaved, windowTitle, openRecentProject, projectName, runProjectCommand, setProjectPath,
+  cleanProjectName, confirmQuit, quitIfSaved, saveAndQuit, nameProject, setUnsaved, windowTitle, openRecentProject, projectName, runProjectCommand, setProjectPath,
 } from './projectSlice'
 import { LoadedProject, SavedProject } from '../../types/project'
 
@@ -527,5 +527,51 @@ describe('confirmQuit', () => {
     mockMessage.mockResolvedValue('Cancel')
     await quit(store)
     expect(mockInvoke).not.toHaveBeenCalled()
+  })
+})
+
+describe('quitIfSaved', () => {
+  it('quits with nothing unsaved', async () => {
+    engine({ project_has_unsaved_changes: false })
+    expect(await quitIfSaved()()).toBeUndefined()
+    expect(mockInvoke).toHaveBeenLastCalledWith('quit')
+  })
+
+  it("says why, and doesn't quit, with unsaved changes", async () => {
+    engine({ project_has_unsaved_changes: true })
+    expect(await quitIfSaved()()).toMatch(/unsaved/i)
+    expect(mockInvoke).not.toHaveBeenCalledWith('quit')
+    expect(mockMessage).not.toHaveBeenCalled()
+  })
+
+  it("doesn't quit when the engine can't say", async () => {
+    engine({ project_has_unsaved_changes: new Error('no engine') })
+    expect(await quitIfSaved()()).toMatch(/unsaved/i)
+    expect(mockInvoke).not.toHaveBeenCalledWith('quit')
+  })
+})
+
+describe('saveAndQuit', () => {
+  const wq = (store: ReturnType<typeof makeStore>) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    saveAndQuit()(store.dispatch, store.getState as any)
+
+  it('saves, then quits', async () => {
+    const store = makeStore()
+    engine()
+    store.dispatch(setProjectPath('/songs/song/song.dawesome'))
+
+    await wq(store)
+    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/song/song.dawesome', somewhereNew: false })
+    expect(mockInvoke).toHaveBeenLastCalledWith('quit')
+  })
+
+  it("doesn't quit when saving an untitled project is cancelled", async () => {
+    const store = makeStore()
+    engine()
+    mockSave.mockResolvedValue(null)
+
+    await wq(store)
+    expect(mockInvoke).not.toHaveBeenCalledWith('quit')
   })
 })

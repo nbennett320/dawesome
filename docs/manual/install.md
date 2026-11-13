@@ -95,7 +95,7 @@ or **Preferences ▸ Appearance…**. Both open the **Preferences** tab. Changes
 apply as you make them.
 
 ![The Preferences tab](./img/preferences.png)
-<!-- SCREENSHOT: Preferences tab, numbered 1–4 -->
+<!-- SCREENSHOT: Preferences tab, numbered 1–3 -->
 
 1. **Appearance** — **System** follows your system's light or dark mode.
    **Light** and **Dark** keep Dawesome in one mode.
@@ -104,12 +104,21 @@ apply as you make them.
 3. **Dark theme** — The colours used in dark mode. Stock themes: **Charcoal**
    (default) and **Slate Dark**. You can choose both themes ahead of time,
    whichever mode is in use.
-<!-- PROVISIONAL -->
-4. **Plugins open** — Where a plugin's own interface opens: **In a window of
-   their own** (default) or **In a tab**. See [Instruments and
-   effects](./plugins.md).
 
 For more about themes, see [Themes](./themes.md).
+
+### Controls
+
+Choose **Preferences ▸ Controls…** to open the **Controls** tab.
+
+<!-- PROVISIONAL -->
+1. **Plugins open** — Where a plugin's own interface opens: **In a window of
+   their own** (default) or **In a tab**. See [Instruments and
+   effects](./plugins.md).
+2. **Command bar** — Off by default. When it's on, type **:** (outside a
+   text field) to open a vim-style command line in the info bar along the
+   bottom of the window. See [Command bar](../shortcuts.md#command-bar) for
+   the commands.
 
 ## 2-5 Where settings are kept
 

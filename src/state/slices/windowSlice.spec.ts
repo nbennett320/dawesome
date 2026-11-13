@@ -1,4 +1,5 @@
 import reducer, {
+  closeFocusedTab,
   closeTab,
   focusPane,
   keepPluginTabs,
@@ -54,6 +55,16 @@ describe('openTab', () => {
       const tabs = leaves(state.windowPane.root).flatMap(pane => pane.tabs ?? [])
       expect(tabs.filter(tab => tab.component === View.Mixdown)).toEqual([{ component: View.Mixdown }])
     })
+  })
+})
+
+describe('closeFocusedTab', () => {
+  it("closes the focused pane's selected tab, and selects its neighbour", () => {
+    const opened = reducer(reducer(initial(), openTab(View.Mixer)), openTab(View.Mixdown))
+    const state = reducer(opened, closeFocusedTab())
+    const tabs = leaves(state.windowPane.root).flatMap(pane => pane.tabs ?? [])
+    expect(tabs.some(tab => tab.component === View.Mixdown)).toBe(false)
+    expect(tabs.some(tab => tab.component === View.Mixer)).toBe(true)
   })
 })
 

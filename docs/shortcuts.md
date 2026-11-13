@@ -31,6 +31,31 @@ menu items have no shortcut.
 
 See [Projects](./manual/projects.md) and [Mixdown](./manual/mixdown.md).
 
+## Command bar
+
+Turn it on in **Preferences ▸ Controls…** (it's off by default). Then type
+**:** anywhere but a text field, and the info bar along the bottom of the
+window becomes a command line, as in vim. Type a command and press **Enter**.
+**Esc**, clicking away, or **Backspace** on an empty line closes it. Case
+doesn't matter; an unknown command is named in the info bar.
+
+| Command | Action |
+| --- | --- |
+| `:playlist`, `:sample`, `:mixer`, `:transport` | Open that tab, or select it where it's already open |
+| `:sequencer` (`:seq`), `:note-sequencer` (`:notes`) | Open the Drum or Note Sequencer |
+| `:piano-roll` (`:piano`), `:effects-rack` (`:fx`) | Open the Piano Roll or Effects Rack |
+| `:audio`, `:mixdown`, `:controls` | Open the Audio, Mixdown or Controls tab |
+| `:preferences` (`:prefs`, `:appearance`) | Open the Preferences tab |
+| `:play` | Play or pause, as **Space** does |
+| `:stop` | Stop, and go back to the start |
+| `:loop`, `:metronome`, `:countin` | Turn loop, the metronome or count-in on or off |
+| `:w` | Save (**File ▸ Save**) |
+| `:q`, `:q!` | Close the focused tab |
+| `:wq` | Save, then close the focused tab |
+| `:qa` | Quit, if nothing is unsaved. Otherwise the info bar says so, and Dawesome stays open. |
+| `:qa!` | Quit without saving |
+| `:wqa` | Save, then quit. If saving is cancelled, Dawesome stays open. |
+
 ## Edit
 
 | Mac | Windows/Linux | Action |

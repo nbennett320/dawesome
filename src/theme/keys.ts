@@ -28,6 +28,8 @@ export interface Preferences {
   pluginView: 'window' | 'tab'
   // how the Drum Sequencer's step keys look (see StepKeys in preferences.rs)
   stepKeys: StepKeys
+  // whether typing `:` opens the vim-style command bar (see InfoBar)
+  commandBar: boolean
 }
 
 // coloured caps (TR-808), plain caps over a coloured strip (TR-909), or

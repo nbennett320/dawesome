@@ -23,6 +23,7 @@ export const defaultPreferences: Preferences = {
   darkTheme: defaultThemeId('dark'),
   pluginView: 'window',
   stepKeys: 'tr909',
+  commandBar: false,
 }
 
 // settings an older engine doesn't know about (it leaves them out) are

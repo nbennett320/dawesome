@@ -368,4 +368,23 @@ export const confirmQuit = () => (
   await invoke('quit')
 })
 
+// the command line's :qa, as in vim: quit, but only with nothing unsaved.
+// resolves to why it didn't, if it didn't
+export const quitIfSaved = () => async (): Promise<string | undefined> => {
+  // if the engine can't say, don't: better than losing changes
+  const changed = await invoke<boolean>('project_has_unsaved_changes').catch(() => true)
+  if(changed) return 'Unsaved changes (add ! to quit anyway, or :wqa to save and quit)'
+  await invoke('quit')
+  return undefined
+}
+
+// the command line's :wqa: save (asking where, if it's never been saved),
+// then quit. stays open if it wasn't saved, with the notice saying why
+export const saveAndQuit = () => (
+  dispatch: Dispatch,
+  getState: () => RootState,
+): Promise<void> => exclusive(async () => {
+  if(await saveCurrent(dispatch, getState)) await invoke('quit')
+})
+
 export default projectSlice.reducer

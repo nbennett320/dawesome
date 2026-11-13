@@ -89,6 +89,7 @@ Each item opens its tab, or selects it if it is already open.
 | --- | --- |
 | **Appearance…** | Opens the **Preferences** tab (the same as **Dawesome ▸ Preferences…**). |
 | **Audio Settings…** | Opens the **Audio** tab. See [2-3](./install.md#_2-3-audio-settings). |
+| **Controls…** | Opens the **Controls** tab: where plugins open, and the command bar. See [Controls](./install.md#controls). |
 
 ## 3-3 Top bar
 
@@ -189,7 +190,8 @@ The tabs are:
 | **Effects Rack** <!-- PROVISIONAL --> | One channel's effects, in order. | Window menu |
 | **Audio** | Audio settings. | **Preferences ▸ Audio Settings…** |
 | **Mixdown** | Export to WAV or MP3. | **File ▸ Mixdown…** |
-| **Preferences** | Appearance and plugin preferences. | **Dawesome ▸ Preferences…** |
+| **Preferences** | Appearance preferences. | **Dawesome ▸ Preferences…** |
+| **Controls** | Where plugins open, and the command bar. | **Preferences ▸ Controls…** |
 | *plugin name* <!-- PROVISIONAL --> | A plugin's own interface, when plugins open in a tab. | The plugin's open key |
 
 A new window opens with **Playlist**, **Mixer**, **Transport** and

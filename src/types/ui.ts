@@ -24,6 +24,8 @@ export enum View {
   Plugin,
   // the Note Sequencer: a row per synth, and note patterns of their notes
   NoteSequencer,
+  // Preferences › Controls…: how the app is worked (plugins, command bar)
+  Controls,
 }
 
 // the label a view's tab gets when it's opened
@@ -41,6 +43,7 @@ export const viewLabels: Record<View, string> = {
   // (a plugin's tab is named after it, see pluginTabLabel)
   [View.Plugin]: 'Plugin',
   [View.NoteSequencer]: 'Note Sequencer',
+  [View.Controls]: 'Controls',
 }
 
 // how a split pane lays out its children:

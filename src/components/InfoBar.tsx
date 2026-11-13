@@ -1,5 +1,6 @@
 import React from 'react'
-import { useAppDispatch } from '../hooks/redux'
+import { useAppDispatch, useAppSelector } from '../hooks/redux'
+import { selectAppearance } from '../state/slices/appearanceSlice'
 import { findCommand } from '../state/commands'
 import { isTypingTarget } from '../util/keys'
 
@@ -10,10 +11,12 @@ const MESSAGE_MS = 3000
 // can offer a description with a data-hint attribute, or falls back on its
 // title (tooltip); the nearest one up from the hovered element wins.
 //
-// typing `:` (outside a text field) turns it into a command line, as in vim:
+// with the command bar on (Preferences › Controls), typing `:` (outside a
+// text field) turns it into a command line, as in vim:
 // Enter runs the command (see state/commands.ts), Esc puts it away
 const InfoBar = () => {
   const dispatch = useAppDispatch()
+  const enabled = useAppSelector(selectAppearance).preferences.commandBar
   const [hint, setHint] = React.useState('')
   // the command being typed, while the command line is open
   const [line, setLine] = React.useState<string | null>(null)
@@ -48,9 +51,13 @@ const InfoBar = () => {
       setMessage('')
       setLine('')
     }
+    if(!enabled) return undefined
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [enabled])
+
+  // turned off while open: put it away
+  React.useEffect(() => { if(!enabled) setLine(null) }, [enabled])
 
   React.useEffect(() => {
     if(!message) return undefined
@@ -62,8 +69,14 @@ const InfoBar = () => {
     setLine(null)
     if(!typed.trim()) return
     const command = findCommand(typed)
-    if(command) command(dispatch)
-    else setMessage(`Not a command: ${typed.trim()}`)
+    if(!command) {
+      setMessage(`Not a command: ${typed.trim()}`)
+      return
+    }
+    Promise.resolve(command(dispatch))
+      .then(why => { if(typeof why === 'string') setMessage(why) })
+      // eslint-disable-next-line no-console
+      .catch(e => console.error(`:${typed.trim()} failed:`, e))
   }
 
   if(line !== null) {

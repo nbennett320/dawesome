@@ -134,7 +134,7 @@ settings are kept, so the project still works on a machine that has it.
 ## 9-5 Plugin interfaces
 
 Click a plugin's open key in the Effects Rack to show its own interface.
-Where it opens is set in **Preferences** under **Plugins open**:
+Where it opens is set in **Preferences ▸ Controls…** under **Plugins open**:
 
 - **In a window of their own** (the default) — A floating window.
 - **In a tab** — A tab named after the plugin, in the pane the Effects Rack

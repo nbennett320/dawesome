@@ -53,6 +53,8 @@ pub struct Preferences {
   pub dark_theme: String,
   pub plugin_view: PluginView,
   pub step_keys: StepKeys,
+  // whether typing `:` opens the vim-style command bar, along the bottom
+  pub command_bar: bool,
 }
 
 impl Default for Preferences {
@@ -63,6 +65,7 @@ impl Default for Preferences {
       dark_theme: theme::DEFAULT_DARK.to_string(),
       plugin_view: PluginView::Window,
       step_keys: StepKeys::default(),
+      command_bar: false,
     }
   }
 }
@@ -105,6 +108,7 @@ impl Preferences {
       dark_theme: pick(&self.dark_theme, Appearance::Dark, theme::DEFAULT_DARK),
       plugin_view: self.plugin_view,
       step_keys: self.step_keys,
+      command_bar: self.command_bar,
     }
   }
 }
@@ -163,6 +167,7 @@ mod tests {
       dark_theme: "slate-dark".to_string(),
       plugin_view: PluginView::Tab,
       step_keys: StepKeys::Tr8s,
+      command_bar: true,
     };
     prefs.save(&file).unwrap();
     assert_eq!(Preferences::load(&file), prefs);
@@ -170,6 +175,7 @@ mod tests {
     assert!(json.contains("\"lightTheme\"") && json.contains("\"dark\""), "{}", json);
     assert!(json.contains("\"pluginView\": \"tab\""), "{}", json);
     assert!(json.contains("\"stepKeys\": \"tr8s\""), "{}", json);
+    assert!(json.contains("\"commandBar\": true"), "{}", json);
     fs::remove_dir_all(file.parent().unwrap()).ok();
   }
 
@@ -195,6 +201,8 @@ mod tests {
     assert_eq!(prefs.plugin_view, PluginView::Window);
     // and step keys look like a TR-909's
     assert_eq!(prefs.step_keys, StepKeys::Tr909);
+    // and the command bar is off
+    assert!(!prefs.command_bar);
     fs::remove_dir_all(file.parent().unwrap()).ok();
   }
 
@@ -207,6 +215,7 @@ mod tests {
       dark_theme: "slate-dark".to_string(),
       plugin_view: PluginView::Tab,
       step_keys: StepKeys::Tr808,
+      command_bar: true,
     };
     assert_eq!(ok.sanitize(&themes), ok);
 
@@ -216,6 +225,7 @@ mod tests {
       dark_theme: "slate-light".to_string(),
       plugin_view: PluginView::Window,
       step_keys: StepKeys::Tr909,
+      command_bar: false,
     };
     let fixed = bad.sanitize(&themes);
     assert_eq!(fixed.light_theme, theme::DEFAULT_LIGHT);

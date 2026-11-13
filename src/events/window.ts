@@ -41,6 +41,8 @@ export const menuViews: Record<string, View> = {
   // Dawesome › Preferences… and Preferences › Appearance…
   preferences: View.Preferences,
   appearance: View.Preferences,
+  // Preferences › Controls…
+  controls: View.Controls,
 }
 
 // the Window and Preferences menus (and File › Mixdown…): open a tab, or select it where it's already open.
