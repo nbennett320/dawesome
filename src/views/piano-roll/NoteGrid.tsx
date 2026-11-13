@@ -9,7 +9,7 @@ import {
 import { selectFocusedView } from '../../state/slices/windowSlice'
 import { ClipSource, sameCommand } from '../../state/clipCommands'
 import {
-  NoteCommand, NoteShortcut, noteCommand, setNoteCommandRunner,
+  NoteCommand, NoteShortcut, clearsNotes, noteCommand, setNoteCommandRunner,
 } from '../../state/noteCommands'
 import { RAZOR_CURSOR } from '../../editing/cursors'
 import { Edge, edgeAt } from '../../editing/edges'
@@ -329,12 +329,13 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
   }
 
   // a change that's finished: put in order, with the notes at `keep`
-  // (places in `next`) selected where they went, and sent now
-  const commit = (next: Note[], keep: Iterable<number>) => {
+  // (places in `next`) selected where they went, and sent now. `clears`:
+  // notes were deleted, which trims the pattern (see setPatternNotes)
+  const commit = (next: Note[], keep: Iterable<number>, clears = false) => {
     const sorted = sortedWithPlaces(next)
     select(followPlaces(keep, sorted.at))
     latest.current.notes = sorted.notes
-    dispatch(setPatternNotes(pattern.id, rowId, sorted.notes, stepsPerBar))
+    dispatch(setPatternNotes(pattern.id, rowId, sorted.notes, stepsPerBar, clears))
     flushNoteSends()
   }
 
@@ -641,7 +642,7 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
       if(!outcome) return
       if(outcome.notes) {
         latest.current.notes = outcome.notes
-        dispatch(setPatternNotes(patternId, row, outcome.notes, bar))
+        dispatch(setPatternNotes(patternId, row, outcome.notes, bar, clearsNotes(command)))
         flushNoteSends()
       }
       if(outcome.selected) {
@@ -891,7 +892,7 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
     const hit = point.inside ? noteAt(notes, point) : null
     if(hit === null) return
     setOverlay(NO_OVERLAY)
-    commit(notes.filter((_, i) => i !== hit), NO_SELECTION)
+    commit(notes.filter((_, i) => i !== hit), NO_SELECTION, true)
   }
 
   // the ruler: pressed or dragged along, the playhead goes under the mouse

@@ -685,6 +685,35 @@ describe('the Piano Roll', () => {
     await waitFor(() => expect(lastNotes()).toEqual([note(60, 0, 2)]))
   })
 
+  it('has the pattern trimmed when notes are deleted (Delete, ⌘X, a right-click), not moved, pasted or split', async () => {
+    await open([note(60, 0, 2), note(64, 4, 2), note(67, 8, 2)], 'select')
+    const trims = () => calls('set_pattern_notes').map(args => args.trim)
+
+    // moved, copied and pasted
+    drag(at(1, 60), at(3.2, 60))
+    await waitFor(() => expect(lastNotes()).toEqual([note(60, 2, 2), note(64, 4, 2), note(67, 8, 2)]))
+    key('c', { ctrlKey: true })
+    fireEvent.pointerMove(grid(), at(12.5, 50))
+    key('v', { ctrlKey: true })
+    await waitFor(() => expect(lastNotes()).toHaveLength(4))
+    expect(new Set(trims())).toEqual(new Set([false]))
+
+    // the copy cut with ⌘X, a note deleted with Delete, another right-clicked
+    const sent = trims().length
+    key('x', { ctrlKey: true })
+    click(at(5, 64))
+    await deleteSelection([note(60, 2, 2), note(67, 8, 2)])
+    fireEvent.contextMenu(grid(), at(8.5, 67))
+    await waitFor(() => expect(lastNotes()).toEqual([note(60, 2, 2)]))
+    expect(trims().slice(sent)).toEqual([true, true, true])
+
+    // and the Cut tool's split doesn't
+    act(() => { store.dispatch(setPianoRollTool('cut')) })
+    click(at(3, 60))
+    await waitFor(() => expect(lastNotes()).toHaveLength(2))
+    expect(trims().at(-1)).toBe(false)
+  })
+
   it('plays a key of the keyboard on the synth row while it’s held', async () => {
     setup()
     await screen.findByRole('combobox', { name: 'Synth' })

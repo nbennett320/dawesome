@@ -83,10 +83,17 @@ fn add_sample(state: &daw::InnerState, path: &str) -> Result<AddedRow, String> {
   Ok(AddedRow { row_id, sequencer: sequencer_state(state) })
 }
 
-// take a row out, with its notes in every pattern (and a synth row's plugin)
+// take a row out, with its notes in every pattern (and a synth row's
+// plugin), each pattern they were in trimmed to what's left (see
+// Sequencer::trim_pattern)
 #[tauri::command]
 pub fn remove_row(state: daw::TState<'_>, row_id: u64) -> Result<daw::SequencerState, String> {
-  edit(&state, None, |seq| seq.remove_row(row_id))
+  remove_row_of(&state, row_id)
+}
+
+fn remove_row_of(state: &daw::InnerState, row_id: u64) -> Result<daw::SequencerState, String> {
+  let beats = beats_per_bar(state);
+  edit(state, None, |seq| seq.remove_row_and_trim(row_id, beats))
 }
 
 // move a row to `index` in the list
@@ -337,7 +344,9 @@ pub fn set_pattern_bars(state: daw::TState<'_>, pattern_id: u64, bars: u32) -> R
 }
 
 // turn one of a row's steps on or off in a pattern, growing it to fit a
-// step past its end (see Sequencer::set_pattern_step)
+// step past its end (see Sequencer::set_pattern_step). `trim` (a step
+// cleared; missing is false): the pattern is trimmed after, in the same
+// step to undo (see Sequencer::trim_pattern)
 #[tauri::command]
 pub fn set_pattern_step(
   state: daw::TState<'_>,
@@ -346,10 +355,30 @@ pub fn set_pattern_step(
   step: u32,
   on: bool,
   gesture: Option<u64>,
+  trim: Option<bool>,
 ) -> Result<daw::PatternChange, String> {
-  set_step(&state, pattern_id, row_id, step, on, gesture)
+  set_pattern_step_in(&state, pattern_id, row_id, step, on, gesture, trim.unwrap_or(false))
 }
 
+fn set_pattern_step_in(
+  state: &daw::InnerState,
+  pattern_id: u64,
+  row_id: u64,
+  step: u32,
+  on: bool,
+  gesture: Option<u64>,
+  trim: bool,
+) -> Result<daw::PatternChange, String> {
+  let beats = beats_per_bar(state);
+  edit_pattern(state, gesture, pattern_id, |seq| {
+    seq.set_pattern_step(pattern_id, row_id, step, on, beats)?;
+    if trim { seq.trim_pattern(pattern_id, beats)?; }
+    Ok(())
+  })
+}
+
+// set_pattern_step without a trim, for tests
+#[cfg(test)]
 fn set_step(
   state: &daw::InnerState,
   pattern_id: u64,
@@ -358,13 +387,14 @@ fn set_step(
   on: bool,
   gesture: Option<u64>,
 ) -> Result<daw::PatternChange, String> {
-  let beats = beats_per_bar(state);
-  edit_pattern(state, gesture, pattern_id, |seq| seq.set_pattern_step(pattern_id, row_id, step, on, beats))
+  set_pattern_step_in(state, pattern_id, row_id, step, on, gesture, false)
 }
 
 // replace a row's notes in a pattern (the Piano Roll), sorted, growing it to
 // fit the notes added (see Sequencer::edit_pattern_notes). one drag of the
-// mouse (the same gesture) is one step to undo
+// mouse (the same gesture) is one step to undo. `trim` (notes deleted;
+// missing is false): the pattern is trimmed after, in the same step (see
+// Sequencer::trim_pattern)
 #[tauri::command]
 pub fn set_pattern_notes(
   state: daw::TState<'_>,
@@ -372,10 +402,29 @@ pub fn set_pattern_notes(
   row_id: u64,
   notes: Vec<daw::PatternNote>,
   gesture: Option<u64>,
+  trim: Option<bool>,
 ) -> Result<daw::PatternChange, String> {
-  set_notes(&state, pattern_id, row_id, notes, gesture)
+  set_pattern_notes_in(&state, pattern_id, row_id, notes, gesture, trim.unwrap_or(false))
 }
 
+fn set_pattern_notes_in(
+  state: &daw::InnerState,
+  pattern_id: u64,
+  row_id: u64,
+  notes: Vec<daw::PatternNote>,
+  gesture: Option<u64>,
+  trim: bool,
+) -> Result<daw::PatternChange, String> {
+  let beats = beats_per_bar(state);
+  edit_pattern(state, gesture, pattern_id, |seq| {
+    seq.edit_pattern_notes(pattern_id, row_id, notes, beats)?;
+    if trim { seq.trim_pattern(pattern_id, beats)?; }
+    Ok(())
+  })
+}
+
+// set_pattern_notes without a trim, for tests
+#[cfg(test)]
 pub(crate) fn set_notes(
   state: &daw::InnerState,
   pattern_id: u64,
@@ -383,8 +432,22 @@ pub(crate) fn set_notes(
   notes: Vec<daw::PatternNote>,
   gesture: Option<u64>,
 ) -> Result<daw::PatternChange, String> {
+  set_pattern_notes_in(state, pattern_id, row_id, notes, gesture, false)
+}
+
+// the trim a clear held back while the play cursor was in the bars it takes
+// away (the frontend sends it once the cursor has left them), with the
+// clear's gesture, so the two are one step to undo while the clear is the
+// newest. with nothing to trim (notes went back in those bars), nothing
+// changes and it's no step
+#[tauri::command]
+pub fn trim_pattern(state: daw::TState<'_>, pattern_id: u64, gesture: Option<u64>) -> Result<daw::PatternChange, String> {
+  trim_pattern_in(&state, pattern_id, gesture)
+}
+
+fn trim_pattern_in(state: &daw::InnerState, pattern_id: u64, gesture: Option<u64>) -> Result<daw::PatternChange, String> {
   let beats = beats_per_bar(state);
-  edit_pattern(state, gesture, pattern_id, |seq| seq.edit_pattern_notes(pattern_id, row_id, notes, beats))
+  edit_pattern(state, gesture, pattern_id, |seq| seq.trim_pattern(pattern_id, beats))
 }
 
 // loop a pattern on its own, from `from_step` (its start if not given),

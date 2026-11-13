@@ -260,15 +260,16 @@ describe('sequencer edits and undo', () => {
   })
 
   const sent = () => mockInvoke.mock.calls.map(([command, args]) => [command, args.gesture])
+  const getState = () => ({ sequencer: reducer(init(), setSequencer(sequencer)) })
 
   it('sends every step of one stroke, and every value of one knob drag, as one gesture', async () => {
     const dispatch = vi.fn()
 
     // the mouse goes down on a step, and is dragged along the row
     const stroke = beginGesture()
-    await setPatternStep(0, 0, 4, true, 16)(dispatch)
-    await setPatternStep(0, 0, 5, true, 16)(dispatch)
-    await setPatternStep(0, 0, 6, true, 16)(dispatch)
+    await setPatternStep(0, 0, 4, true, 16)(dispatch, getState)
+    await setPatternStep(0, 0, 5, true, 16)(dispatch, getState)
+    await setPatternStep(0, 0, 6, true, 16)(dispatch, getState)
     // the next press: a volume knob
     const drag = beginGesture()
     await setRowVolume(3, 0.8)(dispatch)
@@ -279,13 +280,13 @@ describe('sequencer edits and undo', () => {
       ['set_pattern_step', stroke], ['set_pattern_step', stroke], ['set_pattern_step', stroke],
       ['set_row_volume', drag], ['set_row_volume', drag],
     ])
-    expect(mockInvoke).toHaveBeenCalledWith('set_pattern_step', { patternId: 0, rowId: 0, step: 4, on: true, gesture: stroke })
+    expect(mockInvoke).toHaveBeenCalledWith('set_pattern_step', { patternId: 0, rowId: 0, step: 4, on: true, gesture: stroke, trim: false })
     expect(mockInvoke).toHaveBeenCalledWith('set_row_volume', { rowId: 3, volume: 0.6, gesture: drag })
   })
 
   it('sends a step toggled from the keyboard, and a mute, as steps of their own', async () => {
     const dispatch = vi.fn()
-    await setPatternStep(0, 0, 4, true, 16)(dispatch)
+    await setPatternStep(0, 0, 4, true, 16)(dispatch, getState)
     // a click is a press too, but a mute is always its own step
     beginGesture()
     await setRowMuted(1, true)(dispatch)

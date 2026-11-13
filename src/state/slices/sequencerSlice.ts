@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import type { RootState } from '../store'
 import {
   AddedRow, Note, Pattern, PatternChange, PatternFolder, Row, RowChange, RowKinds, SequencerState, SynthInstrument,
-  isSampleRow, isSynthRow, keepNotes, keepUnchanged, samePattern, sameRow, sortNotes, withNotes, withStep,
+  isSampleRow, isSynthRow, keepNotes, keepUnchanged, samePattern, sameRow, sortNotes, withNotes, withStep, withTrim,
 } from '../../types/sequencer'
 import { PlaylistTransport } from '../../types/transport'
 import { View } from '../../types/ui'
@@ -25,6 +25,7 @@ import {
 import { setProjectNotice } from './projectSlice'
 import { openTab, selectFocusedView } from './windowSlice'
 import { currentGesture } from '../gesture'
+import { EditSend, SequencerRoot, sendClear } from '../pendingTrim'
 
 // a pattern playing on its own, and when it started, for the step highlight
 export interface PatternRun {
@@ -130,26 +131,33 @@ export const sequencerSlice = createSlice({
     },
     // show a step changed straight away, before the engine answers, so
     // painting across a row keeps up with the mouse (and a step past the
-    // end grows the pattern in the same frame)
+    // end grows the pattern in the same frame, as a step cleared with
+    // `trim` trims it: see withTrim)
     reduceStep: (
       state,
-      action: PayloadAction<{ patternId: number, rowId: number, step: number, on: boolean, stepsPerBar: number }>,
+      action: PayloadAction<{
+        patternId: number, rowId: number, step: number, on: boolean, stepsPerBar: number, trim?: boolean,
+      }>,
     ) => {
-      const { patternId, rowId, step, on, stepsPerBar } = action.payload
+      const { patternId, rowId, step, on, stepsPerBar, trim } = action.payload
       const row = original(state.rows).find(r => r.id === rowId)
       const patterns = original(state.patterns)
       const i = patterns.findIndex(p => p.id === patternId)
-      if(row && i >= 0) state.patterns[i] = withStep(patterns[i], row, step, on, stepsPerBar)
+      if(!row || i < 0) return
+      const changed = withStep(patterns[i], row, step, on, stepsPerBar)
+      state.patterns[i] = trim ? withTrim(changed, stepsPerBar) : changed
     },
     // and a row's notes in a pattern (in order), as they're drawn and dragged
     reduceNotes: (
       state,
-      action: PayloadAction<{ patternId: number, rowId: number, notes: Note[], stepsPerBar: number }>,
+      action: PayloadAction<{ patternId: number, rowId: number, notes: Note[], stepsPerBar: number, trim?: boolean }>,
     ) => {
-      const { patternId, rowId, notes, stepsPerBar } = action.payload
+      const { patternId, rowId, notes, stepsPerBar, trim } = action.payload
       const patterns = original(state.patterns)
       const i = patterns.findIndex(p => p.id === patternId)
-      if(i >= 0) state.patterns[i] = withNotes(patterns[i], rowId, notes, stepsPerBar)
+      if(i < 0) return
+      const changed = withNotes(patterns[i], rowId, notes, stepsPerBar)
+      state.patterns[i] = trim ? withTrim(changed, stepsPerBar) : changed
     },
     // and a row moved, as soon as it's dropped
     reduceRowMove: (state, action: PayloadAction<{ rowId: number, index: number }>) => {
@@ -383,14 +391,34 @@ export const renamePattern = (patternId: number, name: string) =>
 export const setPatternBars = (patternId: number, bars: number) =>
   editPattern("change the pattern's length", 'set_pattern_bars', { patternId, bars })
 
+// the trim a clear held back for the play cursor, with the clear's gesture
+// (see sendClear)
+const trimPattern = (patternId: number, gesture: number) =>
+  editPattern('trim the pattern', 'trim_pattern', { patternId, gesture })
+
+// how an edit of a pattern is sent. a clear (`cleared`: the pattern as it
+// leaves it) trims the bars it leaves empty at the end, or holds the trim
+// back while the play cursor is in them (see sendClear). anything else
+// (`cleared` null) doesn't trim. every change made in one press of the
+// mouse is undone together (see state/gesture.ts)
+const sendOf = (
+  cleared: Pattern | null, stepsPerBar: number, dispatch: Dispatch, getState: () => SequencerRoot,
+): EditSend => (cleared
+  ? sendClear(cleared, stepsPerBar, getState, gesture => trimPattern(cleared.id, gesture)(dispatch))
+  : { trim: false, gesture: currentGesture() })
+
 // light or clear a row's step (see withStep). a step past the end grows the
-// pattern, in bars of `stepsPerBar` steps (the time signature's)
+// pattern, in bars of `stepsPerBar` steps (the time signature's), and one
+// cleared trims it (see sendOf)
 export const setPatternStep = (patternId: number, rowId: number, step: number, on: boolean, stepsPerBar: number) =>
-  (dispatch: Dispatch) => {
-    dispatch(reduceStep({ patternId, rowId, step, on, stepsPerBar }))
-    // every step painted in one stroke of the mouse is undone together
-    const gesture = currentGesture()
-    return editPattern('change the step', 'set_pattern_step', { patternId, rowId, step, on, gesture })(dispatch)
+  (dispatch: Dispatch, getState: () => SequencerRoot) => {
+    const { rows, patterns } = getState().sequencer
+    const row = rows.find(r => r.id === rowId)
+    const pattern = patterns.find(p => p.id === patternId)
+    const cleared = !on && row && pattern ? withStep(pattern, row, step, false, stepsPerBar) : null
+    const { trim, gesture } = sendOf(cleared, stepsPerBar, dispatch, getState)
+    dispatch(reduceStep({ patternId, rowId, step, on, stepsPerBar, trim }))
+    return editPattern('change the step', 'set_pattern_step', { patternId, rowId, step, on, gesture, trim })(dispatch)
   }
 
 // how often a pattern's notes are sent while they're being dragged
@@ -405,6 +433,8 @@ interface QueuedNotes {
   // the gesture they were changed in, taken when they were (it may be over
   // by the time they're sent)
   gesture: number | null
+  // whether the engine trims the pattern after (notes deleted: see sendOf)
+  trim: boolean
   dispatch: Dispatch
 }
 const queuedNotes = new Map<string, QueuedNotes | null>()
@@ -416,10 +446,10 @@ const queueKey = (patternId: number, rowId: number) => `${patternId}:${rowId}`
 // answer kept while newer notes are waiting to be sent
 let noteSends = 0
 
-const sendNotes = ({ patternId, rowId, notes, gesture, dispatch }: QueuedNotes): Promise<void> => {
+const sendNotes = ({ patternId, rowId, notes, gesture, trim, dispatch }: QueuedNotes): Promise<void> => {
   noteSends += 1
   const send = noteSends
-  return invoke<PatternChange>('set_pattern_notes', { patternId, rowId, notes, gesture })
+  return invoke<PatternChange>('set_pattern_notes', { patternId, rowId, notes, gesture, trim })
     .then(change => {
       if(send === noteSends && !queuedNotes.get(queueKey(patternId, rowId))) dispatch(reducePattern(change))
     })
@@ -433,19 +463,24 @@ const sendNotes = ({ patternId, rowId, notes, gesture, dispatch }: QueuedNotes):
 // replace a row's notes in a pattern. put in order first, as the engine
 // keeps them, so its answer doesn't move them about (anything kept by a
 // note's place in the list has to follow them: see the Piano Roll's
-// sortedWithPlaces). shown straight away (grown to fit the notes added, in
-// bars of `stepsPerBar` steps: see withNotes), and sent at most every
-// SEND_NOTES_EVERY_MS, the latest always last (flushNoteSends sends it now).
-// every change made in one drag is one step to undo: see state/gesture.ts
-export const setPatternNotes = (patternId: number, rowId: number, notes: Note[], stepsPerBar: number) =>
-  (dispatch: Dispatch): Promise<void> => {
+// sortedWithPlaces). shown straight away, grown to fit the notes added, in
+// bars of `stepsPerBar` steps (see withNotes), or trimmed when they were
+// deleted (`clears`: see sendOf). sent at most every SEND_NOTES_EVERY_MS,
+// the latest always last (flushNoteSends sends it now). every change made
+// in one drag is one step to undo: see state/gesture.ts
+export const setPatternNotes = (patternId: number, rowId: number, notes: Note[], stepsPerBar: number, clears = false) =>
+  (dispatch: Dispatch, getState: () => SequencerRoot): Promise<void> => {
     const sorted = sortNotes(notes)
-    dispatch(reduceNotes({ patternId, rowId, notes: sorted, stepsPerBar }))
+    const pattern = clears ? getState().sequencer.patterns.find(p => p.id === patternId) : undefined
+    const cleared = pattern ? withNotes(pattern, rowId, sorted, stepsPerBar) : null
+    const { trim, gesture } = sendOf(cleared, stepsPerBar, dispatch, getState)
+    dispatch(reduceNotes({ patternId, rowId, notes: sorted, stepsPerBar, trim }))
     const key = queueKey(patternId, rowId)
-    const change = { patternId, rowId, notes: sorted, gesture: currentGesture(), dispatch }
+    const change = { patternId, rowId, notes: sorted, gesture, trim, dispatch }
 
     if(queuedNotes.has(key)) {
-      queuedNotes.set(key, change)
+      // (a deletion waiting to be sent keeps its trim)
+      queuedNotes.set(key, { ...change, trim: trim || !!queuedNotes.get(key)?.trim })
       return Promise.resolve()
     }
 

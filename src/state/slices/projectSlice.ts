@@ -9,6 +9,7 @@ import { SynthInstrument } from '../../types/sequencer'
 import { newProject, openProject, saveProject } from './playlistSlice'
 import { clearPendingMixerSends } from './mixerSlice'
 import { setSequencer } from './sequencerSlice'
+import { dropHeldTrim } from '../pendingTrim'
 import { fileName } from '../../util/helpers'
 
 // the File menu's project commands (ids of the engine's menu items, see
@@ -167,8 +168,10 @@ const exclusive = async (run: () => Promise<void>) => {
 // whether it opened
 const openFrom = async (dispatch: Dispatch, path: string): Promise<boolean> => {
   try {
-    // fader moves not sent yet belong to the old project
+    // fader moves not sent yet, and a trim held for the play cursor,
+    // belong to the old project
     clearPendingMixerSends()
+    dropHeldTrim()
     const missing = await openProject(path)(dispatch)
     const { samples, effects, synths, dropped } = missing
     dispatch(setProjectPath(path))
@@ -299,6 +302,7 @@ export const runProjectCommand = (command: ProjectCommand) => (
 
       try {
         clearPendingMixerSends()
+        dropHeldTrim()
         await newProject()(dispatch)
         dispatch(setProjectPath(null))
         dispatch(settleProject())

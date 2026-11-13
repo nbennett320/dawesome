@@ -204,6 +204,7 @@ fn init_tauri() {
       remove_pattern_folder,
       set_pattern_bars,
       set_pattern_step,
+      trim_pattern,
       play_pattern,
       toggle_pattern,
       seek_pattern,

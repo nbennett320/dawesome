@@ -36,6 +36,10 @@ export interface NoteTarget {
   focused: boolean
 }
 
+// whether a command takes notes away, which trims the bars it leaves empty
+// at the pattern's end (see trimmedLength)
+export const clearsNotes = (command: NoteCommand): boolean => command === 'delete' || command === 'cut'
+
 // what a command changed: the notes (in order), and what's selected after
 export interface NoteOutcome {
   notes?: Note[]

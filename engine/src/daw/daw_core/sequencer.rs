@@ -408,6 +408,13 @@ impl Pattern {
     self.notes_of(row).iter().any(|note| note.start == step as f64)
   }
 
+  // where its last note ends, of any row (notes past its end too), in
+  // steps. 0 when it has none. (the notes are sorted by start, not end, so
+  // each one is looked at)
+  fn last_end(&self) -> f64 {
+    self.notes.values().flat_map(|notes| notes.iter()).map(PatternNote::end).fold(0., f64::max)
+  }
+
   // a row's notes that start inside the pattern: the ones it plays. (its
   // notes are sorted, so they're the ones before the first past its end)
   fn heard(&self, row: u64) -> &[PatternNote] {
@@ -822,6 +829,15 @@ pub fn grown_length(length: u32, end: f64, bar: u32) -> u32 {
   length.max(fit.min(cap))
 }
 
+// the length a pattern trims to (auto-trim, after a clear): to the end of
+// the bar (`bar` steps) holding its last note's end (see Pattern::last_end),
+// never below its floor or a bar, never longer than it is. the frontend's
+// trimmedLength is the same (src/types/sequencer.ts)
+pub fn trimmed_length(length: u32, floor: u32, last_end: f64, bar: u32) -> u32 {
+  let fit = if last_end > 0. { ((last_end - 1e-9) / bar as f64).ceil() as u32 * bar } else { 0 };
+  length.min(floor.max(fit).max(bar))
+}
+
 // where the notes in `new` that aren't in `old` end, the furthest of them
 // (0 when none was added). notes are compared on all they are, and a note
 // in `new` twice but in `old` once counts once as added. the frontend's
@@ -1071,16 +1087,32 @@ impl Sequencer {
     (2..).map(|n| format!("{} {}", name, n)).find(|candidate| free(candidate)).expect("a free name")
   }
 
-  // take a row out, and its notes out of every pattern (a synth row's
-  // plugin follows: see commands/synth.rs)
+  // take a row out, and its notes out of every pattern, each pattern that
+  // held them then trimmed to what's left, in bars of `beats_per_bar` beats
+  // (see trim_pattern). a synth row's plugin follows: see commands/synth.rs
+  pub fn remove_row_and_trim(&mut self, id: u64, beats_per_bar: u16) -> Result<(), String> {
+    for pattern in self.take_row(id)? {
+      self.trim_pattern(pattern, beats_per_bar)?;
+    }
+    Ok(())
+  }
+
+  // remove_row_and_trim without the trim, for tests
+  #[cfg(test)]
   pub fn remove_row(&mut self, id: u64) -> Result<(), String> {
+    self.take_row(id).map(drop)
+  }
+
+  // take a row out, and its notes out of every pattern. returns the
+  // patterns that held them
+  fn take_row(&mut self, id: u64) -> Result<Vec<u64>, String> {
     let at = self.rows.iter().position(|r| r.id == id).ok_or_else(|| no_row(id))?;
     Arc::make_mut(&mut self.rows).remove(at);
     let holding: Vec<u64> = self.patterns.iter().filter(|p| p.notes.contains_key(&id)).map(|p| p.id).collect();
-    for pattern in holding {
+    for &pattern in &holding {
       self.pattern_mut(pattern)?.notes.remove(&id);
     }
-    Ok(())
+    Ok(holding)
   }
 
   // a row's volume as a gain, kept between 0 and ROW_VOLUME_MAX
@@ -1373,6 +1405,17 @@ impl Sequencer {
     let pattern = self.pattern_mut(pattern_id)?;
     pattern.length = length;
     if let Some(notes) = toggled { pattern.set_notes(row_id, notes); }
+    Ok(())
+  }
+
+  // auto-trim: a pattern made as short as its notes let it, in bars of
+  // `beats_per_bar` beats (see trimmed_length). the empty bars a clear left
+  // at its end go, down to its floor (where the bars counter put it). with
+  // nothing to trim, nothing changes, its rev included
+  pub fn trim_pattern(&mut self, id: u64, beats_per_bar: u16) -> Result<(), String> {
+    let pattern = self.pattern(id).ok_or_else(|| format!("no pattern with id {}", id))?;
+    let length = trimmed_length(pattern.length, pattern.floor, pattern.last_end(), steps_in_bars(1, beats_per_bar));
+    if length != pattern.length { self.pattern_mut(id)?.length = length; }
     Ok(())
   }
 

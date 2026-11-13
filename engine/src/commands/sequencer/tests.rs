@@ -917,3 +917,90 @@ fn test_a_sample_rows_pitch_and_gate_change_no_notes() {
   assert!(edit_row(s, None, synth, |seq| seq.set_row_gated(synth, true)).unwrap_err().contains("plays a synth"));
   assert_eq!(steps(s), had_synth);
 }
+
+#[test]
+fn test_a_clear_and_its_trim_are_one_step() {
+  let (state, kick, _, pattern, _, _) = drums();
+  let s: &daw::InnerState = &state;
+  let length = || sequencer_state(s).pattern(pattern).unwrap().length;
+  // a step in bar 3 grew the pattern
+  set_step(s, pattern, kick, 40, true, None).unwrap();
+  assert_eq!(length(), 48);
+  let had = steps(s);
+  let before = saved(s);
+
+  // cleared, with a trim: back to a bar
+  assert_eq!(set_pattern_step_in(s, pattern, kick, 40, false, None, true).unwrap().pattern.length, 16);
+  assert_eq!(steps(s), had + 1);
+  history::undo(&state).unwrap();
+  assert_eq!(saved(s), before);
+  history::redo(&state).unwrap();
+  assert_eq!(length(), 16);
+
+  // notes deleted in the Piano Roll, the same
+  set_notes(s, pattern, kick, vec![note(60, 0.), note(60, 40.)], None).unwrap();
+  let had = steps(s);
+  let before = saved(s);
+  assert_eq!(set_pattern_notes_in(s, pattern, kick, vec![note(60, 0.)], None, true).unwrap().pattern.length, 16);
+  assert_eq!(steps(s), had + 1);
+  history::undo(&state).unwrap();
+  assert_eq!(saved(s), before);
+}
+
+#[test]
+fn test_a_held_trim_joins_the_clears_step() {
+  let (state, kick, _, pattern, _, _) = drums();
+  let s: &daw::InnerState = &state;
+  set_step(s, pattern, kick, 40, true, None).unwrap();
+  let had = steps(s);
+  let before = saved(s);
+
+  // cleared while the play cursor was in bar 3: no trim yet
+  assert_eq!(set_pattern_step_in(s, pattern, kick, 40, false, Some(9), false).unwrap().pattern.length, 48);
+  // the cursor has left it: the trim, with the clear's gesture
+  assert_eq!(trim_pattern_in(s, pattern, Some(9)).unwrap().pattern.length, 16);
+  assert_eq!(steps(s), had + 1);
+  // one undo brings the step and the bars back
+  history::undo(&state).unwrap();
+  assert_eq!(saved(s), before);
+}
+
+#[test]
+fn test_a_trim_with_nothing_to_trim_is_no_step() {
+  let (state, kick, _, pattern, _, _) = drums();
+  let s: &daw::InnerState = &state;
+  set_step(s, pattern, kick, 40, true, None).unwrap();
+  set_pattern_step_in(s, pattern, kick, 40, false, Some(9), false).unwrap();
+  // a step lit in those bars meanwhile
+  set_step(s, pattern, kick, 44, true, Some(10)).unwrap();
+  let had = steps(s);
+  let before = revs(s);
+
+  assert_eq!(trim_pattern_in(s, pattern, Some(9)).unwrap().pattern.length, 48);
+  assert_eq!(steps(s), had);
+  assert_eq!(revs(s), before);
+  assert!(trim_pattern_in(s, 99, None).unwrap_err().contains("no pattern with id 99"));
+  assert_eq!(steps(s), had);
+}
+
+#[test]
+fn test_removing_a_row_trims_its_patterns_and_one_undo_brings_it_all_back() {
+  let (state, _, snare, pattern, _, _) = drums();
+  let s: &daw::InnerState = &state;
+  let other = add_pattern_of(s, 1).unwrap().id;
+  set_step(s, pattern, snare, 40, true, None).unwrap();
+  set_step(s, other, snare, 20, true, None).unwrap();
+  let had = steps(s);
+  let before = saved(s);
+
+  let after = remove_row_of(s, snare).unwrap();
+  let lengths: Vec<u32> = [pattern, other].iter().map(|&p| after.pattern(p).unwrap().length).collect();
+  assert_eq!(lengths, vec![16, 16]);
+  assert_eq!(steps(s), had + 1);
+
+  history::undo(&state).unwrap();
+  assert_eq!(saved(s), before);
+  let seq = state.playlist.sequencer.lock().unwrap();
+  assert!(seq.pattern(pattern).unwrap().lit(snare, 40));
+  assert_eq!(seq.pattern(other).unwrap().length, 32);
+}

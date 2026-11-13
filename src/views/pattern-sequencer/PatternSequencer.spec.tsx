@@ -12,7 +12,7 @@ import effectsReducer from '../../state/slices/effectsSlice'
 import appearanceReducer, { setPreferences } from '../../state/slices/appearanceSlice'
 import sequencerReducer, { sequencerSlice } from '../../state/slices/sequencerSlice'
 import { DragItem, beginSampleDrag, onSampleDrag } from '../../state/sampleDrag'
-import { Note, Row, SequencerState, withStep } from '../../types/sequencer'
+import { Note, Pattern, Row, SequencerState, withStep, withTrim } from '../../types/sequencer'
 import {
   freshRev, pattern, sampleRow, sequencerOf, steps, synthRow,
 } from '../../types/sequencer.fixture'
@@ -139,11 +139,14 @@ beforeEach(() => {
       sequencer = { ...sequencer, rows: moved }
       return sequencer
     }
-    // the step as the engine sets it (grown), at a rev of its own
+    // the step as the engine sets it (grown, or trimmed), at a rev of its own
     if(command === 'set_pattern_step') {
-      const { patternId, rowId, step, on } = args as { patternId: number, rowId: number, step: number, on: boolean }
+      const { patternId, rowId, step, on, trim } = args as {
+        patternId: number, rowId: number, step: number, on: boolean, trim: boolean,
+      }
+      const set = (p: Pattern) => withStep(p, row(rowId), step, on, 16)
       const patterns = sequencer.patterns.map(p => (p.id === patternId
-        ? { ...withStep(p, row(rowId), step, on, 16), rev: freshRev() }
+        ? { ...(trim ? withTrim(set(p), 16) : set(p)), rev: freshRev() }
         : p))
       sequencer = { ...sequencer, patterns }
       return { pattern: patterns.find(p => p.id === patternId) }
@@ -239,7 +242,7 @@ describe('the Pattern Sequencer', () => {
     fireEvent.mouseUp(window)
     fireEvent.mouseEnter(key(7))
     expect(calls('set_pattern_step').map(args => (args as { step: number }).step)).toEqual([4, 5, 6])
-    expect(calls('set_pattern_step')[0]).toEqual({ patternId: 0, rowId: 2, step: 4, on: true, gesture: null })
+    expect(calls('set_pattern_step')[0]).toEqual({ patternId: 0, rowId: 2, step: 4, on: true, gesture: null, trim: false })
   })
 
   it('shows a bar of greyed keys past the end, and grows the pattern to the one clicked, straight away', async () => {
@@ -253,9 +256,18 @@ describe('the Pattern Sequencer', () => {
     expect(store.getState().sequencer.patterns[0].length).toBe(32)
     expect(keysOf('kick')[20].getAttribute('aria-pressed')).toBe('true')
     expect(greyed()[0].title).toMatch(/^Step 33\./)
-    expect(calls('set_pattern_step')).toEqual([{ patternId: 0, rowId: 0, step: 20, on: true, gesture: null }])
+    expect(calls('set_pattern_step')).toEqual([{ patternId: 0, rowId: 0, step: 20, on: true, gesture: null, trim: false }])
     await act(async () => {})
     expect(store.getState().sequencer.patterns[0].length).toBe(32)
+
+    // cleared: the bar it leaves empty goes, in the same frame too
+    fireEvent.mouseUp(window)
+    fireEvent.mouseDown(keysOf('kick')[20], { button: 0 })
+    expect(store.getState().sequencer.patterns[0].length).toBe(16)
+    expect(greyed()[0].title).toMatch(/^Step 17\./)
+    expect(calls('set_pattern_step')[1]).toEqual({ patternId: 0, rowId: 0, step: 20, on: false, gesture: null, trim: true })
+    await act(async () => {})
+    expect(store.getState().sequencer.patterns[0].length).toBe(16)
   })
 
   it('shows no greyed bar on a pattern as long as a pattern can be', async () => {

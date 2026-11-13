@@ -204,6 +204,34 @@ export const withStep = (pattern: Pattern, row: Row, step: number, on: boolean, 
     : notes.filter(note => !atStep(note)), stepsPerBar)
 }
 
+// where a pattern's last note ends, of any row (notes past its end too), in
+// steps. 0 when it has none. (the notes are sorted by start, not end, so
+// each one is looked at)
+export const lastEnd = (pattern: Pick<Pattern, 'notes'>): number => {
+  let end = 0
+  for(const notes of Object.values(pattern.notes)) {
+    for(const note of notes) end = Math.max(end, note.start + note.length)
+  }
+  return end
+}
+
+// the length a pattern trims to (auto-trim, after a clear): to the end of
+// the bar holding its last note's end (see lastEnd), never below its floor
+// or a bar, never longer than it is. the engine's trimmed_length is the same
+export const trimmedLength = (pattern: Pattern, stepsPerBar: number): number => {
+  const end = lastEnd(pattern)
+  const fit = end > 0 ? Math.ceil((end - 1e-9) / stepsPerBar) * stepsPerBar : 0
+  return Math.min(pattern.length, Math.max(pattern.floor, fit, stepsPerBar))
+}
+
+// a pattern trimmed (see trimmedLength), as the engine will trim it
+// (unconfirmed until it answers). the pattern itself when there's nothing
+// to trim
+export const withTrim = (pattern: Pattern, stepsPerBar: number): Pattern => {
+  const length = trimmedLength(pattern, stepsPerBar)
+  return length === pattern.length ? pattern : { ...pattern, rev: UNCONFIRMED, length }
+}
+
 // a row's notes in a pattern `length` steps long, as the steps they light,
 // in order. null when they aren't plain steps, and the row shows them as
 // notes instead. only notes starting inside the pattern count: each must

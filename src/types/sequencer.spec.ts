@@ -25,6 +25,9 @@ import {
   synthRowBySlot,
   withNotes,
   withStep,
+  lastEnd,
+  trimmedLength,
+  withTrim,
   patternHint,
   searchPatterns,
   folderKey,
@@ -205,6 +208,48 @@ describe('withStep', () => {
     expect(grown.notes).toBe(p.notes)
     const cleared = withStep(p, row, 20, false, BAR)
     expect([cleared.length, cleared.notes]).toEqual([16, {}])
+  })
+})
+
+describe('lastEnd', () => {
+  it('is where the last note of any row ends, past the pattern’s end too, or 0 for none', () => {
+    expect(lastEnd(pattern(0))).toBe(0)
+    // a long note ends after a later one
+    expect(lastEnd(pattern(0, { notes: { 1: [note(60, 0, 20), note(62, 8)] } }))).toBe(20)
+    expect(lastEnd(pattern(0, { notes: { 1: [note(60, 0, 20)], 2: [note(60, 70, 2)] } }))).toBe(72)
+  })
+})
+
+describe('trimmedLength', () => {
+  // grown to 4 bars from 1, its floor unless given
+  const grown = (notes: Record<string, Note[]>, floor = BAR) => pattern(0, { length: 64, floor, notes })
+
+  it('is the end of the bar holding the last end, as the engine trims', () => {
+    expect(trimmedLength(grown({ 1: [note(60, 20)] }), BAR)).toBe(32)
+    expect(trimmedLength(grown({ 1: [note(60, 31)] }), BAR)).toBe(32)
+    expect(trimmedLength(grown({ 1: [note(60, 32, 0.5)] }), BAR)).toBe(48)
+    expect(trimmedLength(grown({ 1: [note(60, 13)] }), 12)).toBe(24)
+  })
+
+  it('never goes below the floor or a bar, nor past the length', () => {
+    expect(trimmedLength(grown({ 1: [note(60, 4)] }, 32), BAR)).toBe(32)
+    expect(trimmedLength(grown({}), BAR)).toBe(16)
+    expect(trimmedLength(grown({}, 1), BAR)).toBe(16)
+    // a note past the end counts, but never makes it longer
+    expect(trimmedLength(grown({ 1: [note(60, 0), note(60, 70)] }), BAR)).toBe(64)
+  })
+})
+
+describe('withTrim', () => {
+  it('trims, unconfirmed until the engine answers, or is the pattern itself with nothing to trim', () => {
+    const p = pattern(0, { length: 64, floor: 16, notes: { 1: [note(60, 20)] } })
+    const trimmed = withTrim(p, BAR)
+    expect([trimmed.length, trimmed.floor, trimmed.rev]).toEqual([32, 16, UNCONFIRMED])
+    expect(trimmed.notes).toBe(p.notes)
+    expect(withTrim(trimmed, BAR)).toBe(trimmed)
+    // (the bars counter's length is its floor)
+    const counted = pattern(1, { length: 64 })
+    expect(withTrim(counted, BAR)).toBe(counted)
   })
 })
 

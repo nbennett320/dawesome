@@ -55,7 +55,7 @@ describe('setPatternNotes', () => {
     const store = makeStore()
     store.dispatch(setPatternNotes(2, 8, [note(50)], 16))
     expect(store.getState().sequencer.patterns[0].notes).toEqual({ 8: [note(50)] })
-    expect(sends()).toEqual([{ patternId: 2, rowId: 8, notes: [note(50)], gesture: null }])
+    expect(sends()).toEqual([{ patternId: 2, rowId: 8, notes: [note(50)], gesture: null, trim: false }])
   })
 
   it('puts the notes in order, by start then pitch, before showing and sending them', () => {
@@ -63,7 +63,7 @@ describe('setPatternNotes', () => {
     store.dispatch(setPatternNotes(2, 7, [note(64, 4), note(60, 4), note(72, 0)], 16))
     const inOrder = [note(72, 0), note(60, 4), note(64, 4)]
     expect(notesShown(store)).toEqual(inOrder)
-    expect(sends()).toEqual([{ patternId: 2, rowId: 7, notes: inOrder, gesture: null }])
+    expect(sends()).toEqual([{ patternId: 2, rowId: 7, notes: inOrder, gesture: null, trim: false }])
   })
 
   it('shows the notes straight away, and sends the whole list with the drag’s gesture', () => {
@@ -72,13 +72,13 @@ describe('setPatternNotes', () => {
     store.dispatch(setPatternNotes(2, 7, [note(60)], 16))
 
     expect(notesShown(store)).toEqual([note(60)])
-    expect(sends()).toEqual([{ patternId: 2, rowId: 7, notes: [note(60)], gesture }])
+    expect(sends()).toEqual([{ patternId: 2, rowId: 7, notes: [note(60)], gesture, trim: false }])
   })
 
   it('a change made without the mouse is a step of its own', () => {
     const store = makeStore()
     store.dispatch(setPatternNotes(2, 7, [], 16))
-    expect(sends()).toEqual([{ patternId: 2, rowId: 7, notes: [], gesture: null }])
+    expect(sends()).toEqual([{ patternId: 2, rowId: 7, notes: [], gesture: null, trim: false }])
   })
 
   it('sends at most every so often while dragging, the latest last, all in one gesture', () => {
@@ -96,8 +96,8 @@ describe('setPatternNotes', () => {
     endGesture()
     flushNoteSends()
     expect(sends()).toEqual([
-      { patternId: 2, rowId: 7, notes: [note(60)], gesture },
-      { patternId: 2, rowId: 7, notes: [note(62)], gesture },
+      { patternId: 2, rowId: 7, notes: [note(60)], gesture, trim: false },
+      { patternId: 2, rowId: 7, notes: [note(62)], gesture, trim: false },
     ])
   })
 

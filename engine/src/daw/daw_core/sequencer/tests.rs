@@ -284,6 +284,114 @@ fn test_added_end() {
 }
 
 #[test]
+fn test_trimmed_length() {
+  // to the end of the bar holding the last end
+  assert_eq!(trimmed_length(64, 16, 20., 16), 32);
+  assert_eq!(trimmed_length(64, 16, 32., 16), 32);
+  assert_eq!(trimmed_length(64, 16, 32.5, 16), 48);
+  // never below the floor, nor a bar (no notes at all)
+  assert_eq!(trimmed_length(64, 32, 4., 16), 32);
+  assert_eq!(trimmed_length(64, 16, 0., 16), 16);
+  assert_eq!(trimmed_length(64, 1, 0., 16), 16);
+  // never longer than it is (a note past its end)
+  assert_eq!(trimmed_length(48, 16, 70., 16), 48);
+  assert_eq!(trimmed_length(12, 12, 0., 16), 12);
+  // in bars of the time signature
+  assert_eq!(trimmed_length(64, 16, 13., 12), 24);
+}
+
+#[test]
+fn test_a_trim_takes_the_empty_bars_at_the_end() {
+  let (mut seq, kick, snare, pattern) = kit();
+  let length = |seq: &Sequencer| seq.pattern(pattern).unwrap().length;
+  // grown to 4 bars, with steps in bars 1, 3 and 4
+  seq.set_step(pattern, kick, 0, true).unwrap();
+  seq.set_step(pattern, kick, 40, true).unwrap();
+  seq.set_step(pattern, snare, 50, true).unwrap();
+  assert_eq!(length(&seq), 64);
+
+  // bar 4 cleared: to the end of bar 3, the empty bar 2 kept
+  seq.set_step(pattern, snare, 50, false).unwrap();
+  seq.trim_pattern(pattern, 4).unwrap();
+  assert_eq!(length(&seq), 48);
+  // bar 3 too: to bar 1, the floor where it was
+  seq.set_step(pattern, kick, 40, false).unwrap();
+  seq.trim_pattern(pattern, 4).unwrap();
+  assert_eq!((length(&seq), seq.pattern(pattern).unwrap().floor), (16, 16));
+  // in bars of the time signature now
+  seq.set_step(pattern, kick, 40, true).unwrap();
+  seq.set_step(pattern, kick, 40, false).unwrap();
+  seq.set_step(pattern, kick, 14, true).unwrap();
+  seq.trim_pattern(pattern, 3).unwrap();
+  assert_eq!(length(&seq), 24);
+  assert!(seq.trim_pattern(99, 4).is_err());
+}
+
+#[test]
+fn test_a_trim_never_goes_below_the_floor() {
+  let (mut seq, kick, _, pattern) = kit();
+  let length = |seq: &Sequencer| seq.pattern(pattern).unwrap().length;
+  // the bars counter set 2 bars, and a step in bar 4 grew it
+  seq.set_pattern_bars(pattern, 2, 4).unwrap();
+  seq.set_step(pattern, kick, 50, true).unwrap();
+  seq.set_step(pattern, kick, 50, false).unwrap();
+  seq.trim_pattern(pattern, 4).unwrap();
+  assert_eq!(length(&seq), 32);
+
+  // empty, it stays 2 bars, and with nothing to trim nothing changes, its
+  // rev included
+  let rev = seq.pattern(pattern).unwrap().rev.get();
+  seq.trim_pattern(pattern, 4).unwrap();
+  assert_eq!(length(&seq), 32);
+  assert_eq!(seq.pattern(pattern).unwrap().rev.get(), rev);
+
+  // a pattern whose floor is its length (the counter's, or an old
+  // project's) keeps its empty bars
+  let set = seq.add_pattern(4, 4).unwrap();
+  seq.set_step(set, kick, 0, true).unwrap();
+  seq.trim_pattern(set, 4).unwrap();
+  assert_eq!(seq.pattern(set).unwrap().length, 64);
+}
+
+#[test]
+fn test_notes_past_the_end_count_for_the_last_end() {
+  let (mut seq, kick, _, pattern) = kit();
+  seq.set_step(pattern, kick, 40, true).unwrap();
+  // bar 3's step cleared, a note kept past the end (not heard) in its place
+  seq.set_pattern_notes(pattern, kick, vec![step(0.), note(60, 52., 1.)]).unwrap();
+  seq.trim_pattern(pattern, 4).unwrap();
+  assert_eq!(seq.pattern(pattern).unwrap().length, 48);
+  // without it: to bar 1
+  seq.set_pattern_notes(pattern, kick, vec![step(0.)]).unwrap();
+  seq.trim_pattern(pattern, 4).unwrap();
+  assert_eq!(seq.pattern(pattern).unwrap().length, 16);
+}
+
+#[test]
+fn test_removing_a_row_trims_every_pattern_it_emptied() {
+  let (mut seq, kick, snare, pattern) = kit();
+  let other = seq.add_pattern(1, 4).unwrap();
+  let kept = seq.add_pattern(1, 4).unwrap();
+  let untouched = seq.add_pattern(1, 4).unwrap();
+  // the snare's steps in the last bars of two patterns, grown for them
+  seq.set_step(pattern, kick, 0, true).unwrap();
+  seq.set_step(pattern, snare, 40, true).unwrap();
+  seq.set_step(other, snare, 20, true).unwrap();
+  // a pattern still long for the kick, and one without the snare
+  seq.set_step(kept, kick, 40, true).unwrap();
+  seq.set_step(kept, snare, 4, true).unwrap();
+  seq.set_step(untouched, kick, 20, true).unwrap();
+  let (_, before) = revs(&seq);
+
+  seq.remove_row_and_trim(snare, 4).unwrap();
+  let lengths: Vec<u32> = [pattern, other, kept, untouched].iter().map(|&p| seq.pattern(p).unwrap().length).collect();
+  assert_eq!(lengths, vec![16, 16, 48, 32]);
+  assert!(seq.row(snare).is_none());
+  let (_, after) = revs(&seq);
+  assert_eq!(changed(&before, &after), vec![pattern, other, kept]);
+}
+
+#[test]
 fn test_a_step_follows_the_rows_step_pitch() {
   let (mut seq, kick, _, pattern) = kit();
   seq.row_mut(kick).unwrap().step_pitch = 36;
