@@ -10,7 +10,9 @@ const CountInButton = () => {
   const dispatch = useAppDispatch()
 
   return (
-    <LatchKey label='Count in a bar before recording' on={countIn} onToggle={() => dispatch(toggleCountIn())}>
+    <LatchKey label='Count in a bar before recording'
+      hint={countIn ? 'Count-in is on: recording starts after one bar. Click to turn it off' : 'Count-in is off. Click to count in one bar before recording starts'}
+      on={countIn} onToggle={() => dispatch(toggleCountIn())}>
       <CountInIcon />
     </LatchKey>
   )
