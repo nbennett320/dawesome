@@ -338,9 +338,9 @@ export const allIndices = (notes: Note[]): Set<number> => new Set(notes.map((_, 
 export const fitSelection = (selected: ReadonlySet<number>, notes: Note[]): ReadonlySet<number> =>
   ([...selected].every(i => i < notes.length) ? selected : new Set([...selected].filter(i => i < notes.length)))
 
-// the pitch the grid is centred on when it opens: the middle of the
+// the pitch the grid is centerd on when it opens: the middle of the
 // pattern's notes, or middle C
-export const centrePitch = (notes: Note[]): number => {
+export const centerPitch = (notes: Note[]): number => {
   if(!notes.length) return MIDDLE_C
   const low = Math.min(...notes.map(n => n.pitch))
   const high = Math.max(...notes.map(n => n.pitch))

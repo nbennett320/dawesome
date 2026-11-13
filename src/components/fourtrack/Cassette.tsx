@@ -11,7 +11,7 @@ const HEIGHT_WITH_TAPE_PATH = 272
 export const cassetteAspect = (tapePath = false) =>
   WIDTH / (tapePath ? HEIGHT_WITH_TAPE_PATH : HEIGHT)
 
-// reel centres, seen through the window
+// reel centers, seen through the window
 const REEL_Y = 92
 const LEFT_X = 112
 const RIGHT_X = 208

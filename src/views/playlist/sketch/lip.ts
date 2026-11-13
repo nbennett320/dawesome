@@ -70,7 +70,7 @@ export const inBox = (box: Box, x: number, y: number): boolean =>
   x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h
 
 // the middle of a label's LED
-export const ledCentre = ({ x, y, w, h }: Box) => ({
+export const ledCenter = ({ x, y, w, h }: Box) => ({
   x: x + w - LIP.padRight - LIP.wellRadius,
   y: y + h / 2,
 })
@@ -80,7 +80,7 @@ const LED_SLOP = 3
 
 // whether a point is on a label's LED (which mutes and solos its track)
 export const onLed = (box: Box, x: number, y: number): boolean => {
-  const c = ledCentre(box)
+  const c = ledCenter(box)
   return Math.hypot(x - c.x, y - c.y) <= LIP.wellRadius + LED_SLOP
 }
 
@@ -122,7 +122,7 @@ const UNLIT = 0.45
 // `name` is already fitted (fitName), in capitals
 export const drawLip = (ctx: CanvasRenderingContext2D, box: Box, name: string, colors: LipColors, look: LipLook) => {
   const { x, y, w, h } = box
-  const { x: cx, y: cy } = ledCentre(box)
+  const { x: cx, y: cy } = ledCenter(box)
   const { lit, ring } = look
 
   ctx.save()

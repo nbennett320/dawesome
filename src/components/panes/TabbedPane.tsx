@@ -14,14 +14,14 @@ import {
 import { leaves } from '../../state/paneTree'
 import { useAppDispatch, useAppSelector } from '../../hooks/redux'
 import { matchViewComponent } from '../../views/matchViewComponent'
-import { keyOf, PaneTab, TabKey, WindowNode } from '../../types/ui'
+import { keyOf, PaneTab, TabKey, viewHints, WindowNode } from '../../types/ui'
 import { cssVar } from '../../theme/apply'
 import { AnalogButton, Led } from '../fourtrack'
 import { DraggedTab, PANE_TAB, useDraggingTab } from './dragTab'
 import { CloseIcon, SplitIcon } from '../icons'
 
 // where a tab dropped on a pane's body goes: an edge splits the pane there,
-// the centre moves the tab into the pane
+// the center moves the tab into the pane
 type DropZone = 'left' | 'right' | 'top' | 'bottom' | 'center'
 
 // how close to an edge (as a fraction of the pane) counts as that edge
@@ -84,6 +84,7 @@ const TabItem = ({ pane, tab, index, selected, lit }: TabItemProps) => {
     <div
       ref={node => { dragRef(dropRef(node)) }}
       className='group flex flex-row items-center gap-2 h-8 pl-3 pr-1.5'
+      data-hint={`${label}: ${viewHints[tab.component]}. Drag the tab to move it, or onto a pane to split it`}
       style={{ boxShadow: isOver ? `inset 2px 0 0 ${cssVar('accent')}` : undefined }}
     >
       <Led color='blue' state={lit ? 'on' : 'off'} />

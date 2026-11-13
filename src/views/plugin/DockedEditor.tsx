@@ -52,7 +52,7 @@ const sameSize = (a: Size | null, b: Size) => !!a && a.width === b.width && a.he
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 // a plugin's own interface, docked: the engine lays its native view over
-// the placeholder here, which takes the size the engine says it is, centred
+// the placeholder here, which takes the size the engine says it is, centerd
 // on the panel. the native view sits above the page, so nothing of the page
 // may go over the placeholder
 //

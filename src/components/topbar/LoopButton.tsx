@@ -9,7 +9,9 @@ const LoopButton = () => {
   const dispatch = useAppDispatch()
 
   return (
-    <LatchKey label='Loop' on={loop} onToggle={() => dispatch(toggleLoop())}>
+    <LatchKey label='Loop'
+      hint={loop ? 'Loop is on: playback jumps back to the start after the last clip. Click to turn it off' : 'Loop is off. Click to repeat the song from the start after the last clip'}
+      on={loop} onToggle={() => dispatch(toggleLoop())}>
       <LoopIcon />
     </LatchKey>
   )

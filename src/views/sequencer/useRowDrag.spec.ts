@@ -3,7 +3,7 @@ import { gapAt, moveIndex } from './useRowDrag'
 
 describe('dragging a row', () => {
   it('finds the gap nearest the mouse', () => {
-    // rows centred at 10, 40 and 70
+    // rows centerd at 10, 40 and 70
     const mids = [10, 40, 70]
     expect(gapAt(mids, 0)).toBe(0)
     expect(gapAt(mids, 11)).toBe(1)

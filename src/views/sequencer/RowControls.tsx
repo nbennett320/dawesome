@@ -139,7 +139,7 @@ const RowControls = ({
             onChange={onPan}
             label={`${name} pan`}
             formatValue={formatPan}
-            title={`Pan ${formatPan(pan)}. Double-click to centre`}
+            title={`Pan ${formatPan(pan)}. Double-click to center`}
           />
         )}
       </div>
@@ -153,7 +153,7 @@ const RowControls = ({
         onPress={onRemove}
       >
         {/* an icon, not "×": a key's letter-spacing put the character off
-            centre */}
+            center */}
         <CloseIcon width={10} height={10} />
       </AnalogButton>
 

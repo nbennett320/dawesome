@@ -284,8 +284,8 @@ pub fn open_window(
     }
     None => {
       window.panel.center();
-      let centred = window.panel.frame();
-      NSPoint::new(centred.origin.x, centred.origin.y + centred.size.height)
+      let centerd = window.panel.frame();
+      NSPoint::new(centerd.origin.x, centerd.origin.y + centerd.size.height)
     }
   };
   window.panel.setFrameTopLeftPoint(on_screen(mtm, top_left, frame.size));

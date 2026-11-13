@@ -24,6 +24,8 @@ export enum View {
   Plugin,
   // the Note Sequencer: a row per synth, and note patterns of their notes
   NoteSequencer,
+  // Preferences › Controls…: how the app is worked (plugins, command bar)
+  Controls,
 }
 
 // the label a view's tab gets when it's opened
@@ -41,6 +43,23 @@ export const viewLabels: Record<View, string> = {
   // (a plugin's tab is named after it, see pluginTabLabel)
   [View.Plugin]: 'Plugin',
   [View.NoteSequencer]: 'Note Sequencer',
+  [View.Controls]: 'Controls',
+}
+
+export const viewHints: Record<View, string> = {
+  [View.Playlist]: 'The song: clips and patterns laid out along the timeline, a lane per track',
+  [View.SamplePreview]: 'Inspect a clip from the playlist and adjust how it plays',
+  [View.Mixer]: "Every track's volume, pan, mute and solo, and the master",
+  [View.Transport]: 'The tape deck: a cassette and its play, pause, stop and wind keys',
+  [View.Sequencer]: 'The Drum Sequencer: rows of samples, and drum patterns of 16th-note steps',
+  [View.AudioSettings]: 'Which devices the engine plays and records through, and its buffer size',
+  [View.Mixdown]: 'Export the song to a WAV or MP3 file',
+  [View.Preferences]: 'How the app looks: appearance, themes and step key style',
+  [View.EffectsRack]: "One channel's effects, in the order the sound goes through them",
+  [View.PianoRoll]: "A pattern's notes on a grid of steps, against a piano keyboard",
+  [View.Plugin]: "A plugin's own interface",
+  [View.NoteSequencer]: 'The Note Sequencer: a row per synth, and note patterns of their notes',
+  [View.Controls]: 'How the app is worked: where plugins open, and the command bar',
 }
 
 // how a split pane lays out its children:

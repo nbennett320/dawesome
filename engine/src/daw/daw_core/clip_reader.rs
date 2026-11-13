@@ -356,12 +356,12 @@ mod tests {
   #[test]
   fn test_a_mono_sample_is_on_both_sides_and_pan_turns_one_down() {
     let pcm = pcm(1, 44_100, 100);
-    let centre = new_way(&pcm, &ClipSettings::default(), 44_100);
-    assert!(centre.chunks(2).all(|frame| frame[0] == frame[1]));
+    let center = new_way(&pcm, &ClipSettings::default(), 44_100);
+    assert!(center.chunks(2).all(|frame| frame[0] == frame[1]));
 
     let left = new_way(&pcm, &ClipSettings { pan: -1., ..Default::default() }, 44_100);
     assert!(left.chunks(2).all(|frame| frame[1] == 0.));
-    assert!(left.chunks(2).zip(centre.chunks(2)).all(|(a, b)| a[0] == b[0]));
+    assert!(left.chunks(2).zip(center.chunks(2)).all(|(a, b)| a[0] == b[0]));
   }
 
   // the output frames [lead, end) of a clip

@@ -29,11 +29,16 @@ const RecordButton = () => {
   if(recording) title = 'Stop recording'
   else if(!anyArmed) title = 'Record (arm a track first, with the R key on its mixer strip)'
 
+  let hint = 'Record: record every armed track from the playhead'
+  if(recording) hint = 'Stop recording'
+  else if(!anyArmed) hint = 'Record: no tracks armed yet. Arm one with the R key on its mixer strip'
+
   return (
     <AnalogButton
       size='sm'
       aria-label={recording ? 'Stop recording' : 'Record'}
       title={title}
+      data-hint={hint}
       latched={recording}
       onPress={() => { dispatch(toggleRecording()) }}
     >

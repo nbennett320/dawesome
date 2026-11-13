@@ -15,7 +15,7 @@ use rodio::Source;
 pub struct ClipSettings {
   // volume change in decibels, 0 is unchanged
   pub gain_db: f32,
-  // stereo position, -1 is hard left, 0 is centre, 1 is hard right
+  // stereo position, -1 is hard left, 0 is center, 1 is hard right
   pub pan: f32,
   // semitones up or down, which also changes the speed
   pub pitch: f32,
@@ -175,7 +175,7 @@ impl<S: Source<Item = f32>> Source for Envelope<S> {
 // source goes to both, a stereo source keeps its own left and right (any
 // channels past the first two are dropped)
 //
-// uses a balance law: at the centre both sides are unchanged, and panning
+// uses a balance law: at the center both sides are unchanged, and panning
 // turns the opposite side down, to silence at hard left or right
 #[cfg(test)]
 pub struct Pan<S> {

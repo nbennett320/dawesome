@@ -29,7 +29,7 @@ Moving a control is heard straight away, even partway through a clip.
    **Return** (Enter) to keep it, **Escape** to cancel. Clear the name to go
    back to **Track *n***. A track silenced by another track's solo is shown in
    italics.
-2. **Pan** — Shows **C** (centre), or **L** / **R** and a percentage.
+2. **Pan** — Shows **C** (center), or **L** / **R** and a percentage.
 3. Fader scale — +6, 0, -10, -20, -40 dB.
 4. Fader — The track's volume.
 5. Meter — The track's level.
@@ -61,7 +61,7 @@ or `-inf` for silent. Press **Return** to set it, **Escape** to cancel.
 ### 10-2-2 Pan
 
 *Drag* the **Pan** knob up or down. Hold **Shift** for fine moves.
-*Double-click* to centre it.
+*Double-click* to center it.
 
 ### 10-2-3 Mute and solo
 

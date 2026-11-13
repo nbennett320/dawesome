@@ -16,6 +16,9 @@ const PlayPauseButton = () => {
       latched={playing}
       aria-label={playing ? 'Pause' : 'Play'}
       title={playing ? 'Pause' : 'Play'}
+      data-hint={playing
+        ? 'Pause: stop where the playhead is (Space)'
+        : 'Play from the playhead, or loop the open pattern in the sequencer or piano roll (Space)'}
       // in the Sequencer, loops its pattern instead (see togglePlayHere)
       onPress={() => dispatch(togglePlayHere())}
     >

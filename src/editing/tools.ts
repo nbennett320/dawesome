@@ -1,4 +1,5 @@
 // the mouse tools, the same in the playlist and the Piano Roll
+import { View } from '../types/ui'
 
 // what the mouse does to the items in a view:
 // - select: move and trim them (shift+drag draws a box in every tool)
@@ -8,10 +9,20 @@ export type Tool = 'select' | 'draw' | 'cut'
 
 export const TOOLS: ReadonlyArray<Tool> = ['select', 'draw', 'cut']
 
-export const TOOL_LABELS: Record<Tool, string> = {
-  select: 'Select (S)',
-  draw: 'Draw (D)',
-  cut: 'Cut (C)',
+// each view's names for them, saying what they do to its items
+export type ToolView = View.Playlist | View.PianoRoll
+
+export const TOOL_LABELS: Record<ToolView, Record<Tool, string>> = {
+  [View.Playlist]: {
+    select: 'Select (S); select and move clips',
+    draw: 'Draw (D); use your cursor to draw an array of clips',
+    cut: 'Cut (C); split clips into pieces',
+  },
+  [View.PianoRoll]: {
+    select: 'Select (S); select and move notes',
+    draw: 'Draw (D); click to draw a note, drag right to set its length',
+    cut: 'Cut (C); split notes into pieces',
+  },
 }
 
 // S (select), D (draw) or C (cut) with no modifier. matched by the

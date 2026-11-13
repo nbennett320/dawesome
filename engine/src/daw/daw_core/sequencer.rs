@@ -359,8 +359,8 @@ pub struct SavedRow {
   pub label: Option<String>,
   #[serde(default = "default_row_volume")]
   pub volume: f32,
-  // left out when centred (and by projects from before pan)
-  #[serde(default, skip_serializing_if = "is_centred")]
+  // left out when centerd (and by projects from before pan)
+  #[serde(default, skip_serializing_if = "is_centerd")]
   pub pan: f32,
   #[serde(default)]
   pub muted: bool,
@@ -368,7 +368,7 @@ pub struct SavedRow {
 
 fn default_row_volume() -> f32 { ROW_VOLUME }
 
-fn is_centred(pan: &f32) -> bool { *pan == 0. }
+fn is_centerd(pan: &f32) -> bool { *pan == 0. }
 
 // the sequencer as saved in a project
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

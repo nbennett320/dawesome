@@ -5,7 +5,7 @@ export type AnalogButtonSize = 'xs' | 'sm' | 'md' | 'lg'
 
 export interface AnalogButtonProps
   extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'onClick'> {
-  // an icon (or short text), centred on the cap
+  // an icon (or short text), centerd on the cap
   children?: React.ReactNode
   size?: AnalogButtonSize
   // held down like a latching key. leave it out for momentary keys

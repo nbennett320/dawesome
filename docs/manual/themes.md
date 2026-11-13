@@ -20,7 +20,7 @@ each.
 Changes apply as you make them. There is no **OK** button.
 
 ![The Preferences tab](./img/preferences.png)
-<!-- SCREENSHOT: Preferences tab, Appearance / Light theme / Dark theme / Plugins open -->
+<!-- SCREENSHOT: Preferences tab, Appearance / Light theme / Dark theme -->
 
 ## 13-2 Built-in themes
 
@@ -165,5 +165,6 @@ warning, so a theme written for a newer version still loads.
 
 <!-- PROVISIONAL -->
 
-The **Plugins open** setting on the same tab is described in
+The **Plugins open** setting, on the **Controls** tab (**Preferences ▸
+Controls…**), is described in
 [Instruments and effects](./plugins.md).

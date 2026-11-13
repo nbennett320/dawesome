@@ -83,7 +83,7 @@ impl AtomicF32 {
 pub struct ChannelSettings {
   // fader position in decibels, MIN_DB (silent) to MAX_DB
   pub volume_db: f32,
-  // -1 is hard left, 0 is centre, 1 is hard right
+  // -1 is hard left, 0 is center, 1 is hard right
   pub pan: f32,
   pub mute: bool,
   pub solo: bool,
@@ -437,7 +437,7 @@ impl Mixer {
 // it plays, and the loudest sample for the meter. the engine runs one on each
 // bus, a block at a time (ChannelStrip runs one on a source, in tests)
 //
-// pan uses the same balance law as a clip's pan: at the centre both sides are
+// pan uses the same balance law as a clip's pan: at the center both sides are
 // unchanged, and panning turns the opposite side down. sources that aren't
 // stereo only get the volume
 pub struct Strip {

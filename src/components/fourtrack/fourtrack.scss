@@ -460,7 +460,7 @@ $led-colors: 'red', 'amber', 'lime', 'blue';
     box-shadow: 0 0 0 1px var(--ft-line), 0 1px 2px rgb(var(--c-shadow) / .12);
   }
 
-  // a line from the centre to the edge
+  // a line from the center to the edge
   &__ptr {
     position: absolute;
     left: calc(50% - 1px);

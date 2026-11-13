@@ -27,7 +27,7 @@ export interface KnobProps {
 }
 
 // drag up and down (shift for fine moves), arrow keys (shift for big steps),
-// Home/End, or double-click to centre
+// Home/End, or double-click to center
 export const Knob = ({
   value,
   defaultValue,

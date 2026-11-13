@@ -68,7 +68,7 @@ const useClipWaveform = (id: number | undefined, path: string | undefined): Load
 const round = (n: number, places = 2) => Number(n.toFixed(places))
 
 const panHint = (pan: number) => {
-  if(Math.abs(pan) < 0.005) return 'Centre'
+  if(Math.abs(pan) < 0.005) return 'Center'
   return `${Math.round(Math.abs(pan) * 100)}% ${pan < 0 ? 'left' : 'right'}`
 }
 

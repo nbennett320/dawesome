@@ -67,7 +67,7 @@ clip in the playlist to inspect it.**
 | Setting | Range | Default | What it does |
 | --- | --- | --- | --- |
 | **Gain** | −60 to +12 dB | 0 dB | The clip's volume. |
-| **Pan** | 100% left to 100% right | Centre | Where the clip sits left to right. |
+| **Pan** | 100% left to 100% right | Center | Where the clip sits left to right. |
 | **Pitch** | −24 to +24 st | 0 st | Raises or lowers the pitch in semitones. The clip also plays faster or slower (12 st up is twice as fast), so its length changes. |
 | **Attack** | 0 ms to 10 s, and no longer than the clip | 0 ms | Fade in. |
 | **Decay** | 0 ms to 10 s, and no longer than the clip | 0 ms | Fade out. |
@@ -79,7 +79,7 @@ To change a setting:
 - *Double-click* the setting's label or knob to reset it.
 
 Under the fields for **Pan**, **Pitch**, **Attack** and **Decay**, a short
-note describes the value (for example **Centre**, the speed for **Pitch**,
+note describes the value (for example **Center**, the speed for **Pitch**,
 or **Fade in**).
 
 Stretching a clip in the playlist (*Shift-drag* an edge) also changes its

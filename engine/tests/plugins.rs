@@ -889,11 +889,11 @@ fn editors_float_in_their_own_windows() -> Result<Outcome, String> {
   ensure(!host.isKeyWindow() || !panel.isKeyWindow(), "both windows are key")?;
   let host_frame = host.frame();
   let (x, y) = chow_window.position();
-  let centre = (x + panel.frame().size.width / 2., y - panel.frame().size.height / 2.);
-  let host_centre = (host_frame.origin.x + host_frame.size.width / 2., host_frame.origin.y + host_frame.size.height / 2.);
+  let center = (x + panel.frame().size.width / 2., y - panel.frame().size.height / 2.);
+  let host_center = (host_frame.origin.x + host_frame.size.width / 2., host_frame.origin.y + host_frame.size.height / 2.);
   ensure(
-    (centre.0 - host_centre.0).abs() < 2. && (centre.1 - host_centre.1).abs() < 2.,
-    format!("CHOW's window isn't centred over the host: {:?} vs {:?}", centre, host_centre),
+    (center.0 - host_center.0).abs() < 2. && (center.1 - host_center.1).abs() < 2.,
+    format!("CHOW's window isn't centerd over the host: {:?} vs {:?}", center, host_center),
   )?;
   lines.push(format!("\n          CHOW opened at {:?}, top-left {:?}{}", size, (x, y), shot(panel, "1-chow-window")));
 
@@ -1072,7 +1072,7 @@ fn pancake_docks_over_the_page() -> Result<Outcome, String> {
 
 // CHOW (resizable) and PanCake 2 (fixed) docked at once, each in a pane much
 // bigger than it, in a window off the screen: CHOW fills its pane, PanCake
-// sits centred in its with the page showing around it (not black), and
+// sits centerd in its with the page showing around it (not black), and
 // clicks around it reach the page
 #[cfg(target_os = "macos")]
 fn plugins_dock_side_by_side() -> Result<Outcome, String> {
@@ -1109,7 +1109,7 @@ fn plugins_dock_side_by_side() -> Result<Outcome, String> {
     format!("CHOW didn't fill its pane: {:?}", chow_size),
   )?;
   ensure(pancake_size.0 < 760 && pancake_size.1 < 800, format!("PanCake is too big to check around: {:?}", pancake_size))?;
-  // PanCake centred in its pane, as the page would ask
+  // PanCake centerd in its pane, as the page would ask
   let (pw, ph) = (pancake_size.0 as f64, pancake_size.1 as f64);
   let (px, py) = (820. + (800. - pw) / 2., (840. - ph) / 2.);
   pancake_dock.place(right, px, py);
@@ -1143,7 +1143,7 @@ fn plugins_dock_side_by_side() -> Result<Outcome, String> {
   }
   let inside = pixel(px + pw / 2., py + ph / 2.);
   lines.push(format!(
-    "\n          CHOW filled {:?} of 800x840, PanCake {:?} centred; around it {:?} as the page, inside {:?}{}",
+    "\n          CHOW filled {:?} of 800x840, PanCake {:?} centerd; around it {:?} as the page, inside {:?}{}",
     chow_size,
     pancake_size,
     background,

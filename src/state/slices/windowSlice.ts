@@ -113,6 +113,13 @@ export const windowSlice = createSlice({
       state.windowPane.root = paneTree.closeTab(state.windowPane.root, action.payload)
       fixFocus(state)
     },
+    // close the focused pane's selected tab (the command line's :q)
+    closeFocusedTab: state => {
+      const pane = paneTree.findPane(state.windowPane.root, state.focusedPaneId)
+      if(!pane?.activeTab) return
+      state.windowPane.root = paneTree.closeTab(state.windowPane.root, pane.activeTab)
+      fixFocus(state)
+    },
     // close the plugin tabs of slots that aren't listed (removed, or with
     // nothing to show)
     keepPluginTabs: (state, action: PayloadAction<number[]>) => {
@@ -195,6 +202,7 @@ export const {
   setTapePathVisible,
   selectTab,
   closeTab,
+  closeFocusedTab,
   moveTab,
   splitPane,
   openTab,

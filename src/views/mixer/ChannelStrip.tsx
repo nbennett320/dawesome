@@ -230,7 +230,7 @@ const ChannelStrip = ({
             <span className='ft-label text-[8px] tracking-normal'>L</span>
             <Knob
               label={`${label} pan`}
-              title='Drag up or down, or double-click to centre'
+              title='Drag up or down, or double-click to center'
               size={38}
               min={-1}
               max={1}

@@ -33,7 +33,7 @@ const paint = painter('waveform')
 // space for the beat labels along the top
 const RULER_HEIGHT = 16
 // how tall the wave is at 0 dB, as a fraction of the space either side of
-// the centre line, leaving room to show gain boosts
+// the center line, leaving room to show gain boosts
 const UNITY_HEIGHT = 0.6
 // envelope handles: drawn radius, and how close counts as grabbing one
 const HANDLE_RADIUS = 5
@@ -43,7 +43,7 @@ type Handle = 'attack' | 'decay'
 
 // y values around their average, scaled so the loudest point reaches ±1
 // (the engine's 0..1 scaling doesn't put silence at 0.5)
-const centredLevels = (ys: Float32Array): number[] => {
+const centerdLevels = (ys: Float32Array): number[] => {
   if(!ys.length) return []
 
   const mean = ys.reduce((a, b) => a + b, 0) / ys.length
@@ -141,8 +141,8 @@ const draw = (
     }
   }
 
-  // centre line
-  ctx.strokeStyle = paint.css('centre')
+  // center line
+  ctx.strokeStyle = paint.css('center')
   ctx.lineWidth = 1
   ctx.beginPath()
   ctx.moveTo(0, Math.round(mid) + 0.5)
@@ -182,7 +182,7 @@ const draw = (
       ctx.clip()
     }
 
-    // shade between the wave and the centre line
+    // shade between the wave and the center line
     ctx.fillStyle = paint.css('fill')
     ctx.beginPath()
     ctx.moveTo(0, mid)
@@ -263,7 +263,7 @@ const ClipWaveform = ({ data, settings, tempo, window: clipWindow, onEnvelopeCha
   const [dragging, setDragging] = React.useState<Handle | null>(null)
   const [hovered, setHovered] = React.useState<Handle | null>(null)
 
-  const levels = React.useMemo(() => centredLevels(data.levels), [data.levels])
+  const levels = React.useMemo(() => centerdLevels(data.levels), [data.levels])
   const layout: Layout = {
     width: size.width,
     height: size.height,
