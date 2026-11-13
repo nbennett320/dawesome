@@ -11,7 +11,6 @@ grid of 16th-note steps against a piano keyboard. The other rows' notes are
 drawn faintly behind them. Any row can be edited here, a sample row or a
 synth row (see [7-3 Rows](./patterns.md#_7-3-rows)).
 
-<!-- VERIFY: at db48287 the Piano Roll edits synth rows only; stage 7 of the pattern merge (context/pattern-merge-project/02-plan.md) makes it edit any row. Check once stage 7 lands. -->
 
 ## 8-1 Opening the Piano Roll
 
@@ -26,8 +25,10 @@ Do one of the following:
   synth row.
 
 The Piano Roll shows the same pattern as the Pattern Sequencer. If the
-project has no pattern, click **New pattern**. If it has no rows yet, it
-says so, with a key that opens the Pattern Sequencer.
+project has no pattern, it says "No pattern yet" and offers **New pattern**.
+If it has no rows yet, it says "No rows yet. Drag a sample or an instrument
+into the Pattern Sequencer to draw its notes", with a key that opens the
+Pattern Sequencer.
 
 ![The Piano Roll tab](./img/piano-roll.png)
 <!-- SCREENSHOT: retake: Piano Roll on a synth row with ghost notes from sample rows, a few notes, one selected, the shaded area past the pattern's end, numbered 1–9 -->
@@ -47,12 +48,12 @@ says so, with a key that opens the Pattern Sequencer.
 7. Keyboard — Each C is named (middle C is C4).
 8. Grid — One row per semitone, one column per step. Beats and bars are
    drawn stronger. The grid goes on past the pattern's end, which is
-   shaded.
+   shaded: 4 bars past the end, or past the furthest you have scrolled, up
+   to 128 bars.
 9. Notes — The row's notes. Selected notes are drawn in the accent color.
    The other rows' notes are drawn faintly behind them; they can't be
    selected or edited here.
 
-<!-- VERIFY: stage 7 details, from 02-plan.md stage 7 and 01-answers.md L3, L4, P5. At db48287 the picker is labelled "Synth" and lists synth rows only; the header shows "Length" as text, not the Bars counter; the grid stops at the pattern's end, with no end marker in the ruler; and the no-rows text is "No synth yet. Drag an instrument into the Pattern Sequencer to draw its notes". Check the picker's label, the counter, the end marker and the empty text once stage 7 lands. -->
 
 ## 8-2 Tools and snap
 
@@ -87,11 +88,11 @@ With the **Draw** tool:
 
 You hear each note as you draw it.
 
-You can draw past the pattern's end. The pattern grows to the end of the
-bar the note ends in, up to 128 bars (see
+You can draw past the pattern's end. Moving or trimming a note past it
+works the same way. The pattern grows to the end of the bar the note ends
+in, up to 128 bars (see
 [7-2-3 Pattern length](./patterns.md#_7-2-3-pattern-length)).
 
-<!-- VERIFY: drawing past the end (and growing the pattern) lands in stage 7; at db48287 a press past the end draws nothing and notes are kept inside the pattern. -->
 
 ## 8-4 Selecting notes
 

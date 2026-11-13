@@ -190,6 +190,16 @@ Moving or renaming a take the project uses, in the **Recordings** browser,
 also updates the saved project file, and so saves it in the new format too.
 :::
 
+::: tip NOTE
+The first time an older project is written over in the new format, whether
+by **Save** or by moving a take, Dawesome keeps a copy of the original file
+beside it, named for its format: `song.dawesome` becomes `song.v3.dawesome`
+(`v1` or `v2` for the oldest formats). The copy is made once. If a copy of
+that name is already there, it is left as it is. An older version of
+Dawesome opens the copy. If the copy can't be made, the project isn't
+saved and stays open; save it elsewhere with **Save As…**.
+:::
+
 ## 4-6 What is saved
 
 | Saved with the project | Not saved |

@@ -95,7 +95,6 @@ the floor. A pattern made at a length keeps that length as its floor: a new
 one from **+** (one bar), the playlist's **Draw** tool or **Join**. **Copy**
 and **Explode into tracks** keep the original pattern's floor.
 
-<!-- VERIFY: drawing past the end in the Piano Roll (the "Growing" bullet above) lands in stage 7; see piano-roll.md 8-3. -->
 
 
 Pattern clips in the playlist keep their own length when their pattern's
@@ -270,7 +269,6 @@ as its steps would be. *Click* the preview to edit the notes in the Piano
 Roll. Edit the notes back to plain steps and the row shows steps again.
 Changing what a row shows never changes its notes.
 
-<!-- VERIFY: at db48287 only a synth row's preview opens the Piano Roll (a sample row's is shown only); stage 7 lets the Piano Roll edit any row. Check that a sample row's preview opens it once stage 7 lands. -->
 
 ### 7-4-3 The greyed bar
 
