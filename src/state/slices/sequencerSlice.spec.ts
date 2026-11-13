@@ -2,7 +2,7 @@ import type { Mock } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import { configureStore } from '@reduxjs/toolkit'
 import reducer, {
-  addSynth, addSynthOnTrack, changeTempo, selectFoldersOf, selectLastSelectedPattern, selectPatternsOf, sequencerSlice, selectPattern,
+  addSynth, addSynthOnTrack, changeTempo, moveSequencerRow, selectFoldersOf, selectLastSelectedPattern, selectPatternsOf, sequencerSlice, selectPattern,
   setPatternStep, setPianoRollSynth, setSequencer, setSequencerRowMuted, setSequencerRowVolume, setSynthVolume,
   showPattern,
 } from './sequencerSlice'
@@ -415,5 +415,48 @@ describe('synths', () => {
     expect(store.getState().sequencer.selected.note).toBe(6)
     store.dispatch(showPattern(4))
     expect(selectFocusedView(store.getState())).toBe(View.Sequencer)
+  })
+})
+
+describe('moving a row', () => {
+  const mockInvoke = invoke as Mock
+  const row = (id: number) => ({ id, path: `/drums/${id}.wav`, label: null, volume: 1, pan: 0, muted: false })
+  const three: SequencerState = { ...sequencer, rows: [row(0), row(1), row(2)] }
+  const order = (store: { getState: () => { sequencer: { rows: Array<{ id: number }> } } }) =>
+    store.getState().sequencer.rows.map(r => r.id)
+
+  const makeStore = () => {
+    const store = configureStore({ reducer: { sequencer: reducer } })
+    store.dispatch(setSequencer(three))
+    return store
+  }
+
+  it('shows the move straight away, then as the engine has it', async () => {
+    let answer: (s: SequencerState) => void = () => {}
+    mockInvoke.mockReset()
+    mockInvoke.mockImplementation(() => new Promise(resolve => { answer = resolve }))
+    const store = makeStore()
+
+    const moved = store.dispatch(moveSequencerRow(2, 0))
+    expect(order(store)).toEqual([2, 0, 1])
+    expect(mockInvoke).toHaveBeenCalledWith('move_sequencer_row', { rowId: 2, index: 0 })
+
+    answer({ ...three, rows: [row(2), row(0), row(1)] })
+    await moved
+    expect(order(store)).toEqual([2, 0, 1])
+  })
+
+  it('goes back to the engine\'s rows when the move fails', async () => {
+    mockInvoke.mockReset()
+    mockInvoke.mockImplementation(async (command: string) => {
+      if(command === 'move_sequencer_row') throw new Error('no such row')
+      return three
+    })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const store = makeStore()
+
+    await store.dispatch(moveSequencerRow(0, 2))
+    expect(order(store)).toEqual([0, 1, 2])
+    expect(mockInvoke).toHaveBeenCalledWith('get_sequencer', {})
   })
 })

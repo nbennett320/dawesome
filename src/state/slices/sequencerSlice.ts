@@ -119,6 +119,13 @@ export const sequencerSlice = createSlice({
       const i = state.patterns.findIndex(p => p.id === patternId)
       if(i >= 0) state.patterns[i] = withNotes(state.patterns[i], synthId, notes)
     },
+    // and a row moved, as soon as it's dropped
+    reduceRowMove: (state, action: PayloadAction<{ rowId: number, index: number }>) => {
+      const from = state.rows.findIndex(r => r.id === action.payload.rowId)
+      if(from < 0) return
+      const [row] = state.rows.splice(from, 1)
+      state.rows.splice(Math.min(Math.max(0, action.payload.index), state.rows.length), 0, row)
+    },
     setRun: (state, action: PayloadAction<PatternRun | null>) => {
       state.run = action.payload
     },
@@ -157,7 +164,7 @@ export const sequencerSlice = createSlice({
 })
 
 export const { selectPattern, setPianoRollSynth, setSequencer } = sequencerSlice.actions
-const { reduceStep, reduceNotes, setRun } = sequencerSlice.actions
+const { reduceStep, reduceNotes, reduceRowMove, setRun } = sequencerSlice.actions
 
 export default sequencerSlice.reducer
 
@@ -212,9 +219,18 @@ export const setSequencerRowPan = (rowId: number, pan: number) =>
 export const renameSequencerRow = (rowId: number, name: string) =>
   edit('rename the row', 'rename_sequencer_row', { rowId, name })
 
-// move a row to `index` in the list
-export const moveSequencerRow = (rowId: number, index: number) =>
-  edit('move the row', 'move_sequencer_row', { rowId, index })
+// move a row to `index` in the list (counted without it). shown straight
+// away, then as the engine has it
+export const moveSequencerRow = (rowId: number, index: number) => (dispatch: Dispatch) => {
+  dispatch(reduceRowMove({ rowId, index }))
+  return invoke<SequencerState>('move_sequencer_row', { rowId, index })
+    .then(sequencer => { dispatch(setSequencer(sequencer)) })
+    .catch(e => {
+      sequencerError('move the row')(e)
+      // and show the rows as the engine has them
+      return loadSequencer()(dispatch)
+    })
+}
 
 // play another sample on a row, keeping its steps, label, volume, pan and mute
 export const replaceSequencerRowSample = (rowId: number, path: string) =>

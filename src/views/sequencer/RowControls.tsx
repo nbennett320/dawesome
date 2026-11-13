@@ -33,6 +33,9 @@ interface Props {
   // left out, there's no pan knob
   pan?: number
   onPan?: (pan: number) => void
+  // pressed on the grip at the left, to drag the row up or down. left out,
+  // there's no grip
+  onGripDown?: (ev: React.MouseEvent) => void
   // what the remove key's tooltip says it takes away
   removeTitle: string
   onRemove: () => void
@@ -54,7 +57,7 @@ const CaptionedKnob = ({ caption, ...knob }: React.ComponentProps<typeof Knob> &
 // for a menu (rename, remove)
 const RowControls = ({
   name, nameTitle, onName, disabled = false, note, rename, muted, onMute, volume, onVolume, pan, onPan,
-  removeTitle, onRemove,
+  onGripDown, removeTitle, onRemove,
 }: Props) => {
   const [renaming, setRenaming] = React.useState(false)
   // where the right-click menu is open, in the window
@@ -69,6 +72,16 @@ const RowControls = ({
         setMenu({ x: ev.clientX, y: ev.clientY })
       }}
     >
+      {onGripDown && (
+        <div
+          className='shrink-0 self-stretch flex items-center px-0.5 mr-1 text-ink-faint hover:text-ink-soft cursor-grab leading-none tracking-[-0.2em] text-sm'
+          title='Drag to move the row'
+          aria-hidden='true'
+          onMouseDown={onGripDown}
+        >
+          ⋮⋮
+        </div>
+      )}
       {renaming && rename ? (
         <NameInput
           initial={rename.initial}

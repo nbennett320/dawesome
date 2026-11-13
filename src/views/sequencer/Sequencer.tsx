@@ -3,6 +3,7 @@ import { useAppDispatch, useAppSelector } from '../../hooks/redux'
 import {
   PatternRun,
   addSequencerRow,
+  moveSequencerRow,
   selectSequencerRows,
   setPatternStep,
 } from '../../state/slices/sequencerSlice'
@@ -10,6 +11,7 @@ import { DragItem } from '../../state/sampleDrag'
 import { Pattern, stepAt } from '../../types/sequencer'
 import SequencerFrame, { useDropOn, useSequencerTab } from './SequencerFrame'
 import SequencerRow, { Paint } from './SequencerRow'
+import { useRowDrag } from './useRowDrag'
 
 // the step of `pattern` playing now, or null when it isn't the pattern
 // playing. followed every frame, but only a new step re-renders: rows
@@ -65,6 +67,13 @@ const Sequencer = () => {
     if(pattern) dispatch(setPatternStep(pattern.id, rowId, step, on))
   }, [dispatch, pattern?.id])
 
+  // rows dragged by their grips to move them
+  const rowIds = React.useMemo(() => rows.map(r => r.id), [rows])
+  const onMove = React.useCallback((rowId: number, index: number) => {
+    dispatch(moveSequencerRow(rowId, index)).catch(() => {})
+  }, [dispatch])
+  const { draggingId, line, onGripDown } = useRowDrag(tabRef, rowIds, onMove)
+
   // the step highlight follows the shown pattern while it plays
   const playingStep = usePlayingStep(run, pattern)
 
@@ -91,6 +100,9 @@ const Sequencer = () => {
           playingStep={playingStep}
           paint={paint}
           onStep={onStep}
+          dragging={row.id === draggingId}
+          dropLine={line?.rowId === row.id ? line.edge : null}
+          onGripDown={onGripDown}
         />
       ))}
     </SequencerFrame>

@@ -31,11 +31,18 @@ interface Props {
   playingStep: number | null
   paint: React.MutableRefObject<Paint | null>
   onStep: (rowId: number, step: number, on: boolean) => void
+  // dragged by its grip now
+  dragging: boolean
+  // a row dragged would go just above or below it
+  dropLine: 'before' | 'after' | null
+  onGripDown: (rowId: number, ev: React.MouseEvent) => void
 }
 
 // one sample: its name (click to hear it, right-click to rename), mute,
 // volume, pan and remove, then a key for each of the pattern's steps
-const SequencerRow = ({ row, pattern, beatsPerBar, playingStep, paint, onStep }: Props) => {
+const SequencerRow = ({
+  row, pattern, beatsPerBar, playingStep, paint, onStep, dragging, dropLine, onGripDown,
+}: Props) => {
   const dispatch = useAppDispatch()
   const sample = fileName(row.path)
   const name = row.label ?? sample
@@ -93,8 +100,20 @@ const SequencerRow = ({ row, pattern, beatsPerBar, playingStep, paint, onStep }:
   })
 
   return (
-    <div className='flex flex-row items-center gap-2'>
+    <div
+      data-row-id={row.id}
+      className={`relative flex flex-row items-center gap-2 ${dragging ? 'opacity-50' : ''}`}
+    >
+      {dropLine && (
+        <div
+          aria-hidden='true'
+          className={`absolute left-0 right-0 h-0.5 rounded-full bg-accent pointer-events-none z-10 ${
+            dropLine === 'before' ? '-top-1' : '-bottom-1'
+          }`}
+        />
+      )}
       <RowControls
+        onGripDown={ev => onGripDown(row.id, ev)}
         name={name}
         note={row.label ? sample : undefined}
         nameTitle={`${row.path}. Click to hear it, right-click to rename`}
