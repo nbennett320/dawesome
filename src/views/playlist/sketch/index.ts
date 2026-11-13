@@ -38,7 +38,7 @@ import type { MovedNode as Landed } from '../../../state/slices/playlistSlice'
 import { PlaceableItem as DragItem, dragItemKey } from '../../../state/sampleDrag'
 import { Pattern, SequencerState, patternSeconds } from '../../../types/sequencer'
 import { decodeLevels } from '../../../util/waveform'
-import { gridSteps, openingScale, panForWidth, visibleBeats } from './grid'
+import { gridSteps, maxScale, openingScale, panForWidth, visibleBeats } from './grid'
 import { lineLevel, tileStep } from '../../../editing/beatGrid'
 import {
   Edge, MAX_PITCH, Snapping, Span, StretchClip, TrimClip, edgeAt, patternTrimClip, pitchOf, sampleTrimClip,
@@ -1704,12 +1704,27 @@ export class Renderer extends RendererBase {
   }
 
   // zoom the timeline by `factor`, keeping the point at canvas x `aroundX`
-  // in place. never zooms out past the whole playlist
+  // in place. never zooms out past the whole playlist, or in past a 1/16
+  // note grid (see maxScale)
   #zoomBy = (factor: number, aroundX: number) => {
-    const zoom = zoomAround({ scale: this.currentScale, pan: this.transformX }, factor, aroundX, 1)
+    const most = maxScale(this.width, this.beatsDisplayed)
+    const zoom = zoomAround({ scale: this.currentScale, pan: this.transformX }, factor, aroundX, 1, most)
     this.currentScale = zoom.scale
     this.transformX = zoom.pan
 
+    this.playlistObjects.forEach(obj => {
+      obj.currentScale = this.currentScale
+    })
+  }
+
+  // pull the zoom back within maxScale, keeping the beat at the left edge.
+  // the limit depends on the canvas width and the playlist's length, so a
+  // resize or a new project can leave the zoom past it without any zooming
+  #clampZoom = () => {
+    const most = maxScale(this.width, this.beatsDisplayed)
+    if(!(this.currentScale > most)) return
+    this.transformX *= most / this.currentScale
+    this.currentScale = most
     this.playlistObjects.forEach(obj => {
       obj.currentScale = this.currentScale
     })
@@ -2267,6 +2282,7 @@ export class Renderer extends RendererBase {
       // something does (see wake)
       if(!this.#animating() && performance.now() - this.#lastWake > IDLE_MS) p.noLoop()
 
+      this.#clampZoom()
       const { width, trackCount, currentScale, beatsDisplayed } = this
 
       const timeline = new Timeline(

@@ -10,12 +10,13 @@ export const GRID_GAP = 20
 // lines closer than this (pixels) would smear together
 export const MIN_LINE_GAP = 8
 
-// the finest step: a 1/256 note
-const FINEST = 1 / 64
+// the finest step: a 1/16 note. views stop zooming in at MAX_PIXELS_PER_BEAT
+// rather than go finer
+export const FINEST = 1 / 4
 // the coarsest step, in bars
 const MOST_BARS = 512
 
-// the steps a grid can have, finest first: a 1/256 note up to half a beat,
+// the steps a grid can have, finest first: a 1/16 note up to half a beat,
 // a beat, the parts of a bar that divide it evenly (2 beats in 4/4), then
 // 1, 2, 4 ... bars. in 3/4 a beat goes straight to a bar
 export const gridStepOptions = (beatsPerBar: number): number[] => {
@@ -27,6 +28,11 @@ export const gridStepOptions = (beatsPerBar: number): number[] => {
   for(let bars = 1; bars <= MOST_BARS; bars *= 2) steps.push(bars * bar)
   return steps
 }
+
+// the most zoomed in a view showing this grid can be, in pixels a beat:
+// where the finest step's lines are as far apart as the grid lets them get
+// (GRID_GAP × √2) before it would switch to a finer step. about 113px a beat
+export const MAX_PIXELS_PER_BEAT = GRID_GAP * Math.SQRT2 / FINEST
 
 // the grid's step at this zoom: of the steps a grid can have, the one
 // nearest GRID_GAP × 2^width pixels wide (nearest by ratio, not by

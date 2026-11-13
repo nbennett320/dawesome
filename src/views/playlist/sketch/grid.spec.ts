@@ -1,12 +1,12 @@
-import { BEATS_IN_VIEW, gridSteps, openingScale, panForWidth, visibleBeats } from './grid'
-import { MIN_LINE_GAP } from '../../../editing/beatGrid'
+import { BEATS_IN_VIEW, gridSteps, maxScale, openingScale, panForWidth, visibleBeats } from './grid'
+import { MAX_PIXELS_PER_BEAT, MIN_LINE_GAP } from '../../../editing/beatGrid'
 
 describe('gridSteps', () => {
   it('splits beats into finer lines when there is room', () => {
     // a 960px playlist showing 16 beats: 60px a beat, a line every 1/16 note
     expect(gridSteps(60, 4)).toEqual({ lineEvery: 1 / 4, labelEvery: 4 })
-    // zoomed in further: 1/32 notes
-    expect(gridSteps(160, 4).lineEvery).toBe(1 / 8)
+    // zoomed in further: still 1/16 notes, the finest there is
+    expect(gridSteps(160, 4).lineEvery).toBe(1 / 4)
   })
 
   it('thins the numbers before the lines', () => {
@@ -76,6 +76,27 @@ describe('visibleBeats', () => {
   it('stays within the playlist', () => {
     expect(visibleBeats(60, -250 * 60, 960, 256)).toEqual([249, 256])
     expect(visibleBeats(0, 0, 960, 256)).toEqual([0, 0])
+  })
+})
+
+describe('maxScale', () => {
+  it('stops where a beat is MAX_PIXELS_PER_BEAT wide', () => {
+    const scale = maxScale(960, 256)
+    expect(960 * scale / 256).toBeCloseTo(MAX_PIXELS_PER_BEAT)
+    expect(gridSteps(960 * scale / 256, 4).lineEvery).toBe(1 / 4)
+  })
+
+  it('lets the playlist open where it does', () => {
+    expect(maxScale(960, 256)).toBeGreaterThan(openingScale(256))
+  })
+
+  it('never stops short of the whole playlist', () => {
+    // 4 beats on a 2000px canvas: past the limit even zoomed all the way out
+    expect(maxScale(2000, 4)).toBe(1)
+  })
+
+  it('has no limit without a width to work from', () => {
+    expect(maxScale(0, 256)).toBe(Infinity)
   })
 })
 

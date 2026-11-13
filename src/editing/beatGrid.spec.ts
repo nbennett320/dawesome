@@ -1,11 +1,12 @@
 import {
-  GRID_GAP, MIN_LINE_GAP, adaptiveStep, gridStepOptions, lineLevel, stepLabel, tileStep,
+  FINEST, GRID_GAP, MAX_PIXELS_PER_BEAT, MIN_LINE_GAP, adaptiveStep, gridStepOptions, lineLevel,
+  stepLabel, tileStep,
 } from './beatGrid'
 
 describe('gridStepOptions', () => {
-  it('goes from a 1/256 note to 512 bars, through half a bar in 4/4', () => {
+  it('goes from a 1/16 note to 512 bars, through half a bar in 4/4', () => {
     const steps = gridStepOptions(4)
-    expect(steps[0]).toBe(1 / 64)
+    expect(steps[0]).toBe(1 / 4)
     expect(steps).toContain(1)
     expect(steps).toContain(2)
     expect(steps[steps.length - 1]).toBe(512 * 4)
@@ -34,16 +35,29 @@ describe('adaptiveStep', () => {
   })
 
   it('halves the step each time the zoom doubles', () => {
-    for(let ppb = 1; ppb < 1000; ppb *= 2) {
+    for(let ppb = 1; ppb * 2 <= MAX_PIXELS_PER_BEAT; ppb *= 2) {
       const step = adaptiveStep(ppb, 4)
       const finer = adaptiveStep(ppb * 2, 4)
-      if(step > 1 / 64) expect(finer).toBe(step / 2)
+      if(step > FINEST) expect(finer).toBe(step / 2)
     }
   })
 
+  it('never goes finer than a 1/16 note', () => {
+    [MAX_PIXELS_PER_BEAT, 200, 1000, 100000].forEach(ppb => {
+      expect(adaptiveStep(ppb, 4)).toBe(1 / 4)
+      expect(adaptiveStep(ppb, 4, -3)).toBe(1 / 4)
+    })
+  })
+
+  it('stops zooming where a 1/16 note grid would switch to 1/32', () => {
+    // 1/16 lines at their widest, GRID_GAP × √2 apart
+    expect(MAX_PIXELS_PER_BEAT * FINEST).toBeCloseTo(GRID_GAP * Math.SQRT2)
+    expect(adaptiveStep(MAX_PIXELS_PER_BEAT * 0.99, 4)).toBe(1 / 4)
+  })
+
   it('keeps lines between GRID_GAP/√2 and GRID_GAP×√2 apart', () => {
-    // (within the steps there are: a 1/256 note to 512 bars)
-    for(let ppb = 0.05; ppb < 1000; ppb *= 1.07) {
+    // (within the zoom the views allow, up to MAX_PIXELS_PER_BEAT)
+    for(let ppb = 0.05; ppb <= MAX_PIXELS_PER_BEAT; ppb *= 1.07) {
       const gap = adaptiveStep(ppb, 4) * ppb
       expect(gap).toBeGreaterThanOrEqual(GRID_GAP / Math.SQRT2 - 1e-9)
       expect(gap).toBeLessThanOrEqual(GRID_GAP * Math.SQRT2 + 1e-9)

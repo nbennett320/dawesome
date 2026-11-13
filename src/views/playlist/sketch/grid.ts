@@ -1,6 +1,6 @@
 // which beat lines and ruler numbers the playlist draws at a zoom level, and
 // which beats are on screen. kept free of p5 so it can be tested on its own
-import { adaptiveStep } from '../../../editing/beatGrid'
+import { MAX_PIXELS_PER_BEAT, adaptiveStep } from '../../../editing/beatGrid'
 
 // how many beats the playlist shows across its width when it opens
 export const BEATS_IN_VIEW = 16
@@ -28,8 +28,8 @@ const barsFor = (pixelsPerBeat: number, beatsPerBar: number, minGap: number): nu
   return step
 }
 
-// lines follow the zoom: zoomed in they split beats into 1/8, 1/16, 1/32
-// notes and finer, zoomed out they thin to every bar, 2 bars, 4... staying
+// lines follow the zoom: zoomed in they split beats into 1/8 and 1/16
+// notes (zoom stops there, see maxScale), zoomed out they thin to every bar, 2 bars, 4... staying
 // about GRID_GAP pixels apart. numbers count bars: one on every bar,
 // thinning to every 2, 4, 8... bars so they never overlap
 // - width: the grid made narrower or wider (see adaptiveStep)
@@ -64,6 +64,13 @@ export const visibleBeats = (
 // pan left as it was would slide the timeline whenever a pane is resized
 export const panForWidth = (transformX: number, oldWidth: number, newWidth: number): number =>
   (oldWidth > 0 && newWidth > 0 ? transformX * (newWidth / oldWidth) : transformX)
+
+// the most the playlist can zoom in: until a beat is MAX_PIXELS_PER_BEAT
+// wide, so the grid never gets finer than a 1/16 note. zoom is relative to
+// the width, so a wider canvas reaches it sooner. never under 1, the whole
+// playlist
+export const maxScale = (canvasWidth: number, totalBeats: number): number =>
+  (canvasWidth > 0 ? Math.max(1, MAX_PIXELS_PER_BEAT * totalBeats / canvasWidth) : Infinity)
 
 // the zoom the playlist opens at: `BEATS_IN_VIEW` beats across its width.
 // (a zoom of 1 shows the whole playlist)
