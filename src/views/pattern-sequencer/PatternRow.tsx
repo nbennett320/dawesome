@@ -68,7 +68,7 @@ const PatternRow = ({
           }`}
         />
       )}
-      <InstrumentControls row={row} onGripDown={onGripDown} />
+      <InstrumentControls row={row} onGripDown={onGripDown} onOpenNotes={onOpenNotes} />
       <div
         className={`seq-steps ${row.muted ? 'is-muted' : ''}`}
         style={{ width: gridWidth(length + greyed, beatsPerBar) }}

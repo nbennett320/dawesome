@@ -220,6 +220,17 @@ describe('the Pattern Sequencer', () => {
     expect(mockInvoke.mock.calls.map(([command]) => command)).not.toContain('set_pattern_notes')
   })
 
+  it('opens the Piano Roll on a row showing plain steps from its right-click menu', async () => {
+    const { store } = await setup()
+    fireEvent.contextMenu(screen.getByText('kick'))
+    fireEvent.click(screen.getAllByRole('menuitem').find(item => item.textContent === 'Edit in Piano Roll') as HTMLElement)
+
+    const state = store.getState()
+    expect(selectFocusedView(state as never)).toBe(View.PianoRoll)
+    expect(state.sequencer.pianoRollRowId).toBe(0)
+    expect(mockInvoke.mock.calls.map(([command]) => command)).not.toContain('set_pattern_notes')
+  })
+
   it('opens a synth’s own interface from its name, by its slot, and plays a sample’s', async () => {
     await setup()
     pick('Pad')
@@ -511,9 +522,9 @@ describe('the Pattern Sequencer', () => {
       fireEvent.keyDown(field, { key: 'Enter' })
     }
 
-    expect(menu('Pad')).toEqual(['Rename…', 'Step pitch…', 'Remove'])
+    expect(menu('Pad')).toEqual(['Edit in Piano Roll', 'Rename…', 'Step pitch…', 'Remove'])
     fireEvent.keyDown(window, { key: 'Escape' })
-    expect(menu('kick')).toEqual(['Rename…', 'Step pitch…', 'Sample pitch…', 'Gated', 'Remove'])
+    expect(menu('kick')).toEqual(['Edit in Piano Roll', 'Rename…', 'Step pitch…', 'Sample pitch…', 'Gated', 'Remove'])
     fireEvent.keyDown(window, { key: 'Escape' })
     choose('kick', 'Step pitch…')
     expect((screen.getByLabelText('Step pitch') as HTMLInputElement).value).toBe('C4')

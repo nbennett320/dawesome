@@ -48,18 +48,28 @@ const synthTitle = (synth: SynthInstrument): string => {
 }
 
 // a row's controls (see RowControls), worked by its instrument. both kinds
-// rename and have a step pitch. a sample's name plays it, and its menu sets
-// its sample pitch and gate; a synth's name opens its plugin's interface.
-// memoised: it renders again only when the row changes
-const InstrumentControls = ({ row, onGripDown }: {
+// open their notes in the Piano Roll, rename and have a step pitch. a
+// sample's name plays it, and its menu sets its sample pitch and gate; a
+// synth's name opens its plugin's interface. memoised: it renders again only
+// when the row changes
+const InstrumentControls = ({ row, onGripDown, onOpenNotes }: {
   row: Row
   onGripDown: (rowId: number, ev: React.MouseEvent) => void
+  // opens the Piano Roll on the row's notes in the pattern shown
+  onOpenNotes: (rowId: number) => void
 }) => {
   const dispatch = useAppDispatch()
   const { instrument } = row
   // what it's called without its label
   const own = rowName({ ...row, label: null })
 
+  // (a row showing steps has no picture of its notes to click, so this is
+  // its way into the Piano Roll)
+  const editNotes: RowMenuItem = {
+    label: 'Edit in Piano Roll',
+    title: 'Open the Piano Roll on this row’s notes in the pattern',
+    onSelect: () => onOpenNotes(row.id),
+  }
   const rename: RowMenuItem = {
     label: 'Rename…',
     field: {
@@ -95,6 +105,7 @@ const InstrumentControls = ({ row, onGripDown }: {
         nameTitle={`${sample.path}. Click to hear it, right-click for more`}
         onName={() => { dispatch(previewRow(row.id)) }}
         menu={[
+          editNotes,
           rename,
           stepPitch,
           pitchItem('Sample pitch', 'The note that plays the sample as it is', sample.samplePitch, pitch => {
@@ -120,7 +131,7 @@ const InstrumentControls = ({ row, onGripDown }: {
       disabled={synth.missing}
       nameTitle={synthTitle(synth)}
       onName={() => { if(hasTab(synth)) dispatch(openPlugin(synth.slot)).catch(() => {}) }}
-      menu={[rename, stepPitch]}
+      menu={[editNotes, rename, stepPitch]}
     />
   )
 }

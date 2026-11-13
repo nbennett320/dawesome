@@ -205,8 +205,9 @@ adds a synth row, a new pattern, and a clip of it on that track. See
 5. Pan knob — *Double-click* to center.
 6. Remove key (**×**) — Removes the row, and its notes from every pattern.
 
-*Right-click* a row's controls for its menu: **Rename…**, **Step pitch…**,
-and on a sample row **Sample pitch…** and **Gated**, then **Remove**.
+*Right-click* a row's controls for its menu: **Edit in Piano Roll**,
+**Rename…**, **Step pitch…**, and on a sample row **Sample pitch…** and
+**Gated**, then **Remove**.
 
 ::: tip NOTE
 Step, row and pattern edits can be undone with **⌘Z (Ctrl+Z)**. Undoing a
@@ -219,6 +220,9 @@ Choose these from a row's right-click menu. **Rename…** and the pitches open
 a field in place of the name: press **Return** (Enter) or click away to keep
 what you typed, or **Escape** to cancel.
 
+- **Edit in Piano Roll** — Opens the Piano Roll on the row's notes in the
+  selected pattern (see [8 Piano roll](./piano-roll.md)). It's the way in
+  for a row that shows steps, which has no note preview to click.
 - **Rename…** — A name for the row (up to 40 characters). Clear it to go
   back to the sample's or instrument's own name.
 - **Step pitch…** — The note a clicked step plays. New rows start at

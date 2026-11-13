@@ -17,6 +17,9 @@ synth row (see [7-3 Rows](./patterns.md#_7-3-rows)).
 Do one of the following:
 
 - Choose **Window ▸ Piano Roll**.
+- In the Pattern Sequencer, *right-click* a row's controls and choose
+  **Edit in Piano Roll**. The Piano Roll opens on that row, whether it shows
+  steps or a note preview.
 - In the Pattern Sequencer, *click* a row's note preview (see
   [7-4-2](./patterns.md#_7-4-2-steps-or-a-note-preview)). The Piano Roll
   opens on that row.
