@@ -3,7 +3,8 @@
 // recorded so far
 
 // what the engine says about the take in progress (see TakeInProgress in
-// engine/src/recording.rs)
+// engine/src/recording.rs). once a loop recording's loop comes round, it
+// says the pass being recorded starts at the loop's start
 export interface LiveTake {
   startBeat: number
   tracks: number[]

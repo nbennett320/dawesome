@@ -380,3 +380,133 @@ fn test_one_undo_takes_a_whole_loop_recording_off() {
 
   for path in &paths { let _ = std::fs::remove_file(path); }
 }
+
+#[test]
+fn test_which_pass_ends_where_the_loop_comes_round() {
+  let s = |secs: f64| Duration::from_secs_f64(secs);
+  // started 1s before the end of a 4s loop
+  assert_eq!(ended_pass(s(1.), s(4.), s(1.)), Some(0));
+  assert_eq!(ended_pass(s(1.), s(4.), s(5.)), Some(1));
+  assert_eq!(ended_pass(s(1.), s(4.), s(9.)), Some(2));
+  // a moment either side of where it comes round is the same pass
+  assert_eq!(ended_pass(s(1.), s(4.), s(9.002)), Some(2));
+  assert_eq!(ended_pass(s(1.), s(4.), s(8.998)), Some(2));
+  // it hasn't come round since the recording started
+  assert_eq!(ended_pass(s(3.), s(4.), s(0.5)), None);
+  assert_eq!(ended_pass(s(1.), Duration::ZERO, s(1.)), None);
+}
+
+#[test]
+fn test_the_take_in_progress_starts_at_the_loop_start_once_it_comes_round() {
+  let state = daw::InnerState::default();
+  let looping = |heard: Instant| Session {
+    tracks: vec![(1, PathBuf::new())],
+    start: Duration::from_secs(2),
+    start_beat: 4.,
+    heard,
+    live: Some(Default::default()),
+    loop_end: Duration::from_secs(4),
+    ..session()
+  };
+
+  // still on its first pass, from where it started
+  state.recorder.lock().unwrap().session = Some(looping(Instant::now()));
+  assert_eq!(collect(&state).take.unwrap().start_beat, 4.);
+  // the loop's come round: the pass being recorded is from the loop's start
+  state.recorder.lock().unwrap().session = Some(looping(Instant::now() - Duration::from_secs(3)));
+  assert_eq!(collect(&state).take.unwrap().start_beat, 0.);
+}
+
+// the pass that's ending plays on the next pass, from where it was recorded
+#[test]
+fn test_the_pass_that_ends_plays_on_the_next() {
+  let rate = 1_000;
+  let state = daw::InnerState::default();
+  let (engine, mut renderer) = daw::Engine::new(rate);
+
+  // a recording from 1s into a 4s loop: its first pass is 3s, which is
+  // still being recorded (its last second isn't in yet)
+  let samples = Arc::new(daw::LiveSamples::new(3_000, 1, rate));
+  for _ in 0..2_000 { samples.push([0.5]); }
+  let live = Arc::new(daw::LivePasses::default());
+  live.add(daw::LivePass { index: 0, files: vec![samples] });
+  let heard = Instant::now();
+  state.recorder.lock().unwrap().session = Some(Session {
+    tracks: vec![(1, PathBuf::new())],
+    start: Duration::from_secs(1),
+    heard,
+    live: Some(live),
+    loop_end: Duration::from_secs(4),
+    ..session()
+  });
+  // and a clip of the pass before (as if there were one) held back
+  state.playlist.audiograph.lock().unwrap().held_back.insert(7);
+
+  // the loop comes round 3s in (half a second into the run)
+  let at = Duration::from_millis(500);
+  let voices = layer_voices(&state, &engine, 1, at, heard + Duration::from_secs(3));
+  assert_eq!(voices.len(), 1);
+  assert_eq!(state.recorder.lock().unwrap().session.as_ref().unwrap().playing_pass, Some(0));
+  // what was held back plays from the playlist now
+  assert!(state.playlist.audiograph.lock().unwrap().held_back.is_empty());
+
+  engine.start_run(1, state.playlist.mixer.master(), voices).unwrap();
+  let mut out = vec![0f32; 2 * 2_000];
+  renderer.render(&mut out, Instant::now(), Duration::ZERO);
+  // silent until 1s into the loop (where the recording started), then the
+  // pass, through its track's strip
+  let frame = |n: usize| out[n * 2];
+  assert_eq!(frame(1_400), 0.);
+  assert_eq!(frame(1_499), 0.);
+  assert!(frame(1_500) > 0.1 && frame(1_999) > 0.1, "{} {}", frame(1_500), frame(1_999));
+
+  // nothing's sent for a loop that comes round before the recording's
+  // first pass is over (it started after that was scheduled)
+  let again = layer_voices(&state, &engine, 1, at, heard + Duration::from_millis(500));
+  assert!(again.is_empty());
+}
+
+// layers a loop recording from the real input through the real output: run
+// with `cargo test -- --ignored` (macOS asks for the microphone first; what
+// the microphone hears is played back on the passes after)
+#[test]
+#[ignore = "needs audio input and output devices"]
+fn test_a_loop_recording_layers_its_passes() {
+  let dir = std::env::temp_dir().join(format!("dawesome-layering-{}", std::process::id()));
+  let _ = std::fs::remove_dir_all(&dir);
+  let state = Arc::new(daw::InnerState::default());
+  state.project.lock().unwrap().reset(Some(dir.join("song").join("song.dawesome")));
+  state.playlist.loop_enabled.store(true, std::sync::atomic::Ordering::SeqCst);
+  // the empty playlist loops 4 bars: 3.2s at 300 bpm
+  daw::set_playlist_tempo(&state, 300.).unwrap();
+  let channels = daw::input_channel_count().unwrap();
+  state.recorder.lock().unwrap().arm(1, Some(InputChoice::default_for(channels)));
+  // from the second bar
+  *state.playlist.start_offset.lock().unwrap() = daw::beat_interval(&state) * 4;
+
+  start(&state, LoopRecording::Layer).unwrap();
+  // the rest of the first pass, two whole passes, and some of a third
+  std::thread::sleep(Duration::from_millis(2_400 + 2 * 3_200 + 1_000));
+  // each finished pass is on its track while it's still recording
+  let meanwhile = collect(&state);
+  assert!(meanwhile.recording);
+  assert_eq!(meanwhile.clips.len(), 3, "{:?}", meanwhile);
+  daw::pause_playlist(&state);
+  let last = collect(&state);
+
+  let clips: Vec<_> = meanwhile.clips.iter().chain(&last.clips).collect();
+  assert_eq!(clips.len(), 4, "{:?}", last);
+  assert_eq!(clips[0].start_beat, 4.);
+  assert!(clips[1..].iter().all(|clip| clip.start_beat == 0.));
+  // whole passes are as long as the loop
+  assert!((clips[1].info.sample_duration - 3.2).abs() < 0.01, "{}", clips[1].info.sample_duration);
+  assert!(state.playlist.audiograph.lock().unwrap().held_back.is_empty());
+
+  // and one undo takes them all off
+  assert!(crate::history::undo(&state).unwrap().is_some());
+  let graph = state.playlist.audiograph.lock().unwrap();
+  assert!(clips.iter().all(|clip| graph.get_node_by_id(clip.id).is_none()));
+  drop(graph);
+
+  let _ = std::fs::remove_dir_all(&dir);
+}

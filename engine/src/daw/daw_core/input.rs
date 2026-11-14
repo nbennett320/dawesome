@@ -168,7 +168,7 @@ impl LivePasses {
     self.passes.lock().unwrap().iter().find(|pass| pass.index == index).cloned()
   }
 
-  fn add(&self, pass: LivePass) {
+  pub fn add(&self, pass: LivePass) {
     let mut passes = self.passes.lock().unwrap();
     passes.push_back(pass);
     while passes.len() > Self::KEPT { passes.pop_front(); }

@@ -169,7 +169,8 @@ pub struct Recorded {
   pub take: Option<TakeInProgress>,
 }
 
-// a take being recorded: where on the playlist it started, and the tracks
+// a take being recorded: where on the playlist it started (a loop
+// recording's pass: the loop's start, once it's come round), and the tracks
 // it's recording onto. it reaches as far as the playhead
 #[derive(Serialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -180,9 +181,13 @@ pub struct TakeInProgress {
 
 pub fn collect(state: &daw::InnerState) -> Recorded {
   let mut recorder = state.recorder.lock().unwrap();
-  let take = recorder.session.as_ref().map(|session| TakeInProgress {
-    start_beat: session.start_beat,
-    tracks: session.tracks.iter().map(|(track, _)| *track).collect(),
+  let take = recorder.session.as_ref().map(|session| {
+    let first = session.loop_end.saturating_sub(session.start);
+    let came_round = session.live.is_some() && Instant::now() >= session.heard + first;
+    TakeInProgress {
+      start_beat: if came_round { 0. } else { session.start_beat },
+      tracks: session.tracks.iter().map(|(track, _)| *track).collect(),
+    }
   });
   Recorded {
     recording: recorder.busy(),
@@ -427,6 +432,15 @@ pub fn started_at(state: &daw::InnerState) -> Option<Duration> {
   state.recorder.lock().unwrap().session.as_ref().map(|session| session.start)
 }
 
+// which pass of a loop recording ends where the loop comes round, `into`
+// the recording: the loop comes round `first` after its start, then every
+// `every`. None if it hasn't come round since the recording started
+fn ended_pass(first: Duration, every: Duration, into: Duration) -> Option<u32> {
+  let (first, every, into) = (first.as_secs_f64(), every.as_secs_f64(), into.as_secs_f64());
+  if every <= 0. || into < first - every / 2. { return None; }
+  Some(((into - first) / every).round().max(0.) as u32)
+}
+
 // the loop's about to come round, heard at `heard`, `at` into the run.
 // while layering, the pass ending there is played on the next pass as it's
 // recorded (its last moments are in by the time they're read), and the pass
@@ -440,13 +454,9 @@ pub fn layer_voices(state: &daw::InnerState, engine: &daw::Engine, run: u64, at:
     // the pass that was playing as it was recorded is on the playlist now
     state.playlist.audiograph.lock().unwrap().held_back.clear();
 
-    // which pass ends here: the loop comes round `first` after the
-    // recording's start, then every `every`
-    let first = session.loop_end.saturating_sub(session.start).as_secs_f64();
-    let every = session.loop_end.as_secs_f64();
-    let into = heard.saturating_duration_since(session.heard).as_secs_f64();
-    if every <= 0. || into < first - every / 2. { return Vec::new(); }
-    let ended = ((into - first) / every).round().max(0.) as u32;
+    let first = session.loop_end.saturating_sub(session.start);
+    let into = heard.saturating_duration_since(session.heard);
+    let Some(ended) = ended_pass(first, session.loop_end, into) else { return Vec::new() };
     let Some(pass) = live.pass(ended) else { return Vec::new() };
 
     session.playing_pass = Some(ended);

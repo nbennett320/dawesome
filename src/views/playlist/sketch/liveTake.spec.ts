@@ -10,7 +10,11 @@ describe('the take being recorded', () => {
   })
 
   it('starts again from the loop’s start once the loop comes round', () => {
+    // before the engine's said so
     expect(liveTakeSpan(4, 1.5)).toEqual({ start: 0, end: 1.5 })
     expect(liveTakeSpan(4, 0)).toBeNull()
+    // and after (it says the pass starts at the loop's start), past where
+    // the first pass started
+    expect(liveTakeSpan(0, 5)).toEqual({ start: 0, end: 5 })
   })
 })
