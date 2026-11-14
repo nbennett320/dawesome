@@ -63,8 +63,10 @@ pub struct ArmedTrack {
 struct Session {
   // each armed track, and the file its take goes in
   tracks: Vec<(u32, PathBuf)>,
-  // where on the playlist it started
+  // where on the playlist it started, and in beats (the tempo can't
+  // change while recording)
   start: Duration,
+  start_beat: f64,
   // when the first frame kept was meant to be captured
   keep_from: Instant,
   // the loop's length, if it was looping (the take ends where it comes round)
@@ -150,14 +152,30 @@ pub struct Recorded {
   pub recording: bool,
   pub clips: Vec<LoadedClip>,
   pub problems: Vec<String>,
+  // the take being recorded now, if one is, for the playlist to show
+  pub take: Option<TakeInProgress>,
+}
+
+// a take being recorded: where on the playlist it started, and the tracks
+// it's recording onto. it reaches as far as the playhead
+#[derive(Serialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TakeInProgress {
+  pub start_beat: f64,
+  pub tracks: Vec<u32>,
 }
 
 pub fn collect(state: &daw::InnerState) -> Recorded {
   let mut recorder = state.recorder.lock().unwrap();
+  let take = recorder.session.as_ref().map(|session| TakeInProgress {
+    start_beat: session.start_beat,
+    tracks: session.tracks.iter().map(|(track, _)| *track).collect(),
+  });
   Recorded {
     recording: recorder.busy(),
     clips: std::mem::take(&mut recorder.clips),
     problems: std::mem::take(&mut recorder.problems),
+    take,
   }
 }
 
@@ -245,7 +263,9 @@ pub fn start(state: &Arc<daw::InnerState>) -> Result<(), String> {
   };
   daw::keep_recording_from(keep_from);
 
+  let interval = daw::beat_interval(state);
   let session = Session {
+    start_beat: if interval.is_zero() { 0. } else { start.as_secs_f64() / interval.as_secs_f64() },
     tracks: armed.iter().zip(&files).map(|(track, file)| (track.track_number, file.path.clone())).collect(),
     start,
     keep_from,

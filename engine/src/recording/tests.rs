@@ -50,14 +50,17 @@ fn test_arming() {
 
 // a stand-in for a recording in progress
 fn session() -> Session {
-  Session { tracks: vec![], start: Duration::ZERO, keep_from: Instant::now(), loop_len: None, loop_end: Duration::ZERO }
+  Session { tracks: vec![], start: Duration::ZERO, start_beat: 0., keep_from: Instant::now(), loop_len: None, loop_end: Duration::ZERO }
 }
 
 #[test]
 fn test_still_recording_until_the_takes_are_in() {
   let state = daw::InnerState::default();
-  state.recorder.lock().unwrap().session = Some(session());
-  assert!(collect(&state).recording);
+  state.recorder.lock().unwrap().session = Some(Session { tracks: vec![(2, PathBuf::new())], start_beat: 4.5, ..session() });
+  let now = collect(&state);
+  assert!(now.recording);
+  // the playlist shows where it's recording
+  assert_eq!(now.take, Some(TakeInProgress { start_beat: 4.5, tracks: vec![2] }));
 
   // stopped, but its takes aren't on their tracks yet: asking now used to
   // say it was over, with no clips, so the frontend stopped asking and
@@ -68,9 +71,11 @@ fn test_still_recording_until_the_takes_are_in() {
   let meanwhile = collect(&state);
   assert!(meanwhile.recording);
   assert!(meanwhile.clips.is_empty());
+  // and nothing more is being recorded
+  assert_eq!(meanwhile.take, None);
 
   state.recorder.lock().unwrap().end_finish(vec![], vec!["a problem".into()]);
-  assert_eq!(collect(&state), Recorded { recording: false, clips: vec![], problems: vec!["a problem".into()] });
+  assert_eq!(collect(&state), Recorded { recording: false, clips: vec![], problems: vec!["a problem".into()], take: None });
 }
 
 #[test]
@@ -214,7 +219,7 @@ fn test_nothing_armed_records_nothing() {
 fn test_finishing_without_a_recording_does_nothing() {
   let state = daw::InnerState::default();
   finish(&state, false);
-  assert_eq!(collect(&state), Recorded { recording: false, clips: vec![], problems: vec![] });
+  assert_eq!(collect(&state), Recorded { recording: false, clips: vec![], problems: vec![], take: None });
 }
 
 // records from the real input onto an armed track, playing through the

@@ -44,7 +44,7 @@ import {
 } from '../../state/slices/mixerSlice'
 import TrackMenu, { TrackMenuAt } from '../mixer/TrackMenu'
 import {
-  selectArmed, selectInputChannels, selectRecording, setTrackArmed,
+  selectArmed, selectInputChannels, selectRecording, selectTake, setTrackArmed,
 } from '../../state/slices/recordingSlice'
 import { defaultInput } from '../../types/audio'
 import { View } from '../../types/ui'
@@ -275,6 +275,8 @@ const PlaylistCanvas = () => {
   const armed = useAppSelector(state => state.recording.armed)
   const armedTracks = React.useMemo(() => Object.keys(armed).map(Number), [armed])
   const recording = useAppSelector(selectRecording)
+  // and the take being recorded, drawn up to the playhead
+  const liveTake = useAppSelector(selectTake)
   const handleTrackMute = React.useCallback((trackNumber: number, mute: boolean) => {
     dispatch(setTrackMute(trackNumber, mute))
   }, [dispatch])
@@ -642,6 +644,7 @@ const PlaylistCanvas = () => {
           trackMixes={trackMixes}
           armedTracks={armedTracks}
           recording={recording}
+          liveTake={liveTake}
           onTrackMute={handleTrackMute}
           onTrackSolo={handleTrackSolo}
           onLipRightClick={handleLipRightClick}

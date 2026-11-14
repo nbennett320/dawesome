@@ -151,6 +151,9 @@ export interface Recorded {
   recording: boolean
   clips: LoadedClip[]
   problems: string[]
+  // the take being recorded now, if one is: where it started, and the
+  // tracks it records onto
+  take?: { startBeat: number, tracks: number[] } | null
 }
 
 // the project as it is now, after an undo or redo (see project_view in

@@ -22,6 +22,7 @@ import { onThemeChange } from '../../../theme/apply'
 import { paint, patternColors, theme, trackPaint } from './theme'
 import { painter } from '../../../theme/canvas'
 import { LIP, LipLook, drawLip, fitName, inBox, lipBox, lipWidth, onLed } from './lip'
+import { LiveTake, liveTakeSpan } from './liveTake'
 import { trackColorKey, defaultTrackColor, trackLabel } from '../../../types/mixer'
 import { DEFAULT_BEATS_PER_BAR, DEFAULT_PLAYLIST_BEATS, PlaylistTransport } from '../../../types/transport'
 import { positionAt } from '../../transport/tape'
@@ -67,6 +68,8 @@ export interface CanvasProps extends SketchProps {
   // lips are tinted red, and pulse while recording
   armedTracks: number[]
   recording: boolean
+  // the take being recorded, drawn from its start to the playhead
+  liveTake: LiveTake | null
   // a lip's LED was clicked (mute) or shift+clicked (solo): set it to this
   onTrackMute: (trackNumber: number, mute: boolean) => void
   onTrackSolo: (trackNumber: number, solo: boolean) => void
@@ -319,6 +322,7 @@ export class Renderer extends RendererBase {
   trackMixes: Record<number, { mute: boolean, solo: boolean }> = {}
   armedTracks: number[] = []
   recording = false
+  liveTake: LiveTake | null = null
   onTrackMute!: (trackNumber: number, mute: boolean) => void
   onTrackSolo!: (trackNumber: number, solo: boolean) => void
   onLipRightClick!: (trackNumber: number, clientX: number, clientY: number) => void
@@ -822,6 +826,32 @@ export class Renderer extends RendererBase {
       p.rect(left, laneTop + 2, width, staticDefaults.trackHeight - 4, 3)
     })
     ctx.setLineDash([])
+    p.pop()
+  }
+
+  // the take being recorded: a red outlined region on each of its tracks,
+  // from where it started to the playhead. called inside the zoom/pan
+  // transform
+  #drawLiveTake = (p: P5CanvasInstance<CanvasProps>) => {
+    const take = this.liveTake
+    const beat = this.playing ? this.playheadBeat() : null
+    if(!take || beat === null) return
+    const span = liveTakeSpan(take.startBeat, beat)
+    if(!span) return
+
+    p.push()
+    p.strokeWeight(1.5)
+    fourtrackPaint.stroke(p, 'ledRedOn')
+    fourtrackPaint.fill(p, 'ledRedOn', 0.14)
+    // in screen pixels across, so zoom doesn't stretch the outline
+    p.scale(1 / this.currentScale, 1)
+    const left = this.beatToX(span.start) * this.currentScale
+    const width = this.beatToX(span.end - span.start) * this.currentScale
+    take.tracks.forEach(track => {
+      const laneTop = this.#laneTop(track)
+      if(laneTop === null) return
+      p.rect(left, laneTop + 2, width, staticDefaults.trackHeight - 4, 3)
+    })
     p.pop()
   }
 
@@ -2166,6 +2196,7 @@ export class Renderer extends RendererBase {
       this.trackMixes = props.trackMixes ?? {}
       this.armedTracks = props.armedTracks ?? []
       this.recording = props.recording ?? false
+      this.liveTake = props.liveTake ?? null
       this.onTrackMute = props.onTrackMute
       this.onTrackSolo = props.onTrackSolo
       this.onLipRightClick = props.onLipRightClick
@@ -2415,6 +2446,9 @@ export class Renderer extends RendererBase {
       this.playlistTracks.forEach(track => {
         track.render()
       })
+
+      // what's being recorded, over the clips it records over
+      this.#drawLiveTake(p)
 
       // render the clip being dragged on top of the other clips
       this.drawClipDrag(p, canvas)
