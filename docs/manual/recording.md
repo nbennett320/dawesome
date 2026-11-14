@@ -106,6 +106,8 @@ While recording, the loop (and its region) stays where it was when
 recording started. The region, the loop end and the Loop button can't be
 changed until recording stops.
 
+<!-- VERIFY: layering and stopping at the loop's end, and loop recording in a region, tried in the app -->
+
 ## 5-6 Where recordings are saved
 
 Takes are WAV files. Each is named after the project, the date (month,

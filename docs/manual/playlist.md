@@ -297,6 +297,8 @@ through it.
 The loop region and a dragged loop end are saved with the project. Undo
 doesn't change them.
 
+<!-- VERIFY: loop end flag and loop region gestures, tried in the app -->
+
 ## 6-8 Clip menu
 
 *Right-click* a clip to open its menu. If the clip is selected, the
