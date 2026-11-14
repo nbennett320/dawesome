@@ -344,7 +344,7 @@ fn test_clip_settings() {
     ..Default::default()
   }).unwrap();
   assert_eq!(info.settings.pitch, 12.);
-  assert_eq!(info.settings.gain_db, 12.);
+  assert_eq!(info.settings.gain_db, 24.);
   assert!((info.played_duration - info.sample_duration / 2.).abs() < 1e-4);
   assert_eq!(get_clip_of(&state, id).unwrap(), info);
 

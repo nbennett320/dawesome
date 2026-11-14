@@ -47,7 +47,7 @@ pub fn pan_gains(pan: f32) -> [f32; 2] {
 }
 
 // the range of each setting (attack and decay are also kept within the clip)
-const GAIN_DB: RangeInclusive<f32> = -60.0..=12.0;
+const GAIN_DB: RangeInclusive<f32> = -60.0..=24.0;
 const PAN: RangeInclusive<f32> = -1.0..=1.0;
 const PITCH: RangeInclusive<f32> = -24.0..=24.0;
 const FADE_MS: RangeInclusive<f32> = 0.0..=10_000.0;
@@ -285,7 +285,7 @@ mod tests {
     };
 
     assert_eq!(wild.clamped(Duration::from_millis(500)), ClipSettings {
-      gain_db: 12.,
+      gain_db: 24.,
       pan: -1.,
       pitch: 0.,
       attack_ms: 500.,

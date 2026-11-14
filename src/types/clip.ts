@@ -69,7 +69,7 @@ export const defaultClipSettings: ClipSettings = {
 // the range of each setting. attack and decay are also limited to the
 // clip's length, which depends on the clip (see clampClipSettings)
 export const clipSettingRanges: Record<ClipSetting, { min: number, max: number }> = {
-  gainDb: { min: -60, max: 12 },
+  gainDb: { min: -60, max: 24 },
   pan: { min: -1, max: 1 },
   pitch: { min: -24, max: 24 },
   attackMs: { min: 0, max: 10_000 },

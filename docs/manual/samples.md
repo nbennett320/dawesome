@@ -67,7 +67,7 @@ clip in the playlist to inspect it.**
 
 | Setting | Range | Default | What it does |
 | --- | --- | --- | --- |
-| **Gain** | −60 to +12 dB | 0 dB | The clip's volume. |
+| **Gain** | −60 to +24 dB | 0 dB | The clip's volume. |
 | **Pan** | 100% left to 100% right | Center | Where the clip sits left to right. |
 | **Pitch** | −24 to +24 st | 0 st | Raises or lowers the pitch in semitones. The clip also plays faster or slower (12 st up is twice as fast), so its length changes. |
 | **Attack** | 0 ms to 10 s, and no longer than the clip | 0 ms | Fade in. |
