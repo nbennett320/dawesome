@@ -453,14 +453,20 @@ pub fn run_playlist(
         break;
       }
 
+      // while a recording layers its passes, the pass that's ending plays
+      // as it was recorded. (first: the pass before it is let out of being
+      // held back, so it starts in this slice)
+      let layers = if wraps {
+        crate::recording::layer_voices(&state, &engine, run, next_at, anchor.heard + next_at)
+      } else {
+        Vec::new()
+      };
+
       // send the next slice
       state.playlist.audiograph.lock().unwrap().set_current_offset(Some(next));
       slice = tempo_interval;
       let (mut voices, notes) = slice_voices(next_at, slice, true, false, loop_len);
-      // and, while a recording layers its passes, the pass that's ending
-      if wraps {
-        voices.extend(crate::recording::layer_voices(&state, &engine, run, next_at, anchor.heard + next_at));
-      }
+      voices.extend(layers);
       if let Err(e) = engine.play(voices) {
         println!("could not schedule the next beat: {}", e);
       }

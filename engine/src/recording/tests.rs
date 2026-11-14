@@ -510,3 +510,21 @@ fn test_a_loop_recording_layers_its_passes() {
 
   let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn test_passes_play_in_a_run_that_started_with_an_empty_playlist() {
+  // (an empty playlist still loops, so it can be loop recorded)
+  let state = daw::InnerState::default();
+  state.playlist.audiograph.lock().unwrap().init();
+  state.playlist.set_playing(true);
+  let path = take_file("empty-run");
+
+  let (clips, _) = place(&state, &takes(&path, 1), &[1], Duration::ZERO);
+  assert_eq!(clips.len(), 1);
+  let mut audiograph = state.playlist.audiograph.lock().unwrap();
+  audiograph.set_current_offset(Some(Duration::ZERO));
+  assert_eq!(audiograph.run_sounds_at(Duration::ZERO, 44_100, Duration::from_millis(10), false, false).len(), 1);
+  drop(audiograph);
+
+  let _ = std::fs::remove_file(&path);
+}

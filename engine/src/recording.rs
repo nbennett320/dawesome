@@ -380,6 +380,9 @@ fn place(state: &daw::InnerState, takes: &daw::Takes, tracks: &[u32], start: Dur
   let recorder = state.recorder.lock().unwrap();
   let hold = recorder.session.as_ref().is_some_and(|session| session.playing_pass == Some(takes.pass));
   let mut audiograph = state.playlist.audiograph.lock().unwrap();
+  // a run that started with an empty playlist plays nothing until it has
+  // clips: a loop recording's passes are heard as soon as they're in
+  if state.playlist.playing_playlist() && !nodes.is_empty() { audiograph.running = true; }
   let interval = audiograph.beat_interval();
   let clips = nodes.into_iter().map(|(path, track_number, node)| {
     let id = audiograph.insert_node(node);
