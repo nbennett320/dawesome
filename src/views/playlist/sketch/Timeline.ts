@@ -70,7 +70,7 @@ class Timeline extends PlaylistComponent {
   // at the loop's end. called unscaled, with a beat's width in pixels
   drawLoopEnd(beatWidth: number) {
     const { p } = this
-    const beat = (this.renderer as Renderer).loopEndBeat()
+    const beat = (this.renderer as Renderer).loopMarks().flag
     if(beat === null) return
 
     const x = beat * beatWidth

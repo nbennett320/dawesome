@@ -23,6 +23,10 @@ import { paint, patternColors, theme, trackPaint } from './theme'
 import { painter } from '../../../theme/canvas'
 import { LIP, LipLook, drawLip, fitName, inBox, lipBox, lipWidth, onLed } from './lip'
 import { LiveTake, liveTakeSpan } from './liveTake'
+import {
+  LOOP_GRAB_PX, LoopDrag, LoopMarks, doubleClickClears, draggedMarks, handleAt, loopChange, loopMarks, moveLoopDrag,
+  startLoopDrag,
+} from './loopRegion'
 import { NO_FADES } from './Waveform'
 import { trackColorKey, defaultTrackColor, trackLabel } from '../../../types/mixer'
 import { DEFAULT_BEATS_PER_BAR, DEFAULT_PLAYLIST_BEATS, PlaylistTransport } from '../../../types/transport'
@@ -92,6 +96,14 @@ export interface CanvasProps extends SketchProps {
   loopEnabled: boolean
   // move the playhead to a beat (clicking or dragging in the ruler)
   onSeek: (beat: number) => void
+  // the loop's region was drawn (or an edge dragged) between two beats, in
+  // either order (the same beat for none), or cleared with a double-click
+  onLoopRegion: (start: number, end: number) => void
+  onClearLoopRegion: () => void
+  // the loop's end flag was dragged to a beat, or double-clicked to follow
+  // the last clip again
+  onLoopEnd: (beat: number) => void
+  onClearLoopEnd: () => void
   // clips' edges were dragged (see Renderer.onClipsTrim)
   onClipsTrim: (edits: WindowEdit[]) => Promise<unknown>
   // and with shift held (see Renderer.onClipsStretch)
@@ -381,6 +393,15 @@ export class Renderer extends RendererBase {
   seekDragging = false
   #seekTimeout: ReturnType<typeof setTimeout> | null = null
   onSeek!: (beat: number) => void
+  // a loop edge (or the end flag) being dragged in the ruler, or a region
+  // being drawn, or one just let go (shown until the engine confirms it)
+  #loopDrag: LoopDrag | null = null
+  #loopDragging = false
+  #loopTimeout: ReturnType<typeof setTimeout> | null = null
+  onLoopRegion!: (start: number, end: number) => void
+  onClearLoopRegion!: () => void
+  onLoopEnd!: (beat: number) => void
+  onClearLoopEnd!: () => void
 
   playlistTracks: Array<PlaylistTrack> = []
   playlistObjects: Array<PlaylistObject> = []
@@ -570,8 +591,9 @@ export class Renderer extends RendererBase {
       }
 
       this.transport = transport
-      // a released seek has reached the engine
+      // a released seek has reached the engine, and so has a loop edge
       if(!this.seekDragging) this.seekBeat = null
+      if(!this.#loopDragging) this.#loopDrag = null
     } catch(e) {
       console.error('could not sync the playback cursor:', e)
     }
@@ -626,10 +648,70 @@ export class Renderer extends RendererBase {
     this.wake()
   }
 
-  // where the loop ends, in beats, while the playlist loops
-  loopEndBeat = (): number | null => {
-    const t = this.transport
-    return t && t.loopEnabled && t.loopEndBeats > t.loopStartBeats ? t.loopEndBeats : null
+  // the loop as the ruler shows it: the region, or the end flag while
+  // looping, following a drag of either
+  loopMarks = (): LoopMarks => draggedMarks(loopMarks(this.transport), this.#loopDrag)
+
+  // how far, in beats, a press can be from a loop edge to grab it
+  #loopReach = (): number => {
+    const beatWidth = this.beatToX(1) * this.currentScale
+    return beatWidth > 0 ? LOOP_GRAB_PX / beatWidth : 0
+  }
+
+  // the loop edge (or end flag) a press in the ruler at `screenX` would
+  // grab. none while recording: the loop stays as it is until it's over
+  #loopHandleAt = (screenX: number) => {
+    if(this.recording) return null
+    return handleAt(this.loopMarks(), this.screenXToBeat(screenX), this.#loopReach())
+  }
+
+  // a press in the ruler: grab a loop edge or the end flag near it, or with
+  // shift held, start drawing a region. false if it does neither (it seeks)
+  #startLoopDrag = (screenX: number, shift: boolean): boolean => {
+    if(this.recording) return false
+    const handle = this.#loopHandleAt(screenX) ?? (shift ? 'draw' : null)
+    if(handle === null) return false
+
+    this.syncSnapSetting()
+    if(this.#loopTimeout) clearTimeout(this.#loopTimeout)
+    this.#loopDrag = startLoopDrag(handle, this.loopMarks(), this.rulerBeat(screenX))
+    this.#loopDragging = true
+    this.wake()
+    return true
+  }
+
+  // let go of a loop drag: tell the engine, keeping the drag drawn until
+  // its transport says the loop has changed (or after a moment). one that
+  // didn't move anything changes nothing
+  #endLoopDrag = () => {
+    const drag = this.#loopDrag
+    if(!this.#loopDragging || !drag) return
+    this.#loopDragging = false
+
+    const change = loopChange(drag)
+    if(!change) {
+      this.#loopDrag = null
+      this.wake()
+      return
+    }
+    if(change.kind === 'region') this.onLoopRegion?.(change.start, change.end)
+    else this.onLoopEnd?.(change.beat)
+
+    if(this.#loopTimeout) clearTimeout(this.#loopTimeout)
+    this.#loopTimeout = setTimeout(() => {
+      if(!this.#loopDragging) this.#loopDrag = null
+      this.wake()
+    }, 1500)
+  }
+
+  // a double-click in the ruler: it clears the region it's on, or lets a
+  // dragged end flag it's on follow the last clip again
+  #loopDoubleClick = (screenX: number) => {
+    if(this.recording) return
+    const pinned = this.transport?.loopEndPinned ?? false
+    const clears = doubleClickClears(this.loopMarks(), pinned, this.screenXToBeat(screenX), this.#loopReach())
+    if(clears === 'region') this.onClearLoopRegion?.()
+    else if(clears === 'end') this.onClearLoopEnd?.()
   }
 
   syncSnapSetting = async () => {
@@ -713,6 +795,12 @@ export class Renderer extends RendererBase {
   #dropPress = () => {
     this.#altHeld = false
     this.#cutPress = null
+    // (a loop drag is let go of without changing the loop)
+    if(this.#loopDragging) {
+      this.#loopDragging = false
+      this.#loopDrag = null
+      this.wake()
+    }
     if(!this.#shiftPress && !this.lasso && !this.edgeDrag && !this.#paint) return
     this.#shiftPress = null
     this.#paint = null
@@ -837,7 +925,7 @@ export class Renderer extends RendererBase {
     const take = this.liveTake
     const beat = this.playing ? this.playheadBeat() : null
     if(!take || beat === null) return
-    const span = liveTakeSpan(take.startBeat, beat)
+    const span = liveTakeSpan(take.startBeat, beat, this.transport?.loopStartBeats ?? 0)
     if(!span) return
 
     p.push()
@@ -1195,6 +1283,7 @@ export class Renderer extends RendererBase {
       || this.edgeDrag !== null
       || this.#paint !== null
       || this.seekDragging
+      || this.#loopDragging
       || this.scrollbarGrab !== null
       // armed lips pulse
       || (this.recording && this.armedTracks.length > 0)
@@ -1905,9 +1994,11 @@ export class Renderer extends RendererBase {
             return
           }
 
-          // the ruler moves the playhead, rather than panning
+          // the ruler moves the playhead, rather than panning. near a loop
+          // edge (or the end flag) it drags that, and with shift held it
+          // draws a loop region
           if(overRuler(p.mouseY)) {
-            this.#startSeek(p.mouseX)
+            if(!this.#startLoopDrag(p.mouseX, ev.shiftKey)) this.#startSeek(p.mouseX)
             return
           }
 
@@ -2016,6 +2107,7 @@ export class Renderer extends RendererBase {
         // the end of it
         if((this.edgeDrag || this.#paint) && ev && ev.button !== 0) return
         this.#endSeek()
+        this.#endLoopDrag()
         // (painted wherever the mouse is let go: its end stays in the playlist)
         this.#endPaint(p)
         // (a trim is applied wherever the mouse is let go)
@@ -2148,8 +2240,13 @@ export class Renderer extends RendererBase {
         pinchScale = scale
       })
 
-      // double clicking a clip inspects it in the Sample tab
-      this.canvasEl?.addEventListener('dblclick', () => {
+      // double clicking a clip inspects it in the Sample tab. in the ruler,
+      // it clears the loop region (or the end flag's place)
+      this.canvasEl?.addEventListener('dblclick', (ev: MouseEvent) => {
+        if(overRuler(ev.offsetY)) {
+          this.#loopDoubleClick(ev.offsetX)
+          return
+        }
         // (with the Cut tool, two clicks are two cuts, not opening the clip)
         if(this.tool === 'cut') return
         const item = this.clipUnderMouse()
@@ -2220,6 +2317,10 @@ export class Renderer extends RendererBase {
       this.onNodesMove = props.onNodesMove
       this.onNodeDoubleClick = props.onNodeDoubleClick
       this.onSeek = props.onSeek
+      this.onLoopRegion = props.onLoopRegion
+      this.onClearLoopRegion = props.onClearLoopRegion
+      this.onLoopEnd = props.onLoopEnd
+      this.onClearLoopEnd = props.onClearLoopEnd
       this.onClipsTrim = props.onClipsTrim
       this.onClipsStretch = props.onClipsStretch
       this.onClipsCut = props.onClipsCut
@@ -2475,6 +2576,7 @@ export class Renderer extends RendererBase {
 
       // follow a ruler drag, even outside the canvas
       if(this.seekDragging) this.seekBeat = this.rulerBeat(p.mouseX)
+      if(this.#loopDragging && this.#loopDrag) this.#loopDrag = moveLoopDrag(this.#loopDrag, this.rulerBeat(p.mouseX))
       cursor.render()
 
       this.#drawScrollbar(p)
@@ -2490,6 +2592,10 @@ export class Renderer extends RendererBase {
       } else if(!this.clipDrag?.active && !this.sampleDrag && this.lipAt(p.mouseX, p.mouseY) !== null) {
         // the LED can be clicked
         p.cursor(this.ledAt(p.mouseX, p.mouseY) === null ? p.ARROW : p.HAND)
+      } else if(this.#loopDragging
+        || (overRuler(p.mouseY) && !this.clipDrag?.active && !this.sampleDrag && this.#loopHandleAt(p.mouseX) !== null)) {
+        // a loop edge, or the end flag, can be dragged
+        p.cursor('ew-resize')
       } else if(this.seekDragging || (overRuler(p.mouseY) && !this.clipDrag?.active && !this.sampleDrag)) {
         p.cursor(p.HAND)
       } else if(this.#hoverEdge) {

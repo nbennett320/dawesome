@@ -18,6 +18,10 @@ import {
   removeManyFromPlaylist,
   repeatClips,
   seekPlaylist,
+  setLoopRegion,
+  clearLoopRegion,
+  setLoopEnd,
+  clearLoopEnd,
   selectClipboardCount,
   selectClipOverrides,
   selectLoopEnabled,
@@ -257,6 +261,13 @@ const PlaylistCanvas = () => {
   const transportRevision = useAppSelector(selectTransportRevision)
   const loopEnabled = useAppSelector(selectLoopEnabled)
   const handleSeek = React.useCallback((beat: number) => { dispatch(seekPlaylist(beat)) }, [dispatch])
+  // the loop's region and end flag, dragged in the ruler
+  const handleLoopRegion = React.useCallback((start: number, end: number) => {
+    dispatch(setLoopRegion(start, end))
+  }, [dispatch])
+  const handleClearLoopRegion = React.useCallback(() => { dispatch(clearLoopRegion()) }, [dispatch])
+  const handleLoopEnd = React.useCallback((beat: number) => { dispatch(setLoopEnd(beat)) }, [dispatch])
+  const handleClearLoopEnd = React.useCallback(() => { dispatch(clearLoopEnd()) }, [dispatch])
   // the grid's step changed with the zoom: for the readout in the tray
   const handleGridStep = React.useCallback((beats: number) => { dispatch(setGridStep(beats)) }, [dispatch])
   const tempo = useAppSelector(selectPlaylistTempo)
@@ -659,6 +670,10 @@ const PlaylistCanvas = () => {
           transportRevision={transportRevision}
           loopEnabled={loopEnabled}
           onSeek={handleSeek}
+          onLoopRegion={handleLoopRegion}
+          onClearLoopRegion={handleClearLoopRegion}
+          onLoopEnd={handleLoopEnd}
+          onClearLoopEnd={handleClearLoopEnd}
           onClipsTrim={handleClipsTrim}
           onClipsStretch={handleClipsStretch}
           onClipsCut={handleClipsCut}

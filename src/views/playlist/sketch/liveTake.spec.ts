@@ -17,4 +17,10 @@ describe('the take being recorded', () => {
     // the first pass started
     expect(liveTakeSpan(0, 5)).toEqual({ start: 0, end: 5 })
   })
+
+  it('starts again from a loop region’s start', () => {
+    // from beat 10, in a region from beat 8: round to 8.5
+    expect(liveTakeSpan(10, 8.5, 8)).toEqual({ start: 8, end: 8.5 })
+    expect(liveTakeSpan(8, 9, 8)).toEqual({ start: 8, end: 9 })
+  })
 })
