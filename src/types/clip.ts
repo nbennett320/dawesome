@@ -53,7 +53,15 @@ export interface ClipOverride {
   // what the playlist needs to trim the clip, and to draw it trimmed
   sampleDuration?: number
   rate?: number
+  // how much louder it plays (its gain, as a multiplier), and its fades,
+  // which its waveform in the playlist is drawn with
+  gain?: number
+  fades?: Fades
 }
+
+// a clip's attack and decay: how long it fades in from its start, and out
+// before its end
+export type Fades = Pick<ClipSettings, 'attackMs' | 'decayMs'>
 
 export const defaultClipSettings: ClipSettings = {
   gainDb: 0,
@@ -66,7 +74,7 @@ export const defaultClipSettings: ClipSettings = {
 // the range of each setting. attack and decay are also limited to the
 // clip's length, which depends on the clip (see clampClipSettings)
 export const clipSettingRanges: Record<ClipSetting, { min: number, max: number }> = {
-  gainDb: { min: -60, max: 12 },
+  gainDb: { min: -60, max: 24 },
   pan: { min: -1, max: 1 },
   pitch: { min: -24, max: 24 },
   attackMs: { min: 0, max: 10_000 },
@@ -120,7 +128,7 @@ export const clampClipSettings = (
 // the attack/decay envelope's level (0 to 1) at `t` seconds into a clip
 // that plays for `playedSeconds`. where the fades overlap, the quieter wins
 export const envelopeAt = (
-  settings: ClipSettings,
+  settings: Fades,
   t: number,
   playedSeconds: number,
 ): number => {

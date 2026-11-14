@@ -1,9 +1,10 @@
 use std::vec::{Vec};
 
-use crate::util;
-
-// a sample's waveform: its level at evenly spaced points, from 0 (the lowest)
-// to 1 (the highest), about 2 points to each millisecond of sound
+// a sample's waveform: its level at evenly spaced points, about 2 points to
+// each millisecond of sound. each point is the loudest sample (of any
+// channel) in its stretch of the sound, keeping its sign, from 0 (full scale
+// one way) through 0.5 (silence) to 1 (full scale the other way). it isn't
+// stretched to fill the clip: a quiet recording's waveform looks quiet
 // - samples: interleaved samples for all channels
 // - sample_rate: the sample file's own rate
 // returns None if the samples are empty or too short to draw
@@ -18,16 +19,23 @@ pub fn calc_waveform_from_samples(
 
   let dur_ms = samples.len() as f32 / sample_rate as f32 * 1_000. / channels as f32;
   // at least one point, so very short samples don't divide by zero
-  let lod = (dur_ms.round() as u32 * 2).max(1);
+  let points = (dur_ms.round() as usize * 2).max(1);
+  if points >= samples.len() { return None; }
 
-  let ys: Vec<i32> = samples
-    .iter()
-    .map(|y| *y as i32)
-    .collect();
-  let y_gauss = util::math::gaussian_1d(&ys, 1., false)?;
-  let y_smoothed = util::math::sample_to_n_elements(&y_gauss, lod)?;
+  let stretch = samples.len() / points;
+  Some(samples
+    .chunks(stretch)
+    .take(points)
+    .map(|stretch| {
+      let peak = stretch.iter().copied().max_by_key(|&s| (s as i32).abs()).unwrap_or(0);
+      level(peak)
+    })
+    .collect())
+}
 
-  Some(util::math::f_normalize::<f32>(y_smoothed))
+// a sample's level in a waveform: 0.5 is silence, 0 and 1 full scale
+fn level(sample: i16) -> f32 {
+  (0.5 + sample as f32 / 65_536.).clamp(0., 1.)
 }
 
 // a waveform's levels as sent to the frontend: each level (0..1) as a
@@ -54,6 +62,18 @@ mod tests {
     // kept within 0..1
     assert_eq!(encode_levels(&[-1., 2.]), encode_levels(&[0., 1.]));
     assert_eq!(encode_levels(&[]), "");
+  }
+
+  #[test]
+  fn test_levels_are_not_stretched_to_fill_the_clip() {
+    // a tenth of full scale stays a tenth, however quiet the sample is
+    let quiet: Vec<i16> = (0..48_000).map(|i| if i % 4 < 2 { 3_277 } else { -3_277 }).collect();
+    let levels = calc_waveform_from_samples(&quiet, 1, 48_000).unwrap();
+    assert!(levels.iter().all(|&level| (level - 0.5).abs() > 0.04 && (level - 0.5).abs() < 0.06), "{:?}", &levels[..4]);
+    // full scale reaches the edges
+    let loud: Vec<i16> = (0..48_000).map(|i| if i % 48 < 24 { i16::MAX } else { i16::MIN }).collect();
+    let levels = calc_waveform_from_samples(&loud, 1, 48_000).unwrap();
+    assert!(levels.iter().any(|&level| level > 0.99) && levels.iter().any(|&level| level < 0.01));
   }
 
   #[test]

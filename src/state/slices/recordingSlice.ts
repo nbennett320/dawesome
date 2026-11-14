@@ -10,6 +10,8 @@ import { playlistSlice, reduceLoadedProject, syncPlayingFrom } from './playlistS
 // armed and what each records, and whether a take is being recorded
 export interface RecordingState {
   recording: boolean
+  // the take being recorded, which the playlist draws up to the playhead
+  take: { startBeat: number, tracks: number[] } | null
   // whether recording counts in a bar first
   countIn: boolean
   // input choices, by track number
@@ -25,6 +27,7 @@ export interface RecordingState {
 
 const initialState: RecordingState = {
   recording: false,
+  take: null,
   countIn: false,
   armed: {},
   inputChannels: null,
@@ -40,6 +43,10 @@ export const recordingSlice = createSlice({
       // starting makes a take's file, stopping finishes it
       if(state.recording !== action.payload) state.takesRevision += 1
       state.recording = action.payload
+      if(!action.payload) state.take = null
+    },
+    setTake: (state, action: PayloadAction<RecordingState['take']>) => {
+      state.take = action.payload
     },
     takesChanged: state => {
       state.takesRevision += 1
@@ -71,6 +78,7 @@ export const recordingSlice = createSlice({
 export const { setRecording, setRecordSetup, setCountIn, takesChanged } = recordingSlice.actions
 
 export const selectRecording = (state: RootState) => state.recording.recording
+export const selectTake = (state: RootState) => state.recording.take
 export const selectArmed = (trackNumber: number) => (state: RootState): InputChoice | null =>
   state.recording.armed[trackNumber] ?? null
 export const selectAnyArmed = (state: RootState) => Object.keys(state.recording.armed).length > 0
@@ -101,8 +109,11 @@ export const toggleCountIn = () => async (dispatch: Dispatch) => {
 }
 
 // put recorded takes on the playlist, and say what went wrong
-const receive = (dispatch: Dispatch, recorded: Recorded) => {
+const receive = (dispatch: Dispatch, recorded: Recorded, take: RecordingState['take']) => {
   dispatch(setRecording(recorded.recording))
+  // (only a new take, so the playlist isn't redrawn for the same one)
+  const next = recorded.take ?? null
+  if(JSON.stringify(next) !== JSON.stringify(take)) dispatch(recordingSlice.actions.setTake(next))
   recorded.clips.forEach(({ id, path, trackNumber, startBeat, settings, sampleDuration, playedDuration }) => {
     dispatch(playlistSlice.actions.addPlaylistItem({
       id,
@@ -120,23 +131,38 @@ const receive = (dispatch: Dispatch, recorded: Recorded) => {
   }
 }
 
+// set while the engine is starting a recording: the button shows it's
+// recording straight away, and nothing asks the engine meanwhile (it would
+// say it isn't recording yet)
+let starting = false
+
 // start recording every armed track from the playhead, or stop (playback
 // stops too, keeping its place) and put the takes on their tracks
 export const toggleRecording = () => async (dispatch: Dispatch, getState: () => RootState) => {
-  const command = getState().recording.recording ? 'stop_recording' : 'start_recording'
+  // a second press while it starts waits for it
+  if(starting) return
+  const start = !getState().recording.recording
+  if(start) {
+    starting = true
+    dispatch(setRecording(true))
+  }
   try {
-    receive(dispatch, await invoke<Recorded>(command, {}))
+    receive(dispatch, await invoke<Recorded>(start ? 'start_recording' : 'stop_recording', {}), getState().recording.take)
   } catch(e) {
+    if(start) dispatch(setRecording(false))
     dispatch(setProjectNotice({ kind: 'error', message: `Couldn't record: ${message(e)}` }))
+  } finally {
+    starting = false
   }
   await syncPlayingFrom(dispatch).catch(() => {})
 }
 
 // while recording: catch it ending some other way (playback stopped, or a
 // loop came round), and the takes it left
-export const collectRecording = () => async (dispatch: Dispatch) => {
+export const collectRecording = () => async (dispatch: Dispatch, getState: () => RootState) => {
+  if(starting) return
   try {
-    receive(dispatch, await invoke<Recorded>('collect_recording', {}))
+    receive(dispatch, await invoke<Recorded>('collect_recording', {}), getState().recording.take)
   } catch(e) {
     // eslint-disable-next-line no-console
     console.error('could not check on the recording:', e)

@@ -42,7 +42,11 @@ import {
   sameMuteSolo, selectMuteSolo, selectTrackColor, selectTrackColors, selectTrackName, selectTrackNames, setTrackColor,
   setTrackMute, setTrackSolo,
 } from '../../state/slices/mixerSlice'
-import TrackColorMenu, { TrackMenuAt } from '../mixer/TrackColorMenu'
+import TrackMenu, { TrackMenuAt } from '../mixer/TrackMenu'
+import {
+  selectArmed, selectInputChannels, selectRecording, selectTake, setTrackArmed,
+} from '../../state/slices/recordingSlice'
+import { defaultInput } from '../../types/audio'
 import { View } from '../../types/ui'
 import { isDeleteKey, isExplodeKey, isJoinKey, isTextTarget, isTypingTarget } from '../../util/keys'
 import { editShortcutHandler } from '../../util/shortcuts'
@@ -74,13 +78,24 @@ const LipMenu = ({ menu, onClose }: { menu: OpenLipMenu, onClose: () => void }) 
   const { track } = menu
   const color = useAppSelector(selectTrackColor(track))
   const name = useAppSelector(selectTrackName(track))
+  const armed = useAppSelector(selectArmed(track))
+  const channels = useAppSelector(selectInputChannels)
 
   return (
-    <TrackColorMenu
+    <TrackMenu
       at={menu}
       label={name}
       color={color}
       onChange={c => { dispatch(setTrackColor(track, c)) }}
+      arm={{
+        armed: armed !== null,
+        onToggle: () => {
+          dispatch(setTrackArmed(track, armed ? null : defaultInput(channels))).catch(e => {
+            // eslint-disable-next-line no-console
+            console.error('could not arm the track:', e)
+          })
+        },
+      }}
       onClose={onClose}
     />
   )
@@ -256,6 +271,12 @@ const PlaylistCanvas = () => {
   // and its mute and solo, which its lip's LED shows and toggles
   // (only mute and solo: a fader or pan moving doesn't redraw the playlist)
   const trackMixes = useAppSelector(selectMuteSolo, sameMuteSolo)
+  // and the tracks armed to record, which tint their lips red
+  const armed = useAppSelector(state => state.recording.armed)
+  const armedTracks = React.useMemo(() => Object.keys(armed).map(Number), [armed])
+  const recording = useAppSelector(selectRecording)
+  // and the take being recorded, drawn up to the playhead
+  const liveTake = useAppSelector(selectTake)
   const handleTrackMute = React.useCallback((trackNumber: number, mute: boolean) => {
     dispatch(setTrackMute(trackNumber, mute))
   }, [dispatch])
@@ -621,6 +642,9 @@ const PlaylistCanvas = () => {
           trackCount={trackCount}
           trackColors={trackColors}
           trackMixes={trackMixes}
+          armedTracks={armedTracks}
+          recording={recording}
+          liveTake={liveTake}
           onTrackMute={handleTrackMute}
           onTrackSolo={handleTrackSolo}
           onLipRightClick={handleLipRightClick}

@@ -157,3 +157,86 @@ describe('a pattern clip', () => {
     expect(hits.sort((a, b) => a - b)).toEqual([32, 40, 48, 56])
   })
 })
+
+describe('a sample clip’s waveform', () => {
+  it('follows the gain set in the sample editor', () => {
+    vi.useFakeTimers()
+    const { p } = recordingP5()
+    const renderer = new Renderer()
+    const clip = new PlaylistObject(p, {} as p5.Renderer, renderer, {
+      playlistItem: { id: 4, path: 'a.wav', startBeat: 0, trackNumber: 0, pixelOffset: {} as never },
+      soundData: new Float32Array([0.5, 0.6, 0.4]),
+      duration: 1,
+      trackNumber: 0,
+      trackHeight: 100,
+      timelineWidth: 1_000,
+      timelineHeight: 24,
+      currentScale: 1,
+    })
+    renderer.playlistObjects = [clip]
+
+    const fades = { attackMs: 100, decayMs: 50 }
+    renderer.setClipOverrides({ 4: { modified: true, gain: 2, fades } })
+    expect(clip.waveform.gain).toBe(2)
+    expect(clip.waveform.fades).toEqual(fades)
+    // back to 0 dB, or no settings at all
+    renderer.setClipOverrides({})
+    expect(clip.waveform.gain).toBe(1)
+    expect(clip.waveform.fades).toEqual({ attackMs: 0, decayMs: 0 })
+    vi.useRealTimers()
+  })
+
+  // a second of sound at full scale, 100 pixels wide, drawn a column (rect)
+  // at a time: each column's height
+  const columns = (set: (clip: PlaylistObject) => void) => {
+    const rects: Rect[] = []
+    const noop = () => undefined
+    const loose = <T extends object>(target: T): T => new Proxy(target, {
+      get: (t, key) => (key in t ? t[key as keyof T] : noop),
+    })
+    const p = loose({
+      drawingContext: loose({
+        canvas: { width: 1_000, height: 1_000 },
+        getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }),
+        rect: (x: number, y: number, width: number, height: number) => { rects.push({ x, y, width, height }) },
+      }),
+    }) as unknown as ConstructorParameters<typeof PlaylistObject>[0]
+    const renderer = new Renderer()
+    renderer.width = 1_000
+    // 50 pixels a beat: a second at 120 bpm is 100 pixels
+    renderer.beatsDisplayed = 20
+    renderer.tempo = 120
+    const clip = new PlaylistObject(p, {} as p5.Renderer, renderer, {
+      playlistItem: { id: 4, path: 'a.wav', startBeat: 0, trackNumber: 0, pixelOffset: {} as never },
+      // full scale, both ways
+      soundData: Float32Array.from({ length: 2_000 }, (_, i) => i % 2),
+      duration: 1,
+      trackNumber: 0,
+      trackHeight: 100,
+      timelineWidth: 1_000,
+      timelineHeight: 24,
+      currentScale: 1,
+    })
+    set(clip)
+    clip.waveform.render()
+    return rects.map(rect => rect.height)
+  }
+
+  it('is drawn as it’s heard: at its gain, and faded in and out', () => {
+    const plain = columns(() => {})
+    expect(plain.length).toBeGreaterThanOrEqual(99)
+    const full = plain[50]
+
+    // half as loud: half as far from the middle
+    const quiet = columns(clip => { clip.waveform.gain = 0.5 })
+    expect(quiet[50]).toBeCloseTo(full / 2 + 0.375, 0)
+
+    // a quarter second's attack and decay: from nothing at its start, up to
+    // full a quarter of the way in, and down to nothing at its end
+    const faded = columns(clip => { clip.waveform.fades = { attackMs: 250, decayMs: 250 } })
+    expect(faded[0]).toBeLessThan(full * 0.1)
+    expect(Math.abs(faded[12] - full / 2)).toBeLessThan(full * 0.1)
+    expect(faded[50]).toBeCloseTo(full)
+    expect(faded[faded.length - 1]).toBeLessThan(full * 0.1)
+  })
+})

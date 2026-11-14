@@ -212,6 +212,10 @@ pub fn set_time_signature(state: &daw::InnerState, signature: daw::timing::TimeS
 pub fn toggle_loop_enabled(
   state: daw::TState<'_>
 ) {
+  // a recording cuts its passes where the loop comes round: it stays as it
+  // is until the recording's over
+  if crate::recording::is_recording(&state) { return; }
+
   let val = !state
     .playlist
     .loop_enabled

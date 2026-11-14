@@ -106,6 +106,12 @@ pub fn beat_interval(state: &state::InnerState) -> Duration {
 // where the playhead is now: moving with the current run while playing, or
 // where the next run will start while stopped or paused
 pub fn playhead(state: &state::InnerState) -> Duration {
+  playhead_at(state, Instant::now())
+}
+
+// where the playhead is (or was, or will be) heard at `at`, as playhead.
+// before the run's first frame is heard (counting in), where it starts
+pub fn playhead_at(state: &state::InnerState, at: Instant) -> Duration {
   let (start, started) = run_anchor(state);
   // a pattern playing on its own leaves the playlist's playhead where it is
   if !state.playlist.playing_playlist() { return start; }
@@ -115,7 +121,7 @@ pub fn playhead(state: &state::InnerState) -> Duration {
     None => return start,
   };
 
-  state::timeline_position(start, started.elapsed(), loop_len(state))
+  state::timeline_position(start, at.saturating_duration_since(started), loop_len(state))
 }
 
 // where on the timeline the playhead counts from, and when that was heard
@@ -430,10 +436,37 @@ pub fn run_playlist(
         }
       }
 
+      // the playlist's loop comes round with this slice
+      let wraps = counts_beats && next < current_offset;
+
+      // a recording that stops at the loop's end stops playback there too,
+      // once what's before it has been heard, and the playhead goes back to
+      // where the recording started, ready for another take
+      if wraps && crate::recording::stops_at_loop_end(&state) {
+        if engine.wait_for_frame(heard_at(next_at), &current) && current() {
+          println!("recorded to the loop's end");
+          let back_to = crate::recording::started_at(&state).unwrap_or_default();
+          crate::recording::finish(&state, true);
+          end_run(&state);
+          set_playhead(&state, back_to);
+        }
+        break;
+      }
+
+      // while a recording layers its passes, the pass that's ending plays
+      // as it was recorded. (first: the pass before it is let out of being
+      // held back, so it starts in this slice)
+      let layers = if wraps {
+        crate::recording::layer_voices(&state, &engine, run, next_at, anchor.heard + next_at)
+      } else {
+        Vec::new()
+      };
+
       // send the next slice
       state.playlist.audiograph.lock().unwrap().set_current_offset(Some(next));
       slice = tempo_interval;
-      let (voices, notes) = slice_voices(next_at, slice, true, false, loop_len);
+      let (mut voices, notes) = slice_voices(next_at, slice, true, false, loop_len);
+      voices.extend(layers);
       if let Err(e) = engine.play(voices) {
         println!("could not schedule the next beat: {}", e);
       }
@@ -454,13 +487,6 @@ pub fn run_playlist(
           *start_offset = next;
           *state.playlist.started_time.lock().unwrap() = Some(anchor.heard + next_at);
         }
-      }
-
-      // the loop came round: a recording ends at the loop's end. its takes
-      // are put on their tracks off this thread, which mustn't fall behind
-      if next < current_offset && crate::recording::is_recording(&state) {
-        let state = state.clone();
-        thread::spawn(move || crate::recording::finish(&state, true));
       }
 
       slice_at = next_at;
@@ -805,6 +831,24 @@ mod tests {
       (beat * 3, false),
     ]);
     assert!(count_in_clicks(0, beat).is_empty());
+  }
+
+  // where the playhead is heard at a moment: what a recording started
+  // while playing counts from
+  #[test]
+  fn test_the_playhead_at_a_moment() {
+    let state = state::InnerState::default();
+    let started = Instant::now();
+    *state.playlist.start_offset.lock().unwrap() = Duration::from_secs(1);
+    *state.playlist.started_time.lock().unwrap() = Some(started);
+
+    // stopped: where the next run starts
+    assert_eq!(playhead_at(&state, started + Duration::from_secs(5)), Duration::from_secs(1));
+
+    state.playlist.set_playing(true);
+    assert_eq!(playhead_at(&state, started + Duration::from_millis(1_500)), Duration::from_millis(2_500));
+    // still counting in: where it starts
+    assert_eq!(playhead_at(&state, started - Duration::from_millis(200)), Duration::from_secs(1));
   }
 
   // plays through the real output: run with `cargo test -- --ignored`

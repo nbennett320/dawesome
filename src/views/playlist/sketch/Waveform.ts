@@ -3,6 +3,7 @@ import { P5CanvasInstance } from 'react-p5-wrapper'
 import PlaylistComponent, { PlaylistComponentProps } from './PlaylistComponent'
 import { CanvasProps, Renderer, staticDefaults } from './index'
 import { PlaylistItemPixelOffset } from '../../../types/playlist'
+import { Fades, envelopeAt } from '../../../types/clip'
 import { paint } from './theme'
 import { Peaks, buildPeaks, peakRange } from './peaks'
 
@@ -31,9 +32,22 @@ interface Props extends PlaylistComponentProps {
   pixelOffset: PlaylistItemPixelOffset
 }
 
+// a level (0..1, silence at 0.5) as a clip's gain changes it: further from
+// the middle by the gain, and flat at the clip's edges past full scale, as
+// the sound clips
+export const gainedLevel = (level: number, gain: number): number =>
+  Math.min(1, Math.max(0, 0.5 + (level - 0.5) * gain))
+
+// a clip that starts and ends at full level
+export const NO_FADES: Fades = { attackMs: 0, decayMs: 0 }
+
 class Waveform extends PlaylistComponent {
   // the level (0..1) at evenly spaced points along the whole sample
   soundData: Float32Array
+  // the clip's gain, as a multiplier, and its fades, which the waveform's
+  // drawn with (the fades from the clip's start and to its end, as it plays)
+  gain = 1
+  fades: Fades = NO_FADES
   // the part of the sample the clip shows, as fractions of it: from, to.
   // all of it, unless the clip is trimmed
   range: [number, number] = [0, 1]
@@ -87,7 +101,8 @@ class Waveform extends PlaylistComponent {
   })
   
   // the waveform is the line through the engine's levels (0..1), spread
-  // evenly across the clip's width and filling the clip below its label
+  // evenly across the clip's width and filling the clip below its label, at
+  // the clip's gain and shaped by its fades, as it's heard
   //
   // a clip usually has many points to each pixel (about 2000 a second of
   // sound), so rather than a line per point, each column of pixels on screen
@@ -132,7 +147,13 @@ class Waveform extends PlaylistComponent {
     const pointsPerUnit = shown / width
     const deviceX = (i: number) => (left + (i - firstPoint) / pointsPerUnit) * scaleX + offsetX
     const pointAt = (x: number) => ((x - offsetX) / scaleX - left) * pointsPerUnit + firstPoint
-    const y = (level: number) => bodyTop + level * bodyHeight
+    // a level at playlist x: at the clip's gain, faded there
+    const { gain, fades, duration } = this
+    const faded = fades.attackMs > 0 || fades.decayMs > 0
+    const y = (level: number, x: number) => {
+      const fade = faded ? envelopeAt(fades, (x - left) / width * duration, duration) : 1
+      return bodyTop + gainedLevel(level, gain * fade) * bodyHeight
+    }
 
     // the columns on screen, left of the canvas's right edge
     const first = Math.max(0, Math.floor(deviceX(firstPoint)))
@@ -165,11 +186,13 @@ class Waveform extends PlaylistComponent {
         const range = peakRange(peaks, Math.floor(pointAt(column)), Math.ceil(pointAt(column + 1)))
         if(range) {
           const [low, high] = range
+          const x = (column - offsetX) / scaleX
+          const middle = x + columnWidth / 2
           ctx.rect(
-            (column - offsetX) / scaleX,
-            y(low) - lineWidth / 2,
+            x,
+            y(low, middle) - lineWidth / 2,
             columnWidth,
-            (high - low) * bodyHeight + lineWidth,
+            y(high, middle) - y(low, middle) + lineWidth,
           )
         }
       }
@@ -184,9 +207,9 @@ class Waveform extends PlaylistComponent {
       paint.stroke(p, 'clipWave')
       p.noFill()
       ctx.beginPath()
-      ctx.moveTo(pointX(start), y(this.soundData[start]))
+      ctx.moveTo(pointX(start), y(this.soundData[start], pointX(start)))
       for(let i = start + 1; i <= end; i++) {
-        ctx.lineTo(pointX(i), y(this.soundData[i]))
+        ctx.lineTo(pointX(i), y(this.soundData[i], pointX(i)))
       }
       // stroked without the zoom, which would otherwise stretch the line's
       // width along with the timeline (y is only scaled by pixel density)

@@ -22,6 +22,8 @@ import { onThemeChange } from '../../../theme/apply'
 import { paint, patternColors, theme, trackPaint } from './theme'
 import { painter } from '../../../theme/canvas'
 import { LIP, LipLook, drawLip, fitName, inBox, lipBox, lipWidth, onLed } from './lip'
+import { LiveTake, liveTakeSpan } from './liveTake'
+import { NO_FADES } from './Waveform'
 import { trackColorKey, defaultTrackColor, trackLabel } from '../../../types/mixer'
 import { DEFAULT_BEATS_PER_BAR, DEFAULT_PLAYLIST_BEATS, PlaylistTransport } from '../../../types/transport'
 import { positionAt } from '../../transport/tape'
@@ -63,6 +65,12 @@ export interface CanvasProps extends SketchProps {
   // each track's mute and solo in the mixer (tracks not listed are neither),
   // shown on its lip
   trackMixes: Record<number, { mute: boolean, solo: boolean }>
+  // the tracks armed to record, and whether a take is being recorded: their
+  // lips are tinted red, and pulse while recording
+  armedTracks: number[]
+  recording: boolean
+  // the take being recorded, drawn from its start to the playhead
+  liveTake: LiveTake | null
   // a lip's LED was clicked (mute) or shift+clicked (solo): set it to this
   onTrackMute: (trackNumber: number, mute: boolean) => void
   onTrackSolo: (trackNumber: number, solo: boolean) => void
@@ -313,6 +321,9 @@ export class Renderer extends RendererBase {
   trackCount: number = staticDefaults.trackCount
   trackColors: Record<number, number> = {}
   trackMixes: Record<number, { mute: boolean, solo: boolean }> = {}
+  armedTracks: number[] = []
+  recording = false
+  liveTake: LiveTake | null = null
   onTrackMute!: (trackNumber: number, mute: boolean) => void
   onTrackSolo!: (trackNumber: number, solo: boolean) => void
   onLipRightClick!: (trackNumber: number, clientX: number, clientY: number) => void
@@ -819,6 +830,32 @@ export class Renderer extends RendererBase {
     p.pop()
   }
 
+  // the take being recorded: a red outlined region on each of its tracks,
+  // from where it started to the playhead. called inside the zoom/pan
+  // transform
+  #drawLiveTake = (p: P5CanvasInstance<CanvasProps>) => {
+    const take = this.liveTake
+    const beat = this.playing ? this.playheadBeat() : null
+    if(!take || beat === null) return
+    const span = liveTakeSpan(take.startBeat, beat)
+    if(!span) return
+
+    p.push()
+    p.strokeWeight(1.5)
+    fourtrackPaint.stroke(p, 'ledRedOn')
+    fourtrackPaint.fill(p, 'ledRedOn', 0.14)
+    // in screen pixels across, so zoom doesn't stretch the outline
+    p.scale(1 / this.currentScale, 1)
+    const left = this.beatToX(span.start) * this.currentScale
+    const width = this.beatToX(span.end - span.start) * this.currentScale
+    take.tracks.forEach(track => {
+      const laneTop = this.#laneTop(track)
+      if(laneTop === null) return
+      p.rect(left, laneTop + 2, width, staticDefaults.trackHeight - 4, 3)
+    })
+    p.pop()
+  }
+
   // every clip that can be cut, as far as cutting goes
   #cutClips = (): CutItem[] => this.playlistObjects.flatMap(obj => {
     const clip = this.trimClipOf(obj)
@@ -1159,6 +1196,8 @@ export class Renderer extends RendererBase {
       || this.#paint !== null
       || this.seekDragging
       || this.scrollbarGrab !== null
+      // armed lips pulse
+      || (this.recording && this.armedTracks.length > 0)
   }
 
   // stop drawing while the playlist can't be seen (its tab isn't selected),
@@ -1302,6 +1341,9 @@ export class Renderer extends RendererBase {
     const override = this.clipOverrides[obj.playlistItem.id]
 
     obj.modified = !!override?.modified
+    // its waveform shows its gain and fades
+    obj.waveform.gain = override?.gain ?? 1
+    obj.waveform.fades = override?.fades ?? NO_FADES
     // newer than the length fetched when the clip was built, which can lag
     // behind while settings are being sent to the engine
     if(override?.playedDuration !== undefined) obj.setDuration(override.playedDuration)
@@ -1695,6 +1737,7 @@ export class Renderer extends RendererBase {
       panel: fourtrackPaint.rgba('panel'),
       mute: fourtrackPaint.rgba('ledAmberOn'),
       solo: fourtrackPaint.rgba('ledLimeOn'),
+      rec: fourtrackPaint.rgba('ledRedOn'),
     }
     // (lanes aren't shaded: the lines between them set them apart, so a
     // lip sits on the plain background)
@@ -1702,7 +1745,12 @@ export class Renderer extends RendererBase {
 
     this.#lipBoxes().forEach(({ track, box, text }) => {
       const led = this.trackRgba(track)
-      drawLip(ctx, box, text, { ...base, lane, led }, { lit: sounding.has(track), ring: this.#ring(track) })
+      drawLip(ctx, box, text, { ...base, lane, led }, {
+        lit: sounding.has(track),
+        ring: this.#ring(track),
+        armed: this.armedTracks.includes(track),
+        recording: this.recording,
+      })
     })
   }
 
@@ -2150,6 +2198,9 @@ export class Renderer extends RendererBase {
       this.trackCount = props.trackCount
       this.trackColors = props.trackColors ?? {}
       this.trackMixes = props.trackMixes ?? {}
+      this.armedTracks = props.armedTracks ?? []
+      this.recording = props.recording ?? false
+      this.liveTake = props.liveTake ?? null
       this.onTrackMute = props.onTrackMute
       this.onTrackSolo = props.onTrackSolo
       this.onLipRightClick = props.onLipRightClick
@@ -2399,6 +2450,9 @@ export class Renderer extends RendererBase {
       this.playlistTracks.forEach(track => {
         track.render()
       })
+
+      // what's being recorded, over the clips it records over
+      this.#drawLiveTake(p)
 
       // render the clip being dragged on top of the other clips
       this.drawClipDrag(p, canvas)

@@ -70,18 +70,55 @@ test('recording starts, then stops with its takes on their tracks', async () => 
   expect(store.getState().project.notice).toBeNull()
 })
 
+test('the button shows it recording before the engine has started', async () => {
+  const store = makeStore()
+  let started: (r: Recorded) => void = () => {}
+  mockInvoke.mockImplementation((cmd: string) => {
+    if(cmd === 'start_recording') return new Promise<Recorded>(resolve => { started = resolve })
+    return Promise.resolve(cmd === 'get_playlist_playing' ? true : undefined)
+  })
+  const pending = toggleRecording()(store.dispatch, getState(store))
+  expect(store.getState().recording.recording).toBe(true)
+
+  // meanwhile, a check on it or a second press doesn't ask the engine
+  await collectRecording()(store.dispatch, getState(store))
+  await toggleRecording()(store.dispatch, getState(store))
+  expect(mockInvoke).toHaveBeenCalledTimes(1)
+  expect(store.getState().recording.recording).toBe(true)
+
+  started(recorded({ recording: true }))
+  await pending
+  expect(store.getState().recording.recording).toBe(true)
+})
+
+test('the take being recorded is kept for the playlist, until it stops', async () => {
+  const store = makeStore()
+  const take = { startBeat: 4, tracks: [1, 3] }
+  engine({ start_recording: recorded({ recording: true, take }), get_playlist_playing: true })
+  await toggleRecording()(store.dispatch, getState(store))
+  expect(store.getState().recording.take).toEqual(take)
+
+  engine({ collect_recording: recorded({ recording: true, take }) })
+  await collectRecording()(store.dispatch, getState(store))
+  expect(store.getState().recording.take).toEqual(take)
+
+  engine({ stop_recording: recorded({ clips: [clip] }), get_playlist_playing: false })
+  await toggleRecording()(store.dispatch, getState(store))
+  expect(store.getState().recording.take).toBeNull()
+})
+
 test('a recording that ended some other way is caught', async () => {
   const store = makeStore()
   engine({ start_recording: recorded({ recording: true }) })
   await toggleRecording()(store.dispatch, getState(store))
 
   engine({ collect_recording: recorded({ recording: true }) })
-  await collectRecording()(store.dispatch)
+  await collectRecording()(store.dispatch, getState(store))
   expect(store.getState().recording.recording).toBe(true)
 
   // playback stopped, or the loop came round
   engine({ collect_recording: recorded({ clips: [clip] }) })
-  await collectRecording()(store.dispatch)
+  await collectRecording()(store.dispatch, getState(store))
   expect(store.getState().recording.recording).toBe(false)
   expect(store.getState().playlist.playlistItems).toHaveLength(1)
 })
@@ -95,7 +132,7 @@ test('what went wrong is said', async () => {
   expect(store.getState().project.notice).toEqual({ kind: 'error', message: "Couldn't record: Arm a track first" })
 
   engine({ collect_recording: recorded({ clips: [clip], problems: ['some audio was lost'] }) })
-  await collectRecording()(store.dispatch)
+  await collectRecording()(store.dispatch, getState(store))
   expect(store.getState().project.notice).toEqual({ kind: 'error', message: 'Recording: some audio was lost' })
   // the take is still kept
   expect(store.getState().playlist.playlistItems).toHaveLength(1)

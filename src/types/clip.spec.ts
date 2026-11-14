@@ -38,7 +38,7 @@ describe('clip settings', () => {
 
   test('clamping keeps settings in range, and fades within the clip', () => {
     expect(clampClipSettings(settings({ gainDb: 40, pan: -3, pitch: 99 })))
-      .toEqual(settings({ gainDb: 12, pan: -1, pitch: 24 }))
+      .toEqual(settings({ gainDb: 24, pan: -1, pitch: 24 }))
 
     expect(clampClipSettings(settings({ attackMs: 900, decayMs: 300 }), 0.5))
       .toEqual(settings({ attackMs: 500, decayMs: 300 }))

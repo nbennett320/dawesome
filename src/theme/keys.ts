@@ -30,6 +30,10 @@ export interface Preferences {
   stepKeys: StepKeys
   // whether typing `:` opens the vim-style command bar (see InfoBar)
   commandBar: boolean
+  // what a recording does at the loop's end: carry on, each pass going on
+  // its track and playing on the next, or stop there (see LoopRecording in
+  // preferences.rs)
+  loopRecording: 'layer' | 'stop'
 }
 
 // coloured caps (TR-808), plain caps over a coloured strip (TR-909), or

@@ -12,6 +12,7 @@ import {
   ClipWindow,
   clampClipSettings,
   defaultClipSettings,
+  gainFactor,
   isDefaultClipSettings,
   playbackRate,
   windowedDuration,
@@ -834,6 +835,8 @@ export const selectClipOverrides = (state: RootState): Record<number, ClipOverri
       modified: !isDefaultClipSettings(settings),
       sampleDuration: sampleSeconds,
       rate: playbackRate(settings),
+      gain: gainFactor(settings.gainDb),
+      fades: { attackMs: settings.attackMs, decayMs: settings.decayMs },
     }
   })
 

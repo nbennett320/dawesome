@@ -1,4 +1,4 @@
-import { LIP, fitName, inBox, ledCenter, lipBox, lipWidth, onLed } from './lip'
+import { LIP, armTint, fitName, inBox, ledCenter, lipBox, lipWidth, onLed } from './lip'
 
 describe('a lane’s lip', () => {
   it('is pinned to the top right, inside its own lane', () => {
@@ -45,5 +45,14 @@ describe('a lane’s lip', () => {
     expect(onLed(box, led.x + LIP.wellRadius + 2, led.y)).toBe(true)
     // the name isn't the LED
     expect(onLed(box, box.x + LIP.padLeft, led.y)).toBe(false)
+  })
+
+  it('tints an armed tab steadily, and pulses the tint once a second while recording', () => {
+    expect(armTint(false, 0)).toBe(armTint(false, 700))
+    const low = armTint(true, 0)
+    const high = armTint(true, 500)
+    expect(high).toBeGreaterThan(low)
+    expect(armTint(true, 1000)).toBeCloseTo(low)
+    expect(low).toBeGreaterThan(0)
   })
 })

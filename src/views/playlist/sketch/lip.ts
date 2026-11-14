@@ -105,6 +105,9 @@ export interface LipColors {
   solo: RGBA
   // the track's color
   led: RGBA
+  // the tint behind the name of a track armed to record, in the mixer's
+  // red arm LED
+  rec: RGBA
 }
 
 // how a label is drawn: its LED lit (playing a clip), and the track's state
@@ -113,7 +116,18 @@ export interface LipLook {
   lit: boolean
   // muted, silenced by another track's solo (a dim mute ring), or soloed
   ring: 'mute' | 'silenced' | 'solo' | null
+  // armed to record (the tab is tinted red), and recording now (it pulses)
+  armed: boolean
+  recording: boolean
 }
+
+// how strong a tab's red tint is: steady while armed, and breathing about
+// once a second while recording. `now` is in ms
+const TINT = { armed: 0.18, low: 0.1, high: 0.3, period: 1000 }
+export const armTint = (recording: boolean, now: number): number =>
+  (recording
+    ? TINT.low + (TINT.high - TINT.low) * (0.5 - 0.5 * Math.cos((now / TINT.period) * Math.PI * 2))
+    : TINT.armed)
 
 // an unlit LED's tint: stronger than the fixed LEDs', as on the mixer's
 // jewels, so a quiet track's color still shows (see ledTint)
@@ -123,7 +137,7 @@ const UNLIT = 0.45
 export const drawLip = (ctx: CanvasRenderingContext2D, box: Box, name: string, colors: LipColors, look: LipLook) => {
   const { x, y, w, h } = box
   const { x: cx, y: cy } = ledCenter(box)
-  const { lit, ring } = look
+  const { lit, ring, armed, recording } = look
 
   ctx.save()
 
@@ -133,6 +147,14 @@ export const drawLip = (ctx: CanvasRenderingContext2D, box: Box, name: string, c
   fade.addColorStop(1, css(colors.lane, 0.85))
   ctx.fillStyle = fade
   ctx.fillRect(x - LIP.fade, y, w + LIP.fade, h)
+
+  // armed: a soft red tab behind the name
+  if(armed) {
+    ctx.beginPath()
+    ctx.roundRect(x, y, w, h, h / 2)
+    ctx.fillStyle = css(colors.rec, armTint(recording, performance.now()))
+    ctx.fill()
+  }
 
   // the name, printed on the panel like its other labels (.ft-label)
   ctx.font = LIP.font

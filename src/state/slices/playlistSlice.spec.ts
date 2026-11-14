@@ -84,7 +84,7 @@ describe('addToPlaylist', () => {
     expect(state.clipSampleDurations[31]).toBe(1.5)
     // so the canvas knows how far its edges can go
     const overrides = selectClipOverrides({ playlist: state } as unknown as Parameters<typeof selectClipOverrides>[0])
-    expect(overrides[31]).toMatchObject({ sampleDuration: 1.5, rate: 1, playedDuration: 1.5 })
+    expect(overrides[31]).toMatchObject({ sampleDuration: 1.5, rate: 1, playedDuration: 1.5, gain: 1 })
   })
 })
 

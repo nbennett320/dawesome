@@ -212,6 +212,10 @@ const ChannelStrip = ({
           onMute={mute.onChange}
           onSolo={solo.onChange}
           ledRef={color.ledRef}
+          arm={record && {
+            armed: record.armed !== null,
+            onToggle: () => record.onChange(record.armed ? null : defaultInput(record.channels)),
+          }}
         />
       )}
       <div className='flex-1 min-w-0 h-full'>
