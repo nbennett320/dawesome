@@ -435,10 +435,11 @@ fn test_waveform_rejects_empty_and_tiny_samples() {
 
 #[test]
 fn test_silence_has_a_flat_waveform() {
-  // used to panic: silence smoothed and normalised by dividing by zero
+  // used to panic: silence smoothed and normalised by dividing by zero.
+  // it's a flat line through the middle
   let levels = daw::calc_waveform_from_samples(&vec![0; 48_000], 1, 48_000).unwrap();
   assert!(!levels.is_empty());
-  assert!(levels.iter().all(|&level| level == 0.));
+  assert!(levels.iter().all(|&level| level == 0.5));
 }
 
 #[test]
