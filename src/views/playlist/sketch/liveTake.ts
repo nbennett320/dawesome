@@ -12,8 +12,9 @@ export interface LiveTake {
 
 // the beats the region covers: from the take's start to the playhead. once
 // the loop has come round (the playhead's back before the start), the pass
-// being recorded now, from the loop's start
-export const liveTakeSpan = (startBeat: number, playheadBeat: number): { start: number, end: number } | null => {
-  const start = playheadBeat < startBeat ? 0 : startBeat
+// being recorded now, from the loop's start (`loopStartBeat`: a region's, or
+// the playlist's)
+export const liveTakeSpan = (startBeat: number, playheadBeat: number, loopStartBeat = 0): { start: number, end: number } | null => {
+  const start = playheadBeat < startBeat ? Math.min(loopStartBeat, playheadBeat) : startBeat
   return playheadBeat > start ? { start, end: playheadBeat } : null
 }

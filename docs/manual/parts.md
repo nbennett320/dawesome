@@ -109,9 +109,13 @@ Each item opens its tab, or selects it if it is already open.
 5. **Count in a bar before recording** — When on, recording starts after one
    bar of clicks.
 6. **Loop** — Turns looping on and off.
-7. **Tempo** — The tempo in beats per minute, from 1 to 1000. Type a value;
-   it is taken up when you stop typing, press **Enter**, or leave the field.
-   It can't be changed while recording.
+7. **Tempo** — The tempo in beats per minute, from 1 to 1000, on counter
+   wheels. Drag up to speed up and down to slow down (hold **Shift** for
+   finer moves); a whole drag is one step to undo. Or *double-click* it (or
+   press **Enter** while it's focused) and type a value, taken up on
+   **Enter** or when you leave the field (**Esc** cancels). **↑** / **↓**
+   change it by 1, by 10 with **Shift**. It can't be changed while
+   recording.
 8. **Bar** / **Beat** — The playhead's position in bars and beats, from 1.
 9. **Time** — The playhead's position in minutes, seconds and tenths
    (m:ss.t).

@@ -12,7 +12,9 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 const recordingP5 = (width: number, height: number) => {
   const numbers: Array<{ text: string, x: number }> = []
   const lines: Array<{ x: number, color: string }> = []
+  const rects: Array<{ x: number, w: number, color: string }> = []
   let stroke = ''
+  let fill = ''
   const noop = () => undefined
   const loose = <T extends object>(target: T): T => new Proxy(target, {
     get: (t, key) => (key in t ? t[key as keyof T] : noop),
@@ -32,14 +34,16 @@ const recordingP5 = (width: number, height: number) => {
     constrain: (n: number, low: number, high: number) => Math.min(Math.max(n, low), high),
     keyIsDown: () => false,
     stroke: (...rgba: number[]) => { stroke = rgba.join() },
+    fill: (...rgba: number[]) => { fill = rgba.join() },
+    rect: (x: number, _y: number, w: number) => { rects.push({ x, w, color: fill }) },
     line: (x: number) => { lines.push({ x, color: stroke }) },
     text: (text: string, x: number) => { numbers.push({ text, x }) },
   })
-  return { p: p as unknown as Parameters<Renderer['sketch']>[0], numbers, lines }
+  return { p: p as unknown as Parameters<Renderer['sketch']>[0], numbers, lines, rects }
 }
 
 const stopped: PlaylistTransport = {
-  playing: false, startTimeMs: null, startOffsetMs: 0, positionMs: 0, beatIntervalMs: 500, loopBeats: 12,
+  playing: false, startTimeMs: null, startOffsetMs: 0, positionMs: 0, beatIntervalMs: 500, loopStartBeats: 0, loopEndBeats: 12, loopRegion: false, loopEndPinned: false,
   beatsDisplayed: 384, loopEnabled: false, songEndMs: 0, beatsPerBar: 4, patternId: null, patternLength: 0,
 }
 
@@ -75,5 +79,54 @@ describe('the playlist in 3/4', () => {
     const bar = paint.rgba('barLine').join()
     const barLines = lines.filter(line => line.color === bar).map(line => Math.round(line.x / beatX))
     expect(barLines.slice(0, 5)).toEqual([0, 3, 6, 9, 12])
+  })
+})
+
+describe('the loop region', () => {
+  beforeEach(() => applyTheme(slateLightTheme))
+
+  // 4/4, a beat 10px wide (zoomed so 96 beats fit), a region from beat 8 to 16
+  const draw = (t: Partial<PlaylistTransport>) => {
+    const width = 960
+    const renderer = new Renderer()
+    renderer.width = width
+    renderer.height = 400
+    const { p, lines, rects } = recordingP5(width, 400)
+    renderer.sketch(p)
+    p.setup()
+    renderer.transport = { ...stopped, loopStartBeats: 8, loopEndBeats: 16, loopRegion: true, ...t }
+    renderer.beatsDisplayed = 384
+    renderer.currentScale = 4
+    p.draw()
+    const beatX = width / 384
+    return {
+      // where the lanes are dimmed, in beats
+      dimmed: rects.filter(r => r.color === paint.rgba('loopOutside').join())
+        .map(r => [Math.round(r.x / beatX), Math.round((r.x + r.w) / beatX)]),
+      // the ruler's band, and its flags (drawn unzoomed, a beat 10px)
+      band: rects.filter(r => r.color.startsWith(paint.rgba('loopRegion').slice(0, 3).join())).map(r => [r.x / 10, (r.x + r.w) / 10]),
+      flags: lines.filter(l => l.color.startsWith(paint.rgba('loopEnd').slice(0, 3).join())).map(l => l.x / 10),
+    }
+  }
+
+  it('is a band in the ruler with a flag at each end, and dims the lanes outside it', () => {
+    const { dimmed, band, flags } = draw({ loopEnabled: true })
+    expect(band).toEqual([[8, 16]])
+    expect(flags).toEqual([8, 16])
+    expect(dimmed).toEqual([[0, 8], [16, 384]])
+  })
+
+  it('dims nothing while the playlist doesn’t loop, but still shows', () => {
+    const { dimmed, band, flags } = draw({ loopEnabled: false })
+    expect(band).toEqual([[8, 16]])
+    expect(flags).toEqual([8, 16])
+    expect(dimmed).toEqual([])
+  })
+
+  it('is only the end flag without one', () => {
+    const { dimmed, band, flags } = draw({ loopEnabled: true, loopRegion: false, loopStartBeats: 0, loopEndBeats: 12 })
+    expect(band).toEqual([])
+    expect(flags).toEqual([12])
+    expect(dimmed).toEqual([])
   })
 })

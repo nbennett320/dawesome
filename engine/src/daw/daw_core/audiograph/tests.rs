@@ -1883,3 +1883,54 @@ fn test_a_run_from_deep_in_a_looping_clip_picks_up_every_note_still_sounding() {
     daw::Route::Track(to) if to.number == track)).count();
   assert_eq!((on_track(0), on_track(1), on_track(2)), (ringing + 1, 0, 1));
 }
+
+// play the graph as the scheduler does while it loops `span`: from `start`,
+// up to each beat or the loop's end, round to its start there (picking up
+// what's sounding at it), every clip stopping by its end
+fn play_looped(graph: &mut AudioGraph<'static>, rate: u32, start: Duration, total: Duration, span: daw::LoopSpan) -> Vec<f32> {
+  let (engine, mut renderer) = daw::Engine::new(rate);
+  let beat = graph.beat_interval();
+  graph.init();
+
+  let mut voices = Vec::new();
+  let (mut at, mut offset, mut resume) = (Duration::ZERO, start, true);
+  while at < total {
+    let slice = daw::slice_len(offset, beat, Some(span));
+    graph.set_current_offset(Some(offset));
+    for (delay, source, route) in graph.run_sounds_until(at, rate, slice, false, resume, Some(span.end)) {
+      voices.push(engine.boxed_voice(source, Some(1), engine.frames_in(at + delay), route));
+    }
+    let (next, round) = daw::advance(offset, slice, Some(span));
+    (at, offset, resume) = (at + slice, next, round);
+  }
+  graph.pause();
+
+  engine.start_run(1, graph.mixer.master(), voices).unwrap();
+  let mut out = vec![0f32; engine.frames_in(total) as usize * 2];
+  renderer.render(&mut out, Instant::now(), Duration::ZERO);
+  out
+}
+
+#[test]
+fn test_a_clip_loops_with_a_region_inside_it() {
+  let rate = 48_000;
+  let path = noise_wav("loop-region", rate, 1, rate * 4);
+  // a clip four seconds long, and a loop from 1s to 1.8s (off the beat)
+  let mut graph = AudioGraph::new(rate, 120.);
+  graph.construct_and_add_node(path.clone(), ms(0), 0).unwrap();
+  let span = daw::LoopSpan { start: ms(1_000), end: ms(1_800) };
+  let out = play_looped(&mut graph, rate, ms(1_000), ms(2_400), span);
+
+  // each time round is the clip from the loop's start, picked up there, and
+  // nothing of the time before carries on past the loop's end (it'd be
+  // heard twice over)
+  let pass = |n: u32| {
+    let frames = (rate as usize * 800 / 1000) * 2;
+    out[n as usize * frames..(n as usize + 1) * frames].to_vec()
+  };
+  assert!(pass(0).iter().any(|s| s.abs() > 0.01));
+  assert!(differences(&pass(0), &pass(1)) < 8, "{} differ", differences(&pass(0), &pass(1)));
+  assert!(differences(&pass(0), &pass(2)) < 8, "{} differ", differences(&pass(0), &pass(2)));
+
+  let _ = std::fs::remove_file(path);
+}

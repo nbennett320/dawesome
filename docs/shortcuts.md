@@ -142,6 +142,8 @@ Click a knob or fader first to give it the keyboard.
 | Mac | Windows/Linux | Where | Action |
 | --- | --- | --- | --- |
 | *Shift-drag* | *Shift-drag* | Knob, fader | Fine adjustment (a quarter of the speed) |
+| *Drag* up/down | *Drag* up/down | Tempo | Faster/slower (*Shift-drag* for fine) |
+| *Double-click* | *Double-click* | Tempo | Type a tempo |
 | *Double-click* | *Double-click* | Knob | Back to center |
 | *Double-click* | *Double-click* | Fader | Reset |
 | *Click* | *Click* | Fader track | Jump there |

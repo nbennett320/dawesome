@@ -49,6 +49,14 @@ pub struct ProjectSettings {
   pub snap_note: daw::timing::Note,
   // whether recording counts in a bar first
   pub count_in: bool,
+  // the part of the playlist that loops, drawn in the ruler (left out with
+  // none, and by older apps)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub loop_region: Option<daw::LoopRegion>,
+  // where the loop's end flag was dragged to, in beats (left out when it
+  // follows the last clip)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub loop_end_pin: Option<f64>,
 }
 
 impl Default for ProjectSettings {
@@ -61,6 +69,8 @@ impl Default for ProjectSettings {
       snap_enabled: daw::defaults::SNAP_ENABLED,
       snap_note: daw::defaults::SNAP_SUBDIVISION,
       count_in: false,
+      loop_region: None,
+      loop_end_pin: None,
     }
   }
 }
@@ -463,6 +473,8 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
       snap_enabled: ui.snap_enabled,
       snap_note: ui.snap_subdivision,
       count_in: state.playlist.count_in.load(Ordering::SeqCst),
+      loop_region: *state.playlist.loop_region.lock().unwrap(),
+      loop_end_pin: *state.playlist.loop_end_pin.lock().unwrap(),
     },
     clips,
     tracks,
@@ -537,10 +549,17 @@ pub fn apply(
   // before the playlist changes under it
   daw::stop_playlist(state);
 
-  let settings = project.settings;
+  // (a loop region or end that makes no sense is left out)
+  let settings = ProjectSettings {
+    loop_region: project.settings.loop_region.and_then(daw::LoopRegion::valid),
+    loop_end_pin: project.settings.loop_end_pin.and_then(daw::valid_loop_end_pin),
+    ..project.settings
+  };
   state.metronome_enabled.store(settings.metronome_enabled, Ordering::SeqCst);
   state.playlist.loop_enabled.store(settings.loop_enabled, Ordering::SeqCst);
   state.playlist.count_in.store(settings.count_in, Ordering::SeqCst);
+  *state.playlist.loop_region.lock().unwrap() = settings.loop_region;
+  *state.playlist.loop_end_pin.lock().unwrap() = settings.loop_end_pin;
   *state.playlist.time_signature.lock().unwrap() = settings.time_signature;
   {
     let mut ui = state.playlist.ui.lock().unwrap();

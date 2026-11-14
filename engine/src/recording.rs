@@ -82,11 +82,13 @@ struct Session {
   live: Option<Arc<daw::LivePasses>>,
   placing: Option<thread::JoinHandle<Vec<u64>>>,
   playing_pass: Option<u32>,
-  // the loop's length, if it was looping (the take ends where it comes round)
-  loop_len: Option<Duration>,
-  // where the loop ended when the recording started, looping or not: it
-  // stays there until the recording's over
-  loop_end: Duration,
+  // whether it was looping when it started (the take ends where the loop
+  // comes round)
+  looping: bool,
+  // where the loop was when the recording started, looping or not: it
+  // stays there until the recording's over. and where it starts, in beats
+  span: daw::LoopSpan,
+  span_start_beat: f64,
 }
 
 // what's armed, what's recording, and the clips recorded since the frontend
@@ -152,10 +154,10 @@ pub fn is_recording(state: &daw::InnerState) -> bool {
   state.recorder.lock().unwrap().recording()
 }
 
-// where the loop ends while a recording is going: where it did when the
+// where the loop is while a recording is going: where it was when the
 // recording started
-pub fn loop_len_recording(state: &daw::InnerState) -> Option<Duration> {
-  state.recorder.lock().unwrap().session.as_ref().map(|session| session.loop_end)
+pub fn loop_span_recording(state: &daw::InnerState) -> Option<daw::LoopSpan> {
+  state.recorder.lock().unwrap().session.as_ref().map(|session| session.span)
 }
 
 // the clips recorded since this was last asked, and what went wrong
@@ -182,10 +184,10 @@ pub struct TakeInProgress {
 pub fn collect(state: &daw::InnerState) -> Recorded {
   let mut recorder = state.recorder.lock().unwrap();
   let take = recorder.session.as_ref().map(|session| {
-    let first = session.loop_end.saturating_sub(session.start);
+    let first = session.span.end.saturating_sub(session.start);
     let came_round = session.live.is_some() && Instant::now() >= session.heard + first;
     TakeInProgress {
-      start_beat: if came_round { 0. } else { session.start_beat },
+      start_beat: if came_round { session.span_start_beat } else { session.start_beat },
       tracks: session.tracks.iter().map(|(track, _)| *track).collect(),
     }
   });
@@ -281,17 +283,20 @@ pub fn start(state: &Arc<daw::InnerState>, at_loop_end: LoopRecording) -> Result
   };
 
   // looping and layering: a new pass each time the loop comes round, each
-  // put on its tracks as soon as it's done
-  let loop_len = daw::loop_len(state);
-  let loop_end = daw::loop_end(state);
+  // put on its tracks as soon as it's done. the first runs from where
+  // recording started (in the loop, or before it) to the loop's end, and
+  // each after it is the whole loop. (Play has moved a playhead that was
+  // past the loop to its start, so `start` is before its end)
+  let looping = daw::active_loop(state).is_some();
+  let span = daw::loop_span(state);
   let tracks: Vec<u32> = armed.iter().map(|track| track.track_number).collect();
-  let layering = at_loop_end == LoopRecording::Layer && loop_len.is_some() && start < loop_end;
+  let layering = at_loop_end == LoopRecording::Layer && looping && start < span.end;
   let (passes, finished) = if layering {
     let (finished_tx, finished_rx) = mpsc::channel();
     let count = files.len();
     let passes = daw::Passes {
-      first: loop_end - start,
-      every: loop_end,
+      first: span.end - start,
+      every: span.len(),
       next_paths: Box::new(move || project_files::next_take_paths(&dir, &name, &project_files::today(), count)),
       finished: finished_tx,
     };
@@ -303,12 +308,12 @@ pub fn start(state: &Arc<daw::InnerState>, at_loop_end: LoopRecording) -> Result
   let placing = finished.map(|finished| {
     let state = state.clone();
     let tracks = tracks.clone();
-    thread::spawn(move || place_passes(&state, finished, &tracks, start, keep_from))
+    thread::spawn(move || place_passes(&state, finished, &tracks, (start, span.start), keep_from))
   });
 
   let interval = daw::beat_interval(state);
   let session = Session {
-    start_beat: if interval.is_zero() { 0. } else { start.as_secs_f64() / interval.as_secs_f64() },
+    start_beat: daw::offset_beats(start, interval),
     tracks: tracks.iter().zip(&files).map(|(&track, file)| (track, file.path.clone())).collect(),
     start,
     heard,
@@ -317,8 +322,9 @@ pub fn start(state: &Arc<daw::InnerState>, at_loop_end: LoopRecording) -> Result
     live: if layering { live } else { None },
     placing,
     playing_pass: None,
-    loop_len,
-    loop_end,
+    looping,
+    span,
+    span_start_beat: daw::offset_beats(span.start, interval),
   };
   println!(
     "recording {} tracks from {:?} (input ready in {:?}, playing in {:?})",
@@ -344,8 +350,9 @@ pub fn count_in(state: &daw::InnerState) -> Duration {
 // where a pass of a recording goes on the playlist: the first where the
 // recording started (as late as its take started, if capture hadn't begun
 // when the run was heard), the rest at the loop's start
-fn pass_start(takes: &daw::Takes, start: Duration, keep_from: Instant) -> Duration {
-  if takes.pass > 0 { return Duration::ZERO; }
+// - starts: where the recording started, and where the loop starts
+fn pass_start(takes: &daw::Takes, (start, loop_start): (Duration, Duration), keep_from: Instant) -> Duration {
+  if takes.pass > 0 { return loop_start; }
   // (by less than a frame is just the take starting on a whole frame)
   let rate = takes.files.first().map(|take| take.sample_rate).unwrap_or(48_000);
   let frame = Duration::from_secs_f64(1. / rate.max(1) as f64);
@@ -408,12 +415,12 @@ fn place_passes(
   state: &daw::InnerState,
   finished: mpsc::Receiver<daw::Takes>,
   tracks: &[u32],
-  start: Duration,
+  starts: (Duration, Duration),
   keep_from: Instant,
 ) -> Vec<u64> {
   let mut ids = Vec::new();
   for takes in finished {
-    let (clips, problems) = place(state, &takes, tracks, pass_start(&takes, start, keep_from));
+    let (clips, problems) = place(state, &takes, tracks, pass_start(&takes, starts, keep_from));
     ids.extend(clips.iter().map(|clip| clip.id));
     let mut recorder = state.recorder.lock().unwrap();
     recorder.clips.extend(clips);
@@ -449,7 +456,7 @@ fn ended_pass(first: Duration, every: Duration, into: Duration) -> Option<u32> {
 // recorded (its last moments are in by the time they're read), and the pass
 // before it plays from the playlist from now on. returns what to play
 pub fn layer_voices(state: &daw::InnerState, engine: &daw::Engine, run: u64, at: Duration, heard: Instant) -> Vec<Box<daw::Voice>> {
-  let (pass, start) = {
+  let (pass, (delay, lead)) = {
     let mut recorder = state.recorder.lock().unwrap();
     let Some(session) = recorder.session.as_mut() else { return Vec::new() };
     let Some(live) = session.live.clone() else { return Vec::new() };
@@ -457,24 +464,34 @@ pub fn layer_voices(state: &daw::InnerState, engine: &daw::Engine, run: u64, at:
     // the pass that was playing as it was recorded is on the playlist now
     state.playlist.audiograph.lock().unwrap().held_back.clear();
 
-    let first = session.loop_end.saturating_sub(session.start);
+    let first = session.span.end.saturating_sub(session.start);
     let into = heard.saturating_duration_since(session.heard);
-    let Some(ended) = ended_pass(first, session.loop_end, into) else { return Vec::new() };
+    let Some(ended) = ended_pass(first, session.span.len(), into) else { return Vec::new() };
     let Some(pass) = live.pass(ended) else { return Vec::new() };
 
     session.playing_pass = Some(ended);
-    let start = if ended == 0 { session.start } else { Duration::ZERO };
     let tracks: Vec<u32> = session.tracks.iter().map(|(track, _)| *track).collect();
-    ((pass, tracks), start)
+    ((pass, tracks), pass_heard(ended, session.start, session.span))
   };
 
   let ((pass, tracks), rate) = (pass, engine.sample_rate());
   pass.files.into_iter().zip(tracks).map(|(samples, track)| {
     let pcm = Arc::new(daw::Pcm::live(samples));
-    let reader = daw::ClipReader::new(pcm, &daw::ClipSettings::default(), rate, (Duration::ZERO, Duration::MAX), 0, None);
+    let lead = engine.frames_in(lead);
+    let reader = daw::ClipReader::new(pcm, &daw::ClipSettings::default(), rate, (Duration::ZERO, Duration::MAX), lead, None);
     let route = daw::Route::Track(state.playlist.mixer.track_route(track));
-    engine.boxed_voice(Box::new(reader), Some(run), engine.frames_in(at + start), route)
+    engine.boxed_voice(Box::new(reader), Some(run), engine.frames_in(at + delay), route)
   }).collect()
+}
+
+// how pass `index` of a loop recording plays on the time round after it:
+// how long after the loop's start it starts, and how much of it is before
+// the loop's start (and isn't played). the first starts where the
+// recording started, which can be before the loop (then it's picked up at
+// the loop's start), and the rest at the loop's start
+fn pass_heard(index: u32, start: Duration, span: daw::LoopSpan) -> (Duration, Duration) {
+  let pass_start = if index == 0 { start } else { span.start };
+  (pass_start.saturating_sub(span.start), span.start.saturating_sub(pass_start))
 }
 
 // stop recording, and put the takes on their tracks. at a loop's end, the
@@ -486,8 +503,8 @@ pub fn finish(state: &daw::InnerState, at_loop_end: bool) {
     None => return,
   };
 
-  let limit = match (at_loop_end, session.loop_len) {
-    (true, Some(len)) => Some(len.saturating_sub(session.start)),
+  let limit = match (at_loop_end, session.looping) {
+    (true, true) => Some(session.span.end.saturating_sub(session.start)),
     _ => None,
   };
 
@@ -509,7 +526,7 @@ pub fn finish(state: &daw::InnerState, at_loop_end: bool) {
         problems.push("some audio was lost because the disk couldn't keep up".into());
       }
       let tracks: Vec<u32> = session.tracks.iter().map(|(track, _)| *track).collect();
-      let (placed, trouble) = place(state, &takes, &tracks, pass_start(&takes, session.start, session.keep_from));
+      let (placed, trouble) = place(state, &takes, &tracks, pass_start(&takes, (session.start, session.span.start), session.keep_from));
       clips = placed;
       problems.extend(trouble);
     }
@@ -525,6 +542,13 @@ pub fn finish(state: &daw::InnerState, at_loop_end: bool) {
 
   for problem in &problems { println!("recording: {}", problem); }
   state.recorder.lock().unwrap().end_finish(clips, problems);
+}
+
+// a recording going (of nothing), for other modules' tests of what can't
+// change while recording
+#[cfg(test)]
+pub fn fake_session(state: &daw::InnerState) {
+  state.recorder.lock().unwrap().session = Some(tests::session());
 }
 
 #[cfg(test)]

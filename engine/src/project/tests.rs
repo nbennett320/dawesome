@@ -1096,6 +1096,53 @@ fn test_a_clip_is_a_change_until_undone() {
 }
 
 #[test]
+fn test_the_loop_region_and_end_are_saved() {
+  let dir = test_dir("loop-region");
+  let state = daw::InnerState::default();
+  *state.playlist.loop_region.lock().unwrap() = Some(daw::LoopRegion { start: 4., end: 10.5 });
+  *state.playlist.loop_end_pin.lock().unwrap() = Some(12.);
+  let file = dir.join("song.dawesome");
+  save_to(&state, &file).unwrap();
+
+  let loaded = daw::InnerState::default();
+  let settings = load_from(&loaded, &file).unwrap().settings;
+  assert_eq!(settings.loop_region, Some(daw::LoopRegion { start: 4., end: 10.5 }));
+  assert_eq!(settings.loop_end_pin, Some(12.));
+  assert_eq!(*loaded.playlist.loop_region.lock().unwrap(), Some(daw::LoopRegion { start: 4., end: 10.5 }));
+  assert_eq!(*loaded.playlist.loop_end_pin.lock().unwrap(), Some(12.));
+
+  // another project (or one from before they were saved) has neither
+  let older = dir.join("older.dawesome");
+  save_to(&daw::InnerState::default(), &older).unwrap();
+  let json = fs::read_to_string(&older).unwrap();
+  assert!(!json.contains("loopRegion") && !json.contains("loopEndPin"), "neither is written when there's none");
+  load_from(&loaded, &older).unwrap();
+  assert_eq!(*loaded.playlist.loop_region.lock().unwrap(), None);
+  assert_eq!(*loaded.playlist.loop_end_pin.lock().unwrap(), None);
+  assert_eq!(Project::from_json("{}").unwrap().settings.loop_region, None);
+
+  let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_a_loop_region_that_makes_no_sense_isnt_loaded() {
+  let dir = test_dir("bad-loop-region");
+  let state = daw::InnerState::default();
+  *state.playlist.loop_region.lock().unwrap() = Some(daw::LoopRegion { start: 8., end: 4. });
+  *state.playlist.loop_end_pin.lock().unwrap() = Some(-3.);
+  let file = dir.join("song.dawesome");
+  save_to(&state, &file).unwrap();
+
+  let loaded = daw::InnerState::default();
+  let settings = load_from(&loaded, &file).unwrap().settings;
+  assert_eq!(settings.loop_region, None);
+  assert_eq!(*loaded.playlist.loop_region.lock().unwrap(), None);
+  assert_eq!(*loaded.playlist.loop_end_pin.lock().unwrap(), Some(1.));
+
+  let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn test_settings_outside_the_history_are_changes() {
   let state = daw::InnerState::default();
   mark_unchanged(&state);
@@ -1105,6 +1152,16 @@ fn test_settings_outside_the_history_are_changes() {
   let state = daw::InnerState::default();
   mark_unchanged(&state);
   state.set_tempo(daw::defaults::TEMPO + 10.);
+  assert!(has_unsaved_changes(&state));
+
+  let state = daw::InnerState::default();
+  mark_unchanged(&state);
+  *state.playlist.loop_region.lock().unwrap() = Some(daw::LoopRegion { start: 4., end: 8. });
+  assert!(has_unsaved_changes(&state));
+
+  let state = daw::InnerState::default();
+  mark_unchanged(&state);
+  *state.playlist.loop_end_pin.lock().unwrap() = Some(8.);
   assert!(has_unsaved_changes(&state));
 }
 

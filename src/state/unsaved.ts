@@ -25,6 +25,7 @@ export const projectParts = (state: RootState): unknown[] => {
   return [
     playlist.playlistItems, playlist.clipSettings, playlist.clipWindows,
     playlist.tempo, playlist.metronomeEnabled, playlist.loopEnabled,
+    playlist.loopRegion, playlist.loopEndPin,
     playlist.snapEnabled, playlist.snapNote,
     state.mixer,
     sequencer.rows, sequencer.patterns, sequencer.folders,

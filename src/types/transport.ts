@@ -18,8 +18,16 @@ export interface PlaylistTransport {
   // where the playhead was when this was fetched
   positionMs: number
   beatIntervalMs: number
-  // beats played before the engine loops back to the start
-  loopBeats: number
+  // where the loop starts and ends, in beats (whether or not looping is
+  // on). playback plays in from before its start, and goes round to its
+  // start at its end
+  loopStartBeats: number
+  loopEndBeats: number
+  // whether there's a region drawn in the ruler (which is the loop), and
+  // whether the end flag was dragged somewhere rather than following the
+  // last clip
+  loopRegion: boolean
+  loopEndPinned: boolean
   // beats spanned by the full playlist width
   beatsDisplayed: number
   loopEnabled: boolean
@@ -33,6 +41,23 @@ export interface PlaylistTransport {
   // length, counted from startTimeMs, which moves when its length changes:
   // the engine counts its steps afresh from the one it's on then
   patternLength: number
+}
+
+// a part of the playlist drawn in the ruler, that playback loops while
+// looping is on, in beats (start before end). mirrors LoopRegion in
+// engine/src/daw/state/playlist.rs
+export interface LoopRegion {
+  start: number
+  end: number
+}
+
+// the loop as the engine has it: the region, where the end flag was dragged
+// to (in beats), and whether looping is on. mirrors LoopSettings in
+// engine/src/commands/transport.rs
+export interface LoopSettings {
+  region: LoopRegion | null
+  endPin: number | null
+  enabled: boolean
 }
 
 // a wind (holding rewind or fast forward) in progress: which way, where it

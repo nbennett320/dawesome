@@ -40,6 +40,8 @@ class Timeline extends PlaylistComponent {
     // unscaled, so the numbers and ticks don't stretch when zoomed
     p.push()
     p.scale(1 / this.currentScale, 1)
+    // (under the numbers, so they stay readable)
+    this.drawLoopBand(beatWidth)
     // (counted in steps, so a fine step doesn't drift)
     for(let n = Math.ceil(first / lineEvery); n * lineEvery < last; n++) {
       const i = n * lineEvery
@@ -62,25 +64,49 @@ class Timeline extends PlaylistComponent {
     }
     p.textStyle(p.NORMAL)
 
-    this.drawLoopEnd(beatWidth)
+    this.drawLoopFlags(beatWidth)
     p.pop()
   }
 
-  // where the playlist jumps back to the start, while it loops: a small flag
-  // at the loop's end. called unscaled, with a beat's width in pixels
-  drawLoopEnd(beatWidth: number) {
-    const { p } = this
-    const beat = (this.renderer as Renderer).loopEndBeat()
-    if(beat === null) return
+  // whether the playlist loops: a region is still drawn while it doesn't,
+  // dimmed
+  #loopAlpha = (): number => ((this.renderer as Renderer).transport?.loopEnabled ? 1 : 0.4)
 
-    const x = beat * beatWidth
-    paint.stroke(p, 'loopEnd')
+  // the loop region, if there is one: a band along the ruler. called
+  // unscaled, with a beat's width in pixels
+  drawLoopBand(beatWidth: number) {
+    const { p } = this
+    const { region } = (this.renderer as Renderer).loopMarks()
+    if(!region) return
+
+    p.noStroke()
+    paint.fill(p, 'loopRegion', this.#loopAlpha())
+    p.rect(region.start * beatWidth, 0, (region.end - region.start) * beatWidth, this.timelineHeight)
+  }
+
+  // where the playlist goes round, while it loops: a small flag at the
+  // loop's end, pointing back along it. a region has one at its start too,
+  // pointing in. called unscaled, with a beat's width in pixels
+  drawLoopFlags(beatWidth: number) {
+    const { region, flag } = (this.renderer as Renderer).loopMarks()
+    if(region) {
+      const alpha = this.#loopAlpha()
+      this.#drawFlag(region.start * beatWidth, 1, alpha)
+      this.#drawFlag(region.end * beatWidth, -1, alpha)
+    } else if(flag !== null) {
+      this.#drawFlag(flag * beatWidth, -1, 1)
+    }
+  }
+
+  // a flag on a line at `x`, pointing right (1) or left (-1)
+  #drawFlag(x: number, points: 1 | -1, alpha: number) {
+    const { p } = this
+    paint.stroke(p, 'loopEnd', alpha)
     p.strokeWeight(1.5)
     p.line(x, 2, x, this.timelineHeight)
     p.noStroke()
-    paint.fill(p, 'loopEnd')
-    // the flag points back along the loop
-    p.triangle(x, 2, x - 7, 5.5, x, 9)
+    paint.fill(p, 'loopEnd', alpha)
+    p.triangle(x, 2, x + 7 * points, 5.5, x, 9)
   }
 
   render() {

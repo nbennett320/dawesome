@@ -18,7 +18,7 @@ vi.mock('@tauri-apps/api/path', () => ({ dirname: vi.fn(), documentDir: vi.fn(),
 const mockInvoke = invoke as Mock
 
 const stopped = {
-  playing: false, patternId: null, startTimeMs: null, beatIntervalMs: 500, startBeat: 0, loopBeats: 16,
+  playing: false, patternId: null, startTimeMs: null, beatIntervalMs: 500, startBeat: 0, loopStartBeats: 0, loopEndBeats: 16, loopRegion: false, loopEndPinned: false,
 }
 
 // the commands the engine was sent, in order, without the ones that only ask

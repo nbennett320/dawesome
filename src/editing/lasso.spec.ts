@@ -48,9 +48,14 @@ describe('lassoSelection', () => {
     expect([...lassoSelection(lasso, clips)].sort()).toEqual([1, 2])
   })
 
-  it('keeps what was already selected', () => {
+  it('replaces what was already selected', () => {
     const lasso = { start: { x: 120, y: 10 }, end: { x: 130, y: 20 }, base: new Set([3]) }
-    expect([...lassoSelection(lasso, clips)].sort()).toEqual([2, 3])
+    expect([...lassoSelection(lasso, clips)]).toEqual([2])
+  })
+
+  it('keeps what was already selected while it touches nothing', () => {
+    const lasso = { start: { x: 60, y: 10 }, end: { x: 90, y: 45 }, base: new Set([3]) }
+    expect([...lassoSelection(lasso, clips)]).toEqual([3])
   })
 
   it("doesn't change the selection it started from", () => {
@@ -130,11 +135,14 @@ describe('a shift press', () => {
     expect([...lassoSelection({ ...lasso, end: { x: 700, y: 330 } }, clips)].sort()).toEqual([1, 2])
   })
 
-  it('adds to what was selected', () => {
+  it('replaces what was selected once it touches a clip', () => {
     const lasso = lassoFrom(onEmpty, new Set([1]))
-    expect([...lassoSelection({ ...lasso, end: { x: 700, y: 330 } }, clips)].sort()).toEqual([1, 2])
-    // and never takes a clip out, even one the press was on
-    const fromSelected = lassoFrom(onClip, new Set([1]))
+    // nothing touched yet: the selection stays
+    expect([...lassoSelection({ ...lasso, end: { x: 600, y: 270 } }, clips)]).toEqual([1])
+    // clip 2 touched: clip 1 drops out
+    expect([...lassoSelection({ ...lasso, end: { x: 700, y: 330 } }, clips)]).toEqual([2])
+    // a box from a selected clip keeps it, since the box touches it
+    const fromSelected = lassoFrom(onClip, new Set([1, 2]))
     expect([...lassoSelection({ ...fromSelected, end: { x: 450, y: 260 } }, clips)]).toEqual([1])
   })
 
@@ -153,6 +161,8 @@ describe('a shift press', () => {
       // from a selected clip: a click would take it out, a box keeps it
       expect(release(onClip, 11, 0, [1])).toEqual([1])
       expect(release(onClip, 11, 0, [])).toEqual([1])
+      // and drops what it doesn't touch
+      expect(release(onClip, 11, 0, [2])).toEqual([1])
       // dragged across to the second clip
       expect(release(onClip, 520, 70, [])).toEqual([1, 2])
       // from empty space, onto nothing

@@ -11,6 +11,7 @@ import {
 } from '../../state/slices/playlistSlice'
 import { RootState } from '../../state/store'
 import { PlaylistTransport } from '../../types/transport'
+import { loopMoved } from './tape'
 
 const selectClipSettings = (state: RootState) => state.playlist.clipSettings
 const selectClipWindows = (state: RootState) => state.playlist.clipWindows
@@ -52,7 +53,7 @@ export const useTransport = () => {
         // its next beat (and counts the playhead from there), so ask again
         // once it has
         const before = last.current
-        if(next.playing && before && before.loopBeats !== next.loopBeats) {
+        if(next.playing && before && loopMoved(before, next)) {
           if(again.current) clearTimeout(again.current)
           again.current = setTimeout(() => { refresh() }, next.beatIntervalMs + 250)
         }

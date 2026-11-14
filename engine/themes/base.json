@@ -45,6 +45,8 @@
     "playhead": "accent",
     "playheadStopped": "inkFaint",
     "loopEnd": "inkMid",
+    "loopRegion": "alpha(accent, 0.2)",
+    "loopOutside": "alpha(surface, 0.25)",
     "clip": "raised",
     "clipBorder": "lineStrong",
     "clipLabel": "panel",
