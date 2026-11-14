@@ -120,14 +120,28 @@ const receive = (dispatch: Dispatch, recorded: Recorded) => {
   }
 }
 
+// set while the engine is starting a recording: the button shows it's
+// recording straight away, and nothing asks the engine meanwhile (it would
+// say it isn't recording yet)
+let starting = false
+
 // start recording every armed track from the playhead, or stop (playback
 // stops too, keeping its place) and put the takes on their tracks
 export const toggleRecording = () => async (dispatch: Dispatch, getState: () => RootState) => {
-  const command = getState().recording.recording ? 'stop_recording' : 'start_recording'
+  // a second press while it starts waits for it
+  if(starting) return
+  const start = !getState().recording.recording
+  if(start) {
+    starting = true
+    dispatch(setRecording(true))
+  }
   try {
-    receive(dispatch, await invoke<Recorded>(command, {}))
+    receive(dispatch, await invoke<Recorded>(start ? 'start_recording' : 'stop_recording', {}))
   } catch(e) {
+    if(start) dispatch(setRecording(false))
     dispatch(setProjectNotice({ kind: 'error', message: `Couldn't record: ${message(e)}` }))
+  } finally {
+    starting = false
   }
   await syncPlayingFrom(dispatch).catch(() => {})
 }
@@ -135,6 +149,7 @@ export const toggleRecording = () => async (dispatch: Dispatch, getState: () => 
 // while recording: catch it ending some other way (playback stopped, or a
 // loop came round), and the takes it left
 export const collectRecording = () => async (dispatch: Dispatch) => {
+  if(starting) return
   try {
     receive(dispatch, await invoke<Recorded>('collect_recording', {}))
   } catch(e) {

@@ -70,6 +70,27 @@ test('recording starts, then stops with its takes on their tracks', async () => 
   expect(store.getState().project.notice).toBeNull()
 })
 
+test('the button shows it recording before the engine has started', async () => {
+  const store = makeStore()
+  let started: (r: Recorded) => void = () => {}
+  mockInvoke.mockImplementation((cmd: string) => {
+    if(cmd === 'start_recording') return new Promise<Recorded>(resolve => { started = resolve })
+    return Promise.resolve(cmd === 'get_playlist_playing' ? true : undefined)
+  })
+  const pending = toggleRecording()(store.dispatch, getState(store))
+  expect(store.getState().recording.recording).toBe(true)
+
+  // meanwhile, a check on it or a second press doesn't ask the engine
+  await collectRecording()(store.dispatch)
+  await toggleRecording()(store.dispatch, getState(store))
+  expect(mockInvoke).toHaveBeenCalledTimes(1)
+  expect(store.getState().recording.recording).toBe(true)
+
+  started(recorded({ recording: true }))
+  await pending
+  expect(store.getState().recording.recording).toBe(true)
+})
+
 test('a recording that ended some other way is caught', async () => {
   const store = makeStore()
   engine({ start_recording: recorded({ recording: true }) })

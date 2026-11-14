@@ -7,8 +7,9 @@
 // can't (like a Bluetooth headset's microphone) records at its own rate, and
 // its takes are converted to the output's rate as they play, like any sample
 // at another rate. it's only open while something needs
-// it: the Audio tab's meter, or a take being recorded. on macOS that's when
-// the microphone light shows
+// it: the Audio tab's meter, a track armed to record (so pressing Record
+// doesn't wait for the device to open), or a take being recorded. on macOS
+// that's when the microphone light shows
 use crate::daw::{self, AtomicF32};
 use rodio::cpal::{
   self,
@@ -528,13 +529,15 @@ struct Inputs {
   open: Option<Arc<Input>>,
   // the meters looking at it
   listeners: u32,
+  // kept open while a track is armed, ready to record
+  held: bool,
   recording: Option<(Arc<Input>, Recording)>,
   // why the chosen input isn't the one open, if it isn't
   notice: Option<String>,
 }
 
 lazy_static! {
-  static ref INPUTS: Mutex<Inputs> = Mutex::new(Inputs { open: None, listeners: 0, recording: None, notice: None });
+  static ref INPUTS: Mutex<Inputs> = Mutex::new(Inputs { open: None, listeners: 0, held: false, recording: None, notice: None });
 }
 
 // use the chosen input, or (when it's gone, or won't work) the system's
@@ -574,7 +577,7 @@ pub fn input_notice() -> Option<String> {
 }
 
 fn close_if_unused(inputs: &mut Inputs) {
-  if inputs.listeners == 0 && inputs.recording.is_none() {
+  if inputs.listeners == 0 && !inputs.held && inputs.recording.is_none() {
     inputs.open = None;
   }
 }
@@ -587,6 +590,19 @@ pub fn listen_to_input(on: bool) -> Result<(), String> {
     inputs.listeners += 1;
   } else {
     inputs.listeners = inputs.listeners.saturating_sub(1);
+    close_if_unused(&mut inputs);
+  }
+  Ok(())
+}
+
+// keep the input open while any track is armed, so a recording starts
+// straight away, or (off) let it close once nothing else needs it
+pub fn hold_input(on: bool) -> Result<(), String> {
+  let mut inputs = INPUTS.lock().unwrap();
+  inputs.held = on;
+  if on {
+    open_or_reuse(&mut inputs)?;
+  } else {
     close_if_unused(&mut inputs);
   }
   Ok(())
@@ -659,7 +675,7 @@ pub fn reset_input() -> Option<Takes> {
   let mut inputs = INPUTS.lock().unwrap();
   inputs.open = None;
   inputs.notice = None;
-  if inputs.listeners > 0 {
+  if inputs.listeners > 0 || inputs.held {
     if let Err(e) = open_or_reuse(&mut inputs) {
       println!("could not reopen the audio input: {}", e);
     }

@@ -951,7 +951,10 @@ pub fn project_file_for(path: String) -> String {
 // (async: off the main thread, as decoding every sample takes a while)
 #[tauri::command(async)]
 pub fn load_project(state: daw::TState<'_>, path: String) -> Result<LoadedProject, String> {
-  load_from(&state, Path::new(&path))
+  let loaded = load_from(&state, Path::new(&path));
+  // its armed tracks keep the input open, ready to record
+  crate::recording::hold_input_for_armed(&state);
+  loaded
 }
 
 // start an empty project with the default settings
@@ -960,6 +963,8 @@ pub fn new_project(state: daw::TState<'_>) -> LoadedProject {
   let loaded = apply(&state, &Project::default(), None);
   state.project.lock().unwrap().reset(None);
   mark_unchanged(&state);
+  // nothing's armed: the input can close
+  crate::recording::hold_input_for_armed(&state);
   loaded
 }
 

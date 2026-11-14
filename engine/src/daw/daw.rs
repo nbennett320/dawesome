@@ -106,6 +106,12 @@ pub fn beat_interval(state: &state::InnerState) -> Duration {
 // where the playhead is now: moving with the current run while playing, or
 // where the next run will start while stopped or paused
 pub fn playhead(state: &state::InnerState) -> Duration {
+  playhead_at(state, Instant::now())
+}
+
+// where the playhead is (or was, or will be) heard at `at`, as playhead.
+// before the run's first frame is heard (counting in), where it starts
+pub fn playhead_at(state: &state::InnerState, at: Instant) -> Duration {
   let (start, started) = run_anchor(state);
   // a pattern playing on its own leaves the playlist's playhead where it is
   if !state.playlist.playing_playlist() { return start; }
@@ -115,7 +121,7 @@ pub fn playhead(state: &state::InnerState) -> Duration {
     None => return start,
   };
 
-  state::timeline_position(start, started.elapsed(), loop_len(state))
+  state::timeline_position(start, at.saturating_duration_since(started), loop_len(state))
 }
 
 // where on the timeline the playhead counts from, and when that was heard
@@ -805,6 +811,24 @@ mod tests {
       (beat * 3, false),
     ]);
     assert!(count_in_clicks(0, beat).is_empty());
+  }
+
+  // where the playhead is heard at a moment: what a recording started
+  // while playing counts from
+  #[test]
+  fn test_the_playhead_at_a_moment() {
+    let state = state::InnerState::default();
+    let started = Instant::now();
+    *state.playlist.start_offset.lock().unwrap() = Duration::from_secs(1);
+    *state.playlist.started_time.lock().unwrap() = Some(started);
+
+    // stopped: where the next run starts
+    assert_eq!(playhead_at(&state, started + Duration::from_secs(5)), Duration::from_secs(1));
+
+    state.playlist.set_playing(true);
+    assert_eq!(playhead_at(&state, started + Duration::from_millis(1_500)), Duration::from_millis(2_500));
+    // still counting in: where it starts
+    assert_eq!(playhead_at(&state, started - Duration::from_millis(200)), Duration::from_secs(1));
   }
 
   // plays through the real output: run with `cargo test -- --ignored`

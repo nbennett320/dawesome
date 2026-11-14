@@ -1,6 +1,8 @@
 // recording onto the playlist: tracks are armed, each with the input
-// channels it records. Record starts the transport from the playhead, and
-// every armed track records a take of its channels. when playback stops (or
+// channels it records. Record starts the transport from the playhead (or,
+// while it's already playing, records in from where it's got to), and
+// every armed track records a take of its channels. the input stays open
+// while a track is armed, so Record doesn't wait for the device. when playback stops (or
 // a loop comes round) the takes become clips on their tracks, starting where
 // the recording did
 //
@@ -159,8 +161,21 @@ pub fn collect(state: &daw::InnerState) -> Recorded {
   }
 }
 
-// start recording every armed track, playing from the playhead
+// keep the input open while any track is armed (or let it close when none
+// is), so pressing Record doesn't wait for the device to open. an input
+// that can't be opened is said when recording, or in the track's choices
+pub fn hold_input_for_armed(state: &daw::InnerState) {
+  let any = !state.recorder.lock().unwrap().armed.is_empty();
+  if let Err(e) = daw::hold_input(any) {
+    println!("could not open the audio input for the armed tracks: {}", e);
+  }
+}
+
+// start recording every armed track, playing from the playhead. already
+// playing the playlist: record in from where it's got to, without starting
+// it again
 pub fn start(state: &Arc<daw::InnerState>) -> Result<(), String> {
+  let began = Instant::now();
   // the last recording's takes may still be going on their tracks (it
   // stopped with playback, or at a loop's end): it has the input until then
   let waited = Instant::now();
@@ -180,10 +195,6 @@ pub fn start(state: &Arc<daw::InnerState>) -> Result<(), String> {
     return Err("Arm a track first, with the R key on its mixer strip".into());
   }
 
-  // already playing: start again from where it's got to, so the take and
-  // the run start together
-  if state.playlist.playing() { daw::pause_playlist(state); }
-
   // each track records what it was armed with, kept to the channels the
   // input has (it may have been armed on another input, or in a project
   // made with one)
@@ -200,15 +211,28 @@ pub fn start(state: &Arc<daw::InnerState>) -> Result<(), String> {
   // capturing starts first, so nothing's missed while playback gets going.
   // what comes before the run is heard is dropped (see keep_recording_from)
   daw::start_recording(&files)?;
-  daw::start_playlist_after(state, count_in(state));
+  let ready = began.elapsed();
 
-  let heard = *state.playlist.started_time.lock().unwrap();
-  let heard = match heard {
-    Some(heard) if state.playlist.playing_playlist() => heard,
-    _ => {
-      let _ = daw::stop_recording(None);
-      for file in &files { let _ = std::fs::remove_file(&file.path); }
-      return Err("playback couldn't start, so nothing was recorded".into());
+  // when the take starts being heard, and where on the playlist that is
+  let (heard, start) = if state.playlist.playing_playlist() {
+    // already playing: from now (or, still counting in, from when the
+    // playlist's first frame is heard)
+    let (_, started) = daw::run_anchor(state);
+    let heard = started.map_or(Instant::now(), |started| started.max(Instant::now()));
+    (heard, daw::playhead_at(state, heard))
+  } else {
+    // a pattern playing on its own stops first
+    if state.playlist.playing() { daw::pause_playlist(state); }
+    daw::start_playlist_after(state, count_in(state));
+
+    let heard = *state.playlist.started_time.lock().unwrap();
+    match heard {
+      Some(heard) if state.playlist.playing_playlist() => (heard, *state.playlist.start_offset.lock().unwrap()),
+      _ => {
+        let _ = daw::stop_recording(None);
+        for file in &files { let _ = std::fs::remove_file(&file.path); }
+        return Err("playback couldn't start, so nothing was recorded".into());
+      }
     }
   };
 
@@ -223,12 +247,14 @@ pub fn start(state: &Arc<daw::InnerState>) -> Result<(), String> {
 
   let session = Session {
     tracks: armed.iter().zip(&files).map(|(track, file)| (track.track_number, file.path.clone())).collect(),
-    start: *state.playlist.start_offset.lock().unwrap(),
+    start,
     keep_from,
     loop_len: daw::loop_len(state),
     loop_end: daw::loop_end(state),
   };
-  println!("recording {} tracks from {:?}", session.tracks.len(), session.start);
+  println!(
+    "recording {} tracks from {:?} (input ready in {:?}, playing in {:?})",
+    session.tracks.len(), session.start, ready, began.elapsed());
   let mut recorder = state.recorder.lock().unwrap();
   recorder.session = Some(session);
   // recording from another input than the one chosen is worth knowing

@@ -187,6 +187,7 @@ pub fn set_track_armed(
   input: Option<crate::recording::InputChoice>,
 ) -> RecordSetup {
   state.recorder.lock().unwrap().arm(track_number, input);
+  crate::recording::hold_input_for_armed(&state);
   record_setup(&state)
 }
 
