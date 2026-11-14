@@ -427,10 +427,22 @@ impl AudioNode {
   // origin, start and end fall on, so a clip that ends where another of the
   // same sample carries on ends on the frame before the other's first
   pub fn voice(&self, rate: u32, starts_at: i128, run_zero: i128) -> daw::ClipReader {
+    self.voice_until(rate, starts_at, run_zero, None)
+  }
+
+  // the clip's voice, as voice has it, stopping by `cut` (in nanoseconds of
+  // the playlist) if it would play on past it: where the playlist's loop
+  // ends, so it doesn't ring on into the next time round. it stops there as
+  // it would at the end of its window
+  pub fn voice_until(&self, rate: u32, starts_at: i128, run_zero: i128, cut: Option<i128>) -> daw::ClipReader {
     let origin = run_frame(self.origin() - run_zero, rate);
     let lead = (run_frame(starts_at, rate) - origin).max(0) as u64;
-    let end = self.window.and_then(|window| window.end).map(|end|
-      (run_frame(self.heard_at(end) - run_zero, rate) - origin).max(0) as u64);
+    let window_end = self.window.and_then(|window| window.end).map(|end| self.heard_at(end));
+    let stop = match (window_end, cut) {
+      (Some(end), Some(cut)) => Some(end.min(cut)),
+      (end, cut) => end.or(cut.filter(|&cut| cut < self.heard_at(self.duration))),
+    };
+    let end = stop.map(|stop| (run_frame(stop - run_zero, rate) - origin).max(0) as u64);
 
     self.reader(rate, lead, end)
   }
@@ -786,7 +798,12 @@ impl PatternNode {
   ) -> Option<(Duration, daw::SampleVoice)> {
     let (from, to) = pass.plays(note);
     let on = heard(from);
-    let stop = instrument.gated.then(|| heard(to));
+    let gate = instrument.gated.then(|| heard(to));
+    // (and stopped by the loop's end)
+    let stop = match gate {
+      Some(gate) => Some(gate.min(slice.cut)),
+      None => (slice.cut < i128::MAX).then_some(slice.cut),
+    };
     if on < slice.start {
       let played_out = on + instrument.played_len(note.pitch).as_nanos() as i128;
       let sounds_until = stop.map_or(played_out, |stop| stop.min(played_out));
@@ -844,16 +861,25 @@ struct Slice {
   run_zero: i128,
   // the engine's rate
   rate: u32,
-  // the run's first slice: sounds that started before it and are still
-  // sounding are played from where it starts in them
+  // the run's first slice (or the first from the loop's start): sounds
+  // that started before it and are still sounding are played from where it
+  // starts in them
   resume: bool,
+  // where every sound stops, if it would carry on past it (the loop's end,
+  // while the playlist loops), in nanoseconds of the playlist
+  cut: i128,
 }
 
 impl Slice {
   // the slice `dur` long from `start`, which is `at` into the run
   fn new(start: Duration, at: Duration, dur: Duration, rate: u32, resume: bool) -> Slice {
     let start = start.as_nanos() as i128;
-    Slice { start, end: start + dur.as_nanos() as i128, run_zero: start - at.as_nanos() as i128, rate, resume }
+    Slice { start, end: start + dur.as_nanos() as i128, run_zero: start - at.as_nanos() as i128, rate, resume, cut: i128::MAX }
+  }
+
+  // the slice, its sounds stopping by `cut` (a time in the playlist)
+  fn cut_at(self, cut: Option<Duration>) -> Slice {
+    Slice { cut: cut.map_or(i128::MAX, |cut| cut.as_nanos() as i128), ..self }
   }
 
   // the frame of the run a time falls on
@@ -987,11 +1013,17 @@ impl AudioGraph<'static> {
   // - at: how far into the run the slice starts
   // - rate: the engine's rate, which sample clips are read out at
   pub fn run_sounds_at(&self, at: Duration, rate: u32, dur: Duration, metronome: bool, resume: bool) -> Vec<SliceSound> {
+    self.run_sounds_until(at, rate, dur, metronome, resume, None)
+  }
+
+  // the sounds of the slice, as run_sounds_at has them, every one stopping
+  // by `cut` (a time in the playlist: the loop's end, while it loops)
+  pub fn run_sounds_until(&self, at: Duration, rate: u32, dur: Duration, metronome: bool, resume: bool, cut: Option<Duration>) -> Vec<SliceSound> {
     if !self.has_clips() || !self.running { return Vec::new(); }
 
     let mut sounds = Vec::new();
     if metronome { sounds.push(metronome_tick()); }
-    sounds.extend(self.slice_sounds(at, rate, dur, resume));
+    sounds.extend(self.slice_sounds(at, rate, dur, resume, cut));
     sounds
   }
 
@@ -1024,7 +1056,7 @@ impl AudioGraph<'static> {
   fn slice_mix(&self, dur: Duration, resume: bool) -> (Arc<rodio::dynamic_mixer::DynamicMixerController<f32>>, rodio::dynamic_mixer::DynamicMixer<f32>) {
     let (controller, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, self.sample_rate);
     controller.add(rodio::source::Zero::<f32>::new(2, self.sample_rate).take_duration(dur));
-    for (delay, source, _) in self.slice_sounds(Duration::ZERO, self.sample_rate, dur, resume) {
+    for (delay, source, _) in self.slice_sounds(Duration::ZERO, self.sample_rate, dur, resume, None) {
       controller.add(source.delay(delay));
     }
     (controller, mixer)
@@ -1035,18 +1067,20 @@ impl AudioGraph<'static> {
   // start when `resume` is set
   // - at: how far into the run the slice starts
   // - rate: the engine's rate
-  fn slice_sounds(&self, at: Duration, rate: u32, dur: Duration, resume: bool) -> Vec<SliceSound> {
+  // - cut: where every sound stops, if it'd play on past it
+  fn slice_sounds(&self, at: Duration, rate: u32, dur: Duration, resume: bool, cut: Option<Duration>) -> Vec<SliceSound> {
     let mut sounds: Vec<SliceSound> = Vec::new();
     let mut add = |delay: Duration, source: daw::VoiceSource, track_number: u32| {
       sounds.push((delay, source, daw::Route::Track(self.mixer.track_route(track_number))));
     };
 
     let window_start = self.current_offset.unwrap_or(Duration::ZERO);
-    let slice = Slice::new(window_start, at, dur, rate, resume);
+    let slice = Slice::new(window_start, at, dur, rate, resume).cut_at(cut);
+    let cut = cut.map(|cut| cut.as_nanos() as i128);
 
     if resume {
       for node in self.nodes_sounding_at(window_start) {
-        let voice = node.voice(rate, at.as_nanos() as i128, slice.run_zero);
+        let voice = node.voice_until(rate, at.as_nanos() as i128, slice.run_zero, cut);
         add(Duration::ZERO, Box::new(voice), node.track_number);
       }
     }
@@ -1054,7 +1088,7 @@ impl AudioGraph<'static> {
     // every node that starts within this time slice
     for node in self.nodes_in_window(window_start, dur) {
       let delay_offset = node.start_offset - window_start;
-      let voice = node.voice(rate, (at + delay_offset).as_nanos() as i128, slice.run_zero);
+      let voice = node.voice_until(rate, (at + delay_offset).as_nanos() as i128, slice.run_zero, cut);
       add(delay_offset, Box::new(voice), node.track_number);
     }
 
@@ -1107,7 +1141,7 @@ impl AudioGraph<'static> {
     let sequencer = self.sequencer.lock().unwrap();
     let Some(pattern) = sequencer.pattern(node.pattern_id) else { return Vec::new() };
     let start = node.start_offset.as_nanos() as i128;
-    let whole = Slice { start, end: i128::MAX, run_zero: 0, rate, resume: false };
+    let whole = Slice { start, end: i128::MAX, run_zero: 0, rate, resume: false, cut: i128::MAX };
     node.sample_voices(&sequencer, pattern, self.beat_interval(), &whole)
   }
 

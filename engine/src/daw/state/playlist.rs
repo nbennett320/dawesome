@@ -63,6 +63,12 @@ pub struct Playlist {
   pub current_beat: AtomicU16,
   pub time_signature: Arc<Mutex<timing::TimeSignature>>,
   pub loop_enabled: AtomicBool,
+  // the part of the playlist that loops, drawn in the ruler (None: from the
+  // start up to the end flag)
+  pub loop_region: Mutex<Option<LoopRegion>>,
+  // where the end flag was dragged to, in beats (None: it follows the last
+  // clip). a region loops instead while there is one
+  pub loop_end_pin: Mutex<Option<f64>>,
   // whether recording counts in a bar first
   pub count_in: AtomicBool,
   pub audiograph: Arc<Mutex<daw::AudioGraph<'static>>>,
@@ -112,6 +118,8 @@ impl Playlist {
         },
       )),
       loop_enabled: AtomicBool::from(true),
+      loop_region: Mutex::new(None),
+      loop_end_pin: Mutex::new(None),
       count_in: AtomicBool::from(false),
       audiograph: Arc::new(Mutex::new(audiograph)),
       mixer,
@@ -209,26 +217,94 @@ pub fn until_next_beat(offset: Duration, beat_interval: Duration) -> Duration {
   if into_beat == 0 { Duration::ZERO } else { Duration::from_nanos((interval - into_beat) as u64) }
 }
 
+// a part of the playlist drawn in the ruler, that playback loops while
+// looping is on: from `start` up to `end`, in beats, so a tempo change keeps
+// it on the same beats. start is always before end
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq)]
+pub struct LoopRegion {
+  pub start: f64,
+  pub end: f64,
+}
+
+// edges closer than this, in beats, are on the same beat
+pub const SAME_BEAT: f64 = 1e-6;
+
+impl LoopRegion {
+  // the region between two edges dragged in the ruler, in either order,
+  // kept to the playlist's `beats`. None when they're on the same beat:
+  // that's no region
+  pub fn between(a: f64, b: f64, beats: f64) -> Option<LoopRegion> {
+    if !a.is_finite() || !b.is_finite() { return None; }
+    let beats = beats.max(0.);
+    LoopRegion { start: a.min(b).clamp(0., beats), end: a.max(b).clamp(0., beats) }.valid()
+  }
+
+  // the region, if it makes sense (one read from a file may not)
+  pub fn valid(self) -> Option<LoopRegion> {
+    let fine = self.start.is_finite() && self.end.is_finite() && self.start >= 0. && self.end - self.start >= SAME_BEAT;
+    fine.then_some(self)
+  }
+}
+
+// where the loop's end flag can be pinned: at least a beat in, so the loop
+// is never empty. None for a beat that makes no sense
+pub fn valid_loop_end_pin(beat: f64) -> Option<f64> {
+  beat.is_finite().then(|| beat.max(1.))
+}
+
+// where the loop starts and ends on the timeline (see daw::loop_span)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LoopSpan {
+  pub start: Duration,
+  pub end: Duration,
+}
+
+impl LoopSpan {
+  pub fn len(&self) -> Duration {
+    self.end.saturating_sub(self.start)
+  }
+}
+
 // where the timeline is `elapsed` into a run that started at `start`. a run
-// always starts inside the loop (see daw::start_playlist), so with looping
-// on, this is the time past the last jump back to the start
-pub fn timeline_position(start: Duration, elapsed: Duration, loop_len: Option<Duration>) -> Duration {
+// starts inside the loop or before it (see daw::start_playlist), so with
+// looping on, this plays in up to the loop's end, then goes round from its
+// start
+pub fn timeline_position(start: Duration, elapsed: Duration, span: Option<LoopSpan>) -> Duration {
   let t = start + elapsed;
-  match loop_len {
-    Some(len) if t >= len => Duration::from_nanos((t.as_nanos() % len.as_nanos()) as u64),
+  match span {
+    Some(span) if t >= span.end && !span.len().is_zero() =>
+      span.start + Duration::from_nanos(((t - span.end).as_nanos() % span.len().as_nanos()) as u64),
     _ => t,
   }
 }
 
-// the timeline offset after playing `slice` from `offset`, jumping back to the
-// start at the loop's end (the same jump timeline_position works out)
-pub fn advance(offset: Duration, slice: Duration, loop_len: Option<Duration>) -> Duration {
+// the timeline offset after playing `slice` from `offset`, going back to the
+// loop's start at its end (the same jump timeline_position works out), and
+// whether it went back
+pub fn advance(offset: Duration, slice: Duration, span: Option<LoopSpan>) -> (Duration, bool) {
   let next = offset + slice;
-  match loop_len {
-    // started past the end (looping was turned on mid-run): back to the top
-    Some(len) if offset >= len => Duration::ZERO,
-    Some(len) if next >= len => next - len,
-    _ => next,
+  match span {
+    // started past the end (looping was turned on mid-run, or the loop moved
+    // behind the playhead): back to its start
+    Some(span) if offset >= span.end => (span.start, true),
+    Some(span) if next >= span.end => {
+      let over = next - span.end;
+      let len = span.len().as_nanos().max(1);
+      (span.start + Duration::from_nanos((over.as_nanos() % len) as u64), true)
+    }
+    _ => (next, false),
+  }
+}
+
+// how long the slice of a run from `offset` is: up to the next beat (a whole
+// beat from one), and no further than the loop's end, so the loop comes
+// round where it ends, on a beat or not
+pub fn slice_len(offset: Duration, beat_interval: Duration, span: Option<LoopSpan>) -> Duration {
+  let lead = until_next_beat(offset, beat_interval);
+  let len = if lead.is_zero() { beat_interval } else { lead };
+  match span {
+    Some(span) if offset < span.end => len.min(span.end - offset),
+    _ => len,
   }
 }
 
@@ -304,9 +380,13 @@ mod tests {
     assert_eq!(until_next_beat(ms(1_499), BEAT), ms(1));
   }
 
+  fn span(start: u64, end: u64) -> Option<LoopSpan> {
+    Some(LoopSpan { start: ms(start), end: ms(end) })
+  }
+
   #[test]
   fn test_timeline_position() {
-    let lp = Some(ms(8_000));
+    let lp = span(0, 8_000);
     // no loop: just keeps going
     assert_eq!(timeline_position(ms(1_500), ms(10_000), None), ms(11_500));
     // inside the loop
@@ -317,26 +397,84 @@ mod tests {
   }
 
   #[test]
+  fn test_timeline_position_in_a_region() {
+    let lp = span(2_000, 4_000);
+    // from before the region: plays in, then goes round inside it
+    assert_eq!(timeline_position(ms(500), ms(1_000), lp), ms(1_500));
+    assert_eq!(timeline_position(ms(500), ms(3_400), lp), ms(3_900));
+    assert_eq!(timeline_position(ms(500), ms(3_500), lp), ms(2_000));
+    assert_eq!(timeline_position(ms(500), ms(6_250), lp), ms(2_750));
+    // from inside it
+    assert_eq!(timeline_position(ms(3_000), ms(1_500), lp), ms(2_500));
+  }
+
+  #[test]
   fn test_advance_matches_timeline_position() {
     // a run from a paused point: a part beat up to the beat, then whole beats
-    let lp = Some(ms(8_000));
-    let start = ms(6_800);
-    let mut offset = start;
-    let mut elapsed = until_next_beat(start, BEAT);
-    offset = advance(offset, elapsed, lp);
-    assert_eq!(offset, ms(7_000));
+    for lp in [span(0, 8_000), span(2_000, 8_000), span(1_250, 7_100)] {
+      let start = ms(6_800);
+      let mut offset = start;
+      let mut elapsed = Duration::ZERO;
 
-    for _ in 0..40 {
-      offset = advance(offset, BEAT, lp);
-      elapsed += BEAT;
-      assert_eq!(offset, timeline_position(start, elapsed, lp));
+      for _ in 0..40 {
+        let slice = slice_len(offset, BEAT, lp);
+        offset = advance(offset, slice, lp).0;
+        elapsed += slice;
+        assert_eq!(offset, timeline_position(start, elapsed, lp));
+      }
     }
   }
 
   #[test]
+  fn test_advance_says_when_it_goes_round() {
+    assert_eq!(advance(ms(1_000), BEAT, span(0, 8_000)), (ms(1_500), false));
+    assert_eq!(advance(ms(7_500), BEAT, span(0, 8_000)), (ms(0), true));
+    assert_eq!(advance(ms(3_500), BEAT, span(2_000, 4_000)), (ms(2_000), true));
+    // a loop one slice long goes round every slice (back where it was)
+    assert_eq!(advance(ms(2_000), BEAT, span(2_000, 2_500)), (ms(2_000), true));
+    // without looping it never does
+    assert_eq!(advance(ms(7_500), BEAT, None), (ms(8_000), false));
+  }
+
+  #[test]
   fn test_advance_past_loop_end_starts_over() {
-    assert_eq!(advance(ms(9_000), BEAT, Some(ms(8_000))), ms(0));
-    assert_eq!(advance(ms(9_000), BEAT, None), ms(9_500));
+    assert_eq!(advance(ms(9_000), BEAT, span(0, 8_000)), (ms(0), true));
+    assert_eq!(advance(ms(9_000), BEAT, span(2_000, 8_000)), (ms(2_000), true));
+    assert_eq!(advance(ms(9_000), BEAT, None), (ms(9_500), false));
+  }
+
+  #[test]
+  fn test_a_slice_ends_on_the_next_beat_or_the_loop_end() {
+    // a beat from a beat, up to the next from between them
+    assert_eq!(slice_len(ms(1_000), BEAT, None), BEAT);
+    assert_eq!(slice_len(ms(1_200), BEAT, None), ms(300));
+    // no further than the loop's end, when that's off the beat
+    assert_eq!(slice_len(ms(3_000), BEAT, span(2_000, 3_250)), ms(250));
+    assert_eq!(slice_len(ms(1_000), BEAT, span(2_000, 3_250)), BEAT);
+    // past the end (it's about to go round), as without one
+    assert_eq!(slice_len(ms(4_000), BEAT, span(2_000, 3_250)), BEAT);
+  }
+
+  #[test]
+  fn test_a_region_between_two_edges() {
+    let region = |start, end| Some(LoopRegion { start, end });
+    assert_eq!(LoopRegion::between(4., 8., 64.), region(4., 8.));
+    // in either order
+    assert_eq!(LoopRegion::between(8., 4., 64.), region(4., 8.));
+    // kept to the playlist
+    assert_eq!(LoopRegion::between(-2., 70., 64.), region(0., 64.));
+    // on the same beat (or past the end on both sides): none
+    assert_eq!(LoopRegion::between(4., 4., 64.), None);
+    assert_eq!(LoopRegion::between(4., 4. + SAME_BEAT / 2., 64.), None);
+    assert_eq!(LoopRegion::between(70., 80., 64.), None);
+    assert_eq!(LoopRegion::between(f64::NAN, 4., 64.), None);
+  }
+
+  #[test]
+  fn test_a_loop_end_pin_is_at_least_a_beat_in() {
+    assert_eq!(valid_loop_end_pin(12.), Some(12.));
+    assert_eq!(valid_loop_end_pin(0.25), Some(1.));
+    assert_eq!(valid_loop_end_pin(f64::INFINITY), None);
   }
 
   #[test]

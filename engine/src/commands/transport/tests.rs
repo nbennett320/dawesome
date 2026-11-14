@@ -39,7 +39,7 @@ fn test_playlist_transport() {
   let t = playlist_transport(&state);
   assert_eq!(t.beat_interval_ms, 500.); // 120bpm
   // nothing in the playlist: the loop is four bars
-  assert_eq!(t.loop_beats, 16);
+  assert_eq!(t.loop_end_beats, 16.);
   assert_eq!(t.beats_displayed, 512);
   assert!(t.loop_enabled);
 
@@ -281,23 +281,23 @@ fn test_the_loop_ends_with_the_last_clip() {
   let ms = |d: Duration| d.as_millis();
 
   // no clips: four bars (8s at 120bpm)
-  assert_eq!(ms(daw::loop_end(&state)), 8_000);
-  assert_eq!(daw::loop_len(&state).map(ms), Some(8_000));
+  assert_eq!(ms(daw::loop_span(&state).end), 8_000);
+  assert_eq!(daw::active_loop(&state).map(|span| span.end).map(ms), Some(8_000));
 
   // a short clip at beat 9 (the start of bar 3) ends in bar 3
   let id = add_node_at_offset(&state, sample.clone(), 0, beat_to_offset(&state, Some(8.)), true).unwrap();
-  assert_eq!(ms(daw::loop_end(&state)), 6_000);
-  assert_eq!(playlist_transport(&state).loop_beats, 12);
+  assert_eq!(ms(daw::loop_span(&state).end), 6_000);
+  assert_eq!(playlist_transport(&state).loop_end_beats, 12.);
 
   // moved into bar 60, the loop follows it
   move_audiograph_node_to(&state, id, 0, beat_to_offset(&state, Some(236.))).unwrap();
   assert_eq!(node_beat(&state, id).unwrap(), 236.);
-  assert_eq!(playlist_transport(&state).loop_beats, 240);
+  assert_eq!(playlist_transport(&state).loop_end_beats, 240.);
 
   // looping off: no loop length, but where it would end is still known
   state.playlist.loop_enabled.store(false, Ordering::SeqCst);
-  assert_eq!(daw::loop_len(&state), None);
-  assert_eq!(playlist_transport(&state).loop_beats, 240);
+  assert_eq!(daw::active_loop(&state).map(|span| span.end), None);
+  assert_eq!(playlist_transport(&state).loop_end_beats, 240.);
 }
 
 #[test]
@@ -305,7 +305,7 @@ fn test_the_playhead_wraps_at_the_last_clip() {
   let state = daw::InnerState::default();
   // a clip in bar 2: the loop is two bars (4s)
   add_node_at_offset(&state, daw::METRONOME_TICK_PATH.to_string(), 0, beat_to_offset(&state, Some(5.)), true).unwrap();
-  assert_eq!(playlist_transport(&state).loop_beats, 8);
+  assert_eq!(playlist_transport(&state).loop_end_beats, 8.);
 
   // 5s into a run from the start: 1s into the second pass
   fake_run(&state, 0, 5_000);
@@ -368,4 +368,67 @@ fn test_a_pattern_started_part_way_in_reports_when_its_start_was_heard() {
   // before the run started
   let from_start = started(0.);
   assert!((from_start - started(4.) - 500.).abs() < 1.);
+}
+
+#[test]
+fn test_a_loop_region_is_drawn_between_two_beats() {
+  let state = daw::InnerState::default();
+  state.playlist.loop_enabled.store(false, Ordering::SeqCst);
+
+  // drawn backwards, and past the playlist's end: put in order and kept to it
+  let settings = change_loop_region(&state, 600., 8.);
+  assert_eq!(settings.region, Some(daw::LoopRegion { start: 8., end: 512. }));
+  // drawing one turns looping on
+  assert!(settings.enabled);
+  let t = playlist_transport(&state);
+  assert!(t.loop_region);
+  assert_eq!((t.loop_start_beats, t.loop_end_beats), (8., 512.));
+
+  // moving an edge with looping off leaves it off
+  state.playlist.loop_enabled.store(false, Ordering::SeqCst);
+  assert!(!change_loop_region(&state, 8., 12.25).enabled);
+  assert_eq!(playlist_transport(&state).loop_end_beats, 12.25);
+
+  // both edges on one beat: no region
+  assert_eq!(change_loop_region(&state, 9., 9.).region, None);
+  change_loop_region(&state, 8., 12.);
+  assert_eq!(remove_loop_region(&state).region, None);
+  assert!(!playlist_transport(&state).loop_region);
+}
+
+#[test]
+fn test_a_pinned_loop_end_stays_put() {
+  let state = daw::InnerState::default();
+  let sample = daw::METRONOME_TICK_PATH.to_string();
+  let id = add_node_at_offset(&state, sample, 0, beat_to_offset(&state, Some(8.)), true).unwrap();
+  assert_eq!(playlist_transport(&state).loop_end_beats, 12.);
+
+  // pinned at bar 2: moving the clip doesn't move it
+  assert_eq!(change_loop_end(&state, 4.).end_pin, Some(4.));
+  move_audiograph_node_to(&state, id, 0, beat_to_offset(&state, Some(40.))).unwrap();
+  let t = playlist_transport(&state);
+  assert!(t.loop_end_pinned);
+  assert_eq!((t.loop_start_beats, t.loop_end_beats), (0., 4.));
+
+  // never before the first beat, nor past the playlist
+  assert_eq!(change_loop_end(&state, 0.).end_pin, Some(1.));
+  assert_eq!(change_loop_end(&state, 900.).end_pin, Some(512.));
+
+  // unpinned, it follows the clip again
+  assert_eq!(unpin_loop_end(&state).end_pin, None);
+  assert_eq!(playlist_transport(&state).loop_end_beats, 44.);
+}
+
+#[test]
+fn test_the_loop_cant_be_changed_while_recording() {
+  let state = daw::InnerState::default();
+  change_loop_region(&state, 4., 8.);
+  change_loop_end(&state, 12.);
+  crate::recording::fake_session(&state);
+
+  let settings = change_loop_region(&state, 0., 2.);
+  assert_eq!(settings.region, Some(daw::LoopRegion { start: 4., end: 8. }));
+  assert_eq!(remove_loop_region(&state).region, Some(daw::LoopRegion { start: 4., end: 8. }));
+  assert_eq!(change_loop_end(&state, 20.).end_pin, Some(12.));
+  assert_eq!(unpin_loop_end(&state).end_pin, Some(12.));
 }

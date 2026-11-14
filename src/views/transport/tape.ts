@@ -12,17 +12,27 @@ export const EMPTY_TAPE_BARS = 4
 // a bar, in ms
 export const barMs = (t: PlaylistTransport) => t.beatIntervalMs * Math.max(1, t.beatsPerBar)
 
-// the loop's length, or 0 when looping is off
-export const loopLengthMs = (t: PlaylistTransport) =>
-  (t.loopEnabled ? t.beatIntervalMs * t.loopBeats : 0)
+// where the loop starts and ends, in ms, or null when looping is off (or
+// the loop is empty)
+export const loopSpanMs = (t: PlaylistTransport): { start: number, end: number } | null => {
+  if(!t.loopEnabled) return null
+  const start = t.beatIntervalMs * t.loopStartBeats
+  const end = t.beatIntervalMs * t.loopEndBeats
+  return end > start ? { start, end } : null
+}
 
-// the tape's length: the loop, so the right reel fills just as playback
-// jumps back to the start. without looping, to the end of the last clip
+// the tape's length: up to the loop's end, so the right reel fills just as
+// playback goes round. without looping, to the end of the last clip
 export const tapeLengthMs = (t: PlaylistTransport) => {
-  const loop = loopLengthMs(t)
-  if(loop > 0) return loop
+  const loop = loopSpanMs(t)
+  if(loop) return loop.end
   return t.songEndMs > 0 ? t.songEndMs : barMs(t) * EMPTY_TAPE_BARS
 }
+
+// whether the loop moved between two transports: the engine takes it up on
+// its next beat while playing (and counts the playhead from there)
+export const loopMoved = (before: PlaylistTransport, after: PlaylistTransport) =>
+  before.loopStartBeats !== after.loopStartBeats || before.loopEndBeats !== after.loopEndBeats
 
 // where the playhead is at `nowMs` (ms since the unix epoch), following the
 // engine's run while playing. matches daw::state::timeline_position
@@ -31,8 +41,9 @@ export const positionAt = (t: PlaylistTransport, nowMs: number): number => {
   if(!t.playing || t.startTimeMs === null || t.patternId !== null) return t.positionMs
 
   const elapsed = t.startOffsetMs + Math.max(0, nowMs - t.startTimeMs)
-  const loopMs = loopLengthMs(t)
-  if(loopMs > 0) return elapsed >= loopMs ? elapsed % loopMs : elapsed
+  const loop = loopSpanMs(t)
+  // plays in up to the loop's end, then round from its start
+  if(loop) return elapsed >= loop.end ? loop.start + (elapsed - loop.end) % (loop.end - loop.start) : elapsed
 
   // the engine stops at the end of the song, on the next beat
   return t.songEndMs > 0 ? Math.min(elapsed, t.songEndMs) : elapsed

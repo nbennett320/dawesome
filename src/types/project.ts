@@ -4,6 +4,7 @@ import { Racks } from './effects'
 import { MixerSettings } from './mixer'
 import { Row, SequencerState, SynthInstrument, isSynthRow } from './sequencer'
 import type { SnapNote } from '../state/slices/playlistSlice'
+import type { LoopRegion } from './transport'
 
 // project files (.dawesome) hold the playlist's clips and settings, and the
 // mixer. the
@@ -27,6 +28,10 @@ export interface ProjectSettings {
   snapNote: SnapNote
   // whether recording counts in a bar first (left out by older engines)
   countIn?: boolean
+  // the part of the playlist that loops, and where the loop's end flag was
+  // dragged to, in beats (left out when there's none, and by older engines)
+  loopRegion?: LoopRegion
+  loopEndPin?: number
 }
 
 // a clip after loading, with the new id the engine gave it

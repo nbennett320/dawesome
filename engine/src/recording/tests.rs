@@ -49,7 +49,7 @@ fn test_arming() {
 }
 
 // a stand-in for a recording in progress
-fn session() -> Session {
+pub(super) fn session() -> Session {
   Session {
     tracks: vec![],
     start: Duration::ZERO,
@@ -146,13 +146,13 @@ fn test_the_loop_stays_put_while_recording() {
   let state = daw::InnerState::default();
   let ms = |d: Duration| d.as_millis();
   // four bars with nothing in the playlist
-  assert_eq!(ms(daw::loop_end(&state)), 8_000);
+  assert_eq!(ms(daw::loop_span(&state).end), 8_000);
 
   // (started with looping off: the loop's end is kept all the same)
   state.playlist.loop_enabled.store(false, std::sync::atomic::Ordering::SeqCst);
   state.recorder.lock().unwrap().session = Some(Session {
-    loop_len: daw::loop_len(&state),
-    loop_end: daw::loop_end(&state),
+    loop_len: daw::active_loop(&state).map(|span| span.end),
+    loop_end: daw::loop_span(&state).end,
     ..session()
   });
   state.playlist.loop_enabled.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -161,11 +161,11 @@ fn test_the_loop_stays_put_while_recording() {
   state.playlist.audiograph.lock().unwrap()
     .construct_and_add_node(daw::METRONOME_TICK_PATH.to_string(), Duration::from_millis(10_500), 0)
     .unwrap();
-  assert_eq!(ms(daw::loop_end(&state)), 8_000);
+  assert_eq!(ms(daw::loop_span(&state).end), 8_000);
 
   // once it's over, the loop reaches the new clip
   state.recorder.lock().unwrap().session = None;
-  assert_eq!(ms(daw::loop_end(&state)), 12_000);
+  assert_eq!(ms(daw::loop_span(&state).end), 12_000);
 }
 
 #[test]

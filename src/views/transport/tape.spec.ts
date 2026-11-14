@@ -5,6 +5,7 @@ import {
   CASSETTE_MIN_WIDTH,
   fitCassetteWidth,
   formatTime,
+  loopMoved,
   positionAt,
   tapeLengthMs,
   tapTarget,
@@ -20,7 +21,7 @@ const transport = (t: Partial<PlaylistTransport> = {}): PlaylistTransport => ({
   startOffsetMs: 0,
   positionMs: 0,
   beatIntervalMs: 500,
-  loopBeats: 16,
+  loopStartBeats: 0, loopEndBeats: 16, loopRegion: false, loopEndPinned: false,
   beatsDisplayed: 16,
   loopEnabled: true,
   songEndMs: 0,
@@ -33,7 +34,7 @@ const transport = (t: Partial<PlaylistTransport> = {}): PlaylistTransport => ({
 describe('tapeLengthMs', () => {
   it('is the loop while looping', () => {
     expect(tapeLengthMs(transport({ songEndMs: 5_250 }))).toBe(8_000)
-    expect(tapeLengthMs(transport({ loopBeats: 8 }))).toBe(4_000)
+    expect(tapeLengthMs(transport({ loopEndBeats: 8 }))).toBe(4_000)
   })
 
   it('runs to the end of the last clip without looping', () => {
@@ -65,11 +66,35 @@ describe('positionAt', () => {
     expect(positionAt(t, 12_000)).toBe(1_000)
   })
 
+  it('plays into a region, then goes round inside it', () => {
+    // a region from bar 2 to the middle of bar 3 (2s to 5s)
+    const region = { loopStartBeats: 4, loopEndBeats: 10, loopRegion: true }
+    const t = transport({ ...region, playing: true, startTimeMs: 10_000, startOffsetMs: 500 })
+    expect(positionAt(t, 11_000)).toBe(1_500)
+    expect(positionAt(t, 14_400)).toBe(4_900)
+    expect(positionAt(t, 14_500)).toBe(2_000)
+    expect(positionAt(t, 18_250)).toBe(2_750)
+  })
+
   it('stops at the end of the song without looping', () => {
     const t = transport({
       playing: true, startTimeMs: 10_000, loopEnabled: false, songEndMs: 3_000,
     })
     expect(positionAt(t, 20_000)).toBe(3_000)
+  })
+})
+
+describe('tapeLengthMs with a region', () => {
+  it("runs to the region's end", () => {
+    expect(tapeLengthMs(transport({ loopStartBeats: 4, loopEndBeats: 10, loopRegion: true }))).toBe(5_000)
+  })
+})
+
+describe('loopMoved', () => {
+  it('sees either edge move', () => {
+    expect(loopMoved(transport(), transport())).toBe(false)
+    expect(loopMoved(transport(), transport({ loopEndBeats: 12 }))).toBe(true)
+    expect(loopMoved(transport(), transport({ loopStartBeats: 4 }))).toBe(true)
   })
 })
 

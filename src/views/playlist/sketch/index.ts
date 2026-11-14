@@ -26,7 +26,7 @@ import { LiveTake, liveTakeSpan } from './liveTake'
 import { NO_FADES } from './Waveform'
 import { trackColorKey, defaultTrackColor, trackLabel } from '../../../types/mixer'
 import { DEFAULT_BEATS_PER_BAR, DEFAULT_PLAYLIST_BEATS, PlaylistTransport } from '../../../types/transport'
-import { positionAt } from '../../transport/tape'
+import { loopMoved, positionAt } from '../../transport/tape'
 import {
   Lasso, ShiftPress, itemAt, keepExisting, lassoFrom, lassoRect, lassoSelection, shiftRelease, startsLasso,
   toggleSelected,
@@ -561,7 +561,7 @@ export class Renderer extends RendererBase {
       // its next beat (and counts the playhead from there), so ask again
       // once it has
       const before = this.transport
-      if(transport.playing && before && before.loopBeats !== transport.loopBeats) {
+      if(transport.playing && before && loopMoved(before, transport)) {
         if(this.#loopSync) clearTimeout(this.#loopSync)
         this.#loopSync = setTimeout(() => {
           this.#loopSync = null
@@ -629,7 +629,7 @@ export class Renderer extends RendererBase {
   // where the loop ends, in beats, while the playlist loops
   loopEndBeat = (): number | null => {
     const t = this.transport
-    return t && t.loopEnabled && t.loopBeats > 0 ? t.loopBeats : null
+    return t && t.loopEnabled && t.loopEndBeats > t.loopStartBeats ? t.loopEndBeats : null
   }
 
   syncSnapSetting = async () => {

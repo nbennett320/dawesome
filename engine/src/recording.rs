@@ -152,10 +152,10 @@ pub fn is_recording(state: &daw::InnerState) -> bool {
   state.recorder.lock().unwrap().recording()
 }
 
-// where the loop ends while a recording is going: where it did when the
+// where the loop is while a recording is going: where it was when the
 // recording started
-pub fn loop_len_recording(state: &daw::InnerState) -> Option<Duration> {
-  state.recorder.lock().unwrap().session.as_ref().map(|session| session.loop_end)
+pub fn loop_span_recording(state: &daw::InnerState) -> Option<daw::LoopSpan> {
+  state.recorder.lock().unwrap().session.as_ref().map(|session| daw::LoopSpan { start: Duration::ZERO, end: session.loop_end })
 }
 
 // the clips recorded since this was last asked, and what went wrong
@@ -282,8 +282,8 @@ pub fn start(state: &Arc<daw::InnerState>, at_loop_end: LoopRecording) -> Result
 
   // looping and layering: a new pass each time the loop comes round, each
   // put on its tracks as soon as it's done
-  let loop_len = daw::loop_len(state);
-  let loop_end = daw::loop_end(state);
+  let loop_len = daw::active_loop(state).map(|span| span.end);
+  let loop_end = daw::loop_span(state).end;
   let tracks: Vec<u32> = armed.iter().map(|track| track.track_number).collect();
   let layering = at_loop_end == LoopRecording::Layer && loop_len.is_some() && start < loop_end;
   let (passes, finished) = if layering {
@@ -525,6 +525,13 @@ pub fn finish(state: &daw::InnerState, at_loop_end: bool) {
 
   for problem in &problems { println!("recording: {}", problem); }
   state.recorder.lock().unwrap().end_finish(clips, problems);
+}
+
+// a recording going (of nothing), for other modules' tests of what can't
+// change while recording
+#[cfg(test)]
+pub fn fake_session(state: &daw::InnerState) {
+  state.recorder.lock().unwrap().session = Some(tests::session());
 }
 
 #[cfg(test)]

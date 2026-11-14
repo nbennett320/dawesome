@@ -2,7 +2,7 @@ import type { Mock } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import reducer, {
   addPatternToPlaylist, addToPlaylist, copyClips, moveNodeInPlaylist, moveNodesInPlaylist, cutClips, deepCopyClips, joinClips, NEEDS_SAVING, pasteClips, repeatClips, reduceLoadedProject, playlistSlice, removeManyFromPlaylist, selectClipOverrides, selectClipWindow, setClipWindows,
-  setPlaylistTempo,
+  setPlaylistTempo, setLoopRegion, clearLoopEnd,
   splitClips, stretchClips, updateClipSettings, validTempo, withWaitCursor,
 } from './playlistSlice'
 import { beginGesture, resetGestures } from '../gesture'
@@ -125,6 +125,41 @@ describe('reduceExploded', () => {
     }))
 
     expect(state.clipWindows).toEqual({ 10: { start: 4, end: 12 }, 11: { start: 4, end: 12 } })
+  })
+})
+
+describe('the loop', () => {
+  const mockInvoke = invoke as Mock
+
+  it('takes what the engine says the loop is now, then asks for the playhead again', async () => {
+    mockInvoke.mockImplementation(async (command: string) => {
+      if(command === 'set_loop_region') return { region: { start: 4, end: 8 }, endPin: 12, enabled: true }
+      if(command === 'clear_loop_end') return { region: { start: 4, end: 8 }, endPin: null, enabled: true }
+      return undefined
+    })
+    const dispatch = vi.fn()
+
+    await setLoopRegion(8, 4)(dispatch)
+    expect(mockInvoke).toHaveBeenCalledWith('set_loop_region', { start: 8, end: 4 })
+    let state = dispatch.mock.calls.reduce((s, [action]) => reducer(s, action), reducer(undefined, { type: 'init' }))
+    expect(state.loopRegion).toEqual({ start: 4, end: 8 })
+    expect(state.loopEndPin).toBe(12)
+    expect(state.loopEnabled).toBe(true)
+    expect(state.transportRevision).toBe(1)
+
+    dispatch.mockClear()
+    await clearLoopEnd()(dispatch)
+    state = dispatch.mock.calls.reduce((s, [action]) => reducer(s, action), state)
+    expect(state.loopEndPin).toBeNull()
+  })
+
+  it("comes with a project, or there's none", () => {
+    let state = reducer(undefined, reduceLoadedProject({ ...loaded, loopRegion: { start: 2, end: 6 }, loopEndPin: 9 }))
+    expect(state.loopRegion).toEqual({ start: 2, end: 6 })
+    expect(state.loopEndPin).toBe(9)
+    state = reducer(state, reduceLoadedProject(loaded))
+    expect(state.loopRegion).toBeNull()
+    expect(state.loopEndPin).toBeNull()
   })
 })
 

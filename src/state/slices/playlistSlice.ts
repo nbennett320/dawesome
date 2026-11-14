@@ -21,7 +21,7 @@ import {
   ChangedClips, LoadedClip, LoadedPatternClip, LoadedProject, Joined, MissingEffect, MissingSample, MovedClip, Placed, ProjectView, SavedProject, splitMissing,
 } from '../../types/project'
 import { currentGesture } from '../gesture'
-import { DEFAULT_PLAYLIST_BEATS, Wind } from '../../types/transport'
+import { DEFAULT_PLAYLIST_BEATS, LoopRegion, LoopSettings, Wind } from '../../types/transport'
 import { SequencerState, SynthInstrument } from '../../types/sequencer'
 import { MixerSettings } from '../../types/mixer'
 import { openTab } from './windowSlice'
@@ -47,6 +47,10 @@ export interface PlaylistState {
   tempo: number
   metronomeEnabled: boolean,
   loopEnabled: boolean,
+  // the part of the playlist that loops, drawn in the ruler, and where the
+  // loop's end flag was dragged to (null: it follows the last clip)
+  loopRegion: LoopRegion | null,
+  loopEndPin: number | null,
   snapEnabled: boolean,
   snapNote: SnapNote,
   // the playlist's mouse tool. not saved with the project
@@ -89,6 +93,8 @@ const initialState = {
   tempo: 120,
   metronomeEnabled: true,
   loopEnabled: true,
+  loopRegion: null,
+  loopEndPin: null,
   snapEnabled: true,
   snapNote: 'QuarterNote',
   // not saved with the project
@@ -173,6 +179,12 @@ export const playlistSlice = createSlice({
     },
     setLoopEnabled: (state, action) => {
       state.loopEnabled = action.payload
+    },
+    // the loop as the engine has it, after a change to it
+    setLoop: (state, action: PayloadAction<LoopSettings>) => {
+      state.loopRegion = action.payload.region
+      state.loopEndPin = action.payload.endPin
+      state.loopEnabled = action.payload.enabled
     },
     addPlaylistItem: (state, action) => {
       const item = {
@@ -379,6 +391,8 @@ export const playlistSlice = createSlice({
       state.tempo = project.tempo
       state.metronomeEnabled = project.metronomeEnabled
       state.loopEnabled = project.loopEnabled
+      state.loopRegion = project.loopRegion ?? null
+      state.loopEndPin = project.loopEndPin ?? null
       state.snapEnabled = project.snapEnabled
       state.snapNote = project.snapNote
       // the tool isn't saved: a project opens with Select
@@ -536,6 +550,28 @@ export const toggleLoop = () => async (dispatch: Dispatch) => {
 
 export const selectLoopEnabled = (state: RootState) =>
   state.playlist.loopEnabled
+
+// a change to the loop: the engine says what the loop is now (it leaves it
+// alone while recording), and the playhead's asked for again, as playback
+// goes round somewhere else from the next beat
+const changeLoop = (command: string, args: Record<string, number>) => (dispatch: Dispatch) =>
+  invoke<LoopSettings>(command, args)
+    .then(settings => {
+      dispatch(playlistSlice.actions.setLoop(settings))
+      dispatch(playlistSlice.actions.bumpTransportRevision())
+    })
+    .catch(transportError('change the loop'))
+
+// loop the region between two beats (in either order). on the same beat,
+// there's no region. drawing one turns looping on
+export const setLoopRegion = (start: number, end: number) => changeLoop('set_loop_region', { start, end })
+export const clearLoopRegion = () => changeLoop('clear_loop_region', {})
+// pin the loop's end flag at a beat, or let it follow the last clip again
+export const setLoopEnd = (beat: number) => changeLoop('set_loop_end', { beat })
+export const clearLoopEnd = () => changeLoop('clear_loop_end', {})
+
+export const selectLoopRegion = (state: RootState) => state.playlist.loopRegion
+export const selectLoopEndPin = (state: RootState) => state.playlist.loopEndPin
 // end loop methods
 
 // start playlist item methods
