@@ -21,6 +21,11 @@ fn read(path: &Path) -> (hound::WavSpec, Vec<f32>) {
   (spec, reader.samples::<f32>().map(|s| s.unwrap()).collect())
 }
 
+// one channel of interleaved frames, `channels` wide
+fn channel(frames: &[f32], channels: usize, channel: usize) -> Vec<f32> {
+  frames.chunks_exact(channels).map(|frame| frame[channel]).collect()
+}
+
 fn file(path: &Path, channels: &[usize]) -> TakeFile {
   TakeFile { path: path.to_path_buf(), channels: channels.to_vec() }
 }
@@ -36,7 +41,7 @@ fn test_a_take_holds_what_was_captured_while_recording() {
   // before recording: metered, not kept
   capturer.process(&frames(0, 10, 4), 4, t0);
   let recording = input.start_take(&[file(&path, &[0, 1])]).unwrap();
-  recording.keep_from(t0);
+  recording.keep_from(t0, None);
   capturer.process(&frames(10, 10, 4), 4, t0 + 10 * MS);
   capturer.process(&frames(20, 5, 4), 4, t0 + 20 * MS);
   let take = input.stop_take(recording, None).unwrap();
@@ -69,7 +74,7 @@ fn test_frames_before_the_take_starts_are_dropped() {
   capturer.process(&frames(0, 10, 1), 1, t0);
   capturer.process(&frames(10, 10, 1), 1, t0 + 10 * MS);
   // the run is heard from 13.5ms: the first frame at or after that is 14
-  recording.keep_from(t0 + Duration::from_micros(13_500));
+  recording.keep_from(t0 + Duration::from_micros(13_500), None);
   capturer.process(&frames(20, 5, 1), 1, t0 + 20 * MS);
   let take = input.stop_take(recording, None).unwrap();
 
@@ -87,7 +92,7 @@ fn test_a_take_stops_at_its_limit() {
   let t0 = Instant::now();
 
   let recording = input.start_take(&[file(&path, &[0])]).unwrap();
-  recording.keep_from(t0 + 2 * MS);
+  recording.keep_from(t0 + 2 * MS, None);
   capturer.process(&frames(0, 30, 1), 1, t0);
   // the loop ended 20 frames (20ms at the test's rate) in
   let take = input.stop_take(recording, Some(20 * MS)).unwrap();
@@ -96,6 +101,78 @@ fn test_a_take_stops_at_its_limit() {
   assert_eq!(take.files[0].frames, 20);
 
   let _ = std::fs::remove_file(&path);
+}
+
+// a loop recording cut into passes at `first`, then every `every`, its
+// files named `name`-1, -2, and so on after the first
+fn passes(first: Duration, every: Duration, name: &'static str) -> (Passes, mpsc::Receiver<Takes>) {
+  let (finished, done) = mpsc::channel();
+  let mut n = 0;
+  let plan = Passes {
+    first,
+    every,
+    next_paths: Box::new(move || { n += 1; vec![temp_take(&format!("{}-{}", name, n))] }),
+    finished,
+  };
+  (plan, done)
+}
+
+#[test]
+fn test_a_loop_recording_is_cut_into_passes() {
+  let (input, mut capturer) = Input::new("test".into(), RATE, 2);
+  let path = temp_take("passes");
+  let t0 = Instant::now();
+
+  let recording = input.start_take(&[file(&path, &[1])]).unwrap();
+  // started 10 frames from the loop's end, which is 25 frames long
+  let (plan, done) = passes(10 * MS, 25 * MS, "passes");
+  let live = recording.keep_from(t0, Some(plan));
+  capturer.process(&frames(0, 50, 2), 2, t0);
+  capturer.process(&frames(50, 20, 2), 2, t0 + 50 * MS);
+  let last = input.stop_take(recording, None).unwrap();
+
+  // each pass in its own file, starting where the loop comes round
+  let finished: Vec<Takes> = done.try_iter().collect();
+  assert_eq!(finished.iter().map(|takes| (takes.pass, takes.files[0].frames)).collect::<Vec<_>>(), vec![(0, 10), (1, 25), (2, 25)]);
+  let second = channel(&frames(10, 25, 2), 2, 1);
+  assert_eq!(read(&finished[1].files[0].path).1, second);
+  assert_eq!(read(&finished[1].files[0].path).0.channels, 1);
+  // the last, as far as it got, is what stopping returns
+  assert_eq!((last.pass, last.files[0].frames), (3, 10));
+  assert_eq!(read(&last.files[0].path).1, channel(&frames(60, 10, 2), 2, 1));
+
+  // the newest passes can be played as they were recorded
+  assert!(live.pass(0).is_none());
+  let pass = live.pass(2).unwrap();
+  assert_eq!(pass.files[0].frames(), 25);
+  assert_eq!(pass.files[0].written_frames(), 25);
+  assert_eq!(live.pass(3).unwrap().files[0].written_frames(), 10);
+
+  for takes in finished.iter().chain([&last]) { let _ = std::fs::remove_file(&takes.files[0].path); }
+}
+
+#[test]
+fn test_a_late_start_still_cuts_where_the_loop_comes_round() {
+  let (input, mut capturer) = Input::new("test".into(), RATE, 1);
+  let path = temp_take("late-passes");
+  let t0 = Instant::now();
+
+  let recording = input.start_take(&[file(&path, &[0])]).unwrap();
+  let (plan, done) = passes(20 * MS, 30 * MS, "late-passes");
+  // the input's first frame came 5 frames after the take should have
+  // started: the loop still comes round 20 frames after that should have
+  let _ = recording.keep_from(t0, Some(plan));
+  capturer.process(&frames(0, 40, 1), 1, t0 + 5 * MS);
+  let last = input.stop_take(recording, None).unwrap();
+
+  let first = done.try_recv().unwrap();
+  assert_eq!(first.started, Some(t0 + 5 * MS));
+  assert_eq!(first.files[0].frames, 15);
+  assert_eq!(last.files[0].frames, 25);
+  assert_eq!(read(&last.files[0].path).1, frames(15, 25, 1));
+
+  let _ = std::fs::remove_file(&first.files[0].path);
+  let _ = std::fs::remove_file(&last.files[0].path);
 }
 
 #[test]
@@ -107,7 +184,7 @@ fn test_a_take_at_another_rate_is_limited_in_time() {
   let t0 = Instant::now();
 
   let recording = input.start_take(&[file(&path, &[0])]).unwrap();
-  recording.keep_from(t0);
+  recording.keep_from(t0, None);
   capturer.process(&frames(0, 100, 1), 1, t0);
   // the loop ended 20ms in: 40 of this input's frames
   let take = input.stop_take(recording, Some(20 * MS)).unwrap();
@@ -128,7 +205,7 @@ fn test_each_armed_track_gets_its_own_channels() {
   let mono = temp_take("mono");
 
   let recording = input.start_take(&[file(&stereo, &[2, 3]), file(&mono, &[0])]).unwrap();
-  recording.keep_from(Instant::now() - Duration::from_secs(1));
+  recording.keep_from(Instant::now() - Duration::from_secs(1), None);
   capturer.process(&frames(0, 3, 4), 4, Instant::now());
   let take = input.stop_take(recording, None).unwrap();
 
@@ -261,7 +338,7 @@ fn test_the_device_input_records() {
   let path = temp_take("device");
 
   let recording = input.start_take(&[file(&path, &[0])]).unwrap();
-  recording.keep_from(Instant::now());
+  recording.keep_from(Instant::now(), None);
   thread::sleep(Duration::from_millis(300));
   let take = input.stop_take(recording, None).unwrap();
   let frames = take.files[0].frames;

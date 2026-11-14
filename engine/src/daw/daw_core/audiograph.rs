@@ -941,6 +941,10 @@ pub struct AudioGraph<'a> {
   // the fewest tracks the playlist shows, even with no clips on them: the
   // default number, or more once tracks are added (see add_track)
   pub min_tracks: u32,
+  // clips that don't start playing for now: a loop recording's latest pass,
+  // which is played as it was recorded until the loop comes round again
+  // (see recording.rs)
+  pub held_back: std::collections::BTreeSet<u64>,
   _phantom: PhantomData<&'a str>,
 }
 
@@ -957,6 +961,7 @@ impl AudioGraph<'static> {
       mixer: Arc::new(daw::Mixer::default()),
       sequencer: Arc::new(Mutex::new(daw::Sequencer::default())),
       min_tracks: daw::defaults::NUM_OF_TRACKS,
+      held_back: Default::default(),
       _phantom: PhantomData,
     }
   }
@@ -999,13 +1004,13 @@ impl AudioGraph<'static> {
     let window_end = window_start + dur;
 
     self.nodes.iter().filter(move |node|
-      node.start_offset >= window_start && node.start_offset < window_end)
+      node.start_offset >= window_start && node.start_offset < window_end && !self.held_back.contains(&node.id))
   }
 
   // nodes that started before `at` and are still playing then
   fn nodes_sounding_at(&self, at: Duration) -> impl Iterator<Item = &AudioNode> {
     self.nodes.iter().filter(move |node|
-      node.start_offset < at && node.start_offset + node.duration() > at)
+      node.start_offset < at && node.start_offset + node.duration() > at && !self.held_back.contains(&node.id))
   }
 
   // the clips that start in the next `dur`, mixed without the track strips
@@ -1340,6 +1345,7 @@ impl AudioGraph<'static> {
   pub fn clear(&mut self) {
     self.nodes.clear();
     self.pattern_nodes.clear();
+    self.held_back.clear();
     self.current_offset = Some(Duration::ZERO);
     self.min_tracks = daw::defaults::NUM_OF_TRACKS;
   }

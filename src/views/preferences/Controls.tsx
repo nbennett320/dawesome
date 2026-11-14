@@ -10,8 +10,13 @@ const PLUGIN_VIEWS = [
   { value: 'tab', label: 'In a tab' },
 ]
 
-// how the app is worked: where plugins open, and the command bar. changes
-// apply as they're made
+const LOOP_RECORDING = [
+  { value: 'layer', label: 'Keep recording, layering each pass' },
+  { value: 'stop', label: 'Stop recording and playback' },
+]
+
+// how the app is worked: where plugins open, the command bar, and what a
+// recording does at the loop's end. changes apply as they're made
 const Controls = () => {
   const dispatch = useAppDispatch()
   const { preferences } = useAppSelector(selectAppearance)
@@ -27,6 +32,13 @@ const Controls = () => {
             value={preferences.pluginView}
             options={PLUGIN_VIEWS}
             onChange={pluginView => dispatch(changePreferences({ pluginView: pluginView as Prefs['pluginView'] }))}
+          />
+          <Choice
+            id='preferences-loop-recording'
+            label="At the loop's end, while recording"
+            value={preferences.loopRecording}
+            options={LOOP_RECORDING}
+            onChange={loopRecording => dispatch(changePreferences({ loopRecording: loopRecording as Prefs['loopRecording'] }))}
           />
           <div className='flex flex-col gap-1'>
             <span className='ft-label'>Command bar</span>

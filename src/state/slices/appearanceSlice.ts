@@ -24,6 +24,7 @@ export const defaultPreferences: Preferences = {
   pluginView: 'window',
   stepKeys: 'tr909',
   commandBar: false,
+  loopRecording: 'layer',
 }
 
 // settings an older engine doesn't know about (it leaves them out) are

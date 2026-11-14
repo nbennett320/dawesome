@@ -436,10 +436,31 @@ pub fn run_playlist(
         }
       }
 
+      // the playlist's loop comes round with this slice
+      let wraps = counts_beats && next < current_offset;
+
+      // a recording that stops at the loop's end stops playback there too,
+      // once what's before it has been heard, and the playhead goes back to
+      // where the recording started, ready for another take
+      if wraps && crate::recording::stops_at_loop_end(&state) {
+        if engine.wait_for_frame(heard_at(next_at), &current) && current() {
+          println!("recorded to the loop's end");
+          let back_to = crate::recording::started_at(&state).unwrap_or_default();
+          crate::recording::finish(&state, true);
+          end_run(&state);
+          set_playhead(&state, back_to);
+        }
+        break;
+      }
+
       // send the next slice
       state.playlist.audiograph.lock().unwrap().set_current_offset(Some(next));
       slice = tempo_interval;
-      let (voices, notes) = slice_voices(next_at, slice, true, false, loop_len);
+      let (mut voices, notes) = slice_voices(next_at, slice, true, false, loop_len);
+      // and, while a recording layers its passes, the pass that's ending
+      if wraps {
+        voices.extend(crate::recording::layer_voices(&state, &engine, run, next_at, anchor.heard + next_at));
+      }
       if let Err(e) = engine.play(voices) {
         println!("could not schedule the next beat: {}", e);
       }
@@ -460,13 +481,6 @@ pub fn run_playlist(
           *start_offset = next;
           *state.playlist.started_time.lock().unwrap() = Some(anchor.heard + next_at);
         }
-      }
-
-      // the loop came round: a recording ends at the loop's end. its takes
-      // are put on their tracks off this thread, which mustn't fall behind
-      if next < current_offset && crate::recording::is_recording(&state) {
-        let state = state.clone();
-        thread::spawn(move || crate::recording::finish(&state, true));
       }
 
       slice_at = next_at;

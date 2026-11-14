@@ -18,6 +18,7 @@ use rodio::cpal::{
   SizedSample,
 };
 use rtrb::{Consumer, Producer, RingBuffer};
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
@@ -126,6 +127,52 @@ pub struct Takes {
   pub started: Option<Instant>,
   // samples lost because the disk couldn't keep up
   pub dropped: u64,
+  // which pass of a loop recording it is, from 0 (always 0 otherwise)
+  pub pass: u32,
+}
+
+// how a loop recording is cut into passes: the first ends `first` after
+// the take starts (at the loop's end), and each after it `every` later (a
+// loop's length). each pass is a new set of files
+pub struct Passes {
+  pub first: Duration,
+  pub every: Duration,
+  // the paths of the next pass's files, one for each of the first pass's,
+  // in order
+  pub next_paths: Box<dyn FnMut() -> Vec<PathBuf> + Send>,
+  // each pass's takes as soon as it's finished (but the last, which
+  // stopping returns)
+  pub finished: mpsc::Sender<Takes>,
+}
+
+// a pass being recorded, playable as it's recorded: what each of its files
+// has had so far
+#[derive(Clone)]
+pub struct LivePass {
+  pub index: u32,
+  pub files: Vec<Arc<daw::LiveSamples>>,
+}
+
+// the newest passes of a loop recording, as they're recorded
+#[derive(Default)]
+pub struct LivePasses {
+  passes: Mutex<VecDeque<LivePass>>,
+}
+
+impl LivePasses {
+  // how many are kept: the one being recorded, and the one before (which
+  // may still be about to play)
+  const KEPT: usize = 3;
+
+  pub fn pass(&self, index: u32) -> Option<LivePass> {
+    self.passes.lock().unwrap().iter().find(|pass| pass.index == index).cloned()
+  }
+
+  fn add(&self, pass: LivePass) {
+    let mut passes = self.passes.lock().unwrap();
+    passes.push_back(pass);
+    while passes.len() > Self::KEPT { passes.pop_front(); }
+  }
 }
 
 // the queues the writer reads, handed back when a take is done
@@ -142,6 +189,9 @@ struct TakeControl {
   keep_from: Mutex<Option<Instant>>,
   // the most frames kept
   limit: Mutex<Option<u64>>,
+  // a loop recording's passes (set with keep_from)
+  passes: Mutex<Option<Passes>>,
+  live: Arc<LivePasses>,
 }
 
 // an open input
@@ -164,9 +214,13 @@ pub struct Recording {
 
 impl Recording {
   // keep what was captured from `at` on (when the run's first frame was
-  // heard, and so when the performer started playing along)
-  pub fn keep_from(&self, at: Instant) {
+  // heard, and so when the performer started playing along), cut into
+  // passes if it's a loop recording. returns its passes as they're recorded
+  pub fn keep_from(&self, at: Instant, passes: Option<Passes>) -> Arc<LivePasses> {
+    // (before the start, so the writer has both once it knows the start)
+    *self.control.passes.lock().unwrap() = passes;
     *self.control.keep_from.lock().unwrap() = Some(at);
+    self.control.live.clone()
   }
 }
 
@@ -239,26 +293,13 @@ impl Input {
       return Err("there's nothing to record into".into());
     }
 
-    let mut writers = Vec::new();
     for file in files {
       if file.channels.is_empty() || file.channels.iter().any(|&ch| ch >= self.captured_channels as usize) {
         return Err(format!(
           "'{}' only has {} input channels", self.device_name, self.captured_channels));
       }
-      let spec = hound::WavSpec {
-        channels: file.channels.len() as u16,
-        sample_rate: self.sample_rate,
-        bits_per_sample: 32,
-        sample_format: hound::SampleFormat::Float,
-      };
-      if let Some(dir) = file.path.parent() {
-        std::fs::create_dir_all(dir)
-          .map_err(|e| format!("could not make the folder '{}': {}", dir.display(), e))?;
-      }
-      let writer = hound::WavWriter::create(&file.path, spec)
-        .map_err(|e| format!("could not create '{}': {}", file.path.display(), e))?;
-      writers.push((file.clone(), writer));
     }
+    let writers = create_writers(files, self.sample_rate)?;
 
     // taken only once the files are made, so a failure leaves them in place
     let mut queues = self.queues.lock().unwrap().take()
@@ -299,6 +340,100 @@ impl Input {
   }
 }
 
+// a take's files, ready to write
+type Writers = Vec<(TakeFile, hound::WavWriter<std::io::BufWriter<std::fs::File>>)>;
+
+fn create_writers(files: &[TakeFile], sample_rate: u32) -> Result<Writers, String> {
+  let mut writers = Vec::new();
+  for file in files {
+    let spec = hound::WavSpec {
+      channels: file.channels.len() as u16,
+      sample_rate,
+      bits_per_sample: 32,
+      sample_format: hound::SampleFormat::Float,
+    };
+    if let Some(dir) = file.path.parent() {
+      std::fs::create_dir_all(dir)
+        .map_err(|e| format!("could not make the folder '{}': {}", dir.display(), e))?;
+    }
+    let writer = hound::WavWriter::create(&file.path, spec)
+      .map_err(|e| format!("could not create '{}': {}", file.path.display(), e))?;
+    writers.push((file.clone(), writer));
+  }
+  Ok(writers)
+}
+
+// finish a take's files, `frames` long
+fn finalize(writers: Writers, frames: u64, sample_rate: u32) -> Result<Vec<Take>, String> {
+  let mut files = Vec::new();
+  for (file, writer) in writers {
+    writer.finalize().map_err(|e| format!("could not write the take: {}", e))?;
+    files.push(Take { path: file.path, channels: file.channels.len() as u16, sample_rate, frames });
+  }
+  Ok(files)
+}
+
+// a loop recording being cut into passes, as the writer goes
+struct Cutting {
+  plan: Passes,
+  // the pass being written, the kept frame it started on, and the one it
+  // ends before
+  index: u32,
+  from: u64,
+  until: u64,
+  // frames the take started late by (it's cut where the loop comes round,
+  // which was planned from when it should have started)
+  late: u64,
+  sample_rate: u32,
+  // what's been written of the pass, to be played as it's recorded
+  live: Vec<Arc<daw::LiveSamples>>,
+}
+
+impl Cutting {
+  fn new(plan: Passes, late: u64, sample_rate: u32, files: &[TakeFile], live: &LivePasses) -> Self {
+    let mut cutting = Cutting { plan, index: 0, from: 0, until: 0, late, sample_rate, live: Vec::new() };
+    cutting.until = cutting.end_of(0);
+    cutting.start_live(files, live);
+    cutting
+  }
+
+  // the kept frame pass `index` ends before: where the loop comes round
+  // for the (index + 1)th time, counted from the take's start
+  fn end_of(&self, index: u32) -> u64 {
+    let at = self.plan.first + self.plan.every * index;
+    let frames = (at.as_secs_f64() * self.sample_rate as f64).round() as u64;
+    frames.saturating_sub(self.late).max(self.from + 1)
+  }
+
+  fn start_live(&mut self, files: &[TakeFile], live: &LivePasses) {
+    let frames = (self.until - self.from) as usize;
+    self.live = files.iter()
+      .map(|file| Arc::new(daw::LiveSamples::new(frames, file.channels.len() as u16, self.sample_rate)))
+      .collect();
+    live.add(LivePass { index: self.index, files: self.live.clone() });
+  }
+
+  // the pass is over at kept frame `kept`: finish its files, hand them on,
+  // and start the next pass's
+  fn next(&mut self, writers: Writers, kept: u64, started: Option<Instant>, live: &LivePasses) -> Result<Writers, String> {
+    let files: Vec<TakeFile> = writers.iter().map(|(file, _)| file.clone()).collect();
+    let done = finalize(writers, kept - self.from, self.sample_rate)?;
+    let _ = self.plan.finished.send(Takes { files: done, started, dropped: 0, pass: self.index });
+
+    let paths = (self.plan.next_paths)();
+    let next: Vec<TakeFile> = files.iter().zip(paths)
+      .map(|(file, path)| TakeFile { path, channels: file.channels.clone() })
+      .collect();
+    let writers = create_writers(&next, self.sample_rate)?;
+
+    self.index += 1;
+    self.from = kept;
+    self.until = self.end_of(self.index);
+    self.start_live(&next, live);
+    Ok(writers)
+  }
+}
+
 // the first frame captured at or after `at`, and when it was captured, from
 // the marks so far (none until a mark has come in)
 fn first_kept(marks: &[Mark], at: Instant, sample_rate: u32) -> Option<(u64, Instant)> {
@@ -316,8 +451,8 @@ fn first_kept(marks: &[Mark], at: Instant, sample_rate: u32) -> Option<(u64, Ins
 // drain the queues into the files until capturing stops and what's left has
 // been written, keeping frames from the take's start (once that's known) up
 // to its limit
-fn write_take<W: std::io::Write + std::io::Seek>(
-  mut writers: Vec<(TakeFile, hound::WavWriter<W>)>,
+fn write_take(
+  mut writers: Writers,
   queues: &mut Queues,
   shared: &InputShared,
   control: &TakeControl,
@@ -329,6 +464,8 @@ fn write_take<W: std::io::Write + std::io::Seek>(
   // the first frame kept, once known, and when it was captured
   let mut skip: Option<u64> = None;
   let mut started: Option<Instant> = None;
+  // a loop recording's passes, once the take's start is known
+  let mut cutting: Option<Cutting> = None;
   // frames read from the queue, and kept
   let mut read = 0u64;
   let mut kept = 0u64;
@@ -353,6 +490,11 @@ fn write_take<W: std::io::Write + std::io::Seek>(
         Some((frame, at)) => {
           skip = Some(frame);
           started = Some(at);
+          if let (Some(plan), Some(keep_from)) = (control.passes.lock().unwrap().take(), keep_from) {
+            let late = at.saturating_duration_since(keep_from).as_secs_f64() * sample_rate as f64;
+            let files: Vec<TakeFile> = writers.iter().map(|(file, _)| file.clone()).collect();
+            cutting = Some(Cutting::new(plan, late.round() as u64, sample_rate, &files, &control.live));
+          }
         }
         // stopped before the take's start was known: keep it all
         None if stopping => {
@@ -374,9 +516,18 @@ fn write_take<W: std::io::Write + std::io::Seek>(
 
         for frame in samples.chunks_exact(channels) {
           if read >= skip && kept < limit {
-            for (file, writer) in writers.iter_mut() {
+            // the loop's come round: a new pass
+            if let Some(cut) = cutting.as_mut() {
+              if kept >= cut.until {
+                writers = cut.next(writers, kept, started, &control.live)?;
+              }
+            }
+            for (n, (file, writer)) in writers.iter_mut().enumerate() {
               for &ch in &file.channels {
                 writer.write_sample(frame[ch]).map_err(failed)?;
+              }
+              if let Some(live) = cutting.as_ref().and_then(|cut| cut.live.get(n)) {
+                live.push(file.channels.iter().map(|&ch| frame[ch]));
               }
             }
             kept += 1;
@@ -390,16 +541,15 @@ fn write_take<W: std::io::Write + std::io::Seek>(
     thread::sleep(WRITE_EVERY);
   }
 
-  let mut files = Vec::new();
-  for (file, writer) in writers {
-    writer.finalize().map_err(failed)?;
-    files.push(Take { path: file.path, channels: file.channels.len() as u16, sample_rate, frames: kept });
-  }
+  // the last pass (or the whole take)
+  let (from, pass) = cutting.as_ref().map_or((0, 0), |cut| (cut.from, cut.index));
+  let files = finalize(writers, kept - from, sample_rate)?;
 
   Ok(Takes {
     files,
     started: if kept > 0 { started } else { None },
     dropped: shared.dropped.load(Ordering::Relaxed),
+    pass,
   })
 }
 
@@ -647,11 +797,11 @@ pub fn start_recording(files: &[TakeFile]) -> Result<(), String> {
   }
 }
 
-// keep what's captured from `at` on
-pub fn keep_recording_from(at: Instant) {
-  if let Some((_, recording)) = INPUTS.lock().unwrap().recording.as_ref() {
-    recording.keep_from(at);
-  }
+// keep what's captured from `at` on, cut into passes if it's a loop
+// recording. returns its passes as they're recorded (none if nothing's
+// recording)
+pub fn keep_recording_from(at: Instant, passes: Option<Passes>) -> Option<Arc<LivePasses>> {
+  INPUTS.lock().unwrap().recording.as_ref().map(|(_, recording)| recording.keep_from(at, passes))
 }
 
 // stop recording, keeping at most `limit` of it, returning the take (none if

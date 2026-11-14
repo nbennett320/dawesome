@@ -193,8 +193,11 @@ pub fn set_track_armed(
 
 // record every armed track, playing from the playhead
 #[tauri::command(async)]
-pub fn start_recording(state: daw::TState<'_>) -> Result<crate::recording::Recorded, String> {
-  crate::recording::start(state.inner())?;
+pub fn start_recording(
+  state: daw::TState<'_>,
+  prefs: tauri::State<'_, crate::preferences::AppPreferences>,
+) -> Result<crate::recording::Recorded, String> {
+  crate::recording::start(state.inner(), prefs.current().loop_recording)?;
   Ok(crate::recording::collect(&state))
 }
 

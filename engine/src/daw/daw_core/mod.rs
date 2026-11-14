@@ -15,7 +15,7 @@ pub(crate) mod waveform;
 pub use audio_settings::*;
 pub use audiograph::*;
 pub use clip::*;
-pub use clip_reader::{ClipReader, Pcm, Window};
+pub use clip_reader::{ClipReader, LiveSamples, Pcm, Window};
 pub use engine::*;
 pub use input::*;
 pub use mixer::*;

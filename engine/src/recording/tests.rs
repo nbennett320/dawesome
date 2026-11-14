@@ -50,7 +50,19 @@ fn test_arming() {
 
 // a stand-in for a recording in progress
 fn session() -> Session {
-  Session { tracks: vec![], start: Duration::ZERO, start_beat: 0., keep_from: Instant::now(), loop_len: None, loop_end: Duration::ZERO }
+  Session {
+    tracks: vec![],
+    start: Duration::ZERO,
+    start_beat: 0.,
+    heard: Instant::now(),
+    keep_from: Instant::now(),
+    at_loop_end: LoopRecording::Layer,
+    live: None,
+    placing: None,
+    playing_pass: None,
+    loop_len: None,
+    loop_end: Duration::ZERO,
+  }
 }
 
 #[test]
@@ -124,7 +136,7 @@ fn test_a_new_recording_waits_for_the_last_to_finish() {
 
   // nothing's armed, so it's refused, but only once the last one's in
   let asked = Instant::now();
-  assert!(start(&state).unwrap_err().contains("Arm a track"));
+  assert!(start(&state, LoopRecording::Layer).unwrap_err().contains("Arm a track"));
   assert!(asked.elapsed() >= Duration::from_millis(45));
   done.join().unwrap();
 }
@@ -211,7 +223,7 @@ fn test_a_count_in_is_a_bar() {
 #[test]
 fn test_nothing_armed_records_nothing() {
   let state = Arc::new(daw::InnerState::default());
-  assert!(start(&state).unwrap_err().contains("Arm a track"));
+  assert!(start(&state, LoopRecording::Layer).unwrap_err().contains("Arm a track"));
   assert!(!is_recording(&state));
 }
 
@@ -239,7 +251,7 @@ fn test_recording_onto_the_playlist() {
   let beat = daw::beat_interval(&state);
   *state.playlist.start_offset.lock().unwrap() = beat * 2;
 
-  start(&state).unwrap();
+  start(&state, LoopRecording::Layer).unwrap();
   assert!(is_recording(&state) && state.playlist.playing());
   std::thread::sleep(Duration::from_millis(1_000));
   daw::pause_playlist(&state);
@@ -258,4 +270,113 @@ fn test_recording_onto_the_playlist() {
   assert!(state.playlist.audiograph.lock().unwrap().get_node_by_id(clip.id).is_some());
 
   let _ = std::fs::remove_dir_all(&dir);
+}
+
+// a take as the writer leaves it: a copy of the metronome's tick in a file
+// of its own (one of `count` taken for this test)
+fn take_file(name: &str) -> PathBuf {
+  let path = std::env::temp_dir().join(format!("dawesome-pass-{}-{}.wav", name, std::process::id()));
+  std::fs::copy(daw::METRONOME_TICK_PATH, &path).unwrap();
+  path
+}
+
+fn takes(path: &std::path::Path, pass: u32) -> daw::Takes {
+  daw::Takes {
+    files: vec![daw::Take { path: path.to_path_buf(), channels: 1, sample_rate: 44_100, frames: 100 }],
+    started: None,
+    dropped: 0,
+    pass,
+  }
+}
+
+#[test]
+fn test_passes_go_where_the_loop_comes_round() {
+  let at = Instant::now();
+  let start = Duration::from_secs(3);
+  // the first where the recording started, the rest at the loop's start
+  assert_eq!(pass_start(&takes(std::path::Path::new("a"), 0), start, at), start);
+  assert_eq!(pass_start(&takes(std::path::Path::new("a"), 2), start, at), Duration::ZERO);
+  // a first that started late starts as late
+  let late = daw::Takes { started: Some(at + Duration::from_millis(20)), ..takes(std::path::Path::new("a"), 0) };
+  assert_eq!(pass_start(&late, start, at), start + Duration::from_millis(20));
+}
+
+#[test]
+fn test_a_recording_stops_at_the_loop_end_unless_it_layers() {
+  let state = daw::InnerState::default();
+  assert!(!stops_at_loop_end(&state));
+
+  state.recorder.lock().unwrap().session = Some(Session { at_loop_end: LoopRecording::Stop, ..session() });
+  assert!(stops_at_loop_end(&state));
+  // layering, but not looping when it started: it can't layer
+  state.recorder.lock().unwrap().session = Some(session());
+  assert!(stops_at_loop_end(&state));
+  state.recorder.lock().unwrap().session = Some(Session { live: Some(Default::default()), ..session() });
+  assert!(!stops_at_loop_end(&state));
+}
+
+#[test]
+fn test_the_pass_playing_as_it_was_recorded_is_held_back() {
+  let state = daw::InnerState::default();
+  state.recorder.lock().unwrap().session = Some(Session { playing_pass: Some(1), ..session() });
+  let (first, second) = (take_file("held-1"), take_file("held-2"));
+
+  // pass 1 is playing on pass 2 as it was recorded: its clip doesn't start
+  // too, until the loop comes round again
+  let (held, problems) = place(&state, &takes(&second, 1), &[3], Duration::ZERO);
+  assert!(problems.is_empty());
+  assert_eq!((held[0].track_number, held[0].start_beat), (3, 0.));
+  // the pass before it plays from the playlist
+  let (playing, _) = place(&state, &takes(&first, 0), &[3], Duration::ZERO);
+  {
+    let audiograph = state.playlist.audiograph.lock().unwrap();
+    assert!(audiograph.held_back.contains(&held[0].id));
+    assert!(!audiograph.held_back.contains(&playing[0].id));
+  }
+  let starting = |state: &daw::InnerState| {
+    let mut audiograph = state.playlist.audiograph.lock().unwrap();
+    audiograph.init();
+    audiograph.set_current_offset(Some(Duration::ZERO));
+    audiograph.run_sounds_at(Duration::ZERO, 44_100, Duration::from_millis(10), false, false).len()
+  };
+  assert_eq!(starting(&state), 1);
+
+  // the recording's over: they both play (no input is recording here)
+  finish(&state, false);
+  assert_eq!(starting(&state), 2);
+
+  let _ = std::fs::remove_file(&first);
+  let _ = std::fs::remove_file(&second);
+}
+
+#[test]
+fn test_one_undo_takes_a_whole_loop_recording_off() {
+  let state = Arc::new(daw::InnerState::default());
+  let paths: Vec<PathBuf> = (0..3).map(|n| take_file(&format!("undo-{}", n))).collect();
+
+  // three passes, put on their tracks as they're finished
+  let (finished_tx, finished_rx) = mpsc::channel();
+  let placer = state.clone();
+  let placing = thread::spawn(move || place_passes(&placer, finished_rx, &[2], Duration::ZERO, Instant::now()));
+  for (n, path) in paths.iter().enumerate() { finished_tx.send(takes(path, n as u32)).unwrap(); }
+  drop(finished_tx);
+  state.recorder.lock().unwrap().session = Some(Session { placing: Some(placing), ..session() });
+
+  // (no input is recording here, which is said)
+  finish(&state, false);
+  let recorded = collect(&state);
+  assert_eq!(recorded.clips.len(), 3);
+  assert!(!recorded.recording);
+  let ids: Vec<u64> = recorded.clips.iter().map(|clip| clip.id).collect();
+  let on = |state: &daw::InnerState| ids.iter()
+    .filter(|&&id| state.playlist.audiograph.lock().unwrap().get_node_by_id(id).is_some())
+    .count();
+  assert_eq!(on(&state), 3);
+
+  assert!(crate::history::undo(&state).unwrap().is_some());
+  assert_eq!(on(&state), 0);
+  assert!(crate::history::redo(&state).unwrap().is_some());
+  assert_eq!(on(&state), 3);
+
+  for path in &paths { let _ = std::fs::remove_file(path); }
 }

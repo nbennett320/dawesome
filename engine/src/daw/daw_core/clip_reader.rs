@@ -14,6 +14,7 @@
 // same way
 use std::fs::File;
 use std::io::BufReader;
+use std::sync::atomic::{AtomicI16, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use rodio::cpal::Sample as _;
@@ -27,11 +28,72 @@ pub struct Pcm {
   samples: Vec<i16>,
   channels: u16,
   rate: u32,
+  // or, for a loop recording's pass, what's been recorded of it so far
+  // (see LiveSamples)
+  live: Option<Arc<LiveSamples>>,
+}
+
+// a pass of a loop recording, as it's recorded: room for the whole pass,
+// filled in by the take's writer as it goes. the pass is played on the
+// next pass before its last moments have been recorded (they're read a
+// whole pass later, by when they're in), so it can be heard from the
+// loop's start without waiting for its file. the writer is the only one
+// writing, and readers only read what it says is written (silence past
+// that), so the audio thread never waits
+pub struct LiveSamples {
+  samples: Box<[AtomicI16]>,
+  // samples written so far
+  written: AtomicUsize,
+  channels: u16,
+  rate: u32,
+}
+
+impl LiveSamples {
+  // room for `frames` frames
+  pub fn new(frames: usize, channels: u16, rate: u32) -> Self {
+    let channels = channels.max(1);
+    LiveSamples {
+      samples: (0..frames * channels as usize).map(|_| AtomicI16::new(0)).collect(),
+      written: AtomicUsize::new(0),
+      channels,
+      rate: rate.max(1),
+    }
+  }
+
+  // add the next frame (a sample for each channel). past the room there is,
+  // it's dropped
+  pub fn push(&self, frame: impl IntoIterator<Item = f32>) {
+    let at = self.written.load(Ordering::Relaxed);
+    let channels = self.channels as usize;
+    if at + channels > self.samples.len() { return; }
+    for (slot, sample) in self.samples[at..at + channels].iter().zip(frame) {
+      slot.store(sample.to_sample::<i16>(), Ordering::Relaxed);
+    }
+    self.written.store(at + channels, Ordering::Release);
+  }
+
+  // frames written so far
+  pub fn written_frames(&self) -> u64 {
+    (self.written.load(Ordering::Acquire) / self.channels as usize) as u64
+  }
+
+  pub fn frames(&self) -> u64 {
+    (self.samples.len() / self.channels as usize) as u64
+  }
+
+  fn sample(&self, at: usize) -> i16 {
+    self.samples[at].load(Ordering::Relaxed)
+  }
 }
 
 impl Pcm {
   pub fn new(samples: Vec<i16>, channels: u16, rate: u32) -> Self {
-    Pcm { samples, channels: channels.max(1), rate: rate.max(1) }
+    Pcm { samples, channels: channels.max(1), rate: rate.max(1), live: None }
+  }
+
+  // a pass being recorded, read as it's filled in
+  pub fn live(samples: Arc<LiveSamples>) -> Self {
+    Pcm { samples: Vec::new(), channels: samples.channels, rate: samples.rate, live: Some(samples) }
   }
 
   pub fn load(path: &str) -> Result<Self, String> {
@@ -59,15 +121,26 @@ impl Pcm {
   }
 
   pub fn frames(&self) -> u64 {
-    (self.samples.len() / self.channels as usize) as u64
+    match &self.live {
+      Some(live) => live.frames(),
+      None => (self.samples.len() / self.channels as usize) as u64,
+    }
   }
 
   // a frame's left and right (a mono sample is on both sides; channels past
-  // the first two aren't played)
+  // the first two aren't played). a pass being recorded is silent past what's
+  // been recorded of it
   fn frame(&self, index: u64) -> [f32; 2] {
     let at = index as usize * self.channels as usize;
-    let left: f32 = self.samples[at].to_sample();
-    let right = if self.channels >= 2 { self.samples[at + 1].to_sample() } else { left };
+    let sample = |at: usize| -> f32 {
+      match &self.live {
+        Some(live) if index < live.written_frames() => live.sample(at).to_sample(),
+        Some(_) => 0.,
+        None => self.samples[at].to_sample(),
+      }
+    };
+    let left = sample(at);
+    let right = if self.channels >= 2 { sample(at + 1) } else { left };
     [left, right]
   }
 }
@@ -449,5 +522,34 @@ mod tests {
     // and down to silence at the window's end
     assert!((out[450] - full * 0.5).abs() < 1e-3);
     assert!(out[499] < full * 0.02);
+  }
+
+  // a loop recording's pass, played on the next pass as it's recorded
+  #[test]
+  fn test_a_pass_plays_as_it_is_recorded() {
+    let half = 16_384. / 32_768.;
+    let reader = |live: &Arc<LiveSamples>| ClipReader::new(
+      Arc::new(Pcm::live(live.clone())), &ClipSettings::default(), 1_000, (Duration::ZERO, Duration::MAX), 0, None);
+
+    let live = Arc::new(LiveSamples::new(6, 2, 1_000));
+    for _ in 0..3 { live.push([half, -half]); }
+    let mut playing = reader(&live);
+    // what's been recorded so far
+    for _ in 0..2 { assert_eq!(playing.next_frame(), Some([half, -half])); }
+    // and what comes in before it's reached (the reader looks a frame ahead)
+    for _ in 0..3 { live.push([-half, half]); }
+    assert_eq!(playing.next_frame(), Some([half, -half]));
+    for _ in 0..3 { assert_eq!(playing.next_frame(), Some([-half, half])); }
+    // it ends with the pass (a push past it is dropped)
+    live.push([1., 1.]);
+    assert_eq!(live.written_frames(), 6);
+    assert_eq!(playing.next_frame(), None);
+
+    // where it hasn't been recorded yet, it's silent
+    let live = Arc::new(LiveSamples::new(4, 1, 1_000));
+    live.push([half]);
+    let mut playing = reader(&live);
+    assert_eq!(playing.next_frame(), Some([half, half]));
+    assert_eq!(playing.next_frame(), Some([0., 0.]));
   }
 }

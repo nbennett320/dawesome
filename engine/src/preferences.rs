@@ -44,6 +44,17 @@ pub enum StepKeys {
   Tr8s,
 }
 
+// what a recording does when the loop comes round: carry on, each pass
+// going on its track and playing on the next pass, or stop there (and
+// playback with it)
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LoopRecording {
+  #[default]
+  Layer,
+  Stop,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Preferences {
@@ -55,6 +66,8 @@ pub struct Preferences {
   pub step_keys: StepKeys,
   // whether typing `:` opens the vim-style command bar, along the bottom
   pub command_bar: bool,
+  // what a recording does at the loop's end
+  pub loop_recording: LoopRecording,
 }
 
 impl Default for Preferences {
@@ -66,6 +79,7 @@ impl Default for Preferences {
       plugin_view: PluginView::Window,
       step_keys: StepKeys::default(),
       command_bar: false,
+      loop_recording: LoopRecording::default(),
     }
   }
 }
@@ -109,6 +123,7 @@ impl Preferences {
       plugin_view: self.plugin_view,
       step_keys: self.step_keys,
       command_bar: self.command_bar,
+      loop_recording: self.loop_recording,
     }
   }
 }
@@ -168,6 +183,7 @@ mod tests {
       plugin_view: PluginView::Tab,
       step_keys: StepKeys::Tr8s,
       command_bar: true,
+      loop_recording: LoopRecording::Stop,
     };
     prefs.save(&file).unwrap();
     assert_eq!(Preferences::load(&file), prefs);
@@ -176,6 +192,7 @@ mod tests {
     assert!(json.contains("\"pluginView\": \"tab\""), "{}", json);
     assert!(json.contains("\"stepKeys\": \"tr8s\""), "{}", json);
     assert!(json.contains("\"commandBar\": true"), "{}", json);
+    assert!(json.contains("\"loopRecording\": \"stop\""), "{}", json);
     fs::remove_dir_all(file.parent().unwrap()).ok();
   }
 
@@ -203,6 +220,8 @@ mod tests {
     assert_eq!(prefs.step_keys, StepKeys::Tr909);
     // and the command bar is off
     assert!(!prefs.command_bar);
+    // and a loop recording carries on, layering its passes
+    assert_eq!(prefs.loop_recording, LoopRecording::Layer);
     fs::remove_dir_all(file.parent().unwrap()).ok();
   }
 
@@ -216,6 +235,7 @@ mod tests {
       plugin_view: PluginView::Tab,
       step_keys: StepKeys::Tr808,
       command_bar: true,
+      loop_recording: LoopRecording::Layer,
     };
     assert_eq!(ok.sanitize(&themes), ok);
 
@@ -226,6 +246,7 @@ mod tests {
       plugin_view: PluginView::Window,
       step_keys: StepKeys::Tr909,
       command_bar: false,
+      loop_recording: LoopRecording::Layer,
     };
     let fixed = bad.sanitize(&themes);
     assert_eq!(fixed.light_theme, theme::DEFAULT_LIGHT);
