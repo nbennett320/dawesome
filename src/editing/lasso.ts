@@ -15,7 +15,8 @@ export interface Point {
 export interface Lasso {
   start: Point
   end: Point
-  // what was selected when the box started. the box adds to it
+  // what was selected when the box started. it stays selected until the
+  // box touches an item, then the box's items replace it
   base: ReadonlySet<number>
 }
 
@@ -42,18 +43,16 @@ export const rectsTouch = (a: Rect, b: Rect): boolean =>
   && a.top <= b.top + b.height
   && b.top <= a.top + a.height
 
-// what's selected while a box is dragged: what was selected before, plus
-// every item the box touches
+// what's selected while a box is dragged: every item the box touches, in
+// place of what was selected before. a box that touches nothing leaves the
+// selection as it was
 export const lassoSelection = (
   lasso: Lasso,
   items: ReadonlyArray<{ id: number, box: Rect }>,
 ): Set<number> => {
   const rect = lassoRect(lasso)
-  const selected = new Set(lasso.base)
-  items.forEach(({ id, box }) => {
-    if(rectsTouch(rect, box)) selected.add(id)
-  })
-  return selected
+  const touched = new Set(items.filter(({ box }) => rectsTouch(rect, box)).map(({ id }) => id))
+  return touched.size ? touched : new Set(lasso.base)
 }
 
 // a press with shift held, until it's clear what it is: a click (toggle the
@@ -80,9 +79,9 @@ export const itemAt = (point: Point, items: ReadonlyArray<{ id: number, box: Rec
 export const startsLasso = (press: ShiftPress, mouse: Point, threshold: number): boolean =>
   Math.hypot(mouse.x - press.screen.x, mouse.y - press.screen.y) > threshold
 
-// the box a shift press turns into once it's dragged. it adds to what's
-// selected, and starts where the press was, so a press on an item takes
-// that item in
+// the box a shift press turns into once it's dragged. it replaces what's
+// selected once it touches an item, and starts where the press was, so a
+// press on an item takes that item in
 export const lassoFrom = (press: ShiftPress, selected: ReadonlySet<number>): Lasso => ({
   start: press.point,
   end: press.point,

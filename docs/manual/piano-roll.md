@@ -110,7 +110,7 @@ in, up to 128 bars (see
 | --- | --- |
 | Select a note | *Click* it (with **Select** or **Draw**) |
 | Add or remove a note from the selection | *Shift-click* it |
-| Select notes with a box | *Shift-drag* on an empty place; touched notes are added to the selection |
+| Select notes with a box | *Shift-drag* on an empty place; touched notes replace the selection |
 | Select every note | **⌘A (Ctrl+A)**, or **Edit ▸ Select All** |
 | Clear the selection | **Escape**, or *click* empty grid with **Select** |
 

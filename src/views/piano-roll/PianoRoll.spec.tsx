@@ -432,14 +432,15 @@ describe('the Piano Roll', () => {
       await deleteSelection([note(60, 0, 2), note(64, 4, 2)])
     })
 
-    it('selects what a shift-drag box touches, adding to the selection', async () => {
+    it('selects what a shift-drag box touches, in place of the selection', async () => {
       await open([note(60, 0, 2), note(64, 4, 2), note(67, 8, 2), note(72, 0, 2)])
       click(at(1, 72, { shiftKey: true }))
 
       drag(at(3, 70, { shiftKey: true }), at(9, 62, { shiftKey: true }))
       // a box draws nothing
       expect(calls('set_pattern_notes')).toEqual([])
-      await deleteSelection([note(60, 0, 2)])
+      // the shift-clicked note dropped out
+      await deleteSelection([note(60, 0, 2), note(72, 0, 2)])
     })
 
     it('draws a box from a press on a note, rather than moving it', async () => {

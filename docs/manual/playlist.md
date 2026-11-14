@@ -62,7 +62,8 @@ you pick another.
 - **Select a clip:** click it.
 - **Add or remove a clip from the selection:** *Shift-click* it.
 - **Select with a box (lasso):** *Shift-drag*, starting anywhere except a
-  clip's edge. Every clip the box touches is selected.
+  clip's edge. Every clip the box touches is selected, replacing the
+  previous selection. A box that touches no clips leaves it as it was.
 - **Select every clip:** **⌘A (Ctrl+A)**.
 - **Clear the selection:** click empty track space, or press **Esc**.
 - **Move clips:** drag a clip. If it's selected, the rest of the selection
