@@ -263,9 +263,39 @@ or cut also snaps to the playhead when it's nearer than the grid. Hold
 ## 6-7 Loop
 
 **Loop** in the top bar turns looping on or off. With loop on, playback
-jumps back to the start of the playlist at the loop's end. The loop ends at
-the end of the last clip, rounded up to the next bar line (four bars on an
-empty playlist). The ruler marks where the loop ends.
+jumps back to the start of the loop at its end. Clips still sounding at the
+loop's end stop there.
+
+### 6-7-1 Loop end
+
+With no loop region, the loop runs from the start of the playlist. It ends
+at the end of the last clip, rounded up to the next bar line (four bars on
+an empty playlist). A flag in the ruler marks where it ends.
+
+- *Drag* the flag to move the loop's end. It snaps to the grid, and stays
+  where you drop it when clips move.
+- *Double-click* the flag to let it follow the last clip again.
+
+### 6-7-2 Loop region
+
+A loop region loops part of the playlist. It shows as a band in the ruler,
+with a flag at each end, and the lanes outside it are slightly dimmed.
+
+- *Shift+drag* along the ruler to draw a region. Drawing one turns loop on.
+- *Drag* either edge to move it. Dragging an edge past the other swaps
+  them. Dropping one edge on the other removes the region.
+- *Shift+click*, or *double-click* the band, to remove it.
+- A *click* inside the band still moves the playhead.
+
+Edges snap to the grid when snap is on. If you press play with the
+playhead before the region, playback plays into it, then loops it. With the
+playhead past the region, playback starts at the region's start.
+
+With loop off, the region stays in the ruler, dimmed, and playback plays
+through it.
+
+The loop region and a dragged loop end are saved with the project. Undo
+doesn't change them.
 
 ## 6-8 Clip menu
 

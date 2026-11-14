@@ -87,15 +87,23 @@ Undo and redo don't work while a take is being recorded.
 
 ## 5-5 Recording with loop on
 
-If **Loop** is on in the top bar, recording ends when the loop comes
-round. The take ends at the loop's end, and playback carries on looping.
-Each press of the record button records one take.
+If **Loop** is on in the top bar, what recording does when the loop comes
+round is set in **Preferences → Controls → At the loop's end, while recording**:
 
-The loop ends at the end of the last clip, rounded up to the next bar line
-(four bars on an empty playlist). While recording, the loop end stays
-where it was when recording started.
+- **Keep recording, layering each pass** — Recording carries on. Each time
+  round is a take of its own, put on the track as soon as it ends, and
+  heard on the passes after it. One undo removes the whole recording.
+- **Stop recording and playback** — The take and playback both end at the
+  loop's end, and the playhead goes back to where recording started.
 
-<!-- VERIFY: one take per press when looping (engine stops the session at the loop's end); the recording design notes mention stacked loop takes -->
+With a [loop region](./playlist.md#_6-7-2-loop-region), recording loops
+inside the region. The first take runs from where you pressed record to the
+region's end, and each take after it covers the whole region. If you start
+recording before the region, the first take plays into it.
+
+While recording, the loop (and its region) stays where it was when
+recording started. The region, the loop end and the Loop button can't be
+changed until recording stops.
 
 ## 5-6 Where recordings are saved
 

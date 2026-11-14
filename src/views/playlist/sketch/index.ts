@@ -25,7 +25,7 @@ import { LIP, LipLook, drawLip, fitName, inBox, lipBox, lipWidth, onLed } from '
 import { LiveTake, liveTakeSpan } from './liveTake'
 import {
   LOOP_GRAB_PX, LoopDrag, LoopMarks, doubleClickClears, draggedMarks, handleAt, loopChange, loopMarks, moveLoopDrag,
-  startLoopDrag,
+  outsideRegion, startLoopDrag,
 } from './loopRegion'
 import { NO_FADES } from './Waveform'
 import { trackColorKey, defaultTrackColor, trackLabel } from '../../../types/mixer'
@@ -916,6 +916,21 @@ export class Renderer extends RendererBase {
     })
     ctx.setLineDash([])
     p.pop()
+  }
+
+  // a light wash over the lanes outside the loop region, on top of the
+  // clips, while the playlist loops it. called inside the zoom/pan and
+  // scroll transform
+  #drawOutsideLoop = (p: P5CanvasInstance<CanvasProps>, beatX: (beat: number) => number) => {
+    if(!this.transport?.loopEnabled) return
+    const parts = outsideRegion(this.loopMarks().region, this.beatsDisplayed)
+    if(!parts.length) return
+
+    p.noStroke()
+    paint.fill(p, 'loopOutside')
+    for(const part of parts) {
+      p.rect(beatX(part.start), this.scrollY - 1, beatX(part.end - part.start), this.height + 2)
+    }
   }
 
   // the take being recorded: a red outlined region on each of its tracks,
@@ -2551,6 +2566,8 @@ export class Renderer extends RendererBase {
       this.playlistTracks.forEach(track => {
         track.render()
       })
+      // outside a loop region, a little dimmed while it loops
+      this.#drawOutsideLoop(p, beatX)
 
       // what's being recorded, over the clips it records over
       this.#drawLiveTake(p)

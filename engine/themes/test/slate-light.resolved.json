@@ -90,6 +90,8 @@
   "playlist.laneLine": "#e2e8f0",
   "playlist.lassoFill": "#0ea5e9",
   "playlist.loopEnd": "#475569",
+  "playlist.loopOutside": "#ffffff40",
+  "playlist.loopRegion": "#0ea5e933",
   "playlist.modified": "#f59e0b",
   "playlist.patternBeat": "#fde68a",
   "playlist.patternBorder": "#fbbf24",

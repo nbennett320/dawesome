@@ -204,7 +204,7 @@ saved and stays open; save it elsewhere with **Save As…**.
 
 | Saved with the project | Not saved |
 | --- | --- |
-| Tempo, time signature, metronome, loop, snap and snap length, count-in | The undo history (it starts again with each project) |
+| Tempo, time signature, metronome, loop, loop region and loop end, snap and snap length, count-in | The undo history (it starts again with each project) |
 | Playlist clips and pattern clips, with their trims and settings | The playlist's mouse tool (a project opens with the select tool) |
 | Pattern Sequencer rows, patterns and pattern folders | Mixdown settings |
 | Mixer settings of changed or named tracks | Audio settings and preferences (see [2-5](./install.md#_2-5-where-settings-are-kept)) |

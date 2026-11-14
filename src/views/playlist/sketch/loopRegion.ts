@@ -116,3 +116,11 @@ export const doubleClickClears = (
   if(region) return beat >= region.start - reach && beat <= region.end + reach ? 'region' : null
   return pinned && flag !== null && Math.abs(beat - flag) <= reach ? 'end' : null
 }
+
+// the parts of the playlist outside the region, dimmed down the lanes while
+// it loops: before its start and after its end, up to the playlist's end
+export const outsideRegion = (region: LoopRegion | null, beats: number): Array<{ start: number, end: number }> => {
+  if(!region) return []
+  return [{ start: 0, end: region.start }, { start: region.end, end: beats }]
+    .filter(part => part.end - part.start > 0)
+}

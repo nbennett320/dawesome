@@ -1,5 +1,5 @@
 import {
-  LoopMarks, doubleClickClears, draggedMarks, draggedRegion, handleAt, loopChange, loopMarks, moveLoopDrag,
+  LoopMarks, doubleClickClears, outsideRegion, draggedMarks, draggedRegion, handleAt, loopChange, loopMarks, moveLoopDrag,
   startLoopDrag,
 } from './loopRegion'
 
@@ -106,5 +106,13 @@ describe('double-clicking in the ruler', () => {
     // one following the last clip has nothing to undo
     expect(doubleClickClears(flag(12), false, 12, 0.25)).toBeNull()
     expect(doubleClickClears(flag(12), true, 6, 0.25)).toBeNull()
+  })
+})
+
+describe('outside the region', () => {
+  it('is before its start and after its end', () => {
+    expect(outsideRegion({ start: 4, end: 8 }, 64)).toEqual([{ start: 0, end: 4 }, { start: 8, end: 64 }])
+    expect(outsideRegion({ start: 0, end: 64 }, 64)).toEqual([])
+    expect(outsideRegion(null, 64)).toEqual([])
   })
 })
