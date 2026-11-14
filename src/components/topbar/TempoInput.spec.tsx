@@ -69,8 +69,8 @@ describe('TempoInput', () => {
 
   it('shows the tempo on counter wheels', () => {
     open(95)
-    expect(screen.getByRole('img', { name: 'Tempo 095' })).toBeInTheDocument()
-    expect(dial()).toHaveAttribute('aria-valuenow', '95')
+    screen.getByRole('img', { name: 'Tempo 095' })
+    expect(dial().getAttribute('aria-valuenow')).toBe('95')
   })
 
   it('goes up when dragged up, and down when dragged down, one step to undo', async () => {
@@ -78,7 +78,7 @@ describe('TempoInput', () => {
     fireEvent.pointerDown(window, { clientY: 100 })
     fireEvent.pointerDown(dial(), { button: 0, clientY: 100 })
     fireEvent.pointerMove(dial(), { clientY: 100 - 10 * PX_PER_BPM })
-    expect(dial()).toHaveAttribute('aria-valuenow', '130')
+    expect(dial().getAttribute('aria-valuenow')).toBe('130')
     await waitFor(() => expect(store.getState().playlist.tempo).toBe(130))
 
     fireEvent.pointerMove(dial(), { clientY: 100 + 5 * PX_PER_BPM })
@@ -111,7 +111,7 @@ describe('TempoInput', () => {
     fireEvent.pointerMove(dial(), { clientY: 100 - 2 * PX_PER_BPM })
     fireEvent.pointerMove(dial(), { clientY: 100 - 3 * PX_PER_BPM })
     fireEvent.pointerUp(dial())
-    expect(dial()).toHaveAttribute('aria-valuenow', '123')
+    expect(dial().getAttribute('aria-valuenow')).toBe('123')
 
     await act(async () => release())
     await waitFor(() => expect(store.getState().playlist.tempo).toBe(123))
@@ -126,7 +126,7 @@ describe('TempoInput', () => {
     fireEvent.change(field, { target: { value: '87.5' } })
     fireEvent.keyDown(field, { key: 'Enter' })
     await waitFor(() => expect(store.getState().playlist.tempo).toBe(87.5))
-    expect(screen.getByRole('img', { name: 'Tempo 087.5' })).toBeInTheDocument()
+    screen.getByRole('img', { name: 'Tempo 087.5' })
   })
 
   it('takes a typed tempo when the field is left, and none on Escape', async () => {
@@ -171,7 +171,7 @@ describe('TempoInput', () => {
     fireEvent.doubleClick(dial())
     fireEvent.keyDown(dial(), { key: 'ArrowUp' })
     expect(screen.queryByLabelText('Playlist tempo input')).toBeNull()
-    expect(dial()).toHaveAttribute('aria-disabled', 'true')
+    expect(dial().getAttribute('aria-disabled')).toBe('true')
     expect(sent).toEqual([])
   })
 })
