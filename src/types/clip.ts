@@ -53,6 +53,9 @@ export interface ClipOverride {
   // what the playlist needs to trim the clip, and to draw it trimmed
   sampleDuration?: number
   rate?: number
+  // how much louder it plays (its gain, as a multiplier), which its waveform
+  // in the playlist is drawn at
+  gain?: number
 }
 
 export const defaultClipSettings: ClipSettings = {

@@ -157,3 +157,29 @@ describe('a pattern clip', () => {
     expect(hits.sort((a, b) => a - b)).toEqual([32, 40, 48, 56])
   })
 })
+
+describe('a sample clip’s waveform', () => {
+  it('follows the gain set in the sample editor', () => {
+    vi.useFakeTimers()
+    const { p } = recordingP5()
+    const renderer = new Renderer()
+    const clip = new PlaylistObject(p, {} as p5.Renderer, renderer, {
+      playlistItem: { id: 4, path: 'a.wav', startBeat: 0, trackNumber: 0, pixelOffset: {} as never },
+      soundData: new Float32Array([0.5, 0.6, 0.4]),
+      duration: 1,
+      trackNumber: 0,
+      trackHeight: 100,
+      timelineWidth: 1_000,
+      timelineHeight: 24,
+      currentScale: 1,
+    })
+    renderer.playlistObjects = [clip]
+
+    renderer.setClipOverrides({ 4: { modified: true, gain: 2 } })
+    expect(clip.waveform.gain).toBe(2)
+    // back to 0 dB, or no settings at all
+    renderer.setClipOverrides({})
+    expect(clip.waveform.gain).toBe(1)
+    vi.useRealTimers()
+  })
+})

@@ -31,9 +31,17 @@ interface Props extends PlaylistComponentProps {
   pixelOffset: PlaylistItemPixelOffset
 }
 
+// a level (0..1, silence at 0.5) as a clip's gain changes it: further from
+// the middle by the gain, and flat at the clip's edges past full scale, as
+// the sound clips
+export const gainedLevel = (level: number, gain: number): number =>
+  Math.min(1, Math.max(0, 0.5 + (level - 0.5) * gain))
+
 class Waveform extends PlaylistComponent {
   // the level (0..1) at evenly spaced points along the whole sample
   soundData: Float32Array
+  // the clip's gain, as a multiplier, which the waveform's drawn at
+  gain = 1
   // the part of the sample the clip shows, as fractions of it: from, to.
   // all of it, unless the clip is trimmed
   range: [number, number] = [0, 1]
@@ -87,7 +95,8 @@ class Waveform extends PlaylistComponent {
   })
   
   // the waveform is the line through the engine's levels (0..1), spread
-  // evenly across the clip's width and filling the clip below its label
+  // evenly across the clip's width and filling the clip below its label, at
+  // the clip's gain
   //
   // a clip usually has many points to each pixel (about 2000 a second of
   // sound), so rather than a line per point, each column of pixels on screen
@@ -132,7 +141,8 @@ class Waveform extends PlaylistComponent {
     const pointsPerUnit = shown / width
     const deviceX = (i: number) => (left + (i - firstPoint) / pointsPerUnit) * scaleX + offsetX
     const pointAt = (x: number) => ((x - offsetX) / scaleX - left) * pointsPerUnit + firstPoint
-    const y = (level: number) => bodyTop + level * bodyHeight
+    const { gain } = this
+    const y = (level: number) => bodyTop + gainedLevel(level, gain) * bodyHeight
 
     // the columns on screen, left of the canvas's right edge
     const first = Math.max(0, Math.floor(deviceX(firstPoint)))
@@ -169,7 +179,7 @@ class Waveform extends PlaylistComponent {
             (column - offsetX) / scaleX,
             y(low) - lineWidth / 2,
             columnWidth,
-            (high - low) * bodyHeight + lineWidth,
+            y(high) - y(low) + lineWidth,
           )
         }
       }

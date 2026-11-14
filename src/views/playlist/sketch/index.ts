@@ -1340,6 +1340,8 @@ export class Renderer extends RendererBase {
     const override = this.clipOverrides[obj.playlistItem.id]
 
     obj.modified = !!override?.modified
+    // its waveform shows its gain
+    obj.waveform.gain = override?.gain ?? 1
     // newer than the length fetched when the clip was built, which can lag
     // behind while settings are being sent to the engine
     if(override?.playedDuration !== undefined) obj.setDuration(override.playedDuration)

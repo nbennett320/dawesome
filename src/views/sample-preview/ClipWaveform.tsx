@@ -12,7 +12,7 @@ import { clamp, clampLowWins } from '../../util/helpers'
 
 export interface WaveformData {
   // the engine's levels at evenly spaced points (see
-  // calc_waveform_from_samples), scaled so the lowest is 0 and the highest 1
+  // calc_waveform_from_samples): 0.5 is silence, 0 and 1 full scale
   levels: Float32Array
   duration: number
 }
@@ -41,18 +41,10 @@ const HANDLE_HIT = 9
 
 type Handle = 'attack' | 'decay'
 
-// y values around their average, scaled so the loudest point reaches ±1
-// (the engine's 0..1 scaling doesn't put silence at 0.5)
-const centerdLevels = (ys: Float32Array): number[] => {
-  if(!ys.length) return []
-
-  const mean = ys.reduce((a, b) => a + b, 0) / ys.length
-  // a loop rather than Math.max(...ys): long samples have too many
-  // points to pass as arguments
-  const peak = ys.reduce((max, y) => Math.max(max, Math.abs(y - mean)), 0) || 1
-
-  return Array.from(ys, y => (y - mean) / peak)
-}
+// the engine's levels (0..1, silence at 0.5) around 0, from -1 to 1 at full
+// scale. not stretched to fill the view: a quiet sample looks quiet, as it
+// does in the playlist
+export const centeredLevels = (ys: Float32Array): number[] => Array.from(ys, y => (y - 0.5) * 2)
 
 interface Layout {
   width: number
@@ -263,7 +255,7 @@ const ClipWaveform = ({ data, settings, tempo, window: clipWindow, onEnvelopeCha
   const [dragging, setDragging] = React.useState<Handle | null>(null)
   const [hovered, setHovered] = React.useState<Handle | null>(null)
 
-  const levels = React.useMemo(() => centerdLevels(data.levels), [data.levels])
+  const levels = React.useMemo(() => centeredLevels(data.levels), [data.levels])
   const layout: Layout = {
     width: size.width,
     height: size.height,
