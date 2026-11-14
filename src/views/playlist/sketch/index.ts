@@ -63,6 +63,10 @@ export interface CanvasProps extends SketchProps {
   // each track's mute and solo in the mixer (tracks not listed are neither),
   // shown on its lip
   trackMixes: Record<number, { mute: boolean, solo: boolean }>
+  // the tracks armed to record, and whether a take is being recorded: their
+  // lips are tinted red, and pulse while recording
+  armedTracks: number[]
+  recording: boolean
   // a lip's LED was clicked (mute) or shift+clicked (solo): set it to this
   onTrackMute: (trackNumber: number, mute: boolean) => void
   onTrackSolo: (trackNumber: number, solo: boolean) => void
@@ -313,6 +317,8 @@ export class Renderer extends RendererBase {
   trackCount: number = staticDefaults.trackCount
   trackColors: Record<number, number> = {}
   trackMixes: Record<number, { mute: boolean, solo: boolean }> = {}
+  armedTracks: number[] = []
+  recording = false
   onTrackMute!: (trackNumber: number, mute: boolean) => void
   onTrackSolo!: (trackNumber: number, solo: boolean) => void
   onLipRightClick!: (trackNumber: number, clientX: number, clientY: number) => void
@@ -1159,6 +1165,8 @@ export class Renderer extends RendererBase {
       || this.#paint !== null
       || this.seekDragging
       || this.scrollbarGrab !== null
+      // armed lips pulse
+      || (this.recording && this.armedTracks.length > 0)
   }
 
   // stop drawing while the playlist can't be seen (its tab isn't selected),
@@ -1695,6 +1703,7 @@ export class Renderer extends RendererBase {
       panel: fourtrackPaint.rgba('panel'),
       mute: fourtrackPaint.rgba('ledAmberOn'),
       solo: fourtrackPaint.rgba('ledLimeOn'),
+      rec: fourtrackPaint.rgba('ledRedOn'),
     }
     // (lanes aren't shaded: the lines between them set them apart, so a
     // lip sits on the plain background)
@@ -1702,7 +1711,12 @@ export class Renderer extends RendererBase {
 
     this.#lipBoxes().forEach(({ track, box, text }) => {
       const led = this.trackRgba(track)
-      drawLip(ctx, box, text, { ...base, lane, led }, { lit: sounding.has(track), ring: this.#ring(track) })
+      drawLip(ctx, box, text, { ...base, lane, led }, {
+        lit: sounding.has(track),
+        ring: this.#ring(track),
+        armed: this.armedTracks.includes(track),
+        recording: this.recording,
+      })
     })
   }
 
@@ -2150,6 +2164,8 @@ export class Renderer extends RendererBase {
       this.trackCount = props.trackCount
       this.trackColors = props.trackColors ?? {}
       this.trackMixes = props.trackMixes ?? {}
+      this.armedTracks = props.armedTracks ?? []
+      this.recording = props.recording ?? false
       this.onTrackMute = props.onTrackMute
       this.onTrackSolo = props.onTrackSolo
       this.onLipRightClick = props.onLipRightClick

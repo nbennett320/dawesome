@@ -1,5 +1,5 @@
-// a track's right-click menu, from its LED in the mixer or the playlist. for
-// now it has one item, which swaps the menu for the tray of colors. drawn
+// a track's right-click menu, from its LED in the mixer or the playlist. it
+// arms the track to record, or swaps the menu for the tray of colors. drawn
 // over the whole window, at the click, so it isn't cut off by the strip or
 // the canvas it was opened from
 import React from 'react'
@@ -16,12 +16,15 @@ export interface TrackMenuAt {
 // room the tray needs from the window's edges (it's about 96 × 52)
 const TRAY_ROOM = { width: 104, height: 60 }
 
-const TrackColorMenu = ({ at, label, color, onChange, onClose }: {
+const TrackMenu = ({ at, label, color, onChange, arm, onClose }: {
   at: TrackMenuAt
   // the track's name
   label: string
   color: number
   onChange: (color: number) => void
+  // arming the track to record (not for the master): whether it is armed, and
+  // arming or disarming it
+  arm?: { armed: boolean, onToggle: () => void }
   onClose: () => void
 }) => {
   const [step, setStep] = React.useState<'menu' | 'colors'>('menu')
@@ -47,7 +50,10 @@ const TrackColorMenu = ({ at, label, color, onChange, onClose }: {
         <ClipMenu
           x={at.clientX}
           y={at.clientY}
-          items={[{ label: 'Change channel color', onSelect: pickColor }]}
+          items={[
+            ...(arm ? [{ label: arm.armed ? 'Disarm recording' : 'Arm for recording', onSelect: arm.onToggle }] : []),
+            { label: 'Change channel color', onSelect: pickColor },
+          ]}
           onClose={closeMenu}
         />
       ) : (
@@ -65,4 +71,4 @@ const TrackColorMenu = ({ at, label, color, onChange, onClose }: {
   )
 }
 
-export default TrackColorMenu
+export default TrackMenu

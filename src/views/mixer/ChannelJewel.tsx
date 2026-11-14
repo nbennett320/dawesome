@@ -5,12 +5,12 @@ import React from 'react'
 import { useThemeChange } from '../../theme'
 import { Led } from '../../components/fourtrack'
 import { ledTint, trackColorCss } from './TrackColorPalette'
-import TrackColorMenu, { TrackMenuAt } from './TrackColorMenu'
+import TrackMenu, { TrackMenuAt } from './TrackMenu'
 
 // a track's LED jewel. a click mutes the track, a shift+click solos it (as
 // its lip's LED does in the playlist), and a right-click opens its menu
 const ChannelJewel = ({
-  label, color, onChange, muted, soloed, onMute, onSolo, ledRef,
+  label, color, onChange, muted, soloed, onMute, onSolo, ledRef, arm,
 }: {
   // the track's name, for screen readers and tooltips
   label: string
@@ -23,6 +23,8 @@ const ChannelJewel = ({
   onSolo: (solo: boolean) => void
   // the LED, for useMixerMeters to light while the track sounds
   ledRef?: (led: HTMLElement | null) => void
+  // arming the track to record, from its menu
+  arm?: { armed: boolean, onToggle: () => void }
 }) => {
   useThemeChange()
   const [menu, setMenu] = React.useState<TrackMenuAt | null>(null)
@@ -36,7 +38,7 @@ const ChannelJewel = ({
         aria-label={`${label}: click to mute, shift+click to solo`}
         aria-pressed={muted}
         aria-haspopup='menu'
-        title='Click to mute, Shift+click to solo. Right-click to change the color'
+        title='Click to mute, Shift+click to solo. Right-click to arm or change the color'
         onClick={e => {
           if(e.shiftKey) onSolo(!soloed)
           else onMute(!muted)
@@ -48,7 +50,7 @@ const ChannelJewel = ({
       >
         <Led ref={ledRef} style={ledTint(trackColorCss(color))} />
       </button>
-      {menu && <TrackColorMenu at={menu} label={label} color={color} onChange={onChange} onClose={close} />}
+      {menu && <TrackMenu at={menu} label={label} color={color} onChange={onChange} arm={arm} onClose={close} />}
     </div>
   )
 }

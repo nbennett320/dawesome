@@ -1,5 +1,5 @@
 import React from 'react'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import ChannelJewel from './ChannelJewel'
 import { applyTheme } from '../../theme/apply'
 import { slateLightTheme } from '../../theme/fixture'
@@ -59,6 +59,25 @@ describe('the channel jewel', () => {
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'blue' }))
     expect(onChange).toHaveBeenCalledWith(5)
     expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('arms or disarms its track from its menu, when it can be armed', async () => {
+    const onToggle = vi.fn()
+    const { button } = jewel({ arm: { armed: false, onToggle } })
+
+    fireEvent.contextMenu(button)
+    expect(screen.getAllByRole('menuitem').map(i => i.textContent)).toEqual(
+      ['Arm for recording', 'Change channel color'],
+    )
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Arm for recording' }))
+    await settle()
+    expect(onToggle).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('menu')).toBeNull()
+
+    cleanup()
+    const armed = jewel({ arm: { armed: true, onToggle } })
+    fireEvent.contextMenu(armed.button)
+    expect(screen.getByRole('menuitem', { name: 'Disarm recording' })).toBeTruthy()
   })
 
   it('closes its menu on Escape, and the tray on a press outside', async () => {
