@@ -88,7 +88,8 @@ Undo and redo don't work while a take is being recorded.
 ## 5-5 Recording with loop on
 
 If **Loop** is on in the top bar, what recording does when the loop comes
-round is set in **Preferences → Controls → At the loop's end, while recording**:
+round is set in **Preferences ▸ Controls…**, under **At the loop's end, while
+recording**:
 
 - **Keep recording, layering each pass** — Recording carries on. Each time
   round is a take of its own, put on the track as soon as it ends, and
