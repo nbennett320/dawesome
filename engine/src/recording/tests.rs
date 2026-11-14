@@ -60,9 +60,17 @@ pub(super) fn session() -> Session {
     live: None,
     placing: None,
     playing_pass: None,
-    loop_len: None,
-    loop_end: Duration::ZERO,
+    looping: false,
+    span: daw::LoopSpan { start: Duration::ZERO, end: Duration::ZERO },
+    span_start_beat: 0.,
   }
+}
+
+fn secs(n: u64) -> Duration { Duration::from_secs(n) }
+
+// the loop from `start` up to `end` seconds
+fn span(start: u64, end: u64) -> daw::LoopSpan {
+  daw::LoopSpan { start: secs(start), end: secs(end) }
 }
 
 #[test]
@@ -151,8 +159,8 @@ fn test_the_loop_stays_put_while_recording() {
   // (started with looping off: the loop's end is kept all the same)
   state.playlist.loop_enabled.store(false, std::sync::atomic::Ordering::SeqCst);
   state.recorder.lock().unwrap().session = Some(Session {
-    loop_len: daw::active_loop(&state).map(|span| span.end),
-    loop_end: daw::loop_span(&state).end,
+    looping: daw::active_loop(&state).is_some(),
+    span: daw::loop_span(&state),
     ..session()
   });
   state.playlist.loop_enabled.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -166,6 +174,23 @@ fn test_the_loop_stays_put_while_recording() {
   // once it's over, the loop reaches the new clip
   state.recorder.lock().unwrap().session = None;
   assert_eq!(ms(daw::loop_span(&state).end), 12_000);
+}
+
+#[test]
+fn test_a_loop_region_stays_put_while_recording() {
+  let state = daw::InnerState::default();
+  *state.playlist.loop_region.lock().unwrap() = Some(daw::LoopRegion { start: 4., end: 8. });
+  state.recorder.lock().unwrap().session = Some(Session { looping: true, span: daw::loop_span(&state), ..session() });
+  assert_eq!(daw::loop_span(&state), span(2, 4));
+
+  // edits to it are refused, and even one that got in wouldn't move the loop
+  crate::commands::transport::change_loop_region(&state, 0., 2.);
+  assert_eq!(*state.playlist.loop_region.lock().unwrap(), Some(daw::LoopRegion { start: 4., end: 8. }));
+  *state.playlist.loop_region.lock().unwrap() = Some(daw::LoopRegion { start: 0., end: 2. });
+  assert_eq!(daw::loop_span(&state), span(2, 4));
+
+  state.recorder.lock().unwrap().session = None;
+  assert_eq!(daw::loop_span(&state), span(0, 1));
 }
 
 #[test]
@@ -294,11 +319,14 @@ fn test_passes_go_where_the_loop_comes_round() {
   let at = Instant::now();
   let start = Duration::from_secs(3);
   // the first where the recording started, the rest at the loop's start
-  assert_eq!(pass_start(&takes(std::path::Path::new("a"), 0), start, at), start);
-  assert_eq!(pass_start(&takes(std::path::Path::new("a"), 2), start, at), Duration::ZERO);
+  assert_eq!(pass_start(&takes(std::path::Path::new("a"), 0), (start, Duration::ZERO), at), start);
+  assert_eq!(pass_start(&takes(std::path::Path::new("a"), 2), (start, Duration::ZERO), at), Duration::ZERO);
+  // a region's start, and a first from before it or in it
+  assert_eq!(pass_start(&takes(std::path::Path::new("a"), 2), (start, secs(2)), at), secs(2));
+  assert_eq!(pass_start(&takes(std::path::Path::new("a"), 0), (secs(1), secs(2)), at), secs(1));
   // a first that started late starts as late
   let late = daw::Takes { started: Some(at + Duration::from_millis(20)), ..takes(std::path::Path::new("a"), 0) };
-  assert_eq!(pass_start(&late, start, at), start + Duration::from_millis(20));
+  assert_eq!(pass_start(&late, (start, Duration::ZERO), at), start + Duration::from_millis(20));
 }
 
 #[test]
@@ -357,7 +385,7 @@ fn test_one_undo_takes_a_whole_loop_recording_off() {
   // three passes, put on their tracks as they're finished
   let (finished_tx, finished_rx) = mpsc::channel();
   let placer = state.clone();
-  let placing = thread::spawn(move || place_passes(&placer, finished_rx, &[2], Duration::ZERO, Instant::now()));
+  let placing = thread::spawn(move || place_passes(&placer, finished_rx, &[2], (Duration::ZERO, Duration::ZERO), Instant::now()));
   for (n, path) in paths.iter().enumerate() { finished_tx.send(takes(path, n as u32)).unwrap(); }
   drop(finished_tx);
   state.recorder.lock().unwrap().session = Some(Session { placing: Some(placing), ..session() });
@@ -405,7 +433,8 @@ fn test_the_take_in_progress_starts_at_the_loop_start_once_it_comes_round() {
     start_beat: 4.,
     heard,
     live: Some(Default::default()),
-    loop_end: Duration::from_secs(4),
+    looping: true,
+    span: span(0, 4),
     ..session()
   };
 
@@ -415,6 +444,13 @@ fn test_the_take_in_progress_starts_at_the_loop_start_once_it_comes_round() {
   // the loop's come round: the pass being recorded is from the loop's start
   state.recorder.lock().unwrap().session = Some(looping(Instant::now() - Duration::from_secs(3)));
   assert_eq!(collect(&state).take.unwrap().start_beat, 0.);
+
+  // a region from 1s (beat 2) to 4s: its start, once it's come round
+  let region = |heard| Session { span: span(1, 4), span_start_beat: 2., ..looping(heard) };
+  state.recorder.lock().unwrap().session = Some(region(Instant::now()));
+  assert_eq!(collect(&state).take.unwrap().start_beat, 4.);
+  state.recorder.lock().unwrap().session = Some(region(Instant::now() - Duration::from_secs(3)));
+  assert_eq!(collect(&state).take.unwrap().start_beat, 2.);
 }
 
 // the pass that's ending plays on the next pass, from where it was recorded
@@ -436,7 +472,8 @@ fn test_the_pass_that_ends_plays_on_the_next() {
     start: Duration::from_secs(1),
     heard,
     live: Some(live),
-    loop_end: Duration::from_secs(4),
+    looping: true,
+    span: span(0, 4),
     ..session()
   });
   // and a clip of the pass before (as if there were one) held back
@@ -464,6 +501,58 @@ fn test_the_pass_that_ends_plays_on_the_next() {
   // first pass is over (it started after that was scheduled)
   let again = layer_voices(&state, &engine, 1, at, heard + Duration::from_millis(500));
   assert!(again.is_empty());
+}
+
+// what a pass plays on the time round after it, with a region
+#[test]
+fn test_where_a_pass_is_heard_in_a_region() {
+  // a recording from 3s, in a region from 2s to 6s: the first pass starts
+  // a second after the region's start, and the rest at its start
+  assert_eq!(pass_heard(0, secs(3), span(2, 6)), (secs(1), Duration::ZERO));
+  assert_eq!(pass_heard(1, secs(3), span(2, 6)), (Duration::ZERO, Duration::ZERO));
+  // one from before the region (at 1s): the first is picked up a second
+  // into it, at the region's start
+  assert_eq!(pass_heard(0, secs(1), span(2, 6)), (Duration::ZERO, secs(1)));
+}
+
+// a recording from before a region plays its first pass from the region's
+// start, on the time round after it
+#[test]
+fn test_a_first_pass_from_before_a_region_plays_from_the_region_start() {
+  let rate = 1_000;
+  let state = daw::InnerState::default();
+  let (engine, mut renderer) = daw::Engine::new(rate);
+
+  // from 1s, in a region from 2s to 4s: the first pass is 3s, its first
+  // second before the region (silence), the rest loud
+  let samples = Arc::new(daw::LiveSamples::new(3_000, 1, rate));
+  for _ in 0..1_000 { samples.push([0.]); }
+  for _ in 0..2_000 { samples.push([0.5]); }
+  let live = Arc::new(daw::LivePasses::default());
+  live.add(daw::LivePass { index: 0, files: vec![samples] });
+  let heard = Instant::now();
+  state.recorder.lock().unwrap().session = Some(Session {
+    tracks: vec![(1, PathBuf::new())],
+    start: secs(1),
+    heard,
+    live: Some(live),
+    looping: true,
+    span: span(2, 4),
+    ..session()
+  });
+
+  // the region comes round 3s in, at the run's start
+  let voices = layer_voices(&state, &engine, 1, Duration::ZERO, heard + secs(3));
+  assert_eq!(voices.len(), 1);
+  engine.start_run(1, state.playlist.mixer.master(), voices).unwrap();
+  let mut out = vec![0f32; 2 * 2_000];
+  renderer.render(&mut out, Instant::now(), Duration::ZERO);
+  // straight from the region's start: the part inside it
+  let frame = |n: usize| out[n * 2];
+  assert!(frame(5) > 0.1 && frame(1_990) > 0.1, "{} {}", frame(5), frame(1_990));
+
+  // and the time round after is the second pass (none here yet)
+  assert!(layer_voices(&state, &engine, 1, Duration::ZERO, heard + secs(5)).is_empty());
 }
 
 // layers a loop recording from the real input through the real output: run

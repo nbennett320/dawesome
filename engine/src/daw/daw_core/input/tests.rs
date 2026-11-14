@@ -117,6 +117,30 @@ fn passes(first: Duration, every: Duration, name: &'static str) -> (Passes, mpsc
   (plan, done)
 }
 
+// a recording from before a loop region: its first pass runs on into the
+// region and is longer than the region, which every pass after it is
+#[test]
+fn test_a_first_pass_from_before_a_region_is_longer() {
+  let (input, mut capturer) = Input::new("test".into(), RATE, 2);
+  let path = temp_take("region-passes");
+  let t0 = Instant::now();
+
+  let recording = input.start_take(&[file(&path, &[1])]).unwrap();
+  // started 40 frames from the region's end, which is 15 frames long
+  let (plan, done) = passes(40 * MS, 15 * MS, "region-passes");
+  let _live = recording.keep_from(t0, Some(plan));
+  capturer.process(&frames(0, 50, 2), 2, t0);
+  capturer.process(&frames(50, 20, 2), 2, t0 + 50 * MS);
+  let last = input.stop_take(recording, None).unwrap();
+
+  let finished: Vec<Takes> = done.try_iter().collect();
+  assert_eq!(finished.iter().map(|takes| (takes.pass, takes.files[0].frames)).collect::<Vec<_>>(), vec![(0, 40), (1, 15)]);
+  assert_eq!(read(&finished[1].files[0].path).1, channel(&frames(40, 15, 2), 2, 1));
+  assert_eq!((last.pass, last.files[0].frames), (2, 15));
+
+  for takes in finished.iter().chain([&last]) { let _ = std::fs::remove_file(&takes.files[0].path); }
+}
+
 #[test]
 fn test_a_loop_recording_is_cut_into_passes() {
   let (input, mut capturer) = Input::new("test".into(), RATE, 2);
