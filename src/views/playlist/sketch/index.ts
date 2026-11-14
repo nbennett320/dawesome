@@ -23,6 +23,7 @@ import { paint, patternColors, theme, trackPaint } from './theme'
 import { painter } from '../../../theme/canvas'
 import { LIP, LipLook, drawLip, fitName, inBox, lipBox, lipWidth, onLed } from './lip'
 import { LiveTake, liveTakeSpan } from './liveTake'
+import { NO_FADES } from './Waveform'
 import { trackColorKey, defaultTrackColor, trackLabel } from '../../../types/mixer'
 import { DEFAULT_BEATS_PER_BAR, DEFAULT_PLAYLIST_BEATS, PlaylistTransport } from '../../../types/transport'
 import { positionAt } from '../../transport/tape'
@@ -1340,8 +1341,9 @@ export class Renderer extends RendererBase {
     const override = this.clipOverrides[obj.playlistItem.id]
 
     obj.modified = !!override?.modified
-    // its waveform shows its gain
+    // its waveform shows its gain and fades
     obj.waveform.gain = override?.gain ?? 1
+    obj.waveform.fades = override?.fades ?? NO_FADES
     // newer than the length fetched when the clip was built, which can lag
     // behind while settings are being sent to the engine
     if(override?.playedDuration !== undefined) obj.setDuration(override.playedDuration)

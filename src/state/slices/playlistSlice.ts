@@ -836,6 +836,7 @@ export const selectClipOverrides = (state: RootState): Record<number, ClipOverri
       sampleDuration: sampleSeconds,
       rate: playbackRate(settings),
       gain: gainFactor(settings.gainDb),
+      fades: { attackMs: settings.attackMs, decayMs: settings.decayMs },
     }
   })
 
