@@ -23,34 +23,9 @@ pub use self::vst3::Plugin;
 // the most frames a processor is ever given at once
 pub const MAX_BLOCK: usize = 4096;
 
-// what a processor is told about the moment it's playing
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Transport {
-  // whether a run is playing (chains are processed while stopped too)
-  pub playing: bool,
-  // beats a minute
-  pub tempo: f64,
-  // the time signature
-  pub beats_per_bar: u16,
-  pub beat_unit: u16,
-  // where the block starts in the song, in frames. while stopped it stays
-  // where the last run got to
-  pub position: i64,
-  pub sample_rate: u32,
-}
-
-impl Default for Transport {
-  fn default() -> Self {
-    Transport {
-      playing: false,
-      tempo: 120.,
-      beats_per_bar: 4,
-      beat_unit: 4,
-      position: 0,
-      sample_rate: 44_100,
-    }
-  }
-}
+// what a processor is told about the moment it's playing (the built-in
+// effects' crate has it, as they're told the same)
+pub use dsp::Transport;
 
 // something for an instrument to play, `offset` frames into the block
 #[derive(Clone, Copy, Debug, PartialEq)]

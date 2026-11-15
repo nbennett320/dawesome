@@ -19,6 +19,7 @@ mod plugin_catalog;
 mod main_thread;
 mod effects;
 mod effect_windows;
+mod native;
 #[cfg(test)]
 mod test_support;
 #[cfg(test)]
@@ -243,6 +244,9 @@ fn init_tauri() {
       remove_effect,
       move_effect,
       set_effect_bypassed,
+      get_effect_params,
+      set_effect_param,
+      set_effect_param_text,
       set_pattern_notes,
       add_synth_on_track,
       project_has_unsaved_changes,

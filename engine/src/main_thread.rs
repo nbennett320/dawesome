@@ -59,6 +59,11 @@ impl<T: Send> DropOnMain<T> {
   pub fn new(value: T) -> Self {
     DropOnMain(Some(value))
   }
+
+  #[cfg(test)]
+  pub fn get(&self) -> &T {
+    self.0.as_ref().unwrap()
+  }
 }
 
 impl<T: Send> Drop for DropOnMain<T> {
