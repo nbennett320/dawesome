@@ -19,6 +19,7 @@ import {
 } from '../../types/clip'
 import {
   ChangedClips, LoadedClip, LoadedPatternClip, LoadedProject, Joined, MissingEffect, MissingSample, MovedClip, Placed, ProjectView, SavedProject, splitMissing,
+  TimeSignature,
 } from '../../types/project'
 import { currentGesture } from '../gesture'
 import { DEFAULT_PLAYLIST_BEATS, LoopRegion, LoopSettings, Wind } from '../../types/transport'
@@ -45,6 +46,8 @@ export interface PlaylistState {
   // follows the tape while it winds
   wind: Wind | null
   tempo: number
+  // the project's, as it was loaded (the app doesn't change it)
+  timeSignature: TimeSignature
   metronomeEnabled: boolean,
   loopEnabled: boolean,
   // the part of the playlist that loops, drawn in the ruler, and where the
@@ -91,6 +94,7 @@ const initialState = {
   transportRevision: 0,
   wind: null,
   tempo: 120,
+  timeSignature: { numerator: 4, denominator: 4 },
   metronomeEnabled: true,
   loopEnabled: true,
   loopRegion: null,
@@ -389,6 +393,7 @@ export const playlistSlice = createSlice({
 
       state.playing = false
       state.tempo = project.tempo
+      if(project.timeSignature) state.timeSignature = project.timeSignature
       state.metronomeEnabled = project.metronomeEnabled
       state.loopEnabled = project.loopEnabled
       state.loopRegion = project.loopRegion ?? null
@@ -524,6 +529,11 @@ export const setPlaylistTempo = (val: number, gesture: number | null = null) => 
 
 // retrieve tempo from redux state
 export const selectPlaylistTempo = (state: RootState) => state.playlist.tempo
+// a bar's length in quarter notes (6/8 is 3)
+export const selectBarQuarters = (state: RootState) => {
+  const { numerator, denominator } = state.playlist.timeSignature
+  return (numerator * 4) / Math.max(1, denominator)
+}
 // end tempo methods
 
 // start metronome enable/disable methods

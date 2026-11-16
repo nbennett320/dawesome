@@ -3,6 +3,7 @@ import { Notice } from '../../components/common'
 import { groupParams } from '../../types/nativeEffect'
 import ParamControl from './ParamControl'
 import { EffectParamsApi, useEffectParams } from './useEffectParams'
+import DelayPanel from './delay/DelayPanel'
 import EqPanel from './eq/EqPanel'
 
 // a built-in effect's own panel, for one that wants more than knobs (the
@@ -12,6 +13,7 @@ import EqPanel from './eq/EqPanel'
 //   then
 export type CustomPanel = React.ComponentType<{ api: EffectParamsApi, slotId: number, active: boolean }>
 const PANELS: Record<string, CustomPanel> = {
+  delay: DelayPanel,
   eq: EqPanel,
 }
 
