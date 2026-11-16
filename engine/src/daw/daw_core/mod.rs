@@ -1,17 +1,17 @@
-// (for now: the engine's modules are in src/engine, and are re-exported here
-// until every path names them there)
+// (for now: the engine's modules are in src/engine and the model's in src/daw,
+// and are re-exported here until every path names them there)
 pub(crate) use crate::engine::audio_settings;
-pub(crate) mod audiograph;
+pub(crate) use super::audiograph;
 pub(crate) use crate::engine::clip;
 pub(crate) use crate::engine::clip_reader;
 pub(crate) use crate::engine::drivers;
 pub(crate) use crate::engine::input;
 pub(crate) use crate::engine::mixer;
 pub(crate) use crate::engine::sample_voice;
-pub(crate) mod sequencer;
+pub(crate) use super::sequencer;
 pub(crate) use crate::engine::sound_buffer;
-pub(crate) mod timing;
-pub(crate) mod waveform;
+pub(crate) use super::timing;
+pub(crate) use super::waveform;
 
 pub use audio_settings::*;
 pub use audiograph::*;

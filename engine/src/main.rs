@@ -1,30 +1,20 @@
-mod actions;
 mod app;
 mod commands;
 mod daw;
 mod engine;
-mod project;
-mod project_files;
-mod recording;
 mod recent;
 mod theme;
 mod preferences;
-mod history;
-mod clipboard;
-mod bounce;
-mod join;
-mod mixdown;
-mod mixdown_file;
 mod plugin;
-mod plugin_catalog;
-// (for now: until every path names them in engine/)
+// (for now: until every path names them in engine/ and daw/)
 use engine::{processor, util};
-mod main_thread;
-mod effects;
-mod effect_windows;
-mod native;
+use daw::{
+  actions, bounce, clipboard, effects, history, join, main_thread, mixdown, mixdown_file, native, plugin_catalog,
+  project, project_files, recording,
+};
 #[cfg(test)]
-mod test_support;
+use daw::test_support;
+mod effect_windows;
 #[cfg(test)]
 mod perf;
 
