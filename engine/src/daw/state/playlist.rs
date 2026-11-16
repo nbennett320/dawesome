@@ -1,7 +1,5 @@
-use crate::app::ui::{UI};
 use crate::daw;
 use crate::daw::timing;
-use crate::app;
 use std::sync::{
   Arc, 
   Mutex,
@@ -16,7 +14,6 @@ use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy)]
 pub struct PlaylistUI {
-  pub viewport: app::workspaces::WorkspaceViewport,
   // the playlist's length, in beats (read with daw::playlist_beats, worked
   // out by daw::fit_playlist)
   pub beats: u64,
@@ -24,19 +21,16 @@ pub struct PlaylistUI {
   pub snap_subdivision: daw::timing::Note,
 }
 
-impl UI for PlaylistUI {
-  fn new() -> Self {
+impl PlaylistUI {
+  pub fn new() -> Self {
     PlaylistUI {
-      viewport: app::workspaces::WorkspaceViewport::new(),
       // a new playlist's: in 4/4, with no clips
       beats: daw::state::defaults::PLAYLIST_BARS * 4,
       snap_enabled: daw::state::defaults::SNAP_ENABLED,
       snap_subdivision: daw::state::defaults::SNAP_SUBDIVISION,
     }
   }
-}
 
-impl PlaylistUI {
   pub fn toggle_snap_enabled(&mut self) {
     self.snap_enabled = !self.snap_enabled;
   }

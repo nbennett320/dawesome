@@ -1,5 +1,8 @@
 // the playlist's commands (see actions/playlist.rs)
+use std::sync::Mutex;
+
 use crate::actions::playlist::{add_track_to, snap_setting, SnapSetting};
+use crate::app::workspaces::WorkspaceViewport;
 use crate::commands::TState;
 use crate::daw;
 
@@ -18,9 +21,11 @@ pub fn get_playlist_data(state: TState<'_>) -> PlaylistData {
   PlaylistData { beats: daw::playlist_beats(&state), track_count }
 }
 
+// where the playlist is on the screen (kept by the app: the DAW doesn't use
+// it)
 #[tauri::command]
 pub fn init_playlist_workspace(
-  state: TState<'_>,
+  viewport: tauri::State<'_, Mutex<WorkspaceViewport>>,
   min_bound_x: f32,
   min_bound_y: f32,
   max_bound_x: f32,
@@ -28,12 +33,9 @@ pub fn init_playlist_workspace(
 ) {
   println!("min_bound_x: {}, max_bound_x: {}", min_bound_x, max_bound_x);
   // update bounding box
-  state
-    .playlist
-    .ui
+  viewport
     .lock()
     .unwrap()
-    .viewport
     .set_bounding_box(
       min_bound_x, 
       min_bound_y, 

@@ -419,6 +419,8 @@ pub struct Effects {
   pub plugins: Arc<Plugins>,
   backend: Mutex<Backend>,
   on_unload: Mutex<Option<Arc<dyn Fn(u64) + Send + Sync>>>,
+  // keeps where the open windows are now (see on_keep_windows)
+  on_keep_windows: Mutex<Option<Arc<dyn Fn(&Effects) + Send + Sync>>>,
   // plugins of effects that have left the racks, by id, while their unload
   // callbacks run (so with_plugin still reaches them: see unload)
   unloading: Mutex<HashMap<u64, Arc<Mutex<Box<dyn Hosted>>>>>,
@@ -453,6 +455,7 @@ impl Effects {
       plugins: Arc::new(Plugins::default()),
       backend: Mutex::new(Backend { loader: Arc::new(Vst3), output: Arc::new(LiveOutput), wait: WAIT, settle: SETTLE }),
       on_unload: Mutex::new(None),
+      on_keep_windows: Mutex::new(None),
       unloading: Mutex::new(HashMap::new()),
       windows: Mutex::new(HashMap::new()),
       kept_synths: Mutex::new(HashMap::new()),
@@ -540,6 +543,19 @@ impl Effects {
 
   pub fn keep_window_position(&self, slot_id: u64, position: WindowPosition) {
     self.windows.lock().unwrap().insert(slot_id, position);
+  }
+
+  // `f` keeps where each open window is now (with keep_window_position).
+  // whoever shows the windows (the app) gives it
+  pub fn on_keep_windows(&self, f: impl Fn(&Effects) + Send + Sync + 'static) {
+    *self.on_keep_windows.lock().unwrap() = Some(Arc::new(f));
+  }
+
+  // keep where every open window is now, so a project saved now has it.
+  // with nothing showing them (tests), what was kept last stays
+  pub fn keep_open_windows(&self) {
+    let keep = self.on_keep_windows.lock().unwrap().clone();
+    if let Some(keep) = keep { keep(self); }
   }
 
   // an effect's plugin (or a synth's master copy's), while it's in a rack

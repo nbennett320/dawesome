@@ -103,6 +103,7 @@ fn init_tauri() {
     .manage(recent_projects)
     .manage(preferences::AppPreferences::load())
     .manage(Arc::new(actions::mixdown::Mixdowns::default()))
+    .manage(std::sync::Mutex::new(app::workspaces::WorkspaceViewport::new()))
     .invoke_handler(tauri::generate_handler![
       get_playlist_playing,
       toggle_playlist,

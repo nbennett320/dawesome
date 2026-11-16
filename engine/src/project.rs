@@ -441,7 +441,7 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
   let ui = *state.playlist.ui.lock().unwrap();
   // (with no lock held: the plugins give their settings on the main thread,
   // and their open windows where they are)
-  crate::effect_windows::keep_positions(&state.playlist.effects);
+  state.playlist.effects.keep_open_windows();
   let effects = state.playlist.effects.saved();
   // each synth row's plugin's settings are its master copy's (passed on to
   // the others first, so what's saved is what's heard)

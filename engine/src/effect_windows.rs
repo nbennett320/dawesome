@@ -59,7 +59,8 @@ impl Room {
 }
 
 // close a slot's interface wherever it's showing, before its plugin goes
-// (it was removed, undone away, or replaced by another project)
+// (it was removed, undone away, or replaced by another project), and say
+// where the open windows are when a project is saved
 pub fn init(effects: &Arc<Effects>) {
   let racks = Arc::downgrade(effects);
   effects.on_unload(move |slot_id| {
@@ -68,10 +69,11 @@ pub fn init(effects: &Arc<Effects>) {
       undock(&effects, slot_id);
     }
   });
+  effects.on_keep_windows(keep_positions);
 }
 
 // keep where every open window is now, so a project saved now has it
-pub fn keep_positions(effects: &Effects) {
+fn keep_positions(effects: &Effects) {
   let kept = main_thread::run(|| {
     let showing = SHOWING.lock().unwrap();
     for (slot_id, open) in &showing.windows {
