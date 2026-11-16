@@ -1,6 +1,6 @@
 // keeps state.project.unsaved (the * in the window's title) in step with the
 // engine, which is what knows whether the project has unsaved changes (see
-// has_unsaved_changes in engine/src/project.rs)
+// has_unsaved_changes in engine/src/daw/project.rs)
 //
 // asking means the engine gathers the whole project as a save would, plugins'
 // settings and all, on the main thread, so it isn't polled. it's asked a

@@ -1,5 +1,5 @@
 // Dawesome's own effects' parameters, as the engine describes them. mirrors
-// engine/src/native.rs (see context/effects-suite-project/04-api.md). a
+// engine/src/daw/native.rs (see context/effects-suite-project/04-api.md). a
 // panel is drawn from these: each parameter says its range, how its knob is
 // spread over it, and how its value is shown
 import { clamp } from '../util/helpers'

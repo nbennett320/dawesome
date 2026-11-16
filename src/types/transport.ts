@@ -1,12 +1,12 @@
 // the playlist's length, in bars of its time signature (PLAYLIST_BARS in
-// engine/src/daw/state/defaults.rs). the engine works out how many beats
+// engine/src/daw/defaults.rs). the engine works out how many beats
 // that is, longer when clips reach further, and reports it as beatsDisplayed
 export const PLAYLIST_BARS = 128
 // a new project's time signature is 4/4. these stand in until the engine says
 export const DEFAULT_BEATS_PER_BAR = 4
 export const DEFAULT_PLAYLIST_BEATS = PLAYLIST_BARS * DEFAULT_BEATS_PER_BAR
 
-// mirrors PlaylistTransport in engine/src/event_dispatch.rs
+// mirrors PlaylistTransport in engine/src/daw/actions/transport.rs
 export interface PlaylistTransport {
   playing: boolean
   // engine start time of the current run, ms since the unix epoch (null
@@ -45,7 +45,7 @@ export interface PlaylistTransport {
 
 // a part of the playlist drawn in the ruler, that playback loops while
 // looping is on, in beats (start before end). mirrors LoopRegion in
-// engine/src/daw/state/playlist.rs
+// engine/src/daw/playlist.rs
 export interface LoopRegion {
   start: number
   end: number
@@ -53,7 +53,7 @@ export interface LoopRegion {
 
 // the loop as the engine has it: the region, where the end flag was dragged
 // to (in beats), and whether looping is on. mirrors LoopSettings in
-// engine/src/commands/transport.rs
+// engine/src/daw/actions/transport.rs
 export interface LoopSettings {
   region: LoopRegion | null
   endPin: number | null

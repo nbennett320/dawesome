@@ -88,7 +88,7 @@ export const rollSnapping = (enabled: boolean, note: SnapNote, bypass: boolean):
 })
 
 // the shortest a note can be, in steps: the engine's MIN_NOTE
-// (engine/src/daw/daw_core/sequencer.rs)
+// (engine/src/daw/sequencer.rs)
 export const MIN_NOTE_LENGTH = 1 / 32
 
 // whether anything snaps just now: snap is on, and Option isn't held

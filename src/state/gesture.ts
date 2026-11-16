@@ -2,7 +2,7 @@
 // up. everything a gesture changes (a fader dragged from one place to
 // another, a row of steps painted in one stroke) is undone as one step: each
 // change is sent to the engine with the gesture's id, and the engine folds
-// changes with the same id together (see engine/src/history.rs)
+// changes with the same id together (see engine/src/daw/history.rs)
 //
 // changes made without the mouse (a key press) belong to no gesture, and are
 // a step each

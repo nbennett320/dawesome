@@ -15,7 +15,7 @@
 // is silent (an instrument), and is safe to keep or drop on any thread
 use super::host::ParamChange;
 use super::queues::{EventList, ParamChanges};
-use crate::plugin::{Event, Processor, Transport, MAX_BLOCK};
+use crate::engine::processor::{Event, Processor, Transport, MAX_BLOCK};
 use ::vst3::Steinberg::Vst::Event_::EventTypes_::{kNoteOffEvent, kNoteOnEvent};
 use ::vst3::Steinberg::Vst::Event_::EventFlags_::kIsLive;
 use ::vst3::Steinberg::Vst::ProcessContext_::StatesAndFlags_::{

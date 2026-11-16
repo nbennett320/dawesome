@@ -1,27 +1,12 @@
 mod app;
 mod commands;
 mod daw;
-mod util;
-mod project;
-mod project_files;
-mod recording;
+mod engine;
 mod recent;
 mod theme;
 mod preferences;
-mod history;
-mod clipboard;
-mod bounce;
-mod join;
-mod mixdown;
-mod mixdown_file;
 mod plugin;
-mod plugin_catalog;
-mod main_thread;
-mod effects;
 mod effect_windows;
-mod native;
-#[cfg(test)]
-mod test_support;
 #[cfg(test)]
 mod perf;
 
@@ -36,16 +21,14 @@ fn init_tauri() {
   use commands::transport::*;
   use commands::sample::*;
   use commands::playlist::*;
-  use project::{save_project, load_project, new_project, project_file_for, project_has_unsaved_changes};
+  use commands::project::{save_project, load_project, new_project, project_file_for, project_has_unsaved_changes};
   use app::window::quit;
   use recent::{add_recent_project, remove_recent_project};
   use commands::mixer::*;
   use commands::audio::*;
   use commands::sequencer::*;
   use commands::clip::*;
-  use clipboard::*;
-  use bounce::*;
-  use join::*;
+  use commands::clipboard::*;
   use commands::mixdown::*;
   use commands::appearance::{themes, preferences, set_preferences, set_window_background};
   use commands::history::{undo, redo};
@@ -59,17 +42,17 @@ fn init_tauri() {
   // open the audio output now, so the first play or preview doesn't wait
   // for it. if it can't be opened, playing tries again
   std::thread::spawn(|| {
-    if let Err(e) = daw::engine() {
+    if let Err(e) = engine::engine() {
       println!("could not open the audio output: {}", e);
     }
   });
 
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
 
   // the plugins found last time, then a look for new or changed ones in the
   // background
   let plugins = state.playlist.effects.plugins.clone();
-  if let Some(file) = plugin_catalog::default_file() {
+  if let Some(file) = daw::plugin_catalog::default_file() {
     plugins.open(&file);
   }
   plugins.scan(false);
@@ -81,14 +64,15 @@ fn init_tauri() {
     .plugin(tauri_plugin_fs::init())
     .setup(move |app| {
       // (setup runs on the main thread, which plugins are called on)
-      main_thread::init(app.handle().clone());
-      effects::keep_idling(racks.clone());
-      effects::follow_output(&racks);
+      let handle = app.handle().clone();
+      daw::main_thread::init(Box::new(move |job| handle.run_on_main_thread(job).map_err(|e| e.to_string())));
+      daw::effects::keep_idling(racks.clone());
+      daw::effects::follow_output(&racks);
       effect_windows::init(&racks);
-      commands::synth::keep_following(following.clone());
+      daw::actions::synth::keep_following(following.clone());
       // the empty project the app starts with is unchanged (see
       // project::has_unsaved_changes)
-      project::mark_unchanged(&following);
+      daw::project::mark_unchanged(&following);
       app::window::setup(app)
     })
     // closing the main window quits, so it asks about unsaved changes first
@@ -102,7 +86,8 @@ fn init_tauri() {
     .manage(state)
     .manage(recent_projects)
     .manage(preferences::AppPreferences::load())
-    .manage(Arc::new(commands::mixdown::Mixdowns::default()))
+    .manage(Arc::new(daw::actions::mixdown::Mixdowns::default()))
+    .manage(std::sync::Mutex::new(app::workspaces::WorkspaceViewport::new()))
     .invoke_handler(tauri::generate_handler![
       get_playlist_playing,
       toggle_playlist,

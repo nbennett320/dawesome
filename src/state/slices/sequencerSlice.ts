@@ -226,7 +226,7 @@ const readRun = async (dispatch: Dispatch) => {
 }
 
 // a pattern playing on its own whose length changes is counted afresh from
-// the step it's on (see daw::next_pattern_slice in engine/src/daw/daw.rs).
+// the step it's on (see daw::next_pattern_slice in engine/src/daw/playback.rs).
 // once the engine has a new length for it, the run is read again, so the
 // playing step and a held trim (see pendingTrim.ts) stay on the step heard
 const followRun = (dispatch: Dispatch, getState: () => SequencerRoot): Promise<void> => {

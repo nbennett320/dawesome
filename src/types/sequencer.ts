@@ -3,7 +3,7 @@ import { fileName } from '../util/helpers'
 
 // the sequencer: patterns hold notes for rows, and a row is an instrument,
 // a sample or a synth (an instrument plugin). a drum step is a 1-step note
-// at its row's step pitch. mirrors engine/src/daw/daw_core/sequencer.rs (see
+// at its row's step pitch. mirrors engine/src/daw/sequencer.rs (see
 // context/pattern-merge-project/04-api.md)
 
 // a step is a 16th note
@@ -367,7 +367,7 @@ export const stepAt = (elapsedMs: number, pattern: Pick<Pattern, 'length'>, beat
 // the step of its pattern, `length` steps long, that a clip starting
 // `start` steps into it plays `t` steps after the clip's start: the clip
 // plays the pattern end to end, over and over (pattern_step_at in
-// engine/src/daw/daw_core/audiograph.rs)
+// engine/src/daw/audiograph.rs)
 export const patternStepAt = (start: number, t: number, length: number): number => {
   const at = (start + t) % length
   return at < 0 ? at + length : at
@@ -377,7 +377,7 @@ export const patternStepAt = (start: number, t: number, length: number): number 
 // it plays then (`from` up to `to`, steps of the pattern), and where that
 // time through starts, in steps from where the clip would have the
 // pattern's first step (a whole number of patterns). Pass in
-// engine/src/daw/daw_core/audiograph.rs
+// engine/src/daw/audiograph.rs
 export interface Pass {
   from: number
   to: number
@@ -390,7 +390,7 @@ export interface Pass {
 // `reachTo` (counted as `start` is), found straight away rather than by
 // going through those before them: a clip can go round its pattern a
 // couple of thousand times. PatternNode::passes and passes_heard in
-// engine/src/daw/daw_core/audiograph.rs
+// engine/src/daw/audiograph.rs
 export const clipPasses = (
   start: number, length: number, patternLength: number, reachFrom = -Infinity, reachTo = Infinity,
 ): Pass[] => {

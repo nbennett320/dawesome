@@ -1,0 +1,237 @@
+// copying, cutting, pasting and repeating clips in the playlist
+//
+// the clipboard is the engine's own, and holds copies of the clips
+// themselves: a pasted clip plays the same sample or pattern as the clip it
+// was copied from, with its own trim and settings, and no file is written.
+// it has nothing to do with the system's clipboard
+use std::time::Duration;
+use serde::Serialize;
+
+use crate::daw::actions::clip::{changed_clips, ChangedClips};
+use crate::daw::{audiograph, playback};
+use crate::daw;
+use crate::daw::actions::clip::remove_clips;
+use crate::daw::history::{self, ClipSnap};
+
+// a copied clip
+#[derive(Clone)]
+struct Copied {
+  clip: ClipSnap,
+  // how long after the earliest copied clip it starts: in time, and in
+  // beats, as they were when it was copied
+  after: Duration,
+  beats_after: f64,
+}
+
+// the clips last copied or cut
+#[derive(Default)]
+pub struct Clipboard {
+  clips: Vec<Copied>,
+  // the tempo they were copied at. pasted at another, they keep their
+  // beats rather than their times
+  tempo: f32,
+}
+
+impl Clipboard {
+  pub fn len(&self) -> usize {
+    self.clips.len()
+  }
+
+  pub fn clear(&mut self) {
+    self.clips.clear();
+  }
+}
+
+fn start_of(clip: &ClipSnap) -> Duration {
+  match clip {
+    ClipSnap::Sample(node) => node.start_offset,
+    ClipSnap::Pattern(node) => node.start_offset,
+  }
+}
+
+fn track_of(clip: &ClipSnap) -> u32 {
+  match clip {
+    ClipSnap::Sample(node) => node.track_number,
+    ClipSnap::Pattern(node) => node.track_number,
+  }
+}
+
+// a clip of either kind, as it is now
+fn snap(audiograph: &audiograph::AudioGraph<'static>, id: u64) -> Option<ClipSnap> {
+  audiograph.get_node_by_id(id).cloned().map(ClipSnap::Sample)
+    .or_else(|| audiograph.get_pattern_node_by_id(id).cloned().map(ClipSnap::Pattern))
+}
+
+// where a clip ends
+fn end_of(audiograph: &audiograph::AudioGraph<'static>, clip: &ClipSnap) -> Duration {
+  match clip {
+    ClipSnap::Sample(node) => node.start_offset + node.duration(),
+    ClipSnap::Pattern(node) => node.start_offset + node.duration(audiograph.beat_interval()),
+  }
+}
+
+// the playlist's last beat, as a time: a clip can start there, and no later
+fn playlist_end(state: &daw::Session, audiograph: &audiograph::AudioGraph<'static>) -> Duration {
+  let beats = playback::playlist_beats(state);
+  audiograph.beat_interval().mul_f64(beats as f64)
+}
+
+const PAST_THE_END: &str = "would start past the end of the playlist";
+
+// put copies of clips into the playlist, each with a new id, on the track
+// and at the time given. a clip of a pattern that's gone is left out. if
+// any would start past the playlist's end, none is added. returns the new
+// clips' ids, and how many were left out
+fn place(
+  state: &daw::Session,
+  audiograph: &mut audiograph::AudioGraph<'static>,
+  copies: Vec<(ClipSnap, Duration, u32)>,
+  what: &str,
+) -> Result<(Vec<u64>, usize), String> {
+  // clips of patterns that are gone are left out, wherever they'd land
+  let count = copies.len();
+  let copies: Vec<_> = {
+    let sequencer = audiograph.sequencer.lock().unwrap();
+    copies.into_iter()
+      .filter(|(clip, _, _)| match clip {
+        ClipSnap::Sample(_) => true,
+        ClipSnap::Pattern(node) => sequencer.pattern(node.pattern_id).is_some(),
+      })
+      .collect()
+  };
+  let left_out = count - copies.len();
+
+  // (a clip that lands on the last beat give or take the rounding of its
+  // place is on it)
+  let end = playlist_end(state, audiograph) + Duration::from_micros(1);
+  if copies.iter().any(|(_, start, _)| *start > end) {
+    return Err(format!("Nothing was {}: a clip {}.", what, PAST_THE_END));
+  }
+
+  let mut made = Vec::new();
+  for (clip, start, track) in copies {
+    match clip {
+      ClipSnap::Sample(mut node) => {
+        node.start_offset = start;
+        node.track_number = track;
+        made.push(audiograph.insert_node(node));
+      }
+      ClipSnap::Pattern(mut node) => {
+        node.start_offset = start;
+        node.track_number = track;
+        made.push(audiograph.insert_pattern_node(node));
+      }
+    }
+  }
+  Ok((made, left_out))
+}
+
+pub(crate) fn copy(state: &daw::Session, ids: &[u64]) -> usize {
+  let audiograph = state.playlist.audiograph.lock().unwrap();
+  // (an id given twice is copied once)
+  let mut ids = ids.to_vec();
+  ids.sort_unstable();
+  ids.dedup();
+  let mut clips: Vec<ClipSnap> = ids.iter().filter_map(|&id| snap(&audiograph, id)).collect();
+  let mut clipboard = state.clipboard.lock().unwrap();
+  if clips.is_empty() { return clipboard.len(); }
+
+  // in the order they start, the earliest first
+  clips.sort_by_key(start_of);
+  let first = start_of(&clips[0]);
+  let interval = audiograph.beat_interval().as_secs_f64();
+  clipboard.tempo = audiograph.tempo();
+  clipboard.clips = clips.into_iter().map(|clip| {
+    let after = start_of(&clip) - first;
+    Copied { beats_after: if interval > 0. { after.as_secs_f64() / interval } else { 0. }, after, clip }
+  }).collect();
+  clipboard.len()
+}
+
+pub(crate) fn cut(state: &daw::Session, ids: &[u64]) -> Result<usize, String> {
+  if ids.is_empty() { return Ok(state.clipboard.lock().unwrap().len()); }
+  // (checked first: nothing is copied unless the clips can be removed)
+  {
+    let audiograph = state.playlist.audiograph.lock().unwrap();
+    if let Some(missing) = ids.iter().find(|&&id| audiograph.placement(id).is_none()) {
+      return Err(format!("no node with id {}", missing));
+    }
+  }
+
+  let count = copy(state, ids);
+  remove_clips(state, ids)?;
+  Ok(count)
+}
+
+// what a paste or a repeat made
+#[derive(Serialize, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Placed {
+  #[serde(flatten)]
+  pub clips: ChangedClips,
+  // clips of patterns that are gone, which were left out
+  pub left_out: usize,
+}
+
+pub(crate) fn paste(state: &daw::Session, beat: f64, track: Option<u32>) -> Result<Placed, String> {
+  if !beat.is_finite() || beat < 0. {
+    return Err(format!("{} isn't a beat of the playlist", beat));
+  }
+  let (copied, tempo) = {
+    let clipboard = state.clipboard.lock().unwrap();
+    (clipboard.clips.clone(), clipboard.tempo)
+  };
+  if copied.is_empty() { return Ok(Placed::default()); }
+
+  let top = copied.iter().map(|copied| track_of(&copied.clip)).min().unwrap_or(0);
+  let (made, left_out) = history::clip_edit(state, &[], None, || {
+    let mut audiograph = state.playlist.audiograph.lock().unwrap();
+    let interval = audiograph.beat_interval();
+    let at = interval.mul_f64(beat);
+    // at the tempo they were copied at, the clips are exactly as far apart
+    // as they were (so the halves of a cut clip still meet). at another,
+    // they're as many beats apart
+    let same_tempo = audiograph.tempo() == tempo;
+
+    let copies = copied.into_iter().map(|copied| {
+      let after = if same_tempo { copied.after } else { interval.mul_f64(copied.beats_after) };
+      let on = match track {
+        Some(track) => track + (track_of(&copied.clip) - top),
+        None => track_of(&copied.clip),
+      };
+      (copied.clip, at + after, on)
+    }).collect();
+    place(state, &mut audiograph, copies, "pasted")
+  }, |(made, _)| made.clone())?;
+
+  Ok(Placed { clips: changed_clips(state, &made), left_out })
+}
+
+pub(crate) fn repeat(state: &daw::Session, ids: &[u64]) -> Result<Placed, String> {
+  if ids.is_empty() { return Ok(Placed::default()); }
+  let mut ids = ids.to_vec();
+  ids.sort_unstable();
+  ids.dedup();
+
+  let (made, left_out) = history::clip_edit(state, &[], None, || {
+    let mut audiograph = state.playlist.audiograph.lock().unwrap();
+    let mut clips = Vec::new();
+    for &id in &ids {
+      clips.push(snap(&audiograph, id).ok_or_else(|| format!("no node with id {}", id))?);
+    }
+
+    let start = clips.iter().map(start_of).min().unwrap_or_default();
+    let end = clips.iter().map(|clip| end_of(&audiograph, clip)).max().unwrap_or_default();
+    let span = end.saturating_sub(start);
+    let copies = clips.into_iter().map(|clip| {
+      let (at, track) = (start_of(&clip) + span, track_of(&clip));
+      (clip, at, track)
+    }).collect();
+    place(state, &mut audiograph, copies, "repeated")
+  }, |(made, _)| made.clone())?;
+
+  Ok(Placed { clips: changed_clips(state, &made), left_out })
+}
+
+#[cfg(test)]
+mod tests;

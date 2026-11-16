@@ -12,7 +12,7 @@ export { snapPoint } from '../../../editing/snap'
 export type { Snapping } from '../../../editing/snap'
 
 // the shortest a sample clip can be trimmed or cut to, in seconds of sound
-// (MIN_CLIP in engine/src/daw/daw_core/audiograph.rs)
+// (MIN_CLIP in engine/src/daw/audiograph.rs)
 export const MIN_CLIP_SECONDS = 0.01
 // and a pattern clip, in steps
 export const MIN_PATTERN_CLIP_STEPS = 1
@@ -221,7 +221,7 @@ export const hiddenBeyond = (
 // the edges that cut into a time through it, rather than being where the
 // pattern starts or starts over
 // - from, to: where the clip starts and ends in its pattern, in steps (not
-//   wrapped: see PatternNode::start in engine/src/daw/daw_core/audiograph.rs)
+//   wrapped: see PatternNode::start in engine/src/daw/audiograph.rs)
 export const patternHiddenBeyond = (
   from: number,
   to: number,

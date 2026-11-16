@@ -1,6 +1,6 @@
 import { clamp } from '../util/helpers'
 
-// the engine's audio devices and buffer size (see engine/src/commands/audio.rs)
+// the engine's audio devices and buffer size (see engine/src/daw/actions/audio.rs)
 
 export interface AudioSettings {
   // device names, or null for the system's default
@@ -72,7 +72,7 @@ export const defaultInput = (channels: number | null): InputChoice =>
   ({ first: 0, stereo: (channels ?? 2) >= 2 })
 
 // a choice kept to the channels an input has, as the engine does when it
-// records (see InputChoice::fit in engine/src/recording.rs): a pair past them
+// records (see InputChoice::fit in engine/src/daw/recording.rs): a pair past them
 // is the first pair (or, on a mono input, its channel), and a channel past
 // them is the first
 export const fitInput = (choice: InputChoice, channels: number | null): InputChoice => {

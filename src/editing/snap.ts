@@ -11,7 +11,7 @@ export type SnapNote =
   | 'SixteenthNote'
 
 // a snap length in beats, a beat being a quarter note (Note::beats in
-// engine/src/daw/daw_core/timing.rs)
+// engine/src/daw/timing.rs)
 export const snapNoteBeats = (note: SnapNote): number => ({
   WholeNote: 4,
   HalfNote: 2,

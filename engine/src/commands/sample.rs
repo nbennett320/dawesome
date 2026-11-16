@@ -1,6 +1,7 @@
 use std::thread;
 
-use crate::{app, daw};
+use crate::daw::{audiograph, playback};
+use crate::app;
 
 // (async: off the main thread, as listing a folder can take a while)
 #[tauri::command(async)]
@@ -30,7 +31,7 @@ pub fn enumerate_directory(dir_path: String) -> Result<(
 pub fn preview_sample(path: String) {
   // the first sound opens the output, which takes a moment
   thread::spawn(move || {
-    if let Err(e) = daw::play_sample(&path) {
+    if let Err(e) = playback::play_sample(&path) {
       println!("could not preview sample: {}", e);
     }
   });
@@ -44,7 +45,7 @@ pub fn preview_sample(path: String) {
 pub fn get_sample_preview(
   sample_path: String,
 ) -> Result<(String, f32), String> {
-  let (dur, waveform) = daw::preview_sample(&sample_path)?;
+  let (dur, waveform) = audiograph::preview_sample(&sample_path)?;
 
   Ok((waveform, dur.as_secs_f32()))
 }
