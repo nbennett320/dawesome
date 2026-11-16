@@ -25,6 +25,7 @@ export const defaultPreferences: Preferences = {
   stepKeys: 'tr909',
   commandBar: false,
   loopRecording: 'layer',
+  experimentalAnimations: true,
 }
 
 // settings an older engine doesn't know about (it leaves them out) are

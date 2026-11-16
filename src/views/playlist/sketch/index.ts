@@ -51,6 +51,7 @@ import {
   snapPoint, stretchAll, stretchSet, trimAll, trimmedWindow,
 } from './edges'
 import { paintedSpans } from './paint'
+import { LIFT, Rect, drawLiftShadow, liftAmount } from './lift'
 import { clamp } from '../../../util/helpers'
 
 export interface CanvasProps extends SketchProps {
@@ -75,6 +76,9 @@ export interface CanvasProps extends SketchProps {
   recording: boolean
   // the take being recorded, drawn from its start to the playhead
   liveTake: LiveTake | null
+  // whether animations still being tried out are shown (see Preferences):
+  // a dragged clip lifting off the playlist
+  experimentalAnimations: boolean
   // a lip's LED was clicked (mute) or shift+clicked (solo): set it to this
   onTrackMute: (trackNumber: number, mute: boolean) => void
   onTrackSolo: (trackNumber: number, solo: boolean) => void
@@ -348,6 +352,11 @@ export class Renderer extends RendererBase {
   // spans this many
   beatsDisplayed = DEFAULT_PLAYLIST_BEATS
   debugMode: boolean = staticDefaults.debugMode
+  // the clip being dragged, when its drag started, and whether to skip
+  // easing it up (reduced motion), for the lift (see drawClipDrag)
+  #lift: { item: PlaylistObject, at: number, still: boolean } | null = null
+  // see CanvasProps
+  experimentalAnimations = true
 
   // the playlist opens zoomed in on its first bars (see openingScale)
   currentScale = openingScale(DEFAULT_PLAYLIST_BEATS)
@@ -1576,7 +1585,10 @@ export class Renderer extends RendererBase {
   // called inside the zoom/pan transform
   drawClipDrag = (p: P5CanvasInstance<CanvasProps>, canvas: p5.Renderer) => {
     const drag = this.draggedClip(p, canvas)
-    if(!drag) return
+    if(!drag) {
+      this.#lift = null
+      return
+    }
 
     // keep the preview's zoom in step with the other clips
     drag.item.currentScale = this.currentScale
@@ -1600,13 +1612,38 @@ export class Renderer extends RendererBase {
     p.pop()
 
     // the clips themselves, following the mouse. every clip moves as far as
-    // the grabbed one, so the group keeps its shape
+    // the grabbed one, so the group keeps its shape. lifted like a sticker
+    // (see lift.ts), with experimental animations on: a touch bigger around
+    // the mouse, in canvas pixels so the zoom doesn't stretch it
+    if(this.#lift?.item !== drag.item) {
+      const still = !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+      this.#lift = { item: drag.item, at: performance.now(), still }
+    }
+    const lift = this.experimentalAnimations ? liftAmount(performance.now() - this.#lift.at, this.#lift.still) : 0
+    // the transform's y scale is the pixel density (nothing zooms y)
+    const density = ctx.getTransform().d
+    const grow = 1 + LIFT.grow * lift
     const { left, top } = drag.item.boundingBox()
     p.push()
+    ctx.setTransform(new DOMMatrix()
+      .translate(drag.mouseX * density, drag.mouseY * density)
+      .scale(grow)
+      .translate(-drag.mouseX * density, -drag.mouseY * density)
+      .multiply(ctx.getTransform()))
     p.translate(
       this.screenToPlaylistX(drag.mouseX) - drag.grabX - left,
       this.screenToPlaylistY(drag.mouseY) - drag.grabY - top,
     )
+    // each card in canvas pixels, inset from the track lines as
+    // drawBoundingBox draws it
+    const m = ctx.getTransform()
+    const card = (clip: PlaylistObject): Rect => {
+      const box = clip.boundingBox()
+      const a = m.transformPoint({ x: box.left, y: box.top + 2 })
+      const b = m.transformPoint({ x: box.left + box.width, y: box.top + box.height - 2 })
+      return { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y }
+    }
+    drawLiftShadow(ctx, [...drag.group, drag.item].map(card), lift, density)
     drag.group.forEach(clip => clip.render())
     drag.item.render()
     p.pop()
@@ -2313,6 +2350,7 @@ export class Renderer extends RendererBase {
       this.armedTracks = props.armedTracks ?? []
       this.recording = props.recording ?? false
       this.liveTake = props.liveTake ?? null
+      this.experimentalAnimations = props.experimentalAnimations ?? true
       this.onTrackMute = props.onTrackMute
       this.onTrackSolo = props.onTrackSolo
       this.onLipRightClick = props.onLipRightClick

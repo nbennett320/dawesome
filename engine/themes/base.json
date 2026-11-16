@@ -64,6 +64,7 @@
     "lassoFill": "accent",
     "accent": "accent",
     "accentSoft": "accentSoft",
+    "liftShadow": "alpha(shadow, 0.22)",
     "idle": "inkFaint",
     "scrollbar": "inkSoft",
     "debug": "#ffbb99",

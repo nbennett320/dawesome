@@ -51,7 +51,7 @@ export const viewHints: Record<View, string> = {
   [View.PatternSequencer]: 'The Pattern Sequencer: a row per sample or synth, and its 16th-note steps or notes in the selected pattern',
   [View.AudioSettings]: 'Which devices the engine plays and records through, and its buffer size',
   [View.Mixdown]: 'Export the song to a WAV or MP3 file',
-  [View.Preferences]: 'How the app looks: appearance, themes and step key style',
+  [View.Preferences]: 'How the app looks: appearance, themes, step key style and experimental animations',
   [View.EffectsRack]: "One channel's effects, in the order the sound goes through them",
   [View.PianoRoll]: "A pattern's notes on a grid of steps, against a piano keyboard",
   [View.Plugin]: "A plugin's own interface",
