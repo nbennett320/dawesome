@@ -32,9 +32,12 @@ const RUN: u64 = 1;
 // the most frames rendered between checks for a cancel
 const CHUNK: usize = 4096;
 // after the last clip ends, the mix goes on until it's been this quiet for
-// this long (a hit still ringing), or for TAIL_MAX at most, then fades out
+// this long (a hit still ringing), or for TAIL_MAX at most, then fades out.
+// it's cut back to the last sound, so waiting longer adds no silence: it's
+// long enough for a delay's echo after a gap (the built-in Delay's
+// longest is 4 s)
 const QUIET: f32 = 3.162_278e-5; // -90 dBFS
-const QUIET_FOR: Duration = Duration::from_millis(250);
+const QUIET_FOR: Duration = Duration::from_secs(4);
 const TAIL_MAX: Duration = Duration::from_secs(10);
 const TAIL_FADE: Duration = Duration::from_millis(10);
 // the plugins' copies are played silence a step at a time, about as fast as
