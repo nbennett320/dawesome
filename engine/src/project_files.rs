@@ -291,6 +291,11 @@ pub fn relocate_takes(from: &Path, to: &Path, project: &str, copy: bool) -> (Vec
     if is_dir { folders.push(path.to_path_buf()) } else { files.push(path.to_path_buf()) }
   });
   if files.is_empty() && folders.is_empty() { return (relocated, errors); }
+  // in order of their paths, so takes are numbered the same on every
+  // system: a folder lists its files in no set order (sorted on macOS, by
+  // hash on Linux). a folder's path also sorts before what's in it
+  folders.sort();
+  files.sort();
 
   if let Err(e) = fs::create_dir_all(to) {
     errors.push(format!("could not make the folder '{}': {}", to.display(), e));
