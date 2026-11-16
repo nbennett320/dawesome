@@ -91,7 +91,7 @@ export default playlistSlice.reducer
 
 A component calling this Thunk (which invokes the Rust function, then sets the state (the root state 
 is defined by the 
-[InnerState struct](https://github.com/nbennett320/dawesome/blob/main/backend/src/daw/state/state.rs)))
+[Session struct](https://github.com/nbennett320/dawesome/blob/main/engine/src/daw/mod.rs)))
 might look like this:
 
 
