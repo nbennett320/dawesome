@@ -97,7 +97,7 @@ const PluginTab = ({ slotId }: { slotId: number }) => {
       </div>
 
       {native
-        ? <NativePanel slotId={slotId} />
+        ? <NativePanel slotId={slotId} active={active} />
         // afresh each time it's shown
         : <DockedEditor key={String(active)} slot={{ id: slotId, name: plugin.name }} active={active} />}
     </div>

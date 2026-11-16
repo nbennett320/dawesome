@@ -11,7 +11,7 @@ use serde::Serialize;
 use crate::daw::{self, Channel};
 use crate::effects::Racks;
 use crate::history;
-use crate::native::{EffectParams, Native, ParamValue};
+use crate::native::{EffectParams, EffectSpectrum, Native, ParamValue};
 use crate::plugin_catalog::PluginCatalog;
 
 fn channel(track: Option<u32>) -> Channel {
@@ -109,6 +109,14 @@ pub fn set_effect_bypassed(state: daw::TState<'_>, slot_id: u64, bypassed: bool)
 #[tauri::command]
 pub fn get_effect_params(state: daw::TState<'_>, slot_id: u64) -> Result<EffectParams, String> {
   state.playlist.effects.with_native(slot_id, |native| native.params())
+}
+
+// a built-in effect's output, as a spectrum for its analyzer. null when it
+// should be asked again (see Native::spectrum). off the main thread (async):
+// it's polled while the effect's tab shows, and the FFT is work
+#[tauri::command(async)]
+pub fn get_effect_spectrum(state: daw::TState<'_>, slot_id: u64) -> Result<Option<EffectSpectrum>, String> {
+  state.playlist.effects.with_native(slot_id, |native| native.spectrum())
 }
 
 // change a built-in effect's parameters, and record it so it can be undone

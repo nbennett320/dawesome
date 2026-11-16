@@ -32,7 +32,7 @@ describe('drawing the EQ', () => {
     const bands = Array.from({ length: 8 }, (_, i) => band(i))
     bands[0] = band(0, { on: true, shape: Shape.LowCut, freq: 80 })
     bands[3] = band(3, { on: true, freq: 2500, gain: 4.5 })
-    drawEq(ctx, { area: { width: 800, height: 400 }, bands, outputDb: 0, selected: 3, caption: 'Bell · 2.50 kHz' })
+    drawEq(ctx, { area: { width: 800, height: 400 }, bands, outputDb: 0, selected: 3, caption: 'Bell · 2.50 kHz', spectrum: null })
 
     expect(calls.filter(([name]) => name === 'arc')).toHaveLength(2)
     const texts = calls.filter(([name]) => name === 'fillText').map(([, args]) => args[0])
@@ -43,10 +43,27 @@ describe('drawing the EQ', () => {
     expect(styles.every(s => s.startsWith('rgba('))).toBe(true)
   })
 
+  it('draws the spectrum first, behind the rest', () => {
+    const bands = Array.from({ length: 8 }, (_, i) => band(i))
+    const scene = { area: { width: 300, height: 150 }, bands, outputDb: 0, selected: null, caption: null }
+    const without = fakeContext()
+    drawEq(without.ctx, { ...scene, spectrum: null })
+    const withIt = fakeContext()
+    drawEq(withIt.ctx, { ...scene, spectrum: [-90, -45, 0] })
+    const fills = (calls: Array<[string, unknown[]]>) => calls.filter(([name]) => name === 'fill').length
+    expect(fills(withIt.calls)).toBe(fills(without.calls) + 1)
+    // before the grid's lines
+    const names = withIt.calls.map(([name]) => name)
+    expect(names.indexOf('fill')).toBeLessThan(names.indexOf('stroke'))
+    // 0 dB at the top, -90 at the bottom
+    const points = withIt.calls.filter(([name]) => name === 'lineTo').slice(0, 3).map(([, args]) => args)
+    expect(points).toEqual([[0, 150], [150, 75], [300, 0]])
+  })
+
   it('draws no caption or dashed curve with nothing selected', () => {
     const { ctx, calls } = fakeContext()
     const bands = Array.from({ length: 8 }, (_, i) => band(i))
-    drawEq(ctx, { area: { width: 300, height: 150 }, bands, outputDb: -6, selected: null, caption: null })
+    drawEq(ctx, { area: { width: 300, height: 150 }, bands, outputDb: -6, selected: null, caption: null, spectrum: null })
     expect(calls.some(([name, args]) => name === 'setLineDash' && (args[0] as number[]).length > 0)).toBe(false)
     expect(calls.filter(([name]) => name === 'arc')).toHaveLength(0)
   })

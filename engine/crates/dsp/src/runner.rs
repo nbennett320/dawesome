@@ -21,6 +21,7 @@ use std::sync::Arc;
 
 use crate::effect::{Effect, Entry, Io, Values};
 use crate::smooth::Smoother;
+use crate::tap::Tap;
 use crate::transport::Transport;
 
 // how many frames each step of a glide lasts. short, because each step
@@ -31,6 +32,8 @@ pub const GRID: usize = 4;
 
 pub struct Store {
   entry: &'static Entry,
+  // what the effect puts out, for the app's analyzers (tap.rs)
+  tap: Tap,
   // each parameter's plain value (f32 bits), by id
   values: Box<[AtomicU32]>,
   version: AtomicU64,
@@ -42,11 +45,15 @@ impl Store {
     let values = entry.params.iter()
       .map(|p| AtomicU32::new(p.default.to_bits()))
       .collect();
-    Arc::new(Store { entry, values, version: AtomicU64::new(0) })
+    Arc::new(Store { entry, tap: Tap::new(), values, version: AtomicU64::new(0) })
   }
 
   pub fn entry(&self) -> &'static Entry {
     self.entry
+  }
+
+  pub fn tap(&self) -> &Tap {
+    &self.tap
   }
 
   // how many changes there have been
@@ -195,6 +202,7 @@ impl Runner {
       at = end;
       self.frames += len as u64;
     }
+    self.store.tap.write(&out_l[..frames], &out_r[..frames], transport.sample_rate);
     self.tail = self.effect.tail_frames(&Values(&self.plain), self.rate);
   }
 

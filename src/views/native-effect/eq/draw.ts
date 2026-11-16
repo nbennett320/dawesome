@@ -18,6 +18,27 @@ export interface Scene {
   selected: number | null
   // what the selected band is set to, as it's shown ("Bell · 2.50 kHz · …")
   caption: string | null
+  // the output's spectrum, in dB from 20 Hz to 20 kHz evenly by octave (see
+  // spectrum.ts), drawn behind everything. none: not drawn
+  spectrum: number[] | null
+}
+
+// the spectrum's own scale, top to bottom of the area (apart from the
+// curve's ±24 dB): 0 dB at the top, SPECTRUM_FLOOR at the bottom
+export const SPECTRUM_FLOOR = -90
+
+const spectrumY = (db: number, area: Area): number =>
+  area.height * Math.min(1, Math.max(0, db / SPECTRUM_FLOOR))
+
+const drawSpectrum = (ctx: CanvasRenderingContext2D, area: Area, levels: number[]) => {
+  if(levels.length < 2) return
+  ctx.beginPath()
+  ctx.moveTo(0, area.height)
+  levels.forEach((db, i) => ctx.lineTo((i / (levels.length - 1)) * area.width, spectrumY(db, area)))
+  ctx.lineTo(area.width, area.height)
+  ctx.closePath()
+  ctx.fillStyle = painter('effect').css('spectrum')
+  ctx.fill()
 }
 
 // a curve across the area: `db` at each frequency
@@ -35,7 +56,7 @@ const trace = (ctx: CanvasRenderingContext2D, area: Area, db: (freq: number) => 
 }
 
 export const drawEq = (ctx: CanvasRenderingContext2D, scene: Scene) => {
-  const { area, bands, outputDb, selected, caption } = scene
+  const { area, bands, outputDb, selected, caption, spectrum } = scene
   const effect = painter('effect')
   const track = painter('track')
   const zero = dbToY(0, area)
@@ -43,6 +64,8 @@ export const drawEq = (ctx: CanvasRenderingContext2D, scene: Scene) => {
   ctx.clearRect(0, 0, area.width, area.height)
   ctx.fillStyle = effect.css('background')
   ctx.fillRect(0, 0, area.width, area.height)
+
+  if(spectrum) drawSpectrum(ctx, area, spectrum)
 
   // the grid, and its labels
   ctx.lineWidth = 1

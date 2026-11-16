@@ -18,10 +18,13 @@
 
 pub mod effect;
 pub mod effects;
+pub mod fft;
 pub mod param;
 pub mod runner;
 pub mod smooth;
+pub mod spectrum;
 pub mod svf;
+pub mod tap;
 pub mod transport;
 
 #[cfg(test)]
@@ -31,4 +34,5 @@ pub use effect::{Effect, EffectInfo, Entry, Io, Values};
 pub use effects::{find, REGISTRY};
 pub use param::{Kind, ParamDesc, Taper, Unit};
 pub use runner::{Runner, Store};
+pub use tap::Tap;
 pub use transport::Transport;

@@ -8,7 +8,9 @@ import EqPanel from './eq/EqPanel'
 // a built-in effect's own panel, for one that wants more than knobs (the
 // EQ's curve), by the effect's id. one that has none gets the generated
 // panel
-export type CustomPanel = React.ComponentType<{ api: EffectParamsApi }>
+// - active: it can be seen (its tab is showing): live displays poll only
+//   then
+export type CustomPanel = React.ComponentType<{ api: EffectParamsApi, slotId: number, active: boolean }>
 const PANELS: Record<string, CustomPanel> = {
   eq: EqPanel,
 }
@@ -42,7 +44,7 @@ export const GeneratedPanel = ({ api }: { api: EffectParamsApi }) => (
 )
 
 // a built-in effect's controls, in its tab
-const NativePanel = ({ slotId }: { slotId: number }) => {
+const NativePanel = ({ slotId, active = true }: { slotId: number, active?: boolean }) => {
   const api = useEffectParams(slotId)
   const { status } = api
 
@@ -60,7 +62,7 @@ const NativePanel = ({ slotId }: { slotId: number }) => {
   const Panel = PANELS[status.effect] ?? GeneratedPanel
   return (
     <div className='flex-1 min-h-0 overflow-auto'>
-      <Panel api={api} />
+      <Panel api={api} slotId={slotId} active={active} />
     </div>
   )
 }

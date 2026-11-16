@@ -46,7 +46,7 @@ let set: Mock<EffectParamsApi['set']>
 const setup = (params: ParamWire[]) => {
   set = vi.fn<EffectParamsApi['set']>()
   const api: EffectParamsApi = { status: { kind: 'ready', effect: 'eq' }, params, set, setText: vi.fn() }
-  render(<EqPanel api={api} />)
+  render(<EqPanel api={api} slotId={7} active={false} />)
   return screen.getByLabelText(/^EQ curve/)
 }
 

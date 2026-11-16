@@ -247,6 +247,7 @@ fn init_tauri() {
       get_effect_params,
       set_effect_param,
       set_effect_param_text,
+      get_effect_spectrum,
       set_pattern_notes,
       add_synth_on_track,
       project_has_unsaved_changes,

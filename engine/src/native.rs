@@ -144,6 +144,26 @@ impl Native {
   }
 }
 
+// what an analyzer draws: the effect's output now, in dB at log-spaced
+// frequencies from 20 Hz to 20 kHz
+pub const SPECTRUM_BINS: usize = 256;
+
+impl Native {
+  // its output's spectrum, taken now (on whichever thread asks: never the
+  // audio thread's). none when the copy was overtaken: ask again
+  pub fn spectrum(&self) -> Option<EffectSpectrum> {
+    let tap = self.store.tap();
+    let (samples, written) = tap.latest(dsp::tap::WINDOW)?;
+    let rate = tap.rate();
+    let levels = if rate == 0 {
+      vec![dsp::spectrum::FLOOR; SPECTRUM_BINS]
+    } else {
+      dsp::spectrum::spectrum(&samples, rate as f32, SPECTRUM_BINS, 20., 20_000.)
+    };
+    Some(EffectSpectrum { written, rate, levels })
+  }
+}
+
 fn no_such_param() -> String {
   "That effect has no such parameter".into()
 }
@@ -254,6 +274,19 @@ pub struct ParamWire {
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct EffectSpectrum {
+  // frames the effect has put out so far: when it stops going up, the
+  // effect isn't being run (resting after silence, or bypassed) and the
+  // analyzer lets its picture fall away
+  pub written: u64,
+  pub rate: u32,
+  // dB (a full-scale sine is 0, silence -120), SPECTRUM_BINS of them, from
+  // 20 Hz to 20 kHz evenly by octave
+  pub levels: Vec<f32>,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ParamValue {
   pub id: u32,
   // plain (Hz, dB, a choice's index)
@@ -336,6 +369,30 @@ mod tests {
     assert!(json["params"][0]["value"]["normalized"].is_number());
     assert!(a.native().unwrap().set(9999, 0.5).is_err());
     assert!(a.native().unwrap().set_text(freq.id, "loud").is_err());
+  }
+
+  #[test]
+  fn test_its_spectrum_shows_what_it_puts_out() {
+    let mut a = eq();
+    let mut processor = a.take_processor().unwrap();
+    let before = a.native().unwrap().spectrum().unwrap();
+    assert_eq!((before.written, before.rate), (0, 0));
+    assert!(before.levels.iter().all(|l| *l == dsp::spectrum::FLOOR));
+
+    let rate = 48_000;
+    let transport = Transport { sample_rate: rate, ..Transport::default() };
+    let sine: Vec<f32> = (0..8192).map(|i| (std::f32::consts::TAU * 1000. * i as f32 / rate as f32).sin()).collect();
+    for block in sine.chunks(512) {
+      let (mut l, mut r) = (vec![0f32; block.len()], vec![0f32; block.len()]);
+      processor.process([block, block], [&mut l, &mut r], &[], &transport);
+    }
+    let after = a.native().unwrap().spectrum().unwrap();
+    assert_eq!((after.written, after.rate, after.levels.len()), (8192, rate, SPECTRUM_BINS));
+    let peak = after.levels.iter().cloned().fold(f32::MIN, f32::max);
+    let at = after.levels.iter().position(|l| *l == peak).unwrap();
+    let freq = 20. * 1000f32.powf(at as f32 / (SPECTRUM_BINS - 1) as f32);
+    assert!((freq / 1000.).log2().abs() < 0.1, "the peak's at {} Hz", freq);
+    assert!(peak > -1.5, "{}", peak);
   }
 
   #[test]

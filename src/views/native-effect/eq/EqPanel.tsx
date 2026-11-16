@@ -18,7 +18,9 @@ import { choiceNormalized, normalizedOf, ParamWire } from '../../../types/native
 import ClipMenu from '../../playlist/ClipMenu'
 import ParamControl from '../ParamControl'
 import type { EffectParamsApi } from '../useEffectParams'
-import { BAND_COLORS, drawEq } from './draw'
+import { useEffectSpectrum } from '../useEffectSpectrum'
+import { Picture, showing } from '../spectrum'
+import { BAND_COLORS, drawEq, Scene } from './draw'
 import {
   Area, freeBand, hitBand, newBandShape, xToFreq, xToFreqNormalized, yToDb, yToGainNormalized,
 } from './geometry'
@@ -85,7 +87,7 @@ const BandChips = ({ on, selected, onSelect }: {
   )
 }
 
-const EqPanel = ({ api }: { api: EffectParamsApi }) => {
+const EqPanel = ({ api, slotId, active }: { api: EffectParamsApi, slotId: number, active: boolean }) => {
   useThemeChange()
   const { params, set } = api
   const bands = bandsOf(params)
@@ -122,16 +124,31 @@ const EqPanel = ({ api }: { api: EffectParamsApi }) => {
     `Q ${param(selected, Q).value.text}`,
   ].join(' · ')
 
-  React.useEffect(() => {
+  // what's drawn: the panel's own (as of this render), and the spectrum,
+  // which comes many times a second and is drawn without React
+  const scene = React.useRef<Omit<Scene, 'spectrum'> | null>(null)
+  const picture = React.useRef<Picture | null>(null)
+  scene.current = { area, bands, outputDb: output?.value.value ?? 0, selected, caption }
+  const paint = React.useCallback(() => {
     const el = canvas.current
     const ctx = el?.getContext('2d')
-    if(!el || !ctx || area.width === 0 || area.height === 0) return
+    const now = scene.current
+    if(!el || !ctx || !now || now.area.width === 0 || now.area.height === 0) return
     const scale = window.devicePixelRatio || 1
-    el.width = Math.round(area.width * scale)
-    el.height = Math.round(area.height * scale)
+    const [width, height] = [Math.round(now.area.width * scale), Math.round(now.area.height * scale)]
+    if(el.width !== width || el.height !== height) {
+      el.width = width
+      el.height = height
+    }
     ctx.setTransform(scale, 0, 0, scale, 0, 0)
-    drawEq(ctx, { area, bands, outputDb: output?.value.value ?? 0, selected, caption })
+    const levels = showing(picture.current) ? picture.current!.levels : null
+    drawEq(ctx, { ...now, spectrum: levels })
+  }, [])
+  useEffectSpectrum(slotId, active, got => {
+    picture.current = got
+    paint()
   })
+  React.useEffect(paint)
 
   // where a pointer event is, in the area's pixels
   const at = (e: { clientX: number, clientY: number }) => {

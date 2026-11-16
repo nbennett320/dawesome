@@ -86,3 +86,13 @@ export const groupParams = (params: ParamWire[]): ParamGroup[] => {
   })
   return groups
 }
+
+// a built-in effect's output as a spectrum (get_effect_spectrum)
+export interface EffectSpectrum {
+  // frames it's put out so far: not going up means it isn't being run
+  written: number
+  rate: number
+  // dB (a full-scale sine is 0, silence -120), from 20 Hz to 20 kHz evenly
+  // by octave
+  levels: number[]
+}

@@ -365,6 +365,21 @@ fn test_a_new_sample_rate_sounds_as_one_it_started_at() {
 }
 
 #[test]
+fn test_what_it_puts_out_is_tapped_for_the_app() {
+  for entry in effects() {
+    let store = Store::new(entry);
+    let mut runner = Runner::new(store.clone(), RATE as f32);
+    let input = noise(5000, 3);
+    let [l, r] = run(&mut runner, &input, 512, RATE);
+    let tap = store.tap();
+    assert_eq!((tap.written(), tap.rate()), (5000, RATE));
+    let (latest, _) = tap.latest(64).unwrap();
+    let expected: Vec<f32> = (5000 - 64..5000).map(|i| (l[i] + r[i]) * 0.5).collect();
+    assert_eq!(latest, expected, "{}", entry.info.name);
+  }
+}
+
+#[test]
 fn test_values_set_together_come_back_as_they_were() {
   for entry in effects() {
     for plains in settings(entry) {
