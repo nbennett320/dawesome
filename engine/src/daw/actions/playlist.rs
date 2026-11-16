@@ -17,7 +17,7 @@ pub struct SnapSetting {
   beats: f32,
 }
 
-pub(crate) fn snap_setting(state: &daw::InnerState) -> SnapSetting {
+pub(crate) fn snap_setting(state: &daw::Session) -> SnapSetting {
   let ui = state.playlist.ui.lock().unwrap();
   let (num, den) = timing::MusicalTiming::ratio(&ui.snap_subdivision);
 
@@ -31,7 +31,7 @@ pub(crate) fn snap_setting(state: &daw::InnerState) -> SnapSetting {
 // the number of beats the playlist shows, and the time they span
 // at the current tempo
 pub(crate) fn displayed_beats_and_duration(
-  state: &daw::InnerState,
+  state: &daw::Session,
 ) -> (f32, std::time::Duration) {
   let tempo = state.playlist.audiograph.lock().unwrap().tempo();
   let beats = playback::playlist_beats(state);
@@ -45,7 +45,7 @@ pub(crate) fn displayed_beats_and_duration(
 // positions are in beats rather than pixels, so they don't depend on the
 // canvas size, zoom, or pan, which the frontend accounts for
 pub(crate) fn beat_to_offset(
-  state: &daw::InnerState,
+  state: &daw::Session,
   beat: Option<f32>,
 ) -> std::time::Duration {
   let (beats, dur) = displayed_beats_and_duration(state);
@@ -80,7 +80,7 @@ fn calc_sample_offset(
 // the inverse of beat_to_offset: how many beats into the playlist
 // a start offset is
 pub(crate) fn offset_to_beat(
-  state: &daw::InnerState,
+  state: &daw::Session,
   offset: std::time::Duration,
 ) -> f32 {
   let interval = state.playlist.audiograph.lock().unwrap().beat_interval();
@@ -91,7 +91,7 @@ pub(crate) fn offset_to_beat(
 }
 
 // where a node starts, in beats from the start of the playlist, after snapping
-pub(crate) fn node_beat(state: &daw::InnerState, id: u64) -> Result<f32, String> {
+pub(crate) fn node_beat(state: &daw::Session, id: u64) -> Result<f32, String> {
   let (offset, _) = state
     .playlist
     .audiograph
@@ -103,7 +103,7 @@ pub(crate) fn node_beat(state: &daw::InnerState, id: u64) -> Result<f32, String>
   Ok(offset_to_beat(state, offset))
 }
 
-pub fn add_track_to(state: &daw::InnerState) -> u32 {
+pub fn add_track_to(state: &daw::Session) -> u32 {
   let (before, count) = {
     let mut audiograph = state.playlist.audiograph.lock().unwrap();
     let before = audiograph.min_tracks;
@@ -119,7 +119,7 @@ mod tests {
 
   #[test]
   fn test_snap_setting() {
-    let state = daw::InnerState::default();
+    let state = daw::Session::default();
 
     use timing::Note;
 
@@ -142,7 +142,7 @@ mod tests {
 
   #[test]
   fn test_beat_to_offset() {
-    let state = daw::InnerState::default();
+    let state = daw::Session::default();
 
     // default: 120bpm, a playlist of 512 beats (128 bars)
     let ms = |b: Option<f32>| beat_to_offset(&state, b).as_millis();

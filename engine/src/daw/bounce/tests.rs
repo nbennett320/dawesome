@@ -10,12 +10,12 @@ use crate::daw::project;
 const KICK: &str = "assets/assets_66-bd-01.wav";
 
 // a state whose project is saved in a folder of its own, which is returned
-fn saved_project(name: &str) -> (Arc<daw::InnerState>, PathBuf) {
+fn saved_project(name: &str) -> (Arc<daw::Session>, PathBuf) {
   let dir = std::env::temp_dir().join(format!("dawesome-bounce-{}-{}", name, std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   std::fs::create_dir_all(&dir).unwrap();
   let dir = std::fs::canonicalize(dir).unwrap();
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   state.project.lock().unwrap().reset(Some(dir.join("song.dawesome")));
   (state, dir)
 }
@@ -50,7 +50,7 @@ fn read(path: &Path) -> (hound::WavSpec, Vec<f32>) {
   (spec, reader.samples::<f32>().map(|sample| sample.unwrap()).collect())
 }
 
-fn node(state: &daw::InnerState, id: u64) -> audiograph::AudioNode {
+fn node(state: &daw::Session, id: u64) -> audiograph::AudioNode {
   state.playlist.audiograph.lock().unwrap().get_node_by_id(id).unwrap().clone()
 }
 
@@ -245,7 +245,7 @@ fn test_names_with_any_letters_are_numbered() {
 
 #[test]
 fn test_an_unsaved_project_is_refused() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   let id = add_clip(&state, KICK.to_string(), 0, Some(0.)).unwrap().id;
   let before = project::capture(&state, None);
   let steps = state.history.lock().unwrap().len();
@@ -330,7 +330,7 @@ fn test_the_five_hundred_clip_project_opens() {
     Ok(path) => PathBuf::from(path),
     Err(_) => return,
   };
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   let started = Instant::now();
   let loaded = project::load_from(&state, &path).unwrap();
   println!("opened in {:?}", started.elapsed());
@@ -519,7 +519,7 @@ fn test_saving_somewhere_new_takes_the_clips_folder_along() {
   assert!(again.clips[0].path.ends_with("kick_copy_2.wav"));
 
   // reopened, the project finds its clip
-  let reopened = daw::InnerState::default();
+  let reopened = daw::Session::default();
   let loaded = project::load_from(&reopened, Path::new(&saved.path)).unwrap();
   assert!(loaded.missing.is_empty(), "{:?}", loaded.missing);
   let _ = std::fs::remove_dir_all(&dir);

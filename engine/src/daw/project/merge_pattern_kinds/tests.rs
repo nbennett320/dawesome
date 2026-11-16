@@ -370,7 +370,7 @@ fn test_the_v3_fixture_opens_as_the_old_app_showed_it() {
 
   // the clips, in the file's order, each playing the part it played: from
   // where it started in its pattern to where it ended, as long as it was
-  let clips = |state: &daw::InnerState| -> Vec<(u64, u32, f32, (f64, f64))> {
+  let clips = |state: &daw::Session| -> Vec<(u64, u32, f32, (f64, f64))> {
     let audiograph = state.playlist.audiograph.lock().unwrap();
     let spans = audiograph.pattern_nodes.iter().map(|node| (node.start, node.end()));
     loaded.pattern_clips.iter().zip(spans).map(|(c, span)| (c.pattern_id, c.track_number, c.start_beat, span)).collect()

@@ -8,15 +8,15 @@ use crate::daw::project;
 
 const KICK: &str = "assets/assets_66-bd-01.wav";
 
-fn state() -> Arc<daw::InnerState> {
-  Arc::new(daw::InnerState::default())
+fn state() -> Arc<daw::Session> {
+  Arc::new(daw::Session::default())
 }
 
-fn saved(state: &daw::InnerState) -> project::Project {
+fn saved(state: &daw::Session) -> project::Project {
   project::capture(state, None)
 }
 
-fn steps(state: &daw::InnerState) -> usize {
+fn steps(state: &daw::Session) -> usize {
   state.history.lock().unwrap().len()
 }
 
@@ -26,7 +26,7 @@ fn edit(id: u64, start: f64, end: Option<f64>) -> WindowEdit {
 
 // a sample clip a few hundred milliseconds long on beat 4, and a clip of
 // a one bar pattern on beat 8: (state, sample clip, pattern clip)
-fn clips() -> (Arc<daw::InnerState>, u64, u64) {
+fn clips() -> (Arc<daw::Session>, u64, u64) {
   let state = state();
   let sample = add_clip(&state, KICK.to_string(), 0, Some(4.)).unwrap().id;
   let pattern = {
@@ -43,7 +43,7 @@ fn clips() -> (Arc<daw::InnerState>, u64, u64) {
   (state, sample, clip)
 }
 
-fn sample_length(state: &daw::InnerState, id: u64) -> f64 {
+fn sample_length(state: &daw::Session, id: u64) -> f64 {
   state.playlist.audiograph.lock().unwrap().get_node_by_id(id).unwrap().sample_duration().as_secs_f64()
 }
 
@@ -308,7 +308,7 @@ fn test_a_cut_that_cuts_nothing_is_no_step() {
 
 #[test]
 fn test_add_and_move_snap_to_the_snap_setting() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   let sample = playback::METRONOME_TICK_PATH.to_string();
   let ms = |id: u64| state.playlist.audiograph.lock().unwrap()
     .get_node_by_id(id).unwrap().start_offset.as_millis();
@@ -331,7 +331,7 @@ fn test_add_and_move_snap_to_the_snap_setting() {
 
 #[test]
 fn test_clip_settings() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   let sample = playback::METRONOME_TICK_PATH.to_string();
   let id = add_node_at_offset(&state, sample, 0, Duration::ZERO, false).unwrap();
 
@@ -360,7 +360,7 @@ fn test_clip_settings() {
 
 #[test]
 fn test_snapped_nodes_report_their_beat() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   let sample = playback::METRONOME_TICK_PATH.to_string();
 
   // dropped at beat 1.4 snaps to beat 1 (default snap is one beat)
@@ -380,7 +380,7 @@ fn test_snapped_nodes_report_their_beat() {
 
 #[test]
 fn test_move_a_group_of_nodes() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   let sample = playback::METRONOME_TICK_PATH.to_string();
   // 120bpm, one-beat snap. b is off the grid, a quarter beat after a
   let a = add_node_at_offset(&state, sample.clone(), 0, beat_to_offset(&state, Some(2.)), true).unwrap();

@@ -154,7 +154,7 @@ pub(crate) fn source_name(audiograph: &audiograph::AudioGraph<'static>, id: u64,
 pub const NEEDS_SAVING: &str = "The project has to be saved first, so its clips have somewhere to go.";
 
 // the folder written-out clips go in, for a project that's been saved
-pub fn clips_dir(state: &daw::InnerState) -> Result<PathBuf, String> {
+pub fn clips_dir(state: &daw::Session) -> Result<PathBuf, String> {
   state.project.lock().unwrap().path.as_deref()
     .map(project_files::clips_dir_for)
     .ok_or_else(|| NEEDS_SAVING.to_string())
@@ -162,7 +162,7 @@ pub fn clips_dir(state: &daw::InnerState) -> Result<PathBuf, String> {
 
 // - rate: the engine's rate. None when no output is open: each clip is
 //   then written at its sample's own rate
-pub(crate) fn deep_copy(state: &daw::InnerState, ids: &[u64], rate: Option<u32>) -> Result<ChangedClips, String> {
+pub(crate) fn deep_copy(state: &daw::Session, ids: &[u64], rate: Option<u32>) -> Result<ChangedClips, String> {
   let dir = clips_dir(state)?;
   if ids.is_empty() { return Ok(ChangedClips::default()); }
   let _writing = writing();

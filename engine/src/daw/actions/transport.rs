@@ -75,7 +75,7 @@ pub struct PlaylistTransport {
   pattern_length: u32,
 }
 
-pub(crate) fn playlist_transport(state: &daw::InnerState) -> PlaylistTransport {
+pub(crate) fn playlist_transport(state: &daw::Session) -> PlaylistTransport {
   let beat_interval = playback::beat_interval(state);
   // read as a pair: both move when the loop comes round
   let (start_offset, started) = playback::run_anchor(state);
@@ -118,7 +118,7 @@ pub(crate) fn playlist_transport(state: &daw::InnerState) -> PlaylistTransport {
 // change the tempo (see daw::set_playlist_tempo), as a step that can be
 // undone. refused while recording
 // - gesture: the visit to the tempo field it's part of, if any
-pub fn change_tempo(state: &Arc<daw::InnerState>, tempo: f32, gesture: Option<u64>) -> Result<f32, String> {
+pub fn change_tempo(state: &Arc<daw::Session>, tempo: f32, gesture: Option<u64>) -> Result<f32, String> {
   let before = state.tempo();
   let after = playback::set_playlist_tempo(state, tempo)?;
   history::record(state, history::Step::new().in_gesture(gesture).with_tempo(before, after));
@@ -126,7 +126,7 @@ pub fn change_tempo(state: &Arc<daw::InnerState>, tempo: f32, gesture: Option<u6
 }
 
 // the playlist's length is counted in its bars, so it's worked out again
-pub fn set_time_signature(state: &daw::InnerState, signature: timing::TimeSignature) {
+pub fn set_time_signature(state: &daw::Session, signature: timing::TimeSignature) {
   *state.playlist.time_signature.lock().unwrap() = signature;
   playback::fit_playlist(state);
 }
@@ -141,7 +141,7 @@ pub struct LoopSettings {
   enabled: bool,
 }
 
-pub(crate) fn loop_settings(state: &daw::InnerState) -> LoopSettings {
+pub(crate) fn loop_settings(state: &daw::Session) -> LoopSettings {
   LoopSettings {
     region: *state.playlist.loop_region.lock().unwrap(),
     end_pin: *state.playlist.loop_end_pin.lock().unwrap(),
@@ -154,7 +154,7 @@ pub(crate) fn loop_settings(state: &daw::InnerState) -> LoopSettings {
 // where there was none turns looping on. while recording, the loop stays as
 // it is until it's over (see toggle_loop_enabled), and nothing changes.
 // returns the loop as it is now
-pub fn change_loop_region(state: &daw::InnerState, start: f64, end: f64) -> LoopSettings {
+pub fn change_loop_region(state: &daw::Session, start: f64, end: f64) -> LoopSettings {
   if !crate::daw::recording::is_recording(state) {
     let beats = playback::playlist_beats(state) as f64;
     let mut region = state.playlist.loop_region.lock().unwrap();
@@ -169,7 +169,7 @@ pub fn change_loop_region(state: &daw::InnerState, start: f64, end: f64) -> Loop
 
 // take the region away: the loop's from the start to the end flag again.
 // not while recording
-pub fn remove_loop_region(state: &daw::InnerState) -> LoopSettings {
+pub fn remove_loop_region(state: &daw::Session) -> LoopSettings {
   if !crate::daw::recording::is_recording(state) {
     *state.playlist.loop_region.lock().unwrap() = None;
   }
@@ -178,7 +178,7 @@ pub fn remove_loop_region(state: &daw::InnerState) -> LoopSettings {
 
 // pin the loop's end flag at a beat (at least one in, and within the
 // playlist), so it stays there when clips move. not while recording
-pub fn change_loop_end(state: &daw::InnerState, beat: f64) -> LoopSettings {
+pub fn change_loop_end(state: &daw::Session, beat: f64) -> LoopSettings {
   if !crate::daw::recording::is_recording(state) {
     let beats = playback::playlist_beats(state) as f64;
     if let Some(pin) = playlist::valid_loop_end_pin(beat.min(beats)) {
@@ -189,7 +189,7 @@ pub fn change_loop_end(state: &daw::InnerState, beat: f64) -> LoopSettings {
 }
 
 // let the loop's end flag follow the last clip again. not while recording
-pub fn unpin_loop_end(state: &daw::InnerState) -> LoopSettings {
+pub fn unpin_loop_end(state: &daw::Session) -> LoopSettings {
   if !crate::daw::recording::is_recording(state) {
     *state.playlist.loop_end_pin.lock().unwrap() = None;
   }

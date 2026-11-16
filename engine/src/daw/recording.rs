@@ -75,7 +75,7 @@ pub struct ArmedTrack {
 }
 
 // a recording in progress
-struct Session {
+struct Recording {
   // each armed track, and the file its take goes in
   tracks: Vec<(u32, PathBuf)>,
   // where on the playlist it started, and in beats (the tempo can't
@@ -108,7 +108,7 @@ struct Session {
 #[derive(Default)]
 pub struct Recorder {
   armed: BTreeMap<u32, InputChoice>,
-  session: Option<Session>,
+  session: Option<Recording>,
   // recordings that have stopped, whose takes aren't on their tracks yet
   finishing: u32,
   clips: Vec<LoadedClip>,
@@ -142,7 +142,7 @@ impl Recorder {
   }
 
   // stop the recording, counting it as finishing until its takes are in
-  fn begin_finish(&mut self) -> Option<Session> {
+  fn begin_finish(&mut self) -> Option<Recording> {
     let session = self.session.take()?;
     self.finishing += 1;
     Some(session)
@@ -158,17 +158,17 @@ impl Recorder {
 
 // recording, or still putting a stopped recording's takes on their tracks:
 // its files shouldn't be renamed or deleted until that's over
-pub fn is_busy(state: &daw::InnerState) -> bool {
+pub fn is_busy(state: &daw::Session) -> bool {
   state.recorder.lock().unwrap().busy()
 }
 
-pub fn is_recording(state: &daw::InnerState) -> bool {
+pub fn is_recording(state: &daw::Session) -> bool {
   state.recorder.lock().unwrap().recording()
 }
 
 // where the loop is while a recording is going: where it was when the
 // recording started
-pub fn loop_span_recording(state: &daw::InnerState) -> Option<playlist::LoopSpan> {
+pub fn loop_span_recording(state: &daw::Session) -> Option<playlist::LoopSpan> {
   state.recorder.lock().unwrap().session.as_ref().map(|session| session.span)
 }
 
@@ -193,7 +193,7 @@ pub struct TakeInProgress {
   pub tracks: Vec<u32>,
 }
 
-pub fn collect(state: &daw::InnerState) -> Recorded {
+pub fn collect(state: &daw::Session) -> Recorded {
   let mut recorder = state.recorder.lock().unwrap();
   let take = recorder.session.as_ref().map(|session| {
     let first = session.span.end.saturating_sub(session.start);
@@ -214,7 +214,7 @@ pub fn collect(state: &daw::InnerState) -> Recorded {
 // keep the input open while any track is armed (or let it close when none
 // is), so pressing Record doesn't wait for the device to open. an input
 // that can't be opened is said when recording, or in the track's choices
-pub fn hold_input_for_armed(state: &daw::InnerState) {
+pub fn hold_input_for_armed(state: &daw::Session) {
   let any = !state.recorder.lock().unwrap().armed.is_empty();
   if let Err(e) = input::hold_input(any) {
     println!("could not open the audio input for the armed tracks: {}", e);
@@ -224,7 +224,7 @@ pub fn hold_input_for_armed(state: &daw::InnerState) {
 // start recording every armed track, playing from the playhead. already
 // playing the playlist: record in from where it's got to, without starting
 // it again. `at_loop_end` is what it does when the loop comes round
-pub fn start(state: &Arc<daw::InnerState>, at_loop_end: LoopRecording) -> Result<(), String> {
+pub fn start(state: &Arc<daw::Session>, at_loop_end: LoopRecording) -> Result<(), String> {
   let began = Instant::now();
   // the last recording's takes may still be going on their tracks (it
   // stopped with playback, or at a loop's end): it has the input until then
@@ -324,7 +324,7 @@ pub fn start(state: &Arc<daw::InnerState>, at_loop_end: LoopRecording) -> Result
   });
 
   let interval = playback::beat_interval(state);
-  let session = Session {
+  let session = Recording {
     start_beat: playback::offset_beats(start, interval),
     tracks: tracks.iter().zip(&files).map(|(&track, file)| (track, file.path.clone())).collect(),
     start,
@@ -351,7 +351,7 @@ pub fn start(state: &Arc<daw::InnerState>, at_loop_end: LoopRecording) -> Result
 
 // how long recording counts in for: a bar, when counting in is on. what's
 // captured meanwhile is dropped with the rest from before the playhead's heard
-pub fn count_in(state: &daw::InnerState) -> Duration {
+pub fn count_in(state: &daw::Session) -> Duration {
   if !state.playlist.count_in.load(std::sync::atomic::Ordering::SeqCst) {
     return Duration::ZERO;
   }
@@ -378,7 +378,7 @@ fn pass_start(takes: &input::Takes, (start, loop_start): (Duration, Duration), k
 // put a take's files on their tracks (in order), as clips from `start`.
 // while layering, a pass whose sound is playing as it was recorded is held
 // back until the loop comes round again, so it isn't heard twice
-fn place(state: &daw::InnerState, takes: &input::Takes, tracks: &[u32], start: Duration) -> (Vec<LoadedClip>, Vec<String>) {
+fn place(state: &daw::Session, takes: &input::Takes, tracks: &[u32], start: Duration) -> (Vec<LoadedClip>, Vec<String>) {
   let mut problems = Vec::new();
 
   // decoded before taking any lock, as playback needs the graph's
@@ -424,7 +424,7 @@ fn place(state: &daw::InnerState, takes: &input::Takes, tracks: &[u32], start: D
 // while layering: put each pass on its tracks as it's finished, so the
 // playlist shows it straight away. returns the clips made
 fn place_passes(
-  state: &daw::InnerState,
+  state: &daw::Session,
   finished: mpsc::Receiver<input::Takes>,
   tracks: &[u32],
   starts: (Duration, Duration),
@@ -444,13 +444,13 @@ fn place_passes(
 // whether the recording stops when the loop comes round (and playback with
 // it), rather than carrying on. one that can't layer stops too: it wasn't
 // looping when it started
-pub fn stops_at_loop_end(state: &daw::InnerState) -> bool {
+pub fn stops_at_loop_end(state: &daw::Session) -> bool {
   state.recorder.lock().unwrap().session.as_ref()
     .is_some_and(|session| session.at_loop_end == LoopRecording::Stop || session.live.is_none())
 }
 
 // where the recording started on the playlist, if one's going
-pub fn started_at(state: &daw::InnerState) -> Option<Duration> {
+pub fn started_at(state: &daw::Session) -> Option<Duration> {
   state.recorder.lock().unwrap().session.as_ref().map(|session| session.start)
 }
 
@@ -467,7 +467,7 @@ fn ended_pass(first: Duration, every: Duration, into: Duration) -> Option<u32> {
 // while layering, the pass ending there is played on the next pass as it's
 // recorded (its last moments are in by the time they're read), and the pass
 // before it plays from the playlist from now on. returns what to play
-pub fn layer_voices(state: &daw::InnerState, engine: &engine::Engine, run: u64, at: Duration, heard: Instant) -> Vec<Box<engine::Voice>> {
+pub fn layer_voices(state: &daw::Session, engine: &engine::Engine, run: u64, at: Duration, heard: Instant) -> Vec<Box<engine::Voice>> {
   let (pass, (delay, lead)) = {
     let mut recorder = state.recorder.lock().unwrap();
     let Some(session) = recorder.session.as_mut() else { return Vec::new() };
@@ -509,7 +509,7 @@ fn pass_heard(index: u32, start: Duration, span: playlist::LoopSpan) -> (Duratio
 // stop recording, and put the takes on their tracks. at a loop's end, the
 // takes end there. a loop recording's passes are already on their tracks:
 // this puts the last on. one undo takes the whole recording off
-pub fn finish(state: &daw::InnerState, at_loop_end: bool) {
+pub fn finish(state: &daw::Session, at_loop_end: bool) {
   let mut session = match state.recorder.lock().unwrap().begin_finish() {
     Some(session) => session,
     None => return,
@@ -559,7 +559,7 @@ pub fn finish(state: &daw::InnerState, at_loop_end: bool) {
 // a recording going (of nothing), for other modules' tests of what can't
 // change while recording
 #[cfg(test)]
-pub fn fake_session(state: &daw::InnerState) {
+pub fn fake_session(state: &daw::Session) {
   state.recorder.lock().unwrap().session = Some(tests::session());
 }
 

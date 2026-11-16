@@ -6,7 +6,7 @@ use crate::daw::actions::playlist::{beat_to_offset, node_beat};
 
 #[test]
 fn test_start_time_can_be_just_ahead() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   let wall = |t: SystemTime| t.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs_f64() * 1000.;
 
   // a run that's heard 20ms from now
@@ -23,7 +23,7 @@ fn test_start_time_can_be_just_ahead() {
 
 #[test]
 fn test_playlist_transport() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
 
   // before the playlist has been started there's no start time, but the
   // playhead is still reported
@@ -57,19 +57,19 @@ fn test_playlist_transport() {
 
 // pretend a run started `ago_ms` back, from `from_ms` into the playlist
 // (starting a real run needs an audio device)
-fn fake_run(state: &daw::InnerState, from_ms: u64, ago_ms: u64) {
+fn fake_run(state: &daw::Session, from_ms: u64, ago_ms: u64) {
   *state.playlist.start_offset.lock().unwrap() = Duration::from_millis(from_ms);
   *state.playlist.started_time.lock().unwrap() = Some(Instant::now() - Duration::from_millis(ago_ms));
   state.playlist.set_playing(true);
 }
 
-fn playhead_ms(state: &daw::InnerState) -> f64 {
+fn playhead_ms(state: &daw::Session) -> f64 {
   playback::playhead(state).as_secs_f64() * 1000.
 }
 
 #[test]
 fn test_playhead_follows_the_run() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
 
   // stopped: wherever it was left
   *state.playlist.start_offset.lock().unwrap() = Duration::from_millis(750);
@@ -92,7 +92,7 @@ fn test_playhead_follows_the_run() {
 
 #[test]
 fn test_pause_keeps_the_playhead() {
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   fake_run(&state, 2_000, 1_250);
 
   playback::pause_playlist(&state);
@@ -105,7 +105,7 @@ fn test_pause_keeps_the_playhead() {
 
 #[test]
 fn test_stop_goes_back_to_the_start() {
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   fake_run(&state, 2_000, 1_250);
 
   playback::stop_playlist(&state);
@@ -121,7 +121,7 @@ fn test_stop_goes_back_to_the_start() {
 
 #[test]
 fn test_stop_ends_the_run() {
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   let run = state.playlist.run_id.load(Ordering::SeqCst);
 
   // a run's thread checks the id before carrying on, so stopping (or
@@ -135,7 +135,7 @@ fn test_stop_ends_the_run() {
 
 #[test]
 fn test_seek_while_stopped() {
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
 
   assert_eq!(playback::seek_playlist(&state, 4.), 4.);
   assert_eq!(playhead_ms(&state), 2_000.);
@@ -162,7 +162,7 @@ const FOUR_FOUR: timing::TimeSignature = timing::TimeSignature { numerator: 4, d
 
 #[test]
 fn test_the_playlist_is_128_bars_of_its_time_signature() {
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   let sample = playback::METRONOME_TICK_PATH.to_string();
   assert_eq!(playlist_transport(&state).beats_displayed, 512);
 
@@ -182,7 +182,7 @@ fn test_the_playlist_is_128_bars_of_its_time_signature() {
 
 #[test]
 fn test_a_shorter_bar_leaves_no_clip_past_the_end() {
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   let id = add_node_at_offset(&state, playback::METRONOME_TICK_PATH.to_string(), 0, beat_to_offset(&state, Some(500.)), true)
     .unwrap();
 
@@ -202,7 +202,7 @@ fn test_a_shorter_bar_leaves_no_clip_past_the_end() {
 
 #[test]
 fn test_clips_and_the_playhead_keep_their_beat_when_the_tempo_changes() {
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   let sample = playback::METRONOME_TICK_PATH.to_string();
   let id = add_node_at_offset(&state, sample, 0, beat_to_offset(&state, Some(8.)), true).unwrap();
   let ms = |id: u64| state.playlist.audiograph.lock().unwrap()
@@ -238,7 +238,7 @@ fn test_clips_and_the_playhead_keep_their_beat_when_the_tempo_changes() {
 
 #[test]
 fn test_playback_carries_on_from_its_beat_at_the_new_tempo() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   // a clip far enough along that the loop is long
   add_node_at_offset(&state, playback::METRONOME_TICK_PATH.to_string(), 0, beat_to_offset(&state, Some(60.)), true).unwrap();
 
@@ -270,14 +270,14 @@ fn test_playback_carries_on_from_its_beat_at_the_new_tempo() {
 }
 
 // the playhead, in beats
-fn get_playlist_position_of(state: &daw::InnerState) -> f64 {
+fn get_playlist_position_of(state: &daw::Session) -> f64 {
   let beats = playback::offset_beats(playback::playhead(state), playback::beat_interval(state));
   (beats * 1e6).round() / 1e6
 }
 
 #[test]
 fn test_the_loop_ends_with_the_last_clip() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   let sample = playback::METRONOME_TICK_PATH.to_string();
   let ms = |d: Duration| d.as_millis();
 
@@ -303,7 +303,7 @@ fn test_the_loop_ends_with_the_last_clip() {
 
 #[test]
 fn test_the_playhead_wraps_at_the_last_clip() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   // a clip in bar 2: the loop is two bars (4s)
   add_node_at_offset(&state, playback::METRONOME_TICK_PATH.to_string(), 0, beat_to_offset(&state, Some(5.)), true).unwrap();
   assert_eq!(playlist_transport(&state).loop_end_beats, 8.);
@@ -318,7 +318,7 @@ fn test_the_playhead_wraps_at_the_last_clip() {
 
 #[test]
 fn test_song_end_in_transport() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   let id = state.playlist.audiograph.lock().unwrap()
     .construct_and_add_node(playback::METRONOME_TICK_PATH.to_string(), Duration::from_millis(1_000), 0)
     .unwrap();
@@ -330,7 +330,7 @@ fn test_song_end_in_transport() {
 
 #[test]
 fn test_a_pattern_reports_its_length_and_the_step_it_counts_from() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   let pattern = state.playlist.sequencer.lock().unwrap().add_pattern(1, 4).unwrap();
   *state.playlist.mode.lock().unwrap() = playlist::PlayMode::Pattern(pattern);
   state.playlist.set_playing(true);
@@ -355,7 +355,7 @@ fn test_a_pattern_reports_its_length_and_the_step_it_counts_from() {
 
 #[test]
 fn test_a_pattern_started_part_way_in_reports_when_its_start_was_heard() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   let pattern = state.playlist.sequencer.lock().unwrap().add_pattern(1, 4).unwrap();
   *state.playlist.mode.lock().unwrap() = playlist::PlayMode::Pattern(pattern);
   *state.playlist.started_time.lock().unwrap() = Some(Instant::now());
@@ -373,7 +373,7 @@ fn test_a_pattern_started_part_way_in_reports_when_its_start_was_heard() {
 
 #[test]
 fn test_a_loop_region_is_drawn_between_two_beats() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   state.playlist.loop_enabled.store(false, Ordering::SeqCst);
 
   // drawn backwards, and past the playlist's end: put in order and kept to it
@@ -399,7 +399,7 @@ fn test_a_loop_region_is_drawn_between_two_beats() {
 
 #[test]
 fn test_a_pinned_loop_end_stays_put() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   let sample = playback::METRONOME_TICK_PATH.to_string();
   let id = add_node_at_offset(&state, sample, 0, beat_to_offset(&state, Some(8.)), true).unwrap();
   assert_eq!(playlist_transport(&state).loop_end_beats, 12.);
@@ -422,7 +422,7 @@ fn test_a_pinned_loop_end_stays_put() {
 
 #[test]
 fn test_the_loop_cant_be_changed_while_recording() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   change_loop_region(&state, 4., 8.);
   change_loop_end(&state, 12.);
   crate::daw::recording::fake_session(&state);

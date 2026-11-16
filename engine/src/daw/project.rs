@@ -388,7 +388,7 @@ fn tidy_beat(beat: f64) -> f64 {
 
 // the current playlist as a project, with sample paths relative to
 // `project_dir` where they can be
-pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
+pub fn capture(state: &daw::Session, project_dir: Option<&Path>) -> Project {
   let (tempo, clips, pattern_clips, sequencer, tracks) = {
     let audiograph = state.playlist.audiograph.lock().unwrap();
     let interval = audiograph.beat_interval().as_secs_f64();
@@ -507,7 +507,7 @@ fn saved_span(clip: &ProjectPatternClip, length: u32) -> (f64, f64) {
 // new id. clips whose samples can't be found or read are left out and listed
 // in `missing`, rather than failing the whole load
 pub fn apply(
-  state: &daw::InnerState,
+  state: &daw::Session,
   project: &Project,
   project_dir: Option<&Path>,
 ) -> LoadedProject {
@@ -677,7 +677,7 @@ pub fn apply(
 // write the current playlist to a project file. the file is written next to
 // it first and then moved into place, so a failed save never leaves a
 // half-written project. returns what was written
-pub fn save_to(state: &daw::InnerState, project_path: &Path) -> Result<Project, String> {
+pub fn save_to(state: &daw::Session, project_path: &Path) -> Result<Project, String> {
   let dir = project_dir(project_path)?;
   let project = capture(state, Some(&dir));
   write_project(&project, project_path)?;
@@ -686,7 +686,7 @@ pub fn save_to(state: &daw::InnerState, project_path: &Path) -> Result<Project, 
 
 // the folder the current project's samples are saved relative to: its
 // file's, or none for a project that's never been saved
-fn current_dir(state: &daw::InnerState) -> Option<PathBuf> {
+fn current_dir(state: &daw::Session) -> Option<PathBuf> {
   let path = state.project.lock().unwrap().path.clone();
   path.and_then(|path| project_dir(&path).ok())
 }
@@ -694,7 +694,7 @@ fn current_dir(state: &daw::InnerState) -> Option<PathBuf> {
 // remember the project as it is now as unchanged: it's just been started,
 // opened or saved. (captured before the project's lock is taken, as
 // capturing takes the other locks)
-pub fn mark_unchanged(state: &daw::InnerState) {
+pub fn mark_unchanged(state: &daw::Session) {
   let project = capture(state, current_dir(state).as_deref());
   state.project.lock().unwrap().baseline = Some(project);
 }
@@ -702,7 +702,7 @@ pub fn mark_unchanged(state: &daw::InnerState) {
 // whether the project differs from how it was last started, opened or
 // saved: anything a save would write differently. undoing back to how it
 // was is no change
-pub fn has_unsaved_changes(state: &daw::InnerState) -> bool {
+pub fn has_unsaved_changes(state: &daw::Session) -> bool {
   let now = capture(state, current_dir(state).as_deref());
   // (no baseline only before the app has started: say changed, to be safe)
   state.project.lock().unwrap().baseline.as_ref().map_or(true, |was| *was != now)
@@ -801,7 +801,7 @@ pub fn follow_moved_recording(project_path: &Path, from: &Path, to: &Path) -> Re
 
 // the same for the project as it was last saved (see mark_unchanged), whose
 // clips now play from where the take is: moving it isn't a change
-pub fn follow_moved_in_baseline(state: &daw::InnerState, from: &Path, to: &Path) {
+pub fn follow_moved_in_baseline(state: &daw::Session, from: &Path, to: &Path) {
   let dir = current_dir(state);
   if let Some(baseline) = state.project.lock().unwrap().baseline.as_mut() {
     follow_moved(baseline, dir.as_deref(), from, to);
@@ -830,7 +830,7 @@ fn follow_moved(project: &mut Project, dir: Option<&Path>, from: &Path, to: &Pat
 
 // replace the playlist with a project file. nothing changes if the file
 // can't be read or isn't a project
-pub fn load_from(state: &daw::InnerState, project_path: &Path) -> Result<LoadedProject, String> {
+pub fn load_from(state: &daw::Session, project_path: &Path) -> Result<LoadedProject, String> {
   let json = fs::read_to_string(project_path)
     .map_err(|e| format!("could not open '{}': {}", project_path.display(), e))?;
   let project = Project::from_json(&json)?;
@@ -877,7 +877,7 @@ pub struct SavedProject {
 // over (its folders, and takes nothing uses), and takes are named after the
 // project, keeping the day they were recorded
 pub fn save_project_to(
-  state: &daw::InnerState,
+  state: &daw::Session,
   path: &Path,
   somewhere_new: bool,
 ) -> Result<SavedProject, String> {

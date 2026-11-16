@@ -26,7 +26,7 @@ pub struct ProjectView {
   pub effects: crate::daw::effects::Racks,
 }
 
-pub fn project_view(state: &daw::InnerState) -> ProjectView {
+pub fn project_view(state: &daw::Session) -> ProjectView {
   let (tempo, clips, pattern_clips) = {
     let audiograph = state.playlist.audiograph.lock().unwrap();
     let interval = audiograph.beat_interval();
@@ -61,7 +61,7 @@ pub struct Travelled {
   pub project: ProjectView,
 }
 
-pub(crate) fn travelled(state: &daw::InnerState, applied: Option<history::Applied>) -> Travelled {
+pub(crate) fn travelled(state: &daw::Session, applied: Option<history::Applied>) -> Travelled {
   let (can_undo, can_redo) = {
     let history = state.history.lock().unwrap();
     (history.can_undo(), history.can_redo())

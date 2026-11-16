@@ -25,12 +25,12 @@ use crate::daw::actions::history::{project_view, ProjectView};
 const FOLLOW_EVERY: Duration = Duration::from_millis(250);
 
 // the sequencer as the frontend sees it, with its synth rows' plugins
-pub fn sequencer_state(state: &daw::InnerState) -> sequencer::SequencerState {
+pub fn sequencer_state(state: &daw::Session) -> sequencer::SequencerState {
   state.playlist.sequencer.lock().unwrap().state(&*state.playlist.effects)
 }
 
 // the synth rows' plugins, and which of them each track plays
-fn wanted(state: &daw::InnerState) -> (Vec<sequencer::Synth>, BTreeSet<(u64, u32)>) {
+fn wanted(state: &daw::Session) -> (Vec<sequencer::Synth>, BTreeSet<(u64, u32)>) {
   // the graph is locked before the sequencer, as everywhere
   let audiograph = state.playlist.audiograph.lock().unwrap();
   let needed = audiograph.synth_tracks();
@@ -40,20 +40,20 @@ fn wanted(state: &daw::InnerState) -> (Vec<sequencer::Synth>, BTreeSet<(u64, u32
 
 // bring the synth rows' plugins in line with the rows and the pattern clips
 // (see Effects::follow_synths). with none of the project's locks held
-pub fn follow(state: &daw::InnerState) {
+pub fn follow(state: &daw::Session) {
   let (list, needed) = wanted(state);
   state.playlist.effects.follow_synths(&list, &needed);
 }
 
 // before a run starts: every copy there, and in step with its synth
-pub fn before_playing(state: &daw::InnerState) {
+pub fn before_playing(state: &daw::Session) {
   follow(state);
   state.playlist.effects.push_synth_states(true);
 }
 
 // follow the playlist, pass showing synths' settings on, and let go of
 // copies no track has needed for a while, for as long as the app runs
-pub fn keep_following(state: Arc<daw::InnerState>) {
+pub fn keep_following(state: Arc<daw::Session>) {
   let started = std::thread::Builder::new().name("synths".into()).spawn(move || loop {
     std::thread::sleep(FOLLOW_EVERY);
     follow(&state);
@@ -66,7 +66,7 @@ pub fn keep_following(state: Arc<daw::InnerState>) {
 }
 
 // an installed instrument, as a row at the bottom
-pub fn add(state: &daw::InnerState, plugin_id: &str) -> Result<AddedRow, String> {
+pub fn add(state: &daw::Session, plugin_id: &str) -> Result<AddedRow, String> {
   let synth = state.playlist.effects.load_synth(plugin_id)?;
   let row_id = history::sequencer_edit(state, &[], None, || {
     Ok(state.playlist.sequencer.lock().unwrap().add_synth_row(synth))
@@ -77,7 +77,7 @@ pub fn add(state: &daw::InnerState, plugin_id: &str) -> Result<AddedRow, String>
 // another installed instrument on a synth row, in a new slot: the row keeps
 // its id, notes and settings, and the old plugin goes (undo brings it back,
 // with its own settings: see follow). one step to undo
-pub fn replace(state: &daw::InnerState, row_id: u64, plugin_id: &str) -> Result<sequencer::RowChange, String> {
+pub fn replace(state: &daw::Session, row_id: u64, plugin_id: &str) -> Result<sequencer::RowChange, String> {
   // (checked first, so a refusal loads nothing)
   state.playlist.sequencer.lock().unwrap().check_synth_row(row_id)?;
   let synth = state.playlist.effects.load_synth(plugin_id)?;
@@ -95,7 +95,7 @@ pub struct AddedOnTrack {
 // an instrument dropped on a mixer strip (P9): a new synth row, a blank
 // one-bar pattern, and a clip of it on that track at `drop_beat` (snapped, as
 // add_pattern_clip places one). one step to undo
-pub fn add_on_track(state: &daw::InnerState, plugin_id: &str, track: u32, drop_beat: Option<f32>) -> Result<AddedOnTrack, String> {
+pub fn add_on_track(state: &daw::Session, plugin_id: &str, track: u32, drop_beat: Option<f32>) -> Result<AddedOnTrack, String> {
   let synth = state.playlist.effects.load_synth(plugin_id)?;
   let beats_per_bar = state.playlist.time_signature.lock().unwrap().numerator;
   let start_offset = beat_to_offset(state, drop_beat);
@@ -131,7 +131,7 @@ pub fn add_on_track(state: &daw::InnerState, plugin_id: &str, track: u32, drop_b
 // - a synth row's plays on its plugin's master copy, which its mute does
 //   silence (that one plugin plays the pattern on its own too, which the
 //   mute is for), and a missing plugin plays nothing
-pub fn play_row_note_on(state: &daw::InnerState, engine: &engine::Engine, row_id: u64, pitch: u8, velocity: f32) -> Result<(), String> {
+pub fn play_row_note_on(state: &daw::Session, engine: &engine::Engine, row_id: u64, pitch: u8, velocity: f32) -> Result<(), String> {
   if pitch > 127 { return Err(format!("there's no note {}", pitch)); }
   let velocity = if velocity.is_finite() { velocity.clamp(0., 1.) } else { 1. };
   match key_on(state, row_id)? {
@@ -149,7 +149,7 @@ pub fn play_row_note_on(state: &daw::InnerState, engine: &engine::Engine, row_id
   }
 }
 
-pub fn stop_row_note_on(state: &daw::InnerState, engine: &engine::Engine, row_id: u64, pitch: u8) -> Result<(), String> {
+pub fn stop_row_note_on(state: &daw::Session, engine: &engine::Engine, row_id: u64, pitch: u8) -> Result<(), String> {
   let pitch = pitch.min(127);
   // (whatever a sample row's key is holding fades out)
   state.playlist.held_keys.let_go(row_id, pitch);
@@ -166,7 +166,7 @@ enum KeyOn {
   Synth(u64),
 }
 
-fn key_on(state: &daw::InnerState, row_id: u64) -> Result<KeyOn, String> {
+fn key_on(state: &daw::Session, row_id: u64) -> Result<KeyOn, String> {
   let sequencer = state.playlist.sequencer.lock().unwrap();
   let row = sequencer.row(row_id).ok_or_else(|| format!("no row with id {}", row_id))?;
   match (row.synth(), row.sample_instrument()) {

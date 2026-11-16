@@ -70,7 +70,7 @@ impl Snapshot {
 // copy the song: its clips, patterns, mixer and effects, for a render at
 // `rate`. the locks are held only while copying (the graph's, then the
 // sequencer's: always in that order), and not while the effects are loaded
-pub fn snapshot(state: &daw::InnerState, rate: u32) -> Result<Snapshot, String> {
+pub fn snapshot(state: &daw::Session, rate: u32) -> Result<Snapshot, String> {
   let time_signature = *state.playlist.time_signature.lock().unwrap();
   let graph = {
     let live = state.playlist.audiograph.lock().unwrap();

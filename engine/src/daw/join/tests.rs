@@ -11,12 +11,12 @@ const KICK: &str = "assets/assets_66-bd-01.wav";
 const SNARE: &str = "assets/assets_66-sd-01.wav";
 const STEP: f32 = 1. / 32_768.;
 
-fn saved_project(name: &str) -> (Arc<daw::InnerState>, PathBuf) {
+fn saved_project(name: &str) -> (Arc<daw::Session>, PathBuf) {
   let dir = std::env::temp_dir().join(format!("dawesome-join-{}-{}", name, std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   std::fs::create_dir_all(&dir).unwrap();
   let dir = std::fs::canonicalize(dir).unwrap();
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   state.project.lock().unwrap().reset(Some(dir.join("song.dawesome")));
   (state, dir)
 }
@@ -43,15 +43,15 @@ fn worst(a: &[f32], b: &[f32]) -> f32 {
   a.iter().zip(b).map(|(a, b)| (a - b).abs()).fold(0., f32::max)
 }
 
-fn node(state: &daw::InnerState, id: u64) -> audiograph::AudioNode {
+fn node(state: &daw::Session, id: u64) -> audiograph::AudioNode {
   state.playlist.audiograph.lock().unwrap().get_node_by_id(id).unwrap().clone()
 }
 
-fn saved(state: &daw::InnerState) -> project::Project {
+fn saved(state: &daw::Session) -> project::Project {
   project::capture(state, None)
 }
 
-fn steps(state: &daw::InnerState) -> usize {
+fn steps(state: &daw::Session) -> usize {
   state.history.lock().unwrap().len()
 }
 
@@ -60,7 +60,7 @@ fn test_the_halves_of_a_cut_are_put_back_together_and_nothing_is_written() {
   let rate = 48_000;
   let total = Duration::from_secs(3);
   // an unsaved project: there's nowhere a file could be written
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   state.playlist.ui.lock().unwrap().snap_enabled = false;
   let id = add_clip(&state, KICK.to_string(), 1, Some(1.337)).unwrap().id;
   change_clip_settings(&state, id, clip::ClipSettings {
@@ -97,7 +97,7 @@ fn test_the_halves_of_a_cut_are_put_back_together_and_nothing_is_written() {
 
 #[test]
 fn test_halves_that_no_longer_line_up_are_not_healed() {
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   let cut = |beat: f32| {
     let id = add_clip(&state, KICK.to_string(), 0, Some(beat)).unwrap().id;
     let right = crate::daw::actions::clip::split(&state, &[id], beat as f64 + 0.1).unwrap().clips[1].id;
@@ -235,7 +235,7 @@ fn test_what_join_refuses() {
 
 // rows of kick and snare, and two one bar patterns: "a" with the kick on
 // steps 0 and 8, and an unnamed one with the snare on 4 and 12
-fn two_patterns(state: &daw::InnerState) -> (u64, u64, u64, u64) {
+fn two_patterns(state: &daw::Session) -> (u64, u64, u64, u64) {
   let mut sequencer = state.playlist.sequencer.lock().unwrap();
   let kick = sequencer.add_row(KICK).unwrap();
   let snare = sequencer.add_row(SNARE).unwrap();
@@ -253,7 +253,7 @@ fn starts(pattern: &sequencer::PatternState, row: u64) -> Vec<f64> {
   pattern.notes[&row].iter().map(|note| note.start).collect()
 }
 
-fn pattern_clip(state: &daw::InnerState, pattern: u64, beat: f64) -> u64 {
+fn pattern_clip(state: &daw::Session, pattern: u64, beat: f64) -> u64 {
   let mut audiograph = state.playlist.audiograph.lock().unwrap();
   let at = audiograph.beat_interval().mul_f64(beat);
   audiograph.add_pattern_node::<timing::Note>(pattern, at, 1, None).unwrap()
@@ -263,7 +263,7 @@ fn pattern_clip(state: &daw::InnerState, pattern: u64, beat: f64) -> u64 {
 fn test_pattern_clips_become_one_clip_of_a_new_pattern() {
   let rate = 44_100;
   let total = Duration::from_secs(8);
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   let (kick, snare, a, b) = two_patterns(&state);
   // a bar of "a" on bar 2, a bar's gap, then the other on bar 4
   let (first, second) = (pattern_clip(&state, a, 4.), pattern_clip(&state, b, 12.));
@@ -312,7 +312,7 @@ fn test_pattern_clips_become_one_clip_of_a_new_pattern() {
 fn test_joined_pattern_clips_keep_their_span_and_merge_where_they_overlap() {
   let rate = 44_100;
   let total = Duration::from_secs(6);
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   let (kick, snare, a, b) = two_patterns(&state);
   // the second starts half way through the first, and is trimmed to end
   // two steps early: 16 + 8 - 2 steps in all
@@ -337,7 +337,7 @@ fn test_joined_pattern_clips_keep_their_span_and_merge_where_they_overlap() {
 
 #[test]
 fn test_joined_pattern_clips_keep_the_notes_they_play() {
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   let note = |pitch, start, length| sequencer::PatternNote { pitch, start, length, velocity: 0.5 };
   let (a, b, s) = {
     let mut sequencer = state.playlist.sequencer.lock().unwrap();
@@ -377,7 +377,7 @@ fn test_joined_pattern_clips_keep_the_notes_they_play() {
 fn test_a_looping_clip_is_joined_as_it_plays() {
   let rate = 44_100;
   let total = Duration::from_secs(8);
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   let (kick, snare, a, b) = two_patterns(&state);
   // the first from step 4 of its pattern, round it two and a quarter
   // times (its kick on steps 8, then 0 and 8, then 0), and the second
@@ -438,7 +438,7 @@ fn test_an_old_drum_pattern_and_an_old_note_pattern_join() {
 
 #[test]
 fn test_a_join_too_long_or_too_full_for_a_pattern_is_refused() {
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   let (_, _, a, b) = two_patterns(&state);
   // 128 bars of the first, then the second: 129 bars
   let first = pattern_clip(&state, a, 0.);
@@ -484,7 +484,7 @@ fn test_the_halves_of_a_cut_looping_clip_join_again_after_a_save() {
   let file = dir.join("song.dawesome");
   project::save_to(&state, &file).unwrap();
 
-  let other = Arc::new(daw::InnerState::default());
+  let other = Arc::new(daw::Session::default());
   project::load_from(&other, &file).unwrap();
   let ids: Vec<u64> = other.playlist.audiograph.lock().unwrap().pattern_nodes.iter().map(|n| n.id).collect();
   assert_eq!(ids.len(), 2);
@@ -497,7 +497,7 @@ fn test_the_halves_of_a_cut_looping_clip_join_again_after_a_save() {
 #[test]
 fn test_the_halves_of_a_cut_pattern_clip_are_one_clip_of_its_pattern_again() {
 
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   let (_, _, a, _) = two_patterns(&state);
   let clip = pattern_clip(&state, a, 4.);
   let before = saved(&state);
@@ -518,7 +518,7 @@ fn test_the_halves_of_a_cut_pattern_clip_are_one_clip_of_its_pattern_again() {
 
 #[test]
 fn test_pattern_clips_off_the_grid_are_not_joined() {
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   let (_, _, a, b) = two_patterns(&state);
   // a tenth of a step late
   let (first, second) = (pattern_clip(&state, a, 4.), pattern_clip(&state, b, 8.025));
@@ -541,7 +541,7 @@ fn test_pattern_clips_on_the_beat_are_on_the_grid_at_any_tempo() {
   // (tempos whose beats aren't a whole number of nanoseconds, far enough
   // into the playlist for a rounded step to have drifted)
   for tempo in [90., 97., 110., 140., 150., 61.3] {
-    let state = Arc::new(daw::InnerState::default());
+    let state = Arc::new(daw::Session::default());
     state.playlist.audiograph.lock().unwrap().set_tempo(tempo);
     let (_, _, a, b) = two_patterns(&state);
     let (first, second) = (pattern_clip(&state, a, 4.), pattern_clip(&state, b, 244.));

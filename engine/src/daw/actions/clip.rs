@@ -23,7 +23,7 @@ pub struct ChangedClips {
 
 // the clips with these ids, as they are now (ids that name no clip are
 // left out)
-pub fn changed_clips(state: &daw::InnerState, ids: &[u64]) -> ChangedClips {
+pub fn changed_clips(state: &daw::Session, ids: &[u64]) -> ChangedClips {
   let audiograph = state.playlist.audiograph.lock().unwrap();
   let interval = audiograph.beat_interval();
 
@@ -49,7 +49,7 @@ pub struct WindowEdit {
   pub window: ClipWindow,
 }
 
-pub(crate) fn set_windows(state: &daw::InnerState, edits: &[WindowEdit]) -> Result<ChangedClips, String> {
+pub(crate) fn set_windows(state: &daw::Session, edits: &[WindowEdit]) -> Result<ChangedClips, String> {
   let ids: Vec<u64> = edits.iter().map(|edit| edit.id).collect();
 
   history::clip_edit(state, &ids, None, || {
@@ -72,7 +72,7 @@ pub(crate) fn set_windows(state: &daw::InnerState, edits: &[WindowEdit]) -> Resu
   Ok(changed_clips(state, &ids))
 }
 
-pub(crate) fn split(state: &daw::InnerState, ids: &[u64], beat: f64) -> Result<ChangedClips, String> {
+pub(crate) fn split(state: &daw::Session, ids: &[u64], beat: f64) -> Result<ChangedClips, String> {
   if !beat.is_finite() || beat < 0. {
     return Err(format!("{} isn't a beat of the playlist", beat));
   }
@@ -116,7 +116,7 @@ pub struct StretchEdit {
   pub keep: Keep,
 }
 
-pub(crate) fn stretch(state: &daw::InnerState, edits: &[StretchEdit]) -> Result<ChangedClips, String> {
+pub(crate) fn stretch(state: &daw::Session, edits: &[StretchEdit]) -> Result<ChangedClips, String> {
   let ids: Vec<u64> = edits.iter().map(|edit| edit.id).collect();
 
   history::clip_edit(state, &ids, None, || {
@@ -145,7 +145,7 @@ pub struct PlacedNode {
 
 #[cfg(test)]
 pub(crate) fn add_node_at_offset(
-  state: &daw::InnerState,
+  state: &daw::Session,
   sample_path: String,
   track_number: u32,
   start_offset: std::time::Duration,
@@ -158,10 +158,10 @@ pub(crate) fn add_node_at_offset(
 // decoded: that takes a while, and the tempo may change meanwhile, which
 // would move a time worked out before it
 fn add_audiograph_node_at(
-  state: &daw::InnerState,
+  state: &daw::Session,
   sample_path: String,
   track_number: u32,
-  start_offset: impl FnOnce(&daw::InnerState) -> std::time::Duration,
+  start_offset: impl FnOnce(&daw::Session) -> std::time::Duration,
   snap_enabled: bool,
 ) -> Result<u64, String> {
   // decoded before taking the graph's lock, which playback (and the
@@ -182,7 +182,7 @@ fn add_audiograph_node_at(
 // add a clip of a sample where it was dropped, snapped by the snap setting.
 // one step to undo
 pub(crate) fn add_clip(
-  state: &daw::InnerState,
+  state: &daw::Session,
   sample_path: String,
   track_number: u32,
   drop_beat: Option<f32>,
@@ -199,7 +199,7 @@ pub(crate) fn add_clip(
 // move a clip to where it was dropped, snapped by the snap setting. returns
 // where it is now, in beats. one step to undo
 pub(crate) fn move_clip(
-  state: &daw::InnerState,
+  state: &daw::Session,
   id: u64,
   track_number: u32,
   drop_beat: Option<f32>,
@@ -214,7 +214,7 @@ pub(crate) fn move_clip(
 }
 
 pub(crate) fn move_audiograph_node_to(
-  state: &daw::InnerState,
+  state: &daw::Session,
   id: u64,
   track_number: u32,
   start_offset: std::time::Duration,
@@ -262,7 +262,7 @@ pub struct MovedNode {
 
 // one step to undo, however many clips
 pub(crate) fn move_clips(
-  state: &daw::InnerState,
+  state: &daw::Session,
   ids: &[u64],
   anchor_id: u64,
   drop_beat: f32,
@@ -275,7 +275,7 @@ pub(crate) fn move_clips(
 }
 
 fn move_audiograph_nodes_to(
-  state: &daw::InnerState,
+  state: &daw::Session,
   ids: &[u64],
   anchor_id: u64,
   drop_beat: f32,
@@ -306,7 +306,7 @@ fn move_audiograph_nodes_to(
 }
 
 // take clips of either kind out of the playlist. one step to undo
-pub(crate) fn remove_clips(state: &daw::InnerState, ids: &[u64]) -> Result<(), String> {
+pub(crate) fn remove_clips(state: &daw::Session, ids: &[u64]) -> Result<(), String> {
   // (an id given twice is removed once)
   let mut ids = ids.to_vec();
   ids.sort_unstable();
@@ -386,7 +386,7 @@ pub(crate) fn clip_info(node: &audiograph::AudioNode) -> ClipInfo {
   }
 }
 
-pub(crate) fn get_clip_of(state: &daw::InnerState, id: u64) -> Result<ClipInfo, String> {
+pub(crate) fn get_clip_of(state: &daw::Session, id: u64) -> Result<ClipInfo, String> {
   let audiograph = state.playlist.audiograph.lock().unwrap();
   let node = audiograph.get_node_by_id(id)
     .ok_or_else(|| format!("no node with id {}", id))?;
@@ -395,7 +395,7 @@ pub(crate) fn get_clip_of(state: &daw::InnerState, id: u64) -> Result<ClipInfo, 
 }
 
 fn set_clip_settings_of(
-  state: &daw::InnerState,
+  state: &daw::Session,
   id: u64,
   settings: clip::ClipSettings,
 ) -> Result<ClipInfo, String> {
@@ -408,7 +408,7 @@ fn set_clip_settings_of(
 }
 
 pub(crate) fn change_clip_settings(
-  state: &daw::InnerState,
+  state: &daw::Session,
   id: u64,
   settings: clip::ClipSettings,
   gesture: Option<u64>,

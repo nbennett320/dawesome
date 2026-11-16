@@ -21,7 +21,7 @@ fn channel(track: Option<u32>) -> Channel {
 // change the racks, and record the change so it can be undone
 // - keep: an effect about to go, whose settings undoing it brings back
 fn edit<T>(
-  state: &daw::InnerState,
+  state: &daw::Session,
   keep: Option<u64>,
   change: impl FnOnce(&crate::daw::effects::Effects) -> Result<T, String>,
 ) -> Result<T, String> {
@@ -44,22 +44,22 @@ pub struct AddedEffect {
   pub slot_id: u64,
 }
 
-pub fn add(state: &daw::InnerState, track: Option<u32>, plugin_id: &str, index: Option<usize>) -> Result<AddedEffect, String> {
+pub fn add(state: &daw::Session, track: Option<u32>, plugin_id: &str, index: Option<usize>) -> Result<AddedEffect, String> {
   let slot_id = edit(state, None, |effects| effects.add(channel(track), plugin_id, index))?;
   Ok(AddedEffect { racks: state.playlist.effects.racks(), slot_id })
 }
 
-pub fn remove(state: &daw::InnerState, slot_id: u64) -> Result<Racks, String> {
+pub fn remove(state: &daw::Session, slot_id: u64) -> Result<Racks, String> {
   edit(state, Some(slot_id), |effects| effects.remove(slot_id))?;
   Ok(state.playlist.effects.racks())
 }
 
-pub fn move_to(state: &daw::InnerState, slot_id: u64, track: Option<u32>, index: usize) -> Result<Racks, String> {
+pub fn move_to(state: &daw::Session, slot_id: u64, track: Option<u32>, index: usize) -> Result<Racks, String> {
   edit(state, None, |effects| effects.move_to(slot_id, channel(track), index))?;
   Ok(state.playlist.effects.racks())
 }
 
-pub fn set_bypassed(state: &daw::InnerState, slot_id: u64, bypassed: bool) -> Result<Racks, String> {
+pub fn set_bypassed(state: &daw::Session, slot_id: u64, bypassed: bool) -> Result<Racks, String> {
   edit(state, None, |effects| effects.set_bypassed(slot_id, bypassed))?;
   Ok(state.playlist.effects.racks())
 }
@@ -67,7 +67,7 @@ pub fn set_bypassed(state: &daw::InnerState, slot_id: u64, bypassed: bool) -> Re
 // change a built-in effect's parameters, and record it so it can be undone
 // - gesture: the knob drag it's part of, if any. one drag is one step
 fn param_edit(
-  state: &daw::InnerState,
+  state: &daw::Session,
   slot_id: u64,
   gesture: Option<u64>,
   change: impl FnOnce(&Native) -> Result<ParamValue, String>,
@@ -81,11 +81,11 @@ fn param_edit(
   Ok(value)
 }
 
-pub fn set_param(state: &daw::InnerState, slot_id: u64, id: u32, normalized: f64, gesture: Option<u64>) -> Result<ParamValue, String> {
+pub fn set_param(state: &daw::Session, slot_id: u64, id: u32, normalized: f64, gesture: Option<u64>) -> Result<ParamValue, String> {
   param_edit(state, slot_id, gesture, |native| native.set(id, normalized))
 }
 
-pub fn set_param_text(state: &daw::InnerState, slot_id: u64, id: u32, text: &str) -> Result<ParamValue, String> {
+pub fn set_param_text(state: &daw::Session, slot_id: u64, id: u32, text: &str) -> Result<ParamValue, String> {
   param_edit(state, slot_id, None, |native| native.set_text(id, text))
 }
 
@@ -100,15 +100,15 @@ mod tests {
     (a - b).abs() < 1e-5
   }
 
-  fn undo(state: &Arc<daw::InnerState>) {
+  fn undo(state: &Arc<daw::Session>) {
     assert!(history::undo(state).unwrap().is_some(), "nothing to undo");
   }
 
-  fn redo(state: &Arc<daw::InnerState>) {
+  fn redo(state: &Arc<daw::Session>) {
     assert!(history::redo(state).unwrap().is_some(), "nothing to redo");
   }
 
-  fn steps(state: &daw::InnerState) -> usize {
+  fn steps(state: &daw::Session) -> usize {
     state.history.lock().unwrap().len()
   }
 
@@ -283,7 +283,7 @@ mod tests {
   const OUTPUT: u32 = 40;
   const FREQ: u32 = 2;
 
-  fn value(state: &daw::InnerState, slot: u64, id: u32) -> f32 {
+  fn value(state: &daw::Session, slot: u64, id: u32) -> f32 {
     state.playlist.effects.with_native(slot, |n| n.values()[id as usize]).unwrap()
   }
 

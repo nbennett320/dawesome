@@ -4,9 +4,9 @@ use std::sync::Arc;
 use crate::daw;
 
 // the DAW's state, as Tauri hands it to a command (Tauri state). only
-// commands take it: everything else takes &daw::InnerState, which tests
+// commands take it: everything else takes &daw::Session, which tests
 // can make
-pub type TState<'a> = tauri::State<'a, Arc<daw::InnerState>>;
+pub type TState<'a> = tauri::State<'a, Arc<daw::Session>>;
 
 pub(crate) mod appearance;
 pub(crate) mod audio;

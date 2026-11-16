@@ -1455,7 +1455,7 @@ pub mod testing {
   // a state whose effects are fake gains, played by an engine the test
   // renders
   pub struct Rig {
-    pub state: Arc<daw::InnerState>,
+    pub state: Arc<daw::Session>,
     pub engine: Arc<engine::Engine>,
     pub renderer: engine::Renderer,
     pub loader: Arc<FakeLoader>,
@@ -1463,7 +1463,7 @@ pub mod testing {
   }
 
   pub fn rig() -> Rig {
-    let state = Arc::new(daw::InnerState::default());
+    let state = Arc::new(daw::Session::default());
     let (engine, renderer) = engine::Engine::new(RATE);
     let engine = Arc::new(engine);
     let loader = Arc::new(FakeLoader::default());

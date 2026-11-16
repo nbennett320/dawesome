@@ -71,7 +71,7 @@ fn end_of(audiograph: &audiograph::AudioGraph<'static>, clip: &ClipSnap) -> Dura
 }
 
 // the playlist's last beat, as a time: a clip can start there, and no later
-fn playlist_end(state: &daw::InnerState, audiograph: &audiograph::AudioGraph<'static>) -> Duration {
+fn playlist_end(state: &daw::Session, audiograph: &audiograph::AudioGraph<'static>) -> Duration {
   let beats = playback::playlist_beats(state);
   audiograph.beat_interval().mul_f64(beats as f64)
 }
@@ -83,7 +83,7 @@ const PAST_THE_END: &str = "would start past the end of the playlist";
 // any would start past the playlist's end, none is added. returns the new
 // clips' ids, and how many were left out
 fn place(
-  state: &daw::InnerState,
+  state: &daw::Session,
   audiograph: &mut audiograph::AudioGraph<'static>,
   copies: Vec<(ClipSnap, Duration, u32)>,
   what: &str,
@@ -126,7 +126,7 @@ fn place(
   Ok((made, left_out))
 }
 
-pub(crate) fn copy(state: &daw::InnerState, ids: &[u64]) -> usize {
+pub(crate) fn copy(state: &daw::Session, ids: &[u64]) -> usize {
   let audiograph = state.playlist.audiograph.lock().unwrap();
   // (an id given twice is copied once)
   let mut ids = ids.to_vec();
@@ -148,7 +148,7 @@ pub(crate) fn copy(state: &daw::InnerState, ids: &[u64]) -> usize {
   clipboard.len()
 }
 
-pub(crate) fn cut(state: &daw::InnerState, ids: &[u64]) -> Result<usize, String> {
+pub(crate) fn cut(state: &daw::Session, ids: &[u64]) -> Result<usize, String> {
   if ids.is_empty() { return Ok(state.clipboard.lock().unwrap().len()); }
   // (checked first: nothing is copied unless the clips can be removed)
   {
@@ -173,7 +173,7 @@ pub struct Placed {
   pub left_out: usize,
 }
 
-pub(crate) fn paste(state: &daw::InnerState, beat: f64, track: Option<u32>) -> Result<Placed, String> {
+pub(crate) fn paste(state: &daw::Session, beat: f64, track: Option<u32>) -> Result<Placed, String> {
   if !beat.is_finite() || beat < 0. {
     return Err(format!("{} isn't a beat of the playlist", beat));
   }
@@ -207,7 +207,7 @@ pub(crate) fn paste(state: &daw::InnerState, beat: f64, track: Option<u32>) -> R
   Ok(Placed { clips: changed_clips(state, &made), left_out })
 }
 
-pub(crate) fn repeat(state: &daw::InnerState, ids: &[u64]) -> Result<Placed, String> {
+pub(crate) fn repeat(state: &daw::Session, ids: &[u64]) -> Result<Placed, String> {
   if ids.is_empty() { return Ok(Placed::default()); }
   let mut ids = ids.to_vec();
   ids.sort_unstable();

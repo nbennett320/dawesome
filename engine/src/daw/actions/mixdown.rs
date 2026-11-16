@@ -96,7 +96,7 @@ pub struct MixdownOptions {
 
 // - rate: the engine's
 pub(crate) fn start(
-  state: &daw::InnerState,
+  state: &daw::Session,
   mixdowns: &Arc<Mixdowns>,
   options: MixdownOptions,
   rate: u32,
@@ -155,7 +155,7 @@ mod tests {
   #[test]
   fn test_a_mixdown_goes_from_rendering_to_done() {
     let dir = folder("done");
-    let state = daw::InnerState::default();
+    let state = daw::Session::default();
     add_clip(&state, KICK.into(), 0, Some(0.)).unwrap();
     let mixdowns = Arc::new(Mixdowns::default());
     assert_eq!(mixdowns.status(), Status::Idle);
@@ -181,7 +181,7 @@ mod tests {
   #[test]
   fn test_one_at_a_time() {
     let dir = folder("busy");
-    let state = daw::InnerState::default();
+    let state = daw::Session::default();
     add_clip(&state, LONG.into(), 0, Some(0.)).unwrap();
     let mixdowns = Arc::new(Mixdowns::default());
     // (as if one were going)
@@ -194,7 +194,7 @@ mod tests {
   #[test]
   fn test_a_cancelled_mixdown_leaves_nothing() {
     let dir = folder("cancel");
-    let state = daw::InnerState::default();
+    let state = daw::Session::default();
     add_clip(&state, LONG.into(), 0, Some(0.)).unwrap();
     let mixdowns = Arc::new(Mixdowns::default());
     let thread = start(&state, &mixdowns, options(&dir, "song"), 48_000).unwrap();
@@ -213,7 +213,7 @@ mod tests {
   #[test]
   fn test_refused_before_it_starts_leaves_it_idle() {
     let dir = folder("refused");
-    let state = daw::InnerState::default();
+    let state = daw::Session::default();
     let mixdowns = Arc::new(Mixdowns::default());
     assert_eq!(start(&state, &mixdowns, options(&dir, "song"), 48_000).err().unwrap(), mixdown::NOTHING_TO_MIX);
     add_clip(&state, KICK.into(), 0, Some(0.)).unwrap();

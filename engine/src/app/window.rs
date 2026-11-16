@@ -39,7 +39,7 @@ static QUIT_ALLOWED: AtomicBool = AtomicBool::new(false);
 pub fn may_quit(app: &AppHandle) -> bool {
   if QUIT_ALLOWED.load(Ordering::SeqCst) { return true; }
 
-  let state = app.state::<Arc<daw::InnerState>>();
+  let state = app.state::<Arc<daw::Session>>();
   if project::has_unsaved_changes(&state) {
     if let Err(e) = app.emit("quit-requested", ()) {
       // with no one to ask, quitting would lose the changes

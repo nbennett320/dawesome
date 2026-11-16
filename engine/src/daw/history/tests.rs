@@ -4,30 +4,30 @@ use crate::engine::clip;
 use crate::daw::actions::clip::{add_clip, change_clip_settings, move_clip, remove_clips};
 use crate::daw::project;
 
-fn state() -> Arc<daw::InnerState> {
-  Arc::new(daw::InnerState::default())
+fn state() -> Arc<daw::Session> {
+  Arc::new(daw::Session::default())
 }
 
 // a clip of the metronome's tick on a beat
-fn clip(state: &daw::InnerState, track: u32, beat: f32) -> u64 {
+fn clip(state: &daw::Session, track: u32, beat: f32) -> u64 {
   add_clip(state, playback::METRONOME_TICK_PATH.to_string(), track, Some(beat)).unwrap().id
 }
 
 // the project as it would be saved: what undo and redo have to get back to
-fn saved(state: &daw::InnerState) -> project::Project {
+fn saved(state: &daw::Session) -> project::Project {
   project::capture(state, None)
 }
 
-fn beat_of(state: &daw::InnerState, id: u64) -> Option<f32> {
+fn beat_of(state: &daw::Session, id: u64) -> Option<f32> {
   crate::daw::actions::playlist::node_beat(state, id).ok()
 }
 
-fn steps(state: &daw::InnerState) -> usize {
+fn steps(state: &daw::Session) -> usize {
   state.history.lock().unwrap().len()
 }
 
 // undo gets the project back to how it was, and redo to how it became
-fn there_and_back(state: &Arc<daw::InnerState>, before: &project::Project, after: &project::Project) {
+fn there_and_back(state: &Arc<daw::Session>, before: &project::Project, after: &project::Project) {
   assert!(undo(state).unwrap().is_some());
   assert_eq!(&saved(state), before);
   assert!(redo(state).unwrap().is_some());
@@ -309,7 +309,7 @@ fn test_mixer_changes() {
   mixer::change_track_pan(&state, 0, -0.5, None);
   mixer::change_track_name(&state, 3, "Bass");
 
-  let changes: Vec<(&str, Box<dyn Fn(&daw::InnerState)>)> = vec![
+  let changes: Vec<(&str, Box<dyn Fn(&daw::Session)>)> = vec![
     ("volume", Box::new(|s| { mixer::change_track_volume(s, 2, -12., None); })),
     ("pan", Box::new(|s| { mixer::change_track_pan(s, 2, 0.25, None); })),
     ("mute", Box::new(|s| mixer::change_track_mute(s, 1, true))),

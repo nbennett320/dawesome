@@ -82,7 +82,7 @@ impl Placed {
 pub type Clips = Vec<(u64, Option<Placed>)>;
 
 // the clips with these ids, as they are now
-pub fn clips(state: &daw::InnerState, ids: &[u64]) -> Clips {
+pub fn clips(state: &daw::Session, ids: &[u64]) -> Clips {
   let audiograph = state.playlist.audiograph.lock().unwrap();
   clips_in(&audiograph, ids)
 }
@@ -340,22 +340,22 @@ pub struct Applied {
 }
 
 // record a change that's just been made
-pub fn record(state: &daw::InnerState, step: Step) {
+pub fn record(state: &daw::Session, step: Step) {
   state.history.lock().unwrap().push(step);
 }
 
 // undo the last change. None when there's nothing to undo, or it can't be
 // undone just now (while recording)
-pub fn undo(state: &Arc<daw::InnerState>) -> Result<Option<Applied>, String> {
+pub fn undo(state: &Arc<daw::Session>) -> Result<Option<Applied>, String> {
   travel(state, Way::Undo)
 }
 
 // redo the last change undone
-pub fn redo(state: &Arc<daw::InnerState>) -> Result<Option<Applied>, String> {
+pub fn redo(state: &Arc<daw::Session>) -> Result<Option<Applied>, String> {
   travel(state, Way::Redo)
 }
 
-fn travel(state: &Arc<daw::InnerState>, way: Way) -> Result<Option<Applied>, String> {
+fn travel(state: &Arc<daw::Session>, way: Way) -> Result<Option<Applied>, String> {
   // a take is going onto the playlist as it is now
   if crate::daw::recording::is_busy(state) { return Ok(None); }
 
@@ -391,7 +391,7 @@ fn travel(state: &Arc<daw::InnerState>, way: Way) -> Result<Option<Applied>, Str
 // the tempo goes first, as clips are placed by their beats; then the
 // sequencer, whose patterns the pattern clips play. the effects go last, with
 // no other lock held (their plugins are loaded on the main thread)
-fn apply(state: &Arc<daw::InnerState>, step: &mut Step, way: Way) -> Applied {
+fn apply(state: &Arc<daw::Session>, step: &mut Step, way: Way) -> Applied {
   let pick = |before: bool| (way == Way::Undo) == before;
 
   if let Some((before, after)) = step.tempo {
@@ -456,7 +456,7 @@ fn apply(state: &Arc<daw::InnerState>, step: &mut Step, way: Way) -> Applied {
 // - ids: the clips it may change or remove
 // - made: given what it returned, the ids of clips it added
 pub fn clip_edit<T>(
-  state: &daw::InnerState,
+  state: &daw::Session,
   ids: &[u64],
   gesture: Option<u64>,
   edit: impl FnOnce() -> Result<T, String>,
@@ -485,7 +485,7 @@ pub struct Picture {
 }
 
 // - ids: the clips the edit may change, add or remove
-pub fn picture(state: &daw::InnerState, ids: &[u64]) -> Picture {
+pub fn picture(state: &daw::Session, ids: &[u64]) -> Picture {
   Picture {
     clips: clips(state, ids),
     sequencer: state.playlist.sequencer.lock().unwrap().clone(),
@@ -495,7 +495,7 @@ pub fn picture(state: &daw::InnerState, ids: &[u64]) -> Picture {
 
 // record what changed between two pictures as one step (and bring the
 // synths' plugins in line with what it changed)
-pub fn record_between(state: &daw::InnerState, gesture: Option<u64>, before: Picture, after: Picture) {
+pub fn record_between(state: &daw::Session, gesture: Option<u64>, before: Picture, after: Picture) {
   record(state, Step::new()
     .in_gesture(gesture)
     .with_clips(before.clips, after.clips)
@@ -507,7 +507,7 @@ pub fn record_between(state: &daw::InnerState, gesture: Option<u64>, before: Pic
 // run something that changes the sequencer, and record it as a step
 // - ids: the clips it may remove with it (a deleted pattern's)
 pub fn sequencer_edit<T>(
-  state: &daw::InnerState,
+  state: &daw::Session,
   ids: &[u64],
   gesture: Option<u64>,
   edit: impl FnOnce() -> Result<T, String>,

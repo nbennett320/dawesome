@@ -51,8 +51,8 @@ fn test_arming() {
 }
 
 // a stand-in for a recording in progress
-pub(super) fn session() -> Session {
-  Session {
+pub(super) fn session() -> Recording {
+  Recording {
     tracks: vec![],
     start: Duration::ZERO,
     start_beat: 0.,
@@ -77,8 +77,8 @@ fn span(start: u64, end: u64) -> playlist::LoopSpan {
 
 #[test]
 fn test_still_recording_until_the_takes_are_in() {
-  let state = daw::InnerState::default();
-  state.recorder.lock().unwrap().session = Some(Session { tracks: vec![(2, PathBuf::new())], start_beat: 4.5, ..session() });
+  let state = daw::Session::default();
+  state.recorder.lock().unwrap().session = Some(Recording { tracks: vec![(2, PathBuf::new())], start_beat: 4.5, ..session() });
   let now = collect(&state);
   assert!(now.recording);
   // the playlist shows where it's recording
@@ -103,7 +103,7 @@ fn test_still_recording_until_the_takes_are_in() {
 #[test]
 fn test_no_undo_or_redo_while_recording() {
   use crate::daw::history;
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   let clip = crate::daw::actions::clip::add_clip(&state, playback::METRONOME_TICK_PATH.to_string(), 0, Some(2.)).unwrap().id;
   let has_clip = || state.playlist.audiograph.lock().unwrap().get_node_by_id(clip).is_some();
 
@@ -134,7 +134,7 @@ fn test_no_undo_or_redo_while_recording() {
 
 #[test]
 fn test_a_new_recording_waits_for_the_last_to_finish() {
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   state.recorder.lock().unwrap().session = Some(session());
   state.recorder.lock().unwrap().begin_finish();
 
@@ -153,14 +153,14 @@ fn test_a_new_recording_waits_for_the_last_to_finish() {
 
 #[test]
 fn test_the_loop_stays_put_while_recording() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   let ms = |d: Duration| d.as_millis();
   // four bars with nothing in the playlist
   assert_eq!(ms(playback::loop_span(&state).end), 8_000);
 
   // (started with looping off: the loop's end is kept all the same)
   state.playlist.loop_enabled.store(false, std::sync::atomic::Ordering::SeqCst);
-  state.recorder.lock().unwrap().session = Some(Session {
+  state.recorder.lock().unwrap().session = Some(Recording {
     looping: playback::active_loop(&state).is_some(),
     span: playback::loop_span(&state),
     ..session()
@@ -180,9 +180,9 @@ fn test_the_loop_stays_put_while_recording() {
 
 #[test]
 fn test_a_loop_region_stays_put_while_recording() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   *state.playlist.loop_region.lock().unwrap() = Some(playlist::LoopRegion { start: 4., end: 8. });
-  state.recorder.lock().unwrap().session = Some(Session { looping: true, span: playback::loop_span(&state), ..session() });
+  state.recorder.lock().unwrap().session = Some(Recording { looping: true, span: playback::loop_span(&state), ..session() });
   assert_eq!(playback::loop_span(&state), span(2, 4));
 
   // edits to it are refused, and even one that got in wouldn't move the loop
@@ -197,7 +197,7 @@ fn test_a_loop_region_stays_put_while_recording() {
 
 #[test]
 fn test_the_tempo_is_locked_while_recording() {
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   state.recorder.lock().unwrap().session = Some(session());
 
   *state.playlist.start_offset.lock().unwrap() = Duration::from_millis(1_500);
@@ -218,7 +218,7 @@ fn test_the_tempo_is_locked_while_recording() {
 
 #[test]
 fn test_nothing_is_undone_while_recording() {
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   let id = crate::daw::actions::clip::add_clip(&state, playback::METRONOME_TICK_PATH.to_string(), 0, Some(2.)).unwrap().id;
   state.recorder.lock().unwrap().session = Some(session());
 
@@ -236,7 +236,7 @@ fn test_nothing_is_undone_while_recording() {
 
 #[test]
 fn test_a_count_in_is_a_bar() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   // off unless it's turned on
   assert_eq!(count_in(&state), Duration::ZERO);
 
@@ -249,14 +249,14 @@ fn test_a_count_in_is_a_bar() {
 
 #[test]
 fn test_nothing_armed_records_nothing() {
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   assert!(start(&state, LoopRecording::Layer).unwrap_err().contains("Arm a track"));
   assert!(!is_recording(&state));
 }
 
 #[test]
 fn test_finishing_without_a_recording_does_nothing() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   finish(&state, false);
   assert_eq!(collect(&state), Recorded { recording: false, clips: vec![], problems: vec![], take: None });
 }
@@ -269,7 +269,7 @@ fn test_finishing_without_a_recording_does_nothing() {
 fn test_recording_onto_the_playlist() {
   let dir = std::env::temp_dir().join(format!("dawesome-recording-{}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   state.project.lock().unwrap().reset(Some(dir.join("song").join("song.dawesome")));
   state.playlist.loop_enabled.store(false, std::sync::atomic::Ordering::SeqCst);
   let channels = input::input_channel_count().unwrap();
@@ -333,22 +333,22 @@ fn test_passes_go_where_the_loop_comes_round() {
 
 #[test]
 fn test_a_recording_stops_at_the_loop_end_unless_it_layers() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   assert!(!stops_at_loop_end(&state));
 
-  state.recorder.lock().unwrap().session = Some(Session { at_loop_end: LoopRecording::Stop, ..session() });
+  state.recorder.lock().unwrap().session = Some(Recording { at_loop_end: LoopRecording::Stop, ..session() });
   assert!(stops_at_loop_end(&state));
   // layering, but not looping when it started: it can't layer
   state.recorder.lock().unwrap().session = Some(session());
   assert!(stops_at_loop_end(&state));
-  state.recorder.lock().unwrap().session = Some(Session { live: Some(Default::default()), ..session() });
+  state.recorder.lock().unwrap().session = Some(Recording { live: Some(Default::default()), ..session() });
   assert!(!stops_at_loop_end(&state));
 }
 
 #[test]
 fn test_the_pass_playing_as_it_was_recorded_is_held_back() {
-  let state = daw::InnerState::default();
-  state.recorder.lock().unwrap().session = Some(Session { playing_pass: Some(1), ..session() });
+  let state = daw::Session::default();
+  state.recorder.lock().unwrap().session = Some(Recording { playing_pass: Some(1), ..session() });
   let (first, second) = (take_file("held-1"), take_file("held-2"));
 
   // pass 1 is playing on pass 2 as it was recorded: its clip doesn't start
@@ -363,7 +363,7 @@ fn test_the_pass_playing_as_it_was_recorded_is_held_back() {
     assert!(audiograph.held_back.contains(&held[0].id));
     assert!(!audiograph.held_back.contains(&playing[0].id));
   }
-  let starting = |state: &daw::InnerState| {
+  let starting = |state: &daw::Session| {
     let mut audiograph = state.playlist.audiograph.lock().unwrap();
     audiograph.init();
     audiograph.set_current_offset(Some(Duration::ZERO));
@@ -381,7 +381,7 @@ fn test_the_pass_playing_as_it_was_recorded_is_held_back() {
 
 #[test]
 fn test_one_undo_takes_a_whole_loop_recording_off() {
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   let paths: Vec<PathBuf> = (0..3).map(|n| take_file(&format!("undo-{}", n))).collect();
 
   // three passes, put on their tracks as they're finished
@@ -390,7 +390,7 @@ fn test_one_undo_takes_a_whole_loop_recording_off() {
   let placing = thread::spawn(move || place_passes(&placer, finished_rx, &[2], (Duration::ZERO, Duration::ZERO), Instant::now()));
   for (n, path) in paths.iter().enumerate() { finished_tx.send(takes(path, n as u32)).unwrap(); }
   drop(finished_tx);
-  state.recorder.lock().unwrap().session = Some(Session { placing: Some(placing), ..session() });
+  state.recorder.lock().unwrap().session = Some(Recording { placing: Some(placing), ..session() });
 
   // (no input is recording here, which is said)
   finish(&state, false);
@@ -398,7 +398,7 @@ fn test_one_undo_takes_a_whole_loop_recording_off() {
   assert_eq!(recorded.clips.len(), 3);
   assert!(!recorded.recording);
   let ids: Vec<u64> = recorded.clips.iter().map(|clip| clip.id).collect();
-  let on = |state: &daw::InnerState| ids.iter()
+  let on = |state: &daw::Session| ids.iter()
     .filter(|&&id| state.playlist.audiograph.lock().unwrap().get_node_by_id(id).is_some())
     .count();
   assert_eq!(on(&state), 3);
@@ -428,8 +428,8 @@ fn test_which_pass_ends_where_the_loop_comes_round() {
 
 #[test]
 fn test_the_take_in_progress_starts_at_the_loop_start_once_it_comes_round() {
-  let state = daw::InnerState::default();
-  let looping = |heard: Instant| Session {
+  let state = daw::Session::default();
+  let looping = |heard: Instant| Recording {
     tracks: vec![(1, PathBuf::new())],
     start: Duration::from_secs(2),
     start_beat: 4.,
@@ -448,7 +448,7 @@ fn test_the_take_in_progress_starts_at_the_loop_start_once_it_comes_round() {
   assert_eq!(collect(&state).take.unwrap().start_beat, 0.);
 
   // a region from 1s (beat 2) to 4s: its start, once it's come round
-  let region = |heard| Session { span: span(1, 4), span_start_beat: 2., ..looping(heard) };
+  let region = |heard| Recording { span: span(1, 4), span_start_beat: 2., ..looping(heard) };
   state.recorder.lock().unwrap().session = Some(region(Instant::now()));
   assert_eq!(collect(&state).take.unwrap().start_beat, 4.);
   state.recorder.lock().unwrap().session = Some(region(Instant::now() - Duration::from_secs(3)));
@@ -459,7 +459,7 @@ fn test_the_take_in_progress_starts_at_the_loop_start_once_it_comes_round() {
 #[test]
 fn test_the_pass_that_ends_plays_on_the_next() {
   let rate = 1_000;
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   let (engine, mut renderer) = engine::Engine::new(rate);
 
   // a recording from 1s into a 4s loop: its first pass is 3s, which is
@@ -469,7 +469,7 @@ fn test_the_pass_that_ends_plays_on_the_next() {
   let live = Arc::new(input::LivePasses::default());
   live.add(input::LivePass { index: 0, files: vec![samples] });
   let heard = Instant::now();
-  state.recorder.lock().unwrap().session = Some(Session {
+  state.recorder.lock().unwrap().session = Some(Recording {
     tracks: vec![(1, PathBuf::new())],
     start: Duration::from_secs(1),
     heard,
@@ -522,7 +522,7 @@ fn test_where_a_pass_is_heard_in_a_region() {
 #[test]
 fn test_a_first_pass_from_before_a_region_plays_from_the_region_start() {
   let rate = 1_000;
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   let (engine, mut renderer) = engine::Engine::new(rate);
 
   // from 1s, in a region from 2s to 4s: the first pass is 3s, its first
@@ -533,7 +533,7 @@ fn test_a_first_pass_from_before_a_region_plays_from_the_region_start() {
   let live = Arc::new(input::LivePasses::default());
   live.add(input::LivePass { index: 0, files: vec![samples] });
   let heard = Instant::now();
-  state.recorder.lock().unwrap().session = Some(Session {
+  state.recorder.lock().unwrap().session = Some(Recording {
     tracks: vec![(1, PathBuf::new())],
     start: secs(1),
     heard,
@@ -565,7 +565,7 @@ fn test_a_first_pass_from_before_a_region_plays_from_the_region_start() {
 fn test_a_loop_recording_layers_its_passes() {
   let dir = std::env::temp_dir().join(format!("dawesome-layering-{}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
   state.project.lock().unwrap().reset(Some(dir.join("song").join("song.dawesome")));
   state.playlist.loop_enabled.store(true, std::sync::atomic::Ordering::SeqCst);
   // the empty playlist loops 4 bars: 3.2s at 300 bpm
@@ -605,7 +605,7 @@ fn test_a_loop_recording_layers_its_passes() {
 #[test]
 fn test_passes_play_in_a_run_that_started_with_an_empty_playlist() {
   // (an empty playlist still loops, so it can be loop recorded)
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   state.playlist.audiograph.lock().unwrap().init();
   state.playlist.set_playing(true);
   let path = take_file("empty-run");

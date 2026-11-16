@@ -41,7 +41,7 @@ pub struct Joined {
 
 // - rate: the engine's rate, for a file that has to be written. None when
 //   no output is open: the first clip's sample's own rate is used
-pub(crate) fn join(state: &daw::InnerState, ids: &[u64], rate: Option<u32>) -> Result<Joined, String> {
+pub(crate) fn join(state: &daw::Session, ids: &[u64], rate: Option<u32>) -> Result<Joined, String> {
   let mut ids = ids.to_vec();
   ids.sort_unstable();
   ids.dedup();
@@ -90,7 +90,7 @@ fn samples_line_up(clips: &[audiograph::AudioNode]) -> bool {
   })
 }
 
-fn join_samples(state: &daw::InnerState, clips: Vec<audiograph::AudioNode>, rate: Option<u32>) -> Result<Joined, String> {
+fn join_samples(state: &daw::Session, clips: Vec<audiograph::AudioNode>, rate: Option<u32>) -> Result<Joined, String> {
   let ids: Vec<u64> = clips.iter().map(|node| node.id).collect();
   let (first, rest) = (ids[0], ids[1..].to_vec());
 
@@ -198,7 +198,7 @@ pub fn joined_name(names: &[String]) -> String {
   }
 }
 
-fn join_patterns(state: &daw::InnerState, clips: Vec<audiograph::PatternNode>) -> Result<Joined, String> {
+fn join_patterns(state: &daw::Session, clips: Vec<audiograph::PatternNode>) -> Result<Joined, String> {
   let ids: Vec<u64> = clips.iter().map(|node| node.id).collect();
   let (first, rest) = (ids[0], ids[1..].to_vec());
   let before = history::picture(state, &ids);

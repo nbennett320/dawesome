@@ -47,7 +47,7 @@ fn init_tauri() {
     }
   });
 
-  let state = Arc::new(daw::InnerState::default());
+  let state = Arc::new(daw::Session::default());
 
   // the plugins found last time, then a look for new or changed ones in the
   // background

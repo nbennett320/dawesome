@@ -8,24 +8,24 @@ use crate::daw::project;
 
 const KICK: &str = "assets/assets_66-bd-01.wav";
 
-fn state() -> Arc<daw::InnerState> {
-  Arc::new(daw::InnerState::default())
+fn state() -> Arc<daw::Session> {
+  Arc::new(daw::Session::default())
 }
 
-fn saved(state: &daw::InnerState) -> project::Project {
+fn saved(state: &daw::Session) -> project::Project {
   project::capture(state, None)
 }
 
-fn steps(state: &daw::InnerState) -> usize {
+fn steps(state: &daw::Session) -> usize {
   state.history.lock().unwrap().len()
 }
 
-fn sample(state: &daw::InnerState, track: u32, beat: f32) -> u64 {
+fn sample(state: &daw::Session, track: u32, beat: f32) -> u64 {
   add_clip(state, KICK.to_string(), track, Some(beat)).unwrap().id
 }
 
 // a one bar pattern with a kick on its first step, and a clip of it
-fn pattern_clip(state: &daw::InnerState, track: u32, beat: f64) -> (u64, u64) {
+fn pattern_clip(state: &daw::Session, track: u32, beat: f64) -> (u64, u64) {
   let pattern = {
     let mut sequencer = state.playlist.sequencer.lock().unwrap();
     let row = sequencer.add_row(KICK).unwrap();
@@ -39,7 +39,7 @@ fn pattern_clip(state: &daw::InnerState, track: u32, beat: f64) -> (u64, u64) {
   (pattern, clip)
 }
 
-fn node(state: &daw::InnerState, id: u64) -> audiograph::AudioNode {
+fn node(state: &daw::Session, id: u64) -> audiograph::AudioNode {
   state.playlist.audiograph.lock().unwrap().get_node_by_id(id).unwrap().clone()
 }
 

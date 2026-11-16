@@ -10,9 +10,9 @@ fn test_dir(name: &str) -> PathBuf {
 }
 
 // a saved project with a take on the playlist and in a sequencer row
-fn saved_project(name: &str) -> (daw::InnerState, PathBuf, PathBuf, String) {
+fn saved_project(name: &str) -> (daw::Session, PathBuf, PathBuf, String) {
   let dir = test_dir(name);
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   let file = dir.join("song").join("song.dawesome");
   let recordings = dir.join("song").join("recordings");
   std::fs::create_dir_all(&recordings).unwrap();
@@ -28,8 +28,8 @@ fn saved_project(name: &str) -> (daw::InnerState, PathBuf, PathBuf, String) {
 }
 
 // the project as it opens next time, and the samples it couldn't find
-fn reopen(file: &Path) -> (crate::daw::project::LoadedProject, daw::InnerState) {
-  let state = daw::InnerState::default();
+fn reopen(file: &Path) -> (crate::daw::project::LoadedProject, daw::Session) {
+  let state = daw::Session::default();
   let loaded = crate::daw::project::load_from(&state, file).unwrap();
   (loaded, state)
 }
@@ -78,7 +78,7 @@ fn test_moving_a_take_saves_nothing_else() {
 }
 
 // a saved project with a clip file in clips/ used by a clip on the playlist
-fn project_with_a_clip_file(name: &str) -> (daw::InnerState, PathBuf, PathBuf, String) {
+fn project_with_a_clip_file(name: &str) -> (daw::Session, PathBuf, PathBuf, String) {
   let (state, dir, file, _) = saved_project(name);
   let clips = dir.join("song").join("clips");
   std::fs::create_dir_all(&clips).unwrap();
@@ -89,7 +89,7 @@ fn project_with_a_clip_file(name: &str) -> (daw::InnerState, PathBuf, PathBuf, S
   (state, dir, file, clip)
 }
 
-fn clip_paths(state: &daw::InnerState) -> Vec<String> {
+fn clip_paths(state: &daw::Session) -> Vec<String> {
   state.playlist.audiograph.lock().unwrap().nodes.iter().map(|n| n.sample_path().to_string()).collect()
 }
 
@@ -192,7 +192,7 @@ fn test_a_new_clip_of_a_renamed_file_shares_its_sound() {
 
 #[test]
 fn test_clips_of_a_project_that_was_never_saved() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   assert_eq!(existing_dir(&state, Library::Clips), None);
   let error = rename_recording_in(&state, "/nowhere/a.wav", "b", Library::Clips).unwrap_err();
   assert_eq!(error, "the project has no clips yet");

@@ -8,7 +8,7 @@ use crate::daw::actions::clip::add_clip;
 const KICK: &str = "assets/assets_66-bd-01.wav";
 const LONG: &str = "assets/slide_guitar.wav";
 
-fn mixdown(state: &daw::InnerState, rate: u32) -> Vec<f32> {
+fn mixdown(state: &daw::Session, rate: u32) -> Vec<f32> {
   let mut samples = Vec::new();
   render(snapshot(state, rate).unwrap(), rate, &mut |chunk| { samples.extend_from_slice(chunk); Ok(()) },
     &Progress::default(), &AtomicBool::new(false)).unwrap();
@@ -24,7 +24,7 @@ fn worst(a: &[f32], b: &[f32]) -> f32 {
 }
 
 // a pattern of kicks and a long sample, on track `track`, from `beat`
-fn pattern_clip(state: &daw::InnerState, track: u32, at: Duration) -> u64 {
+fn pattern_clip(state: &daw::Session, track: u32, at: Duration) -> u64 {
   let pattern = {
     let mut sequencer = state.playlist.sequencer.lock().unwrap();
     let kick = sequencer.add_row(KICK).unwrap();
@@ -43,7 +43,7 @@ fn pattern_clip(state: &daw::InnerState, track: u32, at: Duration) -> u64 {
 #[test]
 fn test_a_mixdown_is_what_playback_plays() {
   for (tempo, rate) in [(120., 48_000), (87.3, 44_100), (90., 96_000)] {
-    let state = daw::InnerState::default();
+    let state = daw::Session::default();
     state.playlist.audiograph.lock().unwrap().set_tempo(tempo);
     add_clip(&state, KICK.into(), 0, Some(0.)).unwrap();
     add_clip(&state, LONG.into(), 1, Some(1.37)).unwrap();
@@ -65,7 +65,7 @@ fn test_a_mixdown_is_what_playback_plays() {
 // a pattern of notes off the grid at other pitches and velocities: kicks
 // (one-shot, so they ring out whatever their length) and the long sample
 // (gated, so it stops at each note's end), on track `track`, from `at`
-fn pitched_clip(state: &daw::InnerState, track: u32, at: Duration) -> u64 {
+fn pitched_clip(state: &daw::Session, track: u32, at: Duration) -> u64 {
   let note = |pitch, start, length, velocity| sequencer::PatternNote { pitch, start, length, velocity };
   let pattern = {
     let mut sequencer = state.playlist.sequencer.lock().unwrap();
@@ -86,7 +86,7 @@ fn pitched_clip(state: &daw::InnerState, track: u32, at: Duration) -> u64 {
 #[test]
 fn test_notes_at_any_pitch_velocity_and_gate_are_mixed_down_as_played() {
   for (tempo, rate) in [(97., 48_000), (120., 44_100)] {
-    let state = daw::InnerState::default();
+    let state = daw::Session::default();
     state.playlist.audiograph.lock().unwrap().set_tempo(tempo);
     pitched_clip(&state, 2, Duration::from_nanos(1_234_567_891));
     state.playlist.mixer.set_pan(2, -0.3);
@@ -102,7 +102,7 @@ fn test_notes_at_any_pitch_velocity_and_gate_are_mixed_down_as_played() {
 
 #[test]
 fn test_mute_and_solo_are_heard_as_set() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   add_clip(&state, KICK.into(), 0, Some(0.)).unwrap();
   add_clip(&state, LONG.into(), 1, Some(0.)).unwrap();
   let both = mixdown(&state, 48_000);
@@ -126,7 +126,7 @@ fn test_mute_and_solo_are_heard_as_set() {
 
 #[test]
 fn test_the_metronome_is_never_mixed_down() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   add_clip(&state, KICK.into(), 0, Some(0.)).unwrap();
   state.playlist.mixer.set_mute(0, true);
   state.metronome_enabled.store(true, Ordering::SeqCst);
@@ -137,7 +137,7 @@ fn test_the_metronome_is_never_mixed_down() {
 
 #[test]
 fn test_the_master_fader_turns_it_down() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   add_clip(&state, KICK.into(), 0, Some(0.)).unwrap();
   // (quiet to start with, so the limiter isn't in play)
   state.playlist.mixer.set_volume_db(0, -12.);
@@ -150,7 +150,7 @@ fn test_the_master_fader_turns_it_down() {
 
 #[test]
 fn test_it_runs_to_the_last_clips_end_and_a_ringing_hit_is_kept() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   // a pattern whose last hit, the long sample, rings well past its end
   pattern_clip(&state, 0, Duration::ZERO);
   let snap = snapshot(&state, 48_000).unwrap();
@@ -162,7 +162,7 @@ fn test_it_runs_to_the_last_clips_end_and_a_ringing_hit_is_kept() {
   assert!(peak(&mixed[mixed.len() - 2..]) > 0.);
 
   // a clip that ends in silence ends at its end
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   add_clip(&state, KICK.into(), 0, Some(0.)).unwrap();
   let end = audiograph::run_frame(snapshot(&state, 48_000).unwrap().end().as_nanos() as i128, 48_000) as usize;
   assert!(mixdown(&state, 48_000).len() / 2 <= end + 1);
@@ -192,13 +192,13 @@ fn test_echoes_after_a_quiet_gap_are_kept() {
 
 #[test]
 fn test_an_empty_playlist_is_refused() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   assert_eq!(snapshot(&state, 48_000).err().unwrap(), NOTHING_TO_MIX);
 }
 
 #[test]
 fn test_changes_after_it_starts_dont_reach_it_and_it_doesnt_reach_the_meters() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   add_clip(&state, KICK.into(), 0, Some(0.)).unwrap();
   let before = mixdown(&state, 48_000);
   state.playlist.mixer.take_levels();
@@ -220,7 +220,7 @@ fn test_changes_after_it_starts_dont_reach_it_and_it_doesnt_reach_the_meters() {
 
 #[test]
 fn test_a_cancel_stops_it_and_progress_is_reported() {
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   add_clip(&state, LONG.into(), 0, Some(0.)).unwrap();
   let progress = Progress::default();
   let cancel = AtomicBool::new(false);
@@ -243,7 +243,7 @@ fn test_more_hits_than_the_engine_holds_at_once_are_all_heard() {
   // 1100 kicks a fifth of a beat apart: more than MAX_VOICES over the
   // song (the scheduler only ever has a beat's worth waiting), though
   // only a few sound at once
-  let state = daw::InnerState::default();
+  let state = daw::Session::default();
   state.playlist.ui.lock().unwrap().snap_enabled = false;
   let count = 1100;
   for n in 0..count {
@@ -291,7 +291,7 @@ fn test_effects_are_mixed_down_through_second_instances() {
 
   // the kick through both, the long sample through the master's only
   let kick_only = {
-    let state = daw::InnerState::default();
+    let state = daw::Session::default();
     add_clip(&state, KICK.into(), 0, Some(0.)).unwrap();
     state.playlist.mixer.set_master_volume_db(-12.);
     mixdown(&state, 48_000)
@@ -338,7 +338,7 @@ fn synth_and_notes() -> (crate::daw::effects::testing::Rig, u64, u64) {
 }
 
 // a clip of a pattern on a track, at `at`, with the synths following it
-fn note_clip(state: &daw::InnerState, pattern: u64, track: u32, at: Duration) -> u64 {
+fn note_clip(state: &daw::Session, pattern: u64, track: u32, at: Duration) -> u64 {
   let clip = state.playlist.audiograph.lock().unwrap()
     .add_pattern_node::<timing::Note>(pattern, at, track, None).unwrap();
   crate::daw::actions::synth::follow(state);
