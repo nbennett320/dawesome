@@ -167,6 +167,28 @@ fn test_it_runs_to_the_last_clips_end_and_a_ringing_hit_is_kept() {
 }
 
 #[test]
+fn test_echoes_after_a_quiet_gap_are_kept() {
+  use crate::daw::Channel;
+  use crate::effects::testing::*;
+
+  let rig = rig();
+  let state = &rig.state;
+  add_clip(state, KICK.into(), 0, Some(0.)).unwrap();
+  let end = daw::run_frame(snapshot(state, 48_000).unwrap().end().as_nanos() as i128, 48_000) as usize;
+  // the kick, a second and a half of silence, and the kick again
+  let id = state.playlist.effects.add(Channel::Track(0), "dawesome:delay", None).unwrap();
+  state.playlist.effects.with_native(id, |n| {
+    n.set_text(0, "off").unwrap();
+    n.set_text(2, "1500").unwrap();
+    n.set_text(5, "0").unwrap();
+  }).unwrap();
+  let mixed = mixdown(state, 48_000);
+  let frames = mixed.len() / 2;
+  assert!(frames > 72_000, "{} frames: the echo was cut off", frames);
+  assert!(peak(&mixed[(end + 48_000) * 2..]) > 0.01);
+}
+
+#[test]
 fn test_an_empty_playlist_is_refused() {
   let state = daw::InnerState::default();
   assert_eq!(snapshot(&state, 48_000).err().unwrap(), NOTHING_TO_MIX);

@@ -313,6 +313,8 @@ mod tests {
     assert_eq!(eq.kind, PluginKind::Effect);
     assert_eq!(eq.category, "EQ");
     assert_eq!(find("dawesome:eq").as_ref(), Some(eq));
+    let delay = catalog.iter().find(|p| p.id == "dawesome:delay").unwrap();
+    assert_eq!((delay.name.as_str(), delay.category.as_str()), ("Delay", "Delay"));
     assert!(find("dawesome:nothing").is_none());
     assert!(load("dawesome:nothing", 48_000).is_err());
   }

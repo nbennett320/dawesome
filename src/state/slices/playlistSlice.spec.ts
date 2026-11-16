@@ -1,7 +1,7 @@
 import type { Mock } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import reducer, {
-  addPatternToPlaylist, addToPlaylist, copyClips, moveNodeInPlaylist, moveNodesInPlaylist, cutClips, deepCopyClips, joinClips, NEEDS_SAVING, pasteClips, repeatClips, reduceLoadedProject, playlistSlice, removeManyFromPlaylist, selectClipOverrides, selectClipWindow, setClipWindows,
+  addPatternToPlaylist, addToPlaylist, copyClips, moveNodeInPlaylist, moveNodesInPlaylist, cutClips, deepCopyClips, joinClips, NEEDS_SAVING, pasteClips, repeatClips, reduceLoadedProject, playlistSlice, removeManyFromPlaylist, selectBarQuarters, selectClipOverrides, selectClipWindow, setClipWindows,
   setPlaylistTempo, setLoopRegion, clearLoopEnd,
   splitClips, stretchClips, updateClipSettings, validTempo, withWaitCursor,
 } from './playlistSlice'
@@ -351,6 +351,17 @@ describe('the playlist view', () => {
 })
 
 describe('reduceLoadedProject', () => {
+  it('keeps the project’s time signature: a bar’s length in quarter notes', () => {
+    const bar = (state: ReturnType<typeof reducer>) => selectBarQuarters({ playlist: state } as never)
+    let state = reducer(undefined, { type: 'init' })
+    expect(bar(state)).toBe(4)
+    state = reducer(state, reduceLoadedProject(loaded))
+    expect(state.timeSignature).toEqual({ numerator: 3, denominator: 4 })
+    expect(bar(state)).toBe(3)
+    state = reducer(state, reduceLoadedProject({ ...loaded, timeSignature: { numerator: 6, denominator: 8 } }))
+    expect(bar(state)).toBe(3)
+  })
+
   it('replaces the playlist with the loaded project', () => {
     const { actions } = playlistSlice
     let state = reducer(undefined, { type: 'init' })
