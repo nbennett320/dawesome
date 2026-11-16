@@ -11,18 +11,23 @@
 // locks while it waits: the main thread may be in a command waiting for that
 // same lock
 //
-// without an app (tests, the debug console) there's no main thread to go
-// to, so `run` runs the work where it's called
+// the app says how work gets to its main thread (a Runner, given to init).
+// without one (tests, the debug console) there's no main thread to go to,
+// so `run` runs the work where it's called
 use std::sync::{mpsc, OnceLock};
 use std::thread::{self, ThreadId};
 
+// hands a job to the main thread, to run when it gets to it (Tauri's
+// run_on_main_thread, in the app). an error once it no longer takes work
+pub type Runner = Box<dyn Fn(Box<dyn FnOnce() + Send + 'static>) -> Result<(), String> + Send + Sync>;
+
 static MAIN: OnceLock<ThreadId> = OnceLock::new();
-static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
+static RUNNER: OnceLock<Runner> = OnceLock::new();
 
 // called once, on the main thread, when the app has started
-pub fn init(app: tauri::AppHandle) {
+pub fn init(runner: Runner) {
   let _ = MAIN.set(thread::current().id());
-  let _ = APP.set(app);
+  let _ = RUNNER.set(runner);
 }
 
 // whether this is the main thread (or there's no app, so any thread will do)
@@ -34,8 +39,8 @@ pub fn here() -> bool {
 // it. an error only when the app is closing and the main thread no longer
 // takes work
 pub fn run<R: Send>(work: impl FnOnce() -> R + Send) -> Result<R, String> {
-  let app = match APP.get() {
-    Some(app) if !here() => app,
+  let runner = match RUNNER.get() {
+    Some(runner) if !here() => runner,
     _ => return Ok(work()),
   };
 
@@ -47,7 +52,7 @@ pub fn run<R: Send>(work: impl FnOnce() -> R + Send) -> Result<R, String> {
   // unrun (either way `done` goes, which ends the wait below), so whatever
   // it borrows outlives it
   let job: Box<dyn FnOnce() + Send + 'static> = unsafe { std::mem::transmute(job) };
-  app.run_on_main_thread(job).map_err(|e| format!("the app is closing ({})", e))?;
+  runner(job).map_err(|e| format!("the app is closing ({})", e))?;
   result.recv().map_err(|_| "the app is closing".to_string())
 }
 

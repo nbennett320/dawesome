@@ -80,7 +80,8 @@ fn init_tauri() {
     .plugin(tauri_plugin_fs::init())
     .setup(move |app| {
       // (setup runs on the main thread, which plugins are called on)
-      main_thread::init(app.handle().clone());
+      let handle = app.handle().clone();
+      main_thread::init(Box::new(move |job| handle.run_on_main_thread(job).map_err(|e| e.to_string())));
       effects::keep_idling(racks.clone());
       effects::follow_output(&racks);
       effect_windows::init(&racks);
