@@ -102,7 +102,7 @@ fn test_still_recording_until_the_takes_are_in() {
 fn test_no_undo_or_redo_while_recording() {
   use crate::history;
   let state = Arc::new(daw::InnerState::default());
-  let clip = crate::commands::clip::add_clip(&state, daw::METRONOME_TICK_PATH.to_string(), 0, Some(2.)).unwrap().id;
+  let clip = crate::actions::clip::add_clip(&state, daw::METRONOME_TICK_PATH.to_string(), 0, Some(2.)).unwrap().id;
   let has_clip = || state.playlist.audiograph.lock().unwrap().get_node_by_id(clip).is_some();
 
   // while a take is being recorded, nothing is undone, and the step waits
@@ -217,7 +217,7 @@ fn test_the_tempo_is_locked_while_recording() {
 #[test]
 fn test_nothing_is_undone_while_recording() {
   let state = Arc::new(daw::InnerState::default());
-  let id = crate::commands::clip::add_clip(&state, daw::METRONOME_TICK_PATH.to_string(), 0, Some(2.)).unwrap().id;
+  let id = crate::actions::clip::add_clip(&state, daw::METRONOME_TICK_PATH.to_string(), 0, Some(2.)).unwrap().id;
   state.recorder.lock().unwrap().session = Some(session());
 
   assert_eq!(crate::history::undo(&state).unwrap(), None);

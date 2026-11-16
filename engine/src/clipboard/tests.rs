@@ -1,6 +1,6 @@
 use super::*;
 use std::sync::Arc;
-use crate::commands::clip::{add_clip, change_clip_settings};
+use crate::actions::clip::{add_clip, change_clip_settings};
 use crate::actions::playlist::node_beat;
 use crate::project;
 
@@ -48,8 +48,8 @@ fn test_paste_puts_the_earliest_clip_on_the_beat_and_keeps_the_rest_apart() {
   let (a, b) = (sample(&state, 0, 2.), sample(&state, 2, 5.5));
   let (pattern, c) = pattern_clip(&state, 1, 4.);
   change_clip_settings(&state, b, daw::ClipSettings { pitch: 3., pan: 0.5, ..Default::default() }, None).unwrap();
-  crate::commands::clip::set_windows(&state, &[crate::commands::clip::WindowEdit {
-    id: b, window: crate::commands::clip::ClipWindow { start: 0.02, end: Some(0.09) },
+  crate::actions::clip::set_windows(&state, &[crate::actions::clip::WindowEdit {
+    id: b, window: crate::actions::clip::ClipWindow { start: 0.02, end: Some(0.09) },
   }]).unwrap();
   let b_beat = node_beat(&state, b).unwrap();
   state.history.lock().unwrap().clear();
@@ -71,7 +71,7 @@ fn test_paste_puts_the_earliest_clip_on_the_beat_and_keeps_the_rest_apart() {
   // new clips, with the trim and settings of the ones they were copied from
   assert!(![a, b, c].contains(&clips[1].id));
   assert_eq!(clips[1].info.settings, node(&state, b).settings());
-  assert_eq!(clips[1].info.window, node(&state, b).window().map(crate::commands::clip::ClipWindow::of_sample));
+  assert_eq!(clips[1].info.window, node(&state, b).window().map(crate::actions::clip::ClipWindow::of_sample));
   assert_eq!(clips[0].path, KICK);
 
   // pasted again, a second set lands in the same place
@@ -141,8 +141,8 @@ fn test_a_pasted_clip_is_its_own_clip_of_the_same_sound() {
 
   // trimmed, pitched and turned down, the pasted clip changes nothing
   // about the one it was copied from
-  crate::commands::clip::set_windows(&state, &[crate::commands::clip::WindowEdit {
-    id: pasted, window: crate::commands::clip::ClipWindow { start: 0.03, end: Some(0.06) },
+  crate::actions::clip::set_windows(&state, &[crate::actions::clip::WindowEdit {
+    id: pasted, window: crate::actions::clip::ClipWindow { start: 0.03, end: Some(0.06) },
   }]).unwrap();
   change_clip_settings(&state, pasted, daw::ClipSettings { pitch: -5., gain_db: -9., ..Default::default() }, None).unwrap();
   assert!(heard(pasted) != sound);
@@ -328,7 +328,7 @@ fn test_the_halves_of_a_cut_clip_stay_together_when_pasted() {
   let state = state();
   state.playlist.ui.lock().unwrap().snap_enabled = false;
   let id = sample(&state, 0, 2.337);
-  let changed = crate::commands::clip::split(&state, &[id], 2.4).unwrap();
+  let changed = crate::actions::clip::split(&state, &[id], 2.4).unwrap();
   let right = changed.clips[1].id;
   let (left_node, right_node) = (node(&state, id), node(&state, right));
   assert_eq!(left_node.origin(), right_node.origin());
@@ -353,10 +353,10 @@ fn test_a_looping_clip_and_its_cut_halves_are_pasted_and_repeated_as_they_play()
   // round its one bar pattern two and a half times, from beat 3, then cut
   // on its second time round (step 20.5)
   let (pattern, c) = pattern_clip(&state, 1, 3.);
-  crate::commands::clip::set_windows(&state, &[crate::commands::clip::WindowEdit {
-    id: c, window: crate::commands::clip::ClipWindow { start: 0., end: Some(40.) },
+  crate::actions::clip::set_windows(&state, &[crate::actions::clip::WindowEdit {
+    id: c, window: crate::actions::clip::ClipWindow { start: 0., end: Some(40.) },
   }]).unwrap();
-  let right = crate::commands::clip::split(&state, &[c], 3. + 20.5 / 4.).unwrap().pattern_clips[1].id;
+  let right = crate::actions::clip::split(&state, &[c], 3. + 20.5 / 4.).unwrap().pattern_clips[1].id;
   let clip = |id: u64| state.playlist.audiograph.lock().unwrap().get_pattern_node_by_id(id).unwrap().clone();
   let beat = state.playlist.audiograph.lock().unwrap().beat_interval();
   assert_eq!(((clip(c).start, clip(c).end()), (clip(right).start, clip(right).end())), ((0., 20.5), (20.5, 40.)));

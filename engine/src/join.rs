@@ -14,7 +14,7 @@ use std::time::Duration;
 use serde::Serialize;
 
 use crate::bounce;
-use crate::commands::clip::{changed_clips, ChangedClips};
+use crate::actions::clip::{changed_clips, ChangedClips};
 use crate::daw;
 use crate::history;
 use crate::project_files;

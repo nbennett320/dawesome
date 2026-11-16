@@ -1,6 +1,6 @@
 use super::*;
 use std::time::Duration;
-use crate::commands::clip::{add_node_at_offset, move_audiograph_node_to};
+use crate::actions::clip::{add_node_at_offset, move_audiograph_node_to};
 use crate::actions::playlist::{beat_to_offset, node_beat};
 
 #[test]

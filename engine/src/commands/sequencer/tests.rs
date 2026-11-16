@@ -1,6 +1,6 @@
 use super::*;
 use std::collections::BTreeMap;
-use crate::commands::clip::ClipWindow;
+use crate::actions::clip::ClipWindow;
 use std::time::Duration;
 
 const KICK: &str = "assets/assets_66-bd-01.wav";
@@ -766,7 +766,7 @@ fn test_an_exploded_synth_row_plays_through_a_copy_on_its_own_track() {
   // on track 1, round its one bar pattern two and a half times
   let clip = add_pattern_clip_to(&state, pattern, 1, Some(0.)).unwrap().id;
   let looping = ClipWindow { start: 0., end: Some(40.) };
-  crate::commands::clip::set_windows(&state, &[crate::commands::clip::WindowEdit { id: clip, window: looping.clone() }]).unwrap();
+  crate::actions::clip::set_windows(&state, &[crate::actions::clip::WindowEdit { id: clip, window: looping.clone() }]).unwrap();
   let before = saved(&state);
   let had = steps(&state);
 

@@ -2,7 +2,7 @@ use super::*;
 use crate::test_support::play;
 use std::sync::Arc;
 use std::time::Instant;
-use crate::commands::clip::{add_clip, change_clip_settings, ClipWindow};
+use crate::actions::clip::{add_clip, change_clip_settings, ClipWindow};
 use crate::project;
 
 const KICK: &str = "assets/assets_66-bd-01.wav";
@@ -68,7 +68,7 @@ fn test_a_copy_plays_what_the_clip_did() {
     let path = noise_wav(&dir, "Noise.wav", file_rate, 2, file_rate * 2);
     let id = add_clip(&state, path.clone(), 2, Some(1.37)).unwrap().id;
     // trimmed, pitched down, faded in, panned and turned down
-    crate::commands::clip::set_windows(&state, &[crate::commands::clip::WindowEdit {
+    crate::actions::clip::set_windows(&state, &[crate::actions::clip::WindowEdit {
       id, window: ClipWindow { start: 0.3, end: Some(1.6) },
     }]).unwrap();
     change_clip_settings(&state, id, daw::ClipSettings {
@@ -378,7 +378,7 @@ fn test_a_pattern_clip_becomes_a_sample_clip_of_what_it_played() {
     audiograph.add_pattern_node::<daw::timing::Note>(pattern, Duration::from_nanos(1_234_567_891), 3, None).unwrap()
   };
   // steps 2 up to 16: the first kick isn't played
-  crate::commands::clip::set_windows(&state, &[crate::commands::clip::WindowEdit {
+  crate::actions::clip::set_windows(&state, &[crate::actions::clip::WindowEdit {
     id, window: ClipWindow { start: 2., end: None },
   }]).unwrap();
   let (start, length) = {

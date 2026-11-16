@@ -9,7 +9,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::commands::clip::{changed_clips, ChangedClips};
+use crate::actions::clip::{changed_clips, ChangedClips};
 use crate::daw;
 use crate::history;
 use crate::project_files;

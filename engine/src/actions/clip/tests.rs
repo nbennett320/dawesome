@@ -1,6 +1,6 @@
 use super::*;
 use std::sync::Arc;
-use crate::commands::clip::{add_clip, change_clip_settings};
+use crate::actions::clip::{add_clip, change_clip_settings};
 use crate::actions::playlist::node_beat;
 use crate::project;
 
@@ -270,7 +270,7 @@ fn test_edits_are_quick_with_five_hundred_clips() {
   timed("trim one clip", &mut || { set_windows(&state, &[edit(one, 0.02, Some(0.1))]).unwrap(); });
   timed("cut one clip", &mut || { split(&state, &[one], 100.1).unwrap(); });
   timed("stretch one clip", &mut || { stretch(&state, &[StretchEdit { id: ids[251], pitch: -5., keep: Keep::Start }]).unwrap(); });
-  timed("move one clip", &mut || { crate::commands::clip::move_clip(&state, ids[252], 3, Some(7.3)).unwrap(); });
+  timed("move one clip", &mut || { crate::actions::clip::move_clip(&state, ids[252], 3, Some(7.3)).unwrap(); });
   timed("trim fifty clips", &mut || {
     let edits: Vec<WindowEdit> = ids[..50].iter().map(|&id| edit(id, 0.01, Some(0.12))).collect();
     set_windows(&state, &edits).unwrap();
@@ -278,7 +278,7 @@ fn test_edits_are_quick_with_five_hundred_clips() {
   timed("copy fifty clips", &mut || { crate::clipboard::copy(&state, &ids[50..100]); });
   timed("paste fifty clips", &mut || { crate::clipboard::paste(&state, 210., None).unwrap(); });
   timed("repeat fifty clips", &mut || { crate::clipboard::repeat(&state, &ids[100..150]).unwrap(); });
-  timed("delete fifty clips", &mut || { crate::commands::clip::remove_clips(&state, &ids[150..200]).unwrap(); });
+  timed("delete fifty clips", &mut || { crate::actions::clip::remove_clips(&state, &ids[150..200]).unwrap(); });
   let state_arc = state.clone();
   timed("undo", &mut || { history::undo(&state_arc).unwrap(); });
   timed("the project after an undo", &mut || { crate::commands::history::project_view(&state); });

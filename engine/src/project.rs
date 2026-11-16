@@ -22,7 +22,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::daw;
-use crate::commands::clip::{clip_info, ClipInfo, ClipWindow};
+use crate::actions::clip::{clip_info, ClipInfo, ClipWindow};
 use crate::project_files::{self, recordings_dir_for};
 
 // the newest project format this version of the app reads and writes.

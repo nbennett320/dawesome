@@ -1,7 +1,7 @@
 use super::*;
 use crate::test_support::play;
 use std::time::Instant;
-use crate::commands::clip::add_clip;
+use crate::actions::clip::add_clip;
 
 const KICK: &str = "assets/assets_66-bd-01.wav";
 const LONG: &str = "assets/slide_guitar.wav";

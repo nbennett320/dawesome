@@ -526,8 +526,8 @@ fn test_projects_without_patterns_stay_version_1() {
   assert!(json.get("patternClips").is_none());
 }
 
-fn edit(id: u64, start: f64, end: Option<f64>) -> crate::commands::clip::WindowEdit {
-  crate::commands::clip::WindowEdit { id, window: ClipWindow { start, end } }
+fn edit(id: u64, start: f64, end: Option<f64>) -> crate::actions::clip::WindowEdit {
+  crate::actions::clip::WindowEdit { id, window: ClipWindow { start, end } }
 }
 
 // a one bar pattern with a kick step, and a clip of it on a beat
@@ -557,7 +557,7 @@ fn test_a_trimmed_clip_is_saved_and_loaded() {
   let file = dir.join("song.dawesome");
   let state = daw::InnerState::default();
   let id = add_clip(&state, "assets/assets_66-bd-01.wav", 0, 2.);
-  crate::commands::clip::set_windows(&state, &[edit(id, 0.02, Some(0.08))]).unwrap();
+  crate::actions::clip::set_windows(&state, &[edit(id, 0.02, Some(0.08))]).unwrap();
   let before = sorted_nodes(&state).remove(0);
   assert!(before.window().is_some());
   save_to(&state, &file).unwrap();
@@ -580,7 +580,7 @@ fn test_the_two_halves_of_a_cut_clip_come_back_to_the_nanosecond() {
   let file = dir.join("song.dawesome");
   let state = daw::InnerState::default();
   let id = add_clip(&state, "assets/assets_66-bd-01.wav", 0, 2.337);
-  crate::commands::clip::change_clip_settings(
+  crate::actions::clip::change_clip_settings(
     &state, id, daw::ClipSettings { pitch: -7., ..Default::default() }, None,
   ).unwrap();
   // a beat inside the clip
@@ -589,7 +589,7 @@ fn test_the_two_halves_of_a_cut_clip_come_back_to_the_nanosecond() {
     let node = audiograph.get_node_by_id(id).unwrap();
     (node.start_offset + node.duration() / 2).as_secs_f64() / audiograph.beat_interval().as_secs_f64()
   };
-  crate::commands::clip::split(&state, &[id], beat).unwrap();
+  crate::actions::clip::split(&state, &[id], beat).unwrap();
   let before = sorted_nodes(&state);
   assert_eq!(before.len(), 2);
   save_to(&state, &file).unwrap();
@@ -619,7 +619,7 @@ fn test_the_version_follows_what_a_project_uses() {
   assert!(!serde_json::to_string(&plain).unwrap().contains("\"window\""));
 
   // a trimmed sample clip, without patterns
-  crate::commands::clip::set_windows(&state, &[edit(id, 0.02, Some(0.08))]).unwrap();
+  crate::actions::clip::set_windows(&state, &[edit(id, 0.02, Some(0.08))]).unwrap();
   let trimmed = capture(&state, None);
   assert_eq!(trimmed.version, 3);
   assert!(serde_json::to_string(&trimmed).unwrap().contains("\"window\""));
@@ -628,7 +628,7 @@ fn test_the_version_follows_what_a_project_uses() {
   let state = daw::InnerState::default();
   let (_, clip) = add_pattern_clip(&state, 1, 0.);
   assert_eq!(capture(&state, None).version, 4);
-  crate::commands::clip::set_windows(&state, &[edit(clip, 4., Some(12.))]).unwrap();
+  crate::actions::clip::set_windows(&state, &[edit(clip, 4., Some(12.))]).unwrap();
   let trimmed = capture(&state, None);
   assert_eq!(trimmed.version, 4);
   // a pattern clip has a start and a length, never a window
@@ -651,7 +651,7 @@ fn test_a_pattern_clip_is_saved_with_its_own_start_and_length() {
   let state = daw::InnerState::default();
   let (pattern, clip) = add_pattern_clip(&state, 2, 0.);
   let (_, middle) = add_pattern_clip(&state, 2, 16.);
-  crate::commands::clip::set_windows(&state, &[edit(clip, 4., Some(24.)), edit(middle, 2., Some(10.))]).unwrap();
+  crate::actions::clip::set_windows(&state, &[edit(clip, 4., Some(24.)), edit(middle, 2., Some(10.))]).unwrap();
   // the first now runs past its pattern's end: it plays steps 4 to 16, then
   // 0 to 8 again
   state.playlist.sequencer.lock().unwrap().set_pattern_bars(pattern, 1, 4).unwrap();
@@ -1064,7 +1064,7 @@ fn test_a_stage_one_project_loads_without_its_instruments_and_notes() {
 // saved
 
 fn tick_clip(state: &daw::InnerState, track: u32, beat: f32) -> u64 {
-  crate::commands::clip::add_clip(state, daw::METRONOME_TICK_PATH.to_string(), track, Some(beat))
+  crate::actions::clip::add_clip(state, daw::METRONOME_TICK_PATH.to_string(), track, Some(beat))
     .unwrap()
     .id
 }
@@ -1192,7 +1192,7 @@ fn test_clips_in_another_order_are_no_change() {
   mark_unchanged(&state);
 
   // undoing a move puts the clip back at the end of the graph's list
-  crate::commands::clip::move_clip(&state, early, 0, Some(8.)).unwrap();
+  crate::actions::clip::move_clip(&state, early, 0, Some(8.)).unwrap();
   assert!(has_unsaved_changes(&state));
   crate::history::undo(&state).unwrap();
   assert!(!has_unsaved_changes(&state));

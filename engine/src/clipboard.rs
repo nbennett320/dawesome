@@ -7,9 +7,9 @@
 use std::time::Duration;
 use serde::Serialize;
 
-use crate::commands::clip::{changed_clips, ChangedClips};
+use crate::actions::clip::{changed_clips, ChangedClips};
 use crate::daw;
-use crate::commands::clip::remove_clips;
+use crate::actions::clip::remove_clips;
 use crate::history::{self, ClipSnap};
 
 // a copied clip

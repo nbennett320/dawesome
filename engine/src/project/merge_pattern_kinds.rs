@@ -27,7 +27,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::commands::clip::ClipWindow;
+use crate::actions::clip::ClipWindow;
 use crate::daw;
 use super::ProjectPatternClip;
 

@@ -1,5 +1,5 @@
 use super::*;
-use crate::commands::clip::{add_clip, change_clip_settings, move_clip, remove_clips};
+use crate::actions::clip::{add_clip, change_clip_settings, move_clip, remove_clips};
 use crate::project;
 
 fn state() -> Arc<daw::InnerState> {
@@ -73,7 +73,7 @@ fn test_moving_a_selection_is_one_step() {
   let was = steps(&state);
 
   // the command the playlist uses for a dragged selection
-  let moved = crate::commands::clip::move_clips(&state, &[a, b], a, 10., 2);
+  let moved = crate::actions::clip::move_clips(&state, &[a, b], a, 10., 2);
   assert!(moved.is_ok());
   assert_eq!(steps(&state), was + 1);
   let after = saved(&state);

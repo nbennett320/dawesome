@@ -149,8 +149,8 @@ fn test_a_file_that_undo_could_bring_back_is_in_use() {
   let (state, dir, _, clip) = project_with_a_clip_file("clips-history");
   // a second clip of the file, dropped in and then deleted (which can be
   // undone), and the first taken away without a trace
-  let added = crate::commands::clip::add_clip(&state, clip.clone(), 2, Some(4.)).unwrap().id;
-  crate::commands::clip::remove_clips(&state, &[added]).unwrap();
+  let added = crate::actions::clip::add_clip(&state, clip.clone(), 2, Some(4.)).unwrap().id;
+  crate::actions::clip::remove_clips(&state, &[added]).unwrap();
   let first = state.playlist.audiograph.lock().unwrap().nodes.iter()
     .find(|node| node.sample_path() == clip).unwrap().id;
   state.playlist.audiograph.lock().unwrap().remove_node(first).unwrap();

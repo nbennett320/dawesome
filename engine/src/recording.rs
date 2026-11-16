@@ -19,7 +19,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::daw;
-use crate::commands::clip::clip_info;
+use crate::actions::clip::clip_info;
 use crate::history;
 use crate::preferences::LoopRecording;
 use crate::project::LoadedClip;
