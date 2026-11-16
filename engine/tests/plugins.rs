@@ -17,7 +17,7 @@
 mod plugin;
 // (what the engine runs: a plugin's audio half implements it. not all of it
 // is used here)
-#[path = "../src/processor.rs"]
+#[path = "../src/engine/processor.rs"]
 #[allow(dead_code)]
 mod processor;
 

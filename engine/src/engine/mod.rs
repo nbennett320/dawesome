@@ -41,9 +41,20 @@
 // the callback never takes a lock, touches the disk, or allocates or frees
 // memory: voices, buses and chains arrive through a lock-free queue, and what
 // it's done with is sent back to be freed by whoever sends the next command
+pub(crate) mod audio_settings;
+pub(crate) mod clip;
+pub(crate) mod clip_reader;
+pub(crate) mod drivers;
+pub(crate) mod input;
+pub(crate) mod mixer;
+pub(crate) mod processor;
+pub(crate) mod sample_voice;
+pub(crate) mod sound_buffer;
+pub(crate) mod util;
+
 use crate::daw;
-use crate::processor::{self, Processor, Transport};
-use super::audio_settings::{buffer_choices, AudioSettings};
+use self::processor::{Processor, Transport};
+use self::audio_settings::{buffer_choices, AudioSettings};
 use rodio::cpal::{
   self,
   traits::{DeviceTrait, HostTrait, StreamTrait},

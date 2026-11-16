@@ -2,7 +2,7 @@ mod actions;
 mod app;
 mod commands;
 mod daw;
-mod util;
+mod engine;
 mod project;
 mod project_files;
 mod recording;
@@ -17,7 +17,8 @@ mod mixdown;
 mod mixdown_file;
 mod plugin;
 mod plugin_catalog;
-mod processor;
+// (for now: until every path names them in engine/)
+use engine::{processor, util};
 mod main_thread;
 mod effects;
 mod effect_windows;
