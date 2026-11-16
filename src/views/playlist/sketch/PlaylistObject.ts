@@ -29,6 +29,9 @@ type State = ComponentState<Record<string, never>>
 // colored label on a cassette. a pattern clip is in its track's color all
 // over (see patternColors). a selected clip is sky, so the selection shows
 const TRACK_TINT = 0.35
+// how opaque a clip's body is, so the track's grid shows through a little.
+// the label band and border stay solid
+const CARD_ALPHA = 0.7
 
 // room at the end of the label for the modified dot, in screen pixels
 const MODIFIED_DOT_SPACE = 12
@@ -237,7 +240,8 @@ class PlaylistObject extends PlaylistComponent<State> {
     this.p.scale(1 / scale, 1)
     this.p.strokeWeight(selected ? 1.5 : 1)
     this.p.stroke(...border)
-    this.p.fill(...colors.card)
+    const [r, g, b, a] = colors.card
+    this.p.fill(r, g, b, a * CARD_ALPHA)
     this.p.rect(left * scale, cardTop, width * scale, cardHeight, 3)
     this.p.noStroke()
     this.p.fill(...colors.label)

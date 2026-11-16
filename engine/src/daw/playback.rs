@@ -1,17 +1,18 @@
 use crate::daw;
 use crate::daw::{audiograph, playlist, sequencer, timing};
 use crate::engine;
+use crate::engine::clip_reader;
 use crate::engine::sound_buffer::SampleBuffer;
-use std::fs::File;
-use std::io::BufReader;
 use std::sync::{
   mpsc,
   Arc, 
+  Mutex,
 };
 use std::sync::atomic::{Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
-use rodio::{Decoder, Source};
+use rodio::buffer::SamplesBuffer;
+use rodio::Source;
 
 
 // (the click's file, for tests that put it in the playlist)
@@ -81,13 +82,46 @@ lazy_static! {
 //   });
 // }
 
-// play a sample file once, straight to the output
-pub fn play_sample(path: &str) -> Result<(), String> {
-  let file = File::open(path).map_err(|e| format!("could not open '{}': {}", path, e))?;
-  let source = Decoder::new(BufReader::new(file))
-    .map_err(|e| format!("could not decode '{}': {}", path, e))?;
+// counts sample previews started and stops pressed. a sample still being
+// decoded (or waiting on the output to open) when another is heard, or stop
+// is pressed, isn't played after it: what came after it would have found
+// nothing to stop
+static PREVIEWS: Mutex<u64> = Mutex::new(0);
 
-  engine::engine()?.preview(source.convert_samples::<f32>())
+// play a sample file once, straight to the output, returning how long it
+// plays (nothing, if another sample or a stop came before it could start).
+// the previews playing stop as it starts. it's decoded here, not on the
+// audio thread
+pub fn play_sample(path: &str) -> Result<Duration, String> {
+  let preview = {
+    let mut previews = PREVIEWS.lock().unwrap();
+    *previews += 1;
+    *previews
+  };
+  let pcm = clip_reader::Pcm::load(path)?;
+  let length = Duration::from_secs_f64(pcm.frames() as f64 / pcm.rate() as f64);
+  let source = SamplesBuffer::new(pcm.channels(), pcm.rate(), pcm.samples().to_vec());
+  // (not locked while the output opens: stop_previews takes the output's
+  // lock while it holds this one)
+  let engine = engine::engine()?;
+
+  let previews = PREVIEWS.lock().unwrap();
+  if *previews != preview { return Ok(Duration::ZERO); }
+  // (in this order on the engine's queue, so only the older ones stop)
+  engine.stop_previews()?;
+  engine.preview(source.convert_samples::<f32>())?;
+  Ok(length)
+}
+
+// stop every preview that's playing, and any sample on its way to playing
+// (if the output's open: stopping never opens it)
+pub fn stop_previews() -> Result<(), String> {
+  let mut previews = PREVIEWS.lock().unwrap();
+  *previews += 1;
+  match engine::engine_if_open() {
+    Some(engine) => engine.stop_previews(),
+    None => Ok(()),
+  }
 }
 
 // length of one beat at the playlist's tempo
