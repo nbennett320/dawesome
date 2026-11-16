@@ -402,7 +402,7 @@ fn test_a_fader_drag_is_one_step() {
 
 #[test]
 fn test_tempo_changes() {
-  use crate::commands::transport::change_tempo;
+  use crate::actions::transport::change_tempo;
   let state = state();
   let id = clip(&state, 0, 8.);
   let ms = |id: u64| {
@@ -441,7 +441,7 @@ fn test_tempo_changes() {
 
 #[test]
 fn test_a_visit_to_the_tempo_field_is_one_step() {
-  use crate::commands::transport::change_tempo;
+  use crate::actions::transport::change_tempo;
   let state = state();
   let before = saved(&state);
   // 100 typed, then changed to 140, without leaving the field

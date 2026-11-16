@@ -103,7 +103,7 @@ fn init_tauri() {
     .manage(state)
     .manage(recent_projects)
     .manage(preferences::AppPreferences::load())
-    .manage(Arc::new(commands::mixdown::Mixdowns::default()))
+    .manage(Arc::new(actions::mixdown::Mixdowns::default()))
     .invoke_handler(tauri::generate_handler![
       get_playlist_playing,
       toggle_playlist,

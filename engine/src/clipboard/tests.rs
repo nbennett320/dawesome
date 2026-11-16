@@ -231,7 +231,7 @@ fn test_a_paste_stops_at_the_end_of_a_three_four_playlist() {
   let state = state();
   let a = sample(&state, 0, 2.);
   copy(&state, &[a]);
-  crate::commands::transport::set_time_signature(&state, daw::timing::TimeSignature { numerator: 3, denominator: 4 });
+  crate::actions::transport::set_time_signature(&state, daw::timing::TimeSignature { numerator: 3, denominator: 4 });
 
   // 128 bars of three beats: beat 384 is the last
   assert!(paste(&state, 384., None).is_ok());
@@ -243,7 +243,7 @@ fn test_the_last_beat_is_still_the_playlist_at_any_tempo() {
   let state = state();
   let (a, b) = (sample(&state, 0, 2.), sample(&state, 1, 5.));
   for tempo in [97., 133.3, 61.7] {
-    crate::commands::transport::change_tempo(&state, tempo, None).unwrap();
+    crate::actions::transport::change_tempo(&state, tempo, None).unwrap();
     copy(&state, &[a, b]);
     // the second clip lands on beat 512, the last
     assert!(paste(&state, 509., None).is_ok(), "at {}bpm", tempo);
@@ -384,7 +384,7 @@ fn test_pasted_at_another_tempo_clips_keep_their_beats() {
   let state = state();
   let (a, b) = (sample(&state, 0, 2.), sample(&state, 1, 6.));
   copy(&state, &[a, b]);
-  crate::commands::transport::change_tempo(&state, 90., None).unwrap();
+  crate::actions::transport::change_tempo(&state, 90., None).unwrap();
 
   let pasted = paste(&state, 16., None).unwrap();
   let beats: Vec<f32> = pasted.clips.clips.iter().map(|clip| clip.start_beat).collect();

@@ -184,7 +184,7 @@ fn test_a_loop_region_stays_put_while_recording() {
   assert_eq!(daw::loop_span(&state), span(2, 4));
 
   // edits to it are refused, and even one that got in wouldn't move the loop
-  crate::commands::transport::change_loop_region(&state, 0., 2.);
+  crate::actions::transport::change_loop_region(&state, 0., 2.);
   assert_eq!(*state.playlist.loop_region.lock().unwrap(), Some(daw::LoopRegion { start: 4., end: 8. }));
   *state.playlist.loop_region.lock().unwrap() = Some(daw::LoopRegion { start: 0., end: 2. });
   assert_eq!(daw::loop_span(&state), span(2, 4));
