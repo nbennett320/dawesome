@@ -9,10 +9,9 @@ use std::marker::{PhantomData};
 use std::collections::BTreeSet;
 use std::time::{Duration};
 use std::vec::{Vec};
-use std::fs::{File};
-use std::io::{BufReader};
-use rodio::{Decoder};
-use rodio::source::{Source};
+// (only the tests mix through rodio now: see slice_mix)
+#[cfg(test)]
+use rodio::source::Source;
 
 // TODO(linux): the Linux node below played through PulseAudio directly, and
 // had fallen behind (it no longer compiled). it's kept as a reminder to
@@ -215,15 +214,8 @@ fn duration_and_waveform(
 // decode a sample's length and waveform without creating a node,
 // so the frontend can draw a clip before it's dropped into the playlist
 pub fn preview_sample(sample_path: &str) -> Result<(Duration, String), String> {
-  let file_buf = BufReader::new(File::open(sample_path)
-    .map_err(|e| format!("could not open sample '{}': {}", sample_path, e))?);
-  let source = Decoder::new(file_buf)
-    .map_err(|e| format!("could not decode sample '{}': {}", sample_path, e))?;
-  let channels = source.channels();
-  let sample_rate = source.sample_rate();
-  let samples: Vec<i16> = source.collect();
-
-  duration_and_waveform(sample_path, &samples, channels, sample_rate)
+  let pcm = clip_reader::Pcm::load(sample_path)?;
+  duration_and_waveform(sample_path, pcm.samples(), pcm.channels(), pcm.rate())
 }
 
 // a sample file, decoded: its sound, its length and its waveform

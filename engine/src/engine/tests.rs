@@ -115,6 +115,43 @@ fn test_previews_play_now_and_ignore_runs() {
 }
 
 #[test]
+fn test_stopping_previews_fades_them_out_and_leaves_the_run_playing() {
+  let (engine, mut renderer) = Engine::new(RATE);
+  // the run at a quarter, under a preview at full
+  engine.start_run(1, master(), vec![
+    engine.voice(SamplesBuffer::new(2, RATE, vec![0.25f32; 1_000]), Some(1), 0, Route::Direct),
+  ]).unwrap();
+  engine.preview(click(500)).unwrap();
+  let out = render(&mut renderer, 20);
+  assert!(out.iter().all(|&s| s == 1.25));
+
+  engine.stop_previews().unwrap();
+  let out = render(&mut renderer, 50);
+  // a 10 frame fade at 1kHz, then the run alone
+  assert!(out[0] > 1. && out[0] <= 1.25);
+  assert!(out[5] < out[0]);
+  assert!(out[10..].iter().all(|&s| s == 0.25));
+  assert_eq!(renderer.voices.len(), 1);
+}
+
+// another sample heard: the one before stops, and the new one doesn't
+#[test]
+fn test_a_preview_sent_after_a_stop_plays_on() {
+  let (engine, mut renderer) = Engine::new(RATE);
+  engine.preview(click(500)).unwrap();
+  render(&mut renderer, 20);
+
+  engine.stop_previews().unwrap();
+  engine.preview(SamplesBuffer::new(2, RATE, vec![0.25f32; 100])).unwrap();
+  let out = render(&mut renderer, 60);
+  // the old one fades over 10 frames, under the new one, which plays whole
+  assert!(out[0] > 1. && out[0] <= 1.25);
+  assert!(out[5] < out[0]);
+  assert!(out[10..50].iter().all(|&s| s == 0.25));
+  assert!(out[50..].iter().all(|&s| s == 0.));
+}
+
+#[test]
 fn test_the_anchor_is_when_the_run_is_heard() {
   let (engine, mut renderer) = Engine::new(RATE);
   engine.start_run(3, master(), vec![]).unwrap();

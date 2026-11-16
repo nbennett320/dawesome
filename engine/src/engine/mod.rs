@@ -274,6 +274,9 @@ pub struct Voice {
   run: Option<u64>,
   at: u64,
   route: Route,
+  // played with Engine::preview (a sample or clip clicked to hear it), so
+  // stop_previews stops it
+  preview: bool,
   // stereo, at the engine's rate
   samples: UniformSourceIterator<VoiceSource, f32>,
   // the engine's frame it starts on, once it's been placed
@@ -578,6 +581,8 @@ enum Command {
   Start { run: u64, master: Arc<mixer::ChannelControls>, start: RunStart, voices: Vec<Box<Voice>> },
   // stop a run (if it's the one playing), fading out what's sounding
   Stop { run: u64 },
+  // fade out every preview that's sounding
+  StopPreviews,
   Play(Vec<Box<Voice>>),
   // notes for an instrument on a bus, by its slot's id (a track's bus is
   // sent before them)
@@ -769,6 +774,7 @@ impl Engine {
       run,
       at,
       route,
+      preview: false,
       samples: UniformSourceIterator::new(source, 2, self.sample_rate),
       start: 0,
       fade_left: None,
@@ -854,7 +860,15 @@ impl Engine {
   where
     S: Source<Item = f32> + Send + 'static,
   {
-    self.play(vec![self.voice(source, None, 0, Route::Direct)])
+    let mut voice = self.voice(source, None, 0, Route::Direct);
+    voice.preview = true;
+    self.play(vec![voice])
+  }
+
+  // fade out every preview that's sounding (nothing else: a run's voices and
+  // auditioned notes play on)
+  pub fn stop_previews(&self) -> Result<(), String> {
+    self.send(Command::StopPreviews)
   }
 
   // the master strip's controls, before any run sets them (a run's start
@@ -1229,6 +1243,7 @@ impl Renderer {
         self.add(voices);
       }
       Command::Stop { run } => self.stop(run),
+      Command::StopPreviews => self.stop_previews(),
       Command::Play(voices) => self.add(voices),
       Command::Notes { channel, instrument, run, notes } => self.add_notes(channel, instrument, run, notes),
       Command::Bus(bus) => {
@@ -1301,8 +1316,18 @@ impl Renderer {
     }
     self.master.end_run_notes();
 
+    self.fade_out(|voice| voice.run == Some(run));
+  }
+
+  fn stop_previews(&mut self) {
+    self.fade_out(|voice| voice.preview);
+  }
+
+  // fade out the voices that `which` picks, and drop those that haven't
+  // started
+  fn fade_out(&mut self, which: impl Fn(&Voice) -> bool) {
     for voice in self.voices.iter_mut() {
-      if voice.run != Some(run) { continue; }
+      if !which(voice) { continue; }
 
       if voice.start > self.frame {
         voice.fade_left = Some(0);

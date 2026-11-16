@@ -15,6 +15,10 @@ const logError = (what: string) => (e: unknown) =>
   // eslint-disable-next-line no-console
   console.error(`could not ${what}:`, e)
 
+// a sample shorter than this is over too soon to need stopping, so it gets
+// no stop button
+const STOPPABLE_SECS = 2
+
 // the samples folder as a tree. click a folder to open it, click a sample to
 // hear it, drag a sample into the playlist to add it
 const SampleBrowser = () => {
@@ -25,7 +29,14 @@ const SampleBrowser = () => {
   const [listed, setListed] = React.useState<Set<string>>(new Set())
   // the sample heard last
   const [selected, setSelected] = React.useState<string | null>(null)
+  // the sample being heard, while it plays (it shows a stop button)
+  const [playing, setPlaying] = React.useState<string | null>(null)
+  // counts previews, so an older one's end can't hide a newer one's button,
+  // and the timer that hides it when the sample ends
+  const heard = React.useRef<{ count: number, timer?: ReturnType<typeof setTimeout> }>({ count: 0 })
   const [query, setQuery] = React.useState('')
+
+  React.useEffect(() => () => clearTimeout(heard.current.timer), [])
 
   React.useEffect(() => {
     dispatch(getBrowserRootSamples()).catch(logError('list the samples folder'))
@@ -55,7 +66,27 @@ const SampleBrowser = () => {
 
   const preview = (sample: BrowserSampleItem) => {
     setSelected(sample.index)
-    invoke('preview_sample', { path: sample.path }).catch(logError(`preview ${sample.label}`))
+    // (the sample heard before loses its button straight away)
+    setPlaying(null)
+    clearTimeout(heard.current.timer)
+    const count = ++heard.current.count
+    const current = () => heard.current.count === count
+    // it answers with the sample's length once it's playing (the first sound
+    // opens the output, which takes a moment), so the button shows then
+    invoke<number>('preview_sample', { path: sample.path })
+      .then(seconds => {
+        if(!current() || seconds <= STOPPABLE_SECS) return
+        setPlaying(sample.index)
+        heard.current.timer = setTimeout(() => setPlaying(null), seconds * 1000)
+      })
+      .catch(logError(`preview ${sample.label}`))
+  }
+
+  const stop = () => {
+    heard.current.count += 1
+    clearTimeout(heard.current.timer)
+    setPlaying(null)
+    invoke('stop_previews').catch(logError('stop the preview'))
   }
 
   const rows: React.ReactNode[] = []
@@ -72,8 +103,10 @@ const SampleBrowser = () => {
           depth={depth}
           open={open}
           selected={selected === item.index}
+          playing={playing === item.index}
           onToggle={toggleFolder}
           onPreview={preview}
+          onStop={stop}
         />,
       )
 
@@ -105,9 +138,11 @@ const SampleBrowser = () => {
             depth={0}
             open={false}
             selected={selected === item.index}
+            playing={playing === item.index}
             hint={folder}
             onToggle={toggleFolder}
             onPreview={preview}
+            onStop={stop}
           />,
         )
       })

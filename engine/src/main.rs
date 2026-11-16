@@ -104,6 +104,7 @@ fn init_tauri() {
       get_sidebar_samples,
       enumerate_directory,
       preview_sample,
+      stop_previews,
       get_audio_drivers,
       get_audio_settings,
       set_audio_settings,
