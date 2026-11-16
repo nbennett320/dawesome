@@ -42,6 +42,7 @@ import { Renderer, StretchEdit, WindowEdit } from './sketch'
 import { isPlaceable, onSampleDrag } from '../../state/sampleDrag'
 import { OWN_DRAG_PREVIEW } from '../../components/DragGhost'
 import { selectFocusedView } from '../../state/slices/windowSlice'
+import { selectAppearance } from '../../state/slices/appearanceSlice'
 import {
   sameMuteSolo, selectMuteSolo, selectTrackColor, selectTrackColors, selectTrackName, selectTrackNames, setTrackColor,
   setTrackMute, setTrackSolo,
@@ -288,6 +289,7 @@ const PlaylistCanvas = () => {
   const recording = useAppSelector(selectRecording)
   // and the take being recorded, drawn up to the playhead
   const liveTake = useAppSelector(selectTake)
+  const experimentalAnimations = useAppSelector(selectAppearance).preferences.experimentalAnimations
   const handleTrackMute = React.useCallback((trackNumber: number, mute: boolean) => {
     dispatch(setTrackMute(trackNumber, mute))
   }, [dispatch])
@@ -656,6 +658,7 @@ const PlaylistCanvas = () => {
           armedTracks={armedTracks}
           recording={recording}
           liveTake={liveTake}
+          experimentalAnimations={experimentalAnimations}
           onTrackMute={handleTrackMute}
           onTrackSolo={handleTrackSolo}
           onLipRightClick={handleLipRightClick}

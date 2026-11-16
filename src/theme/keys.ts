@@ -34,6 +34,9 @@ export interface Preferences {
   // its track and playing on the next, or stop there (see LoopRecording in
   // preferences.rs)
   loopRecording: 'layer' | 'stop'
+  // whether animations still being tried out are shown (see
+  // experimental_animations in preferences.rs)
+  experimentalAnimations: boolean
 }
 
 // coloured caps (TR-808), plain caps over a coloured strip (TR-909), or

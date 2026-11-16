@@ -58,6 +58,9 @@ pub struct Preferences {
   pub command_bar: bool,
   // what a recording does at the loop's end
   pub loop_recording: LoopRecording,
+  // whether animations still being tried out are shown (a dragged clip
+  // lifting off the playlist, for now). on unless turned off
+  pub experimental_animations: bool,
 }
 
 impl Default for Preferences {
@@ -70,6 +73,7 @@ impl Default for Preferences {
       step_keys: StepKeys::default(),
       command_bar: false,
       loop_recording: LoopRecording::default(),
+      experimental_animations: true,
     }
   }
 }
@@ -114,6 +118,7 @@ impl Preferences {
       step_keys: self.step_keys,
       command_bar: self.command_bar,
       loop_recording: self.loop_recording,
+      experimental_animations: self.experimental_animations,
     }
   }
 }
@@ -174,6 +179,7 @@ mod tests {
       step_keys: StepKeys::Tr8s,
       command_bar: true,
       loop_recording: LoopRecording::Stop,
+      experimental_animations: true,
     };
     prefs.save(&file).unwrap();
     assert_eq!(Preferences::load(&file), prefs);
@@ -183,6 +189,7 @@ mod tests {
     assert!(json.contains("\"stepKeys\": \"tr8s\""), "{}", json);
     assert!(json.contains("\"commandBar\": true"), "{}", json);
     assert!(json.contains("\"loopRecording\": \"stop\""), "{}", json);
+    assert!(json.contains("\"experimentalAnimations\": true"), "{}", json);
     fs::remove_dir_all(file.parent().unwrap()).ok();
   }
 
@@ -212,6 +219,8 @@ mod tests {
     assert!(!prefs.command_bar);
     // and a loop recording carries on, layering its passes
     assert_eq!(prefs.loop_recording, LoopRecording::Layer);
+    // and experimental animations are on
+    assert!(prefs.experimental_animations);
     fs::remove_dir_all(file.parent().unwrap()).ok();
   }
 
@@ -226,6 +235,7 @@ mod tests {
       step_keys: StepKeys::Tr808,
       command_bar: true,
       loop_recording: LoopRecording::Layer,
+      experimental_animations: true,
     };
     assert_eq!(ok.sanitize(&themes), ok);
 
@@ -237,6 +247,7 @@ mod tests {
       step_keys: StepKeys::Tr909,
       command_bar: false,
       loop_recording: LoopRecording::Layer,
+      experimental_animations: false,
     };
     let fixed = bad.sanitize(&themes);
     assert_eq!(fixed.light_theme, theme::DEFAULT_LIGHT);

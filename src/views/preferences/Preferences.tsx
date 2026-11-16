@@ -2,6 +2,7 @@ import React from 'react'
 import { useAppDispatch, useAppSelector } from '../../hooks/redux'
 import { changePreferences, selectAppearance } from '../../state/slices/appearanceSlice'
 import { Choice } from '../../components/common'
+import { AnalogButton, Led } from '../../components/fourtrack'
 import type { Preferences as Prefs } from '../../theme'
 
 const APPEARANCES = [
@@ -20,6 +21,7 @@ const STEP_KEYS = [
 const Preferences = () => {
   const dispatch = useAppDispatch()
   const { preferences, themes } = useAppSelector(selectAppearance)
+  const { experimentalAnimations } = preferences
   const named = (appearance: 'light' | 'dark') => themes
     .filter(t => t.appearance === appearance)
     .map(t => ({ value: t.id, label: t.name }))
@@ -57,6 +59,20 @@ const Preferences = () => {
             options={STEP_KEYS}
             onChange={stepKeys => dispatch(changePreferences({ stepKeys: stepKeys as Prefs['stepKeys'] }))}
           />
+          <div className='flex flex-col gap-1'>
+            <span className='ft-label'>Experimental animations</span>
+            <div className='flex flex-row items-center gap-2'>
+              <AnalogButton
+                size='xs'
+                latched={experimentalAnimations}
+                aria-label='Experimental animations'
+                data-hint='Animations still being tried out: for now, a dragged clip lifts off the playlist'
+                onPress={() => dispatch(changePreferences({ experimentalAnimations: !experimentalAnimations }))}
+              />
+              <Led color='blue' state={experimentalAnimations ? 'on' : 'off'} />
+              <span>{experimentalAnimations ? 'On' : 'Off'}</span>
+            </div>
+          </div>
         </section>
       </div>
     </div>
