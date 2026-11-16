@@ -31,6 +31,7 @@ const slot = (id: number, change: Partial<EffectSlot> = {}): EffectSlot => ({
   bypassed: false,
   missing: false,
   hasEditor: true,
+  native: false,
   ...change,
 })
 

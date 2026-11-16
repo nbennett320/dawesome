@@ -20,8 +20,8 @@ export default defineConfig({
         {
           text: 'Manual',
           items: [
-            { text: '1 Before you begin', link: '/manual/' },
-            { text: '2 Installing and first launch', link: '/manual/install' },
+            { text: '1 Intro & About Dawesome', link: '/manual/' },
+            { text: '2 Installing and getting set up', link: '/manual/install' },
             { text: '3 Names and functions of parts', link: '/manual/parts' },
             { text: '4 Projects', link: '/manual/projects' },
             { text: '5 Basic recording', link: '/manual/recording' },

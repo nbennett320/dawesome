@@ -215,6 +215,8 @@ Once a new version hits `main`, a new release will kick off.
 - [The nature of sound: lecture/text on audio programming](https://mu.krj.st/)
 - [ALSA/PulseAudio driver research with `cpal` (warning: links to google docs)](https://docs.google.com/document/d/10EL1qd6ZPkn6ySAPlXY7oea80nWwPV4X4csI4m4ujuY)
 - [ALSA/PulseAudio: playing a wav file example](http://ysflight.in.coocan.jp/programming/audio/pulseAudioSample/e.html)
+- [DSP - Linear Trapezoidal Integrated State Variable Filter With Low
+Noise Optimisation](https://www.cytomic.com/files/dsp/SvfLinearTrapOptimised.pdf)
 
 ### Read more about...
 

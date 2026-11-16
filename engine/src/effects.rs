@@ -33,6 +33,7 @@ use std::time::{Duration, Instant};
 
 use crate::daw::{self, Channel, Slot};
 use crate::main_thread::{self, DropOnMain};
+use crate::native::{self, Native};
 use crate::plugin::{self, PluginKind, Processor};
 
 mod synths;
@@ -70,6 +71,10 @@ pub trait Hosted: Send {
   fn editor_open(&self) -> bool;
   // the real plugin, for its window
   fn plugin(&mut self) -> Option<&mut plugin::Plugin>;
+  // a built-in effect, for its parameters (see native.rs)
+  fn native(&self) -> Option<&Native> {
+    None
+  }
 }
 
 impl Hosted for plugin::Plugin {
@@ -162,6 +167,9 @@ pub struct EffectSlot {
   pub missing: bool,
   // it has an interface of its own to show
   pub has_editor: bool,
+  // it's one of Dawesome's own (native.rs): its tab draws its controls from
+  // its parameters, rather than showing a plugin's interface
+  pub native: bool,
 }
 
 // a channel's chain, in the order the sound goes through it
@@ -303,6 +311,7 @@ impl Effect {
       bypassed: self.desc.bypassed,
       missing: self.loaded().is_none(),
       has_editor: self.loaded().map_or(false, |l| l.has_editor),
+      native: native::is_native(&self.desc.plugin_id),
     }
   }
 
@@ -504,6 +513,15 @@ impl Effects {
     let hosted = self.hosted(slot_id)?;
     let mut hosted = hosted.lock().unwrap();
     hosted.plugin().map(f)
+  }
+
+  // call `f` with a built-in effect (native.rs), if it's in a rack and
+  // loaded. from any thread: its parameters are lock-free
+  pub fn with_native<R>(&self, slot_id: u64, f: impl FnOnce(&Native) -> R) -> Result<R, String> {
+    let hosted = self.hosted(slot_id).ok_or_else(gone)?;
+    let hosted = hosted.lock().unwrap();
+    let native = hosted.native().ok_or_else(|| "That effect isn't one of Dawesome's own".to_string())?;
+    Ok(f(native))
   }
 
   // `f` hears an effect's id just before its plugin is torn down (removed,
@@ -857,7 +875,7 @@ impl Effects {
       let inner = self.inner.lock().unwrap();
       let synths = synths.iter().filter_map(|(id, _)| inner.synths.get(id)?.master.loaded().map(|l| l.since));
       inner.racks.values().flatten()
-        .filter(|e| !e.desc.bypassed)
+        .filter(|e| !e.desc.bypassed && !native::is_native(&e.desc.plugin_id))
         .filter_map(|e| e.loaded().map(|l| l.since))
         .chain(synths)
         .max()
@@ -891,7 +909,11 @@ impl Effects {
       for (channel, desc, hosted, synth) in live {
         let failed = |e: String| format!("{} couldn't be loaded for the mixdown: {}", desc.name, e);
         let state = hosted.lock().unwrap().state().map_err(failed)?;
-        let mut copy = loader.load_offline(Path::new(&desc.path), &desc.plugin_id, rate).map_err(failed)?;
+        let mut copy = if native::is_native(&desc.plugin_id) {
+          native::load(&desc.plugin_id, rate).map_err(failed)?
+        } else {
+          loader.load_offline(Path::new(&desc.path), &desc.plugin_id, rate).map_err(failed)?
+        };
         copy.set_state(&state).map_err(failed)?;
         let processor = copy.take_processor().ok_or_else(|| failed("it has no audio processor".into()))?;
         let slot = match synth {
@@ -908,7 +930,8 @@ impl Effects {
         chains.entry(channel).or_default().push(slot);
         plugins.push(copy);
       }
-      let settle = if plugins.is_empty() { Duration::ZERO } else { settle };
+      // (built-in effects are set up as soon as they're made)
+      let settle = if plugins.iter().all(|p| p.native().is_some()) { Duration::ZERO } else { settle };
       Ok(MixdownEffects { chains: chains.into_iter().collect(), copies, plugins: DropOnMain::new(plugins), settle })
     })?
   }
@@ -1006,8 +1029,12 @@ impl Effects {
   // load an effect's plugin (or an instrument's: a synth's copy), ready for
   // a chain
   fn load(&self, desc: &Desc, state: Option<&[u8]>, rate: u32, instrument: bool) -> Result<Instance, String> {
-    let loader = self.backend().loader;
-    let mut hosted = loader.load(Path::new(&desc.path), &desc.plugin_id, rate)?;
+    // (the built-ins aren't plugins to load, whatever the loader)
+    let mut hosted = if native::is_native(&desc.plugin_id) {
+      native::load(&desc.plugin_id, rate)?
+    } else {
+      self.backend().loader.load(Path::new(&desc.path), &desc.plugin_id, rate)?
+    };
     if let Some(state) = state {
       hosted.set_state(state).map_err(|e| format!("its settings couldn't be put back ({})", e))?;
     }

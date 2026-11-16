@@ -48,4 +48,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: engine
-      - run: cargo test
+      # the app and the crates under it (engine/crates/dsp: the built-in
+      # effects and their conformance suite)
+      - run: cargo test --workspace

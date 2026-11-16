@@ -16,6 +16,9 @@
 // its settings kept in the snapshot being left, so it comes back with them
 // (see effects.rs)
 //
+// Dawesome's own effects' knobs are undoable, though (native.rs): a step
+// keeps every parameter of the effect a knob turned, before and after
+//
 // the history isn't saved, and starts again with each project. files on disk
 // are never touched by it: undoing a recording, or a bounced clip, leaves
 // the file where it is
@@ -106,6 +109,8 @@ pub struct Step {
   sequencer: Option<(daw::Sequencer, daw::Sequencer)>,
   tempo: Option<(f32, f32)>,
   effects: Option<(crate::effects::RackSnap, crate::effects::RackSnap)>,
+  // built-in effects' parameters (plain values, by id), by slot
+  params: BTreeMap<u64, (Vec<f32>, Vec<f32>)>,
   // the playlist's fewest tracks (see AudioGraph::min_tracks)
   tracks: Option<(u32, u32)>,
 }
@@ -155,6 +160,12 @@ impl Step {
     self
   }
 
+  // a built-in effect's parameters, as they were and are
+  pub fn with_params(mut self, slot_id: u64, before: Vec<f32>, after: Vec<f32>) -> Self {
+    self.params.insert(slot_id, (before, after));
+    self
+  }
+
   pub fn with_tracks(mut self, before: u32, after: u32) -> Self {
     self.tracks = Some((before, after));
     self
@@ -172,11 +183,12 @@ impl Step {
     if matches!(self.tempo, Some((before, after)) if before == after) { self.tempo = None; }
     if matches!(&self.effects, Some((before, after)) if before.same(after)) { self.effects = None; }
     if matches!(self.tracks, Some((before, after)) if before == after) { self.tracks = None; }
+    self.params.retain(|_, (before, after)| before != after);
   }
 
   fn is_empty(&self) -> bool {
     self.clips.is_empty() && self.mixer.is_none() && self.sequencer.is_none() && self.tempo.is_none()
-      && self.effects.is_none() && self.tracks.is_none()
+      && self.effects.is_none() && self.tracks.is_none() && self.params.is_empty()
   }
 
   // fold a later change of the same gesture into this step: what was before
@@ -202,6 +214,12 @@ impl Step {
     }
     if let Some((before, after)) = later.tracks {
       self.tracks = Some((self.tracks.take().map_or(before, |mine| mine.0), after));
+    }
+    for (id, (before, after)) in later.params {
+      match self.params.get_mut(&id) {
+        Some(mine) => mine.1 = after,
+        None => { self.params.insert(id, (before, after)); }
+      }
     }
   }
 
@@ -418,6 +436,13 @@ fn apply(state: &Arc<daw::InnerState>, step: &mut Step, way: Way) -> Applied {
     // the snapshot being left keeps the settings of effects that go
     let (target, left) = if pick(true) { (&*before, after) } else { (&*after, before) };
     state.playlist.effects.restore(target, left);
+  }
+  // after the racks, which may have just brought the effect back
+  for (&slot_id, (before, after)) in &step.params {
+    let values = if pick(true) { before } else { after };
+    if let Err(e) = state.playlist.effects.with_native(slot_id, |native| native.set_all(values)) {
+      println!("an effect's settings weren't put back: {}", e);
+    }
   }
   // the synths' plugins follow the list and the clips put back
   crate::commands::synth::follow(state);

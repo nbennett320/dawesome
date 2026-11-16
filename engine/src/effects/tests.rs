@@ -28,6 +28,7 @@ fn test_adding_effects_and_the_racks_they_make() {
     bypassed: false,
     missing: false,
     has_editor: false,
+    native: false,
   });
   let json = serde_json::to_value(effects.racks()).unwrap();
   assert_eq!(json[1]["track"], serde_json::Value::Null);
@@ -516,4 +517,112 @@ fn test_chow_tape_model_through_the_racks() {
   assert!((rms(&hear(&rig, 1)) - dry).abs() < 1e-2);
   running.store(false, Ordering::SeqCst);
   render.join().unwrap();
+}
+
+// ---- built-in effects (native.rs)
+
+const EQ: &str = "dawesome:eq";
+// the EQ's output gain (dsp's eq::OUTPUT)
+const EQ_OUTPUT: u32 = 40;
+
+// the level `track` settles at (a built-in effect's values glide)
+fn settled_level(rig: &mut Rig, track: Option<u32>) -> f32 {
+  for _ in 0..100 { rig.level(track); }
+  rig.level(track)
+}
+
+#[test]
+fn test_built_in_effects_are_added_without_a_scan_or_a_loader() {
+  let mut rig = rig();
+  rig.effects().plugins.set(Default::default());
+  let id = rig.effects().add(Channel::Track(0), EQ, None).unwrap();
+  let slot = &rig.effects().racks()[0].slots[0];
+  assert_eq!((slot.id, slot.name.as_str(), slot.vendor.as_str()), (id, "EQ", "Dawesome"));
+  assert!(slot.native && slot.has_editor && !slot.missing);
+  assert_eq!(rig.loader.loads.load(std::sync::atomic::Ordering::SeqCst), 0);
+  // it starts flat
+  assert!(close(rig.level(Some(0)), 0.2));
+  assert_eq!(rig.effects().plugins.find(EQ).unwrap().name, "EQ");
+}
+
+#[test]
+fn test_a_built_in_effects_parameters_change_what_comes_out() {
+  let mut rig = rig();
+  let id = rig.effects().add(Channel::Track(0), EQ, None).unwrap();
+  let set = rig.effects().with_native(id, |n| n.set(EQ_OUTPUT, 0.)).unwrap().unwrap();
+  assert_eq!(set.text, "-24.0 dB");
+  let quiet = 0.2 * 10f32.powf(-24. / 20.);
+  assert!(close(settled_level(&mut rig, Some(0)), quiet));
+  // bypassed, it's as if it weren't there
+  rig.effects().set_bypassed(id, true).unwrap();
+  assert!(close(rig.level(Some(0)), 0.2));
+}
+
+#[test]
+fn test_a_plugins_parameters_arent_a_built_ins() {
+  let rig = rig();
+  let id = rig.effects().add(Channel::Track(0), &gain().id, None).unwrap();
+  assert!(rig.effects().with_native(id, |n| n.params()).is_err());
+  assert_eq!(rig.effects().with_native(999, |n| n.params()).unwrap_err(), gone());
+}
+
+#[test]
+fn test_a_built_in_effects_settings_are_saved_with_the_project() {
+  let mut rig = rig();
+  let id = rig.effects().add(Channel::Track(1), EQ, None).unwrap();
+  rig.effects().with_native(id, |n| n.set(EQ_OUTPUT, 0.)).unwrap().unwrap();
+  let saved = rig.effects().saved();
+  assert_eq!(saved[0].slots[0].plugin_id, EQ);
+  assert_eq!(saved[0].slots[0].path, "");
+
+  rig.effects().load_saved(&[]);
+  assert!(close(rig.level(Some(1)), 0.2));
+  assert!(rig.effects().load_saved(&saved).is_empty());
+  let id = rig.effects().racks()[0].slots[0].id;
+  let output = rig.effects().with_native(id, |n| n.params().params[EQ_OUTPUT as usize].value.value).unwrap();
+  assert_eq!(output, -24.);
+  // from the very first block (it doesn't glide in from its defaults)
+  let quiet = 0.2 * 10f32.powf(-24. / 20.);
+  assert!(close(rig.level(Some(1)), quiet));
+}
+
+#[test]
+fn test_a_built_in_effect_this_version_doesnt_have_is_kept_as_missing() {
+  let rig = rig();
+  let state = base64::encode(br#"{"effect":"sparkle","version":1,"params":{"shine":1}}"#);
+  let saved = vec![SavedRack {
+    track: Some(0),
+    slots: vec![SavedEffect {
+      plugin_id: "dawesome:sparkle".into(),
+      name: "Sparkle".into(),
+      vendor: "Dawesome".into(),
+      path: String::new(),
+      bypassed: false,
+      state: state.clone(),
+      window: None,
+    }],
+  }];
+  let missing = rig.effects().load_saved(&saved);
+  assert_eq!(missing.len(), 1);
+  assert!(missing[0].reason.contains("built-in"), "{}", missing[0].reason);
+  assert!(rig.effects().racks()[0].slots[0].missing);
+  // and saved again as it came
+  assert_eq!(rig.effects().saved()[0].slots[0].state, state);
+}
+
+#[test]
+fn test_a_mixdown_of_built_in_effects_doesnt_wait_for_them_to_settle() {
+  let rig = rig();
+  rig.effects().use_settle(Duration::from_secs(30));
+  let id = rig.effects().add(Channel::Track(0), EQ, None).unwrap();
+  rig.effects().with_native(id, |n| n.set(EQ_OUTPUT, 0.25)).unwrap().unwrap();
+  let started = Instant::now();
+  let mixdown = rig.effects().mixdown_chains(RATE, &BTreeSet::new()).unwrap();
+  assert!(started.elapsed() < Duration::from_secs(5));
+  assert_eq!(mixdown.settle, Duration::ZERO);
+  assert_eq!(mixdown.chains.len(), 1);
+  // its copy has the live one's settings
+  let copy = &mixdown.plugins.get()[0];
+  let output = copy.native().unwrap().params().params[EQ_OUTPUT as usize].value.value;
+  assert_eq!(output, -12.);
 }

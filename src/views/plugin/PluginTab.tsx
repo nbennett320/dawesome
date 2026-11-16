@@ -10,6 +10,7 @@ import { AnalogButton, Led } from '../../components/fourtrack'
 import { useDraggingTab } from '../../components/panes/dragTab'
 import { OnKey, SmallKey } from '../effects-rack/RackStack'
 import DockedEditor from './DockedEditor'
+import NativePanel from '../native-effect/NativePanel'
 import { PopOutIcon } from '../../components/icons'
 
 // the key in the bar that shows where the plugin lives
@@ -43,7 +44,9 @@ const MuteKey = ({ row }: { row: Row<SynthInstrument> }) => {
 // one plugin's own interface, in a tab of its own: a thin bar, and the
 // interface docked below. an effect's bar has its On key and its channel
 // (to find it in the Effects Rack); a synth row's, its mute and a key to
-// find it in the Pattern Sequencer. both pop out to a window
+// find it in the Pattern Sequencer. both pop out to a window. one of
+// Dawesome's own effects has its controls below instead, drawn in the page
+// (no window: its tab can go to any pane)
 const PluginTab = ({ slotId }: { slotId: number }) => {
   const dispatch = useAppDispatch()
   const racks = useAppSelector(selectRacks)
@@ -62,6 +65,7 @@ const PluginTab = ({ slotId }: { slotId: number }) => {
   if(!plugin || !hasTab(plugin)) return null
 
   const active = showing && !dragging
+  const native = found?.slot.native ?? false
 
   return (
     <div className='ft-panel h-full w-full flex flex-col text-sm select-none'>
@@ -83,17 +87,19 @@ const PluginTab = ({ slotId }: { slotId: number }) => {
           </>
         )}
         <div className='flex-1' />
-        <SmallKey
+        {!native && <SmallKey
           aria-label={`Open ${plugin.name} in a window`}
           title='Open its interface in a window'
           onPress={() => { dispatch(openEffectWindow(slotId)).catch(() => {}) }}
         >
           <PopOutIcon />
-        </SmallKey>
+        </SmallKey>}
       </div>
 
-      {/* afresh each time it's shown */}
-      <DockedEditor key={String(active)} slot={{ id: slotId, name: plugin.name }} active={active} />
+      {native
+        ? <NativePanel slotId={slotId} active={active} />
+        // afresh each time it's shown
+        : <DockedEditor key={String(active)} slot={{ id: slotId, name: plugin.name }} active={active} />}
     </div>
   )
 }

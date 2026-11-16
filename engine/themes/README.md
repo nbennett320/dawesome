@@ -87,6 +87,11 @@ commit.
 - **`pianoRoll`**: the piano roll's notes, and its selected notes.
 - **`waveform`**: the clip page's waveform.
 - **`meter`**: the mixer meters.
+- **`effect`**: Dawesome's own effects' panels: the EQ's curve area
+  (`background`, `grid`, the 0 dB line `zero`, the axis `label`s), its
+  response (`curve`, `curveFill`), the band dots (`dotText`, `dotRing`,
+  `selectedRing`), and the analyzer (`spectrum`). The bands themselves take
+  the `track` colors, band 1 being `red`.
 - **`track`**: the palette tracks are colored from. A track's color is stored
   as its place in this list (`red` is 0, `pink` is 7), so a theme can change
   the shades but not the order.

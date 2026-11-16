@@ -4,6 +4,7 @@ import { store } from './store'
 import { resetTravel, samePress, travel } from './history'
 import { beginGesture, resetGestures } from './gesture'
 import { setTrackVolume } from './slices/mixerSlice'
+import { trackParamSend } from './effectParamSends'
 import { Travelled } from '../types/project'
 import { defaultClipSettings } from '../types/clip'
 import { DEFAULT_PLAYLIST_BEATS } from '../types/transport'
@@ -120,6 +121,27 @@ describe('undo and redo', () => {
     vi.runOnlyPendingTimers()
     expect(calls('set_track_volume')).toBe(2)
     vi.useRealTimers()
+  })
+
+  it('waits for a built-in effect’s knob still on its way before undoing', async () => {
+    engine(travelled)
+    const order: string[] = []
+    const changedBefore = store.getState().effects.paramsChanged
+    let answer: () => void = () => {}
+    trackParamSend(new Promise<void>(resolve => { answer = resolve }).then(() => { order.push('set') }))
+    const undone = store.dispatch(travel('undo')).then(changed => {
+      order.push('undo done')
+      return changed
+    })
+    // plenty of time for the undo to go, if it didn't wait
+    for(let i = 0; i < 10; i += 1) await new Promise(resolve => setTimeout(resolve, 0))
+    expect(calls('undo')).toBe(0)
+    answer()
+    expect(await undone).toBe(true)
+    expect(order).toEqual(['set', 'undo done'])
+    expect(calls('undo')).toBe(1)
+    // and the open panels fetch their effect's values again
+    expect(store.getState().effects.paramsChanged).toBe(changedBefore + 1)
   })
 
   it('changes nothing when there is nothing to undo', async () => {

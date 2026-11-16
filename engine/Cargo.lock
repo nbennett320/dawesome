@@ -83,11 +83,12 @@ checksum = "4361135be9122e0870de935d7c439aef945b9f9ddd4199a553b5270b49c82a27"
 
 [[package]]
 name = "app"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "base64 0.13.0",
  "chrono",
  "core-foundation",
+ "dawesome-dsp",
  "dirs",
  "hound",
  "lazy_static",
@@ -717,6 +718,10 @@ name = "dasp_sample"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c87e182de0887fd5361989c677c4e8f5000cd9491d6d563161a8f3a5519fc7f"
+
+[[package]]
+name = "dawesome-dsp"
+version = "0.1.0"
 
 [[package]]
 name = "dbus"

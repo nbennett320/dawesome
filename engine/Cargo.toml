@@ -7,9 +7,13 @@ license = "GPL-3.0-or-later"
 name = "app"
 repository = "https://github.com/nbennett320/dawesome"
 rust-version = "1.86"
-version = "0.1.5"
+version = "0.1.6"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+# the app and the crates under it share target/ and Cargo.lock
+[workspace]
+members = ["crates/dsp"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -38,6 +42,8 @@ trash = "~5.2.3"  # 5.3 needs rustc 1.87
 mp3lame-encoder = "0.3.0"
 # VST3 plugins: bindings generated from the SDK's headers (we write the host)
 vst3 = "0.3"
+# the built-in effects (crates/dsp)
+dawesome-dsp = { path = "crates/dsp" }
 
 # opening a plugin's bundle (macOS) or library (Linux, Windows)
 [target.'cfg(target_os = "macos")'.dependencies]

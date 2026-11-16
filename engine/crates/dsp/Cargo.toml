@@ -1,0 +1,13 @@
+[package]
+name = "dawesome-dsp"
+description = "dawesome's built-in effects: their sound, and the parameters they're set with"
+edition = "2021"
+license = "GPL-3.0-or-later"
+rust-version = "1.86"
+version = "0.1.0"
+
+# no dependencies, on purpose: see the top of src/lib.rs
+[dependencies]
+
+[lib]
+name = "dsp"

@@ -146,5 +146,17 @@
     "stripe": "accentSoft",
     "hub": "raised",
     "tapeMarks": "alpha(surface, 0.55)"
+  },
+  "effect": {
+    "background": "sunken",
+    "grid": "alpha(line, 0.6)",
+    "zero": "lineStrong",
+    "label": "inkFaint",
+    "curve": "accent",
+    "curveFill": "alpha(accent, 0.08)",
+    "dotText": "sunken",
+    "dotRing": "shadow",
+    "selectedRing": "inkStrong",
+    "spectrum": "alpha(inkSoft, 0.12)"
   }
 }

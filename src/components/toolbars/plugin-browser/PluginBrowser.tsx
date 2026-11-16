@@ -2,7 +2,9 @@ import React from 'react'
 import { useAppDispatch, useAppSelector } from '../../../hooks/redux'
 import { fetchPlugins, scanPlugins, selectCatalog } from '../../../state/slices/effectsSlice'
 import { beginSampleDrag, DragItem } from '../../../state/sampleDrag'
-import { FailedPlugin, groupPlugins, PluginInfo, PluginKind } from '../../../types/effects'
+import {
+  FailedPlugin, groupPlugins, isNativePlugin, NATIVE_CATEGORY, PluginInfo, PluginKind,
+} from '../../../types/effects'
 import { AnalogButton } from '../../fourtrack'
 import { Bar } from '../../common'
 import BrowserSearch from '../browser/BrowserSearch'
@@ -108,13 +110,15 @@ const FailedList = ({ failed }: { failed: FailedPlugin[] }) => {
 }
 
 // a kind's plugins in folders by category. searching opens every folder
-// with a match
+// with a match. Dawesome's own folder starts open (the set keeps the
+// folders that aren't as they start)
 const PluginSection = ({ plugins, kind, query }: { plugins: PluginInfo[], kind: PluginKind, query: string }) => {
-  const [expanded, setExpanded] = useSessionSet(`plugins-${kind}`)
+  const [flipped, setFlipped] = useSessionSet(`plugins-${kind}`)
   const groups = groupPlugins(plugins, kind, query)
   const searching = !!query.trim()
+  const isOpen = (category: string) => flipped.has(category) !== (category === NATIVE_CATEGORY)
 
-  const toggle = (category: string) => setExpanded(prev => {
+  const toggle = (category: string) => setFlipped(prev => {
     const next = new Set(prev)
     if(next.has(category)) next.delete(category)
     else next.add(category)
@@ -124,7 +128,7 @@ const PluginSection = ({ plugins, kind, query }: { plugins: PluginInfo[], kind: 
   return (
     <>
       {groups.map(({ category, plugins: inCategory }) => {
-        const open = searching || expanded.has(category)
+        const open = searching || isOpen(category)
         return (
           <React.Fragment key={category}>
             <CategoryRow
@@ -174,29 +178,38 @@ const PluginBrowser = ({ kind }: { kind: PluginKind }) => {
   const failed = catalog?.failed ?? []
   const searched = catalog?.searched ?? []
   const ofKind = plugins.some(plugin => plugin.kind === kind)
+  // (Dawesome's own are there with nothing installed)
+  const installedOfKind = plugins.some(plugin => plugin.kind === kind && !isNativePlugin(plugin))
   const matching = groupPlugins(plugins, kind, query).length > 0
 
-  let body: React.ReactNode = <PluginSection plugins={plugins} kind={kind} query={query} />
+  const noneFound = (
+    <div className='px-3 py-2 text-xs text-ink-faint'>
+      <p className='text-ink-soft'>No VST3 {plural} found</p>
+      {searched.length > 0 && (
+        <>
+          <p className='mt-1'>Looked in:</p>
+          <ul className='mt-0.5'>
+            {searched.map(folder => (
+              <li key={folder} className='font-mono text-[10px] break-all'>{folder}</li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  )
+
+  let body: React.ReactNode = (
+    <>
+      <PluginSection plugins={plugins} kind={kind} query={query} />
+      {ofKind && !installedOfKind && catalog && !scanning && !query.trim() && noneFound}
+    </>
+  )
   if(!ofKind) {
     body = !catalog || scanning ? (
       <div className='px-3 py-2 text-xs text-ink-faint'>
         {catalog ? 'Looking for plugins…' : 'Loading…'}
       </div>
-    ) : (
-      <div className='px-3 py-2 text-xs text-ink-faint'>
-        <p className='text-ink-soft'>No VST3 {plural} found</p>
-        {searched.length > 0 && (
-          <>
-            <p className='mt-1'>Looked in:</p>
-            <ul className='mt-0.5'>
-              {searched.map(folder => (
-                <li key={folder} className='font-mono text-[10px] break-all'>{folder}</li>
-              ))}
-            </ul>
-          </>
-        )}
-      </div>
-    )
+    ) : noneFound
   } else if(query.trim() && !matching) {
     body = <div className='px-3 py-2 text-xs text-ink-faint'>No {plural} match.</div>
   }

@@ -13,6 +13,7 @@ const slot = (id: number, change: Partial<EffectSlot> = {}): EffectSlot => ({
   bypassed: false,
   missing: false,
   hasEditor: true,
+  native: false,
   ...change,
 })
 
@@ -173,6 +174,17 @@ describe('the browser’s folders', () => {
     // no category is Other
     expect(groups[3].plugins.map(p => p.name)).toEqual(['Blank', 'Thing'])
     expect(groupPlugins(plugins, 'instrument').map(g => g.category)).toEqual(['Instrument'])
+  })
+
+  it('puts Dawesome’s own effects in a folder of their own, first', () => {
+    const eq = plugin('EQ', 'EQ', { id: 'dawesome:eq', path: '', vendor: 'Dawesome' })
+    const groups = groupPlugins([...plugins, plugin('ProQ', 'EQ'), eq], 'effect')
+    expect(groups.map(g => g.category)).toEqual(['Dawesome', 'Analyzer', 'Dynamics', 'EQ', 'Reverb', 'Other'])
+    expect(groups[0].plugins).toEqual([eq])
+    expect(groups[3].plugins.map(p => p.name)).toEqual(['ProQ'])
+    // searching finds it by its own category, or Dawesome
+    expect(groupPlugins([eq], 'effect', 'eq')).toHaveLength(1)
+    expect(groupPlugins([eq], 'effect', 'dawesome')).toHaveLength(1)
   })
 
   it('searches names, vendors and categories', () => {
