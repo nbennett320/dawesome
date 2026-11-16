@@ -13,7 +13,7 @@
 // (Speed, then UniformSourceIterator): the same frames, interpolated the
 // same way
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, Read};
 use std::sync::atomic::{AtomicI16, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,6 +21,33 @@ use rodio::cpal::Sample as _;
 use rodio::{Decoder, Source};
 
 use super::clip::{pan_gains, ClipSettings};
+
+// how many frames an AIFF says it holds (in its COMM chunk), or None for
+// any other file. symphonia 0.5.5 counts the 8 bytes before an AIFF's audio
+// (its SSND chunk's offset and block size) as audio, so it reads 8 bytes
+// past the audio's end, and whatever chunk comes next (often an ID3 tag) is
+// heard as a frame or two of noise at the end. Pcm::load cuts it off
+fn aiff_frames(path: &str) -> Option<usize> {
+  let mut file = BufReader::new(File::open(path).ok()?);
+  let mut header = [0u8; 12];
+  file.read_exact(&mut header).ok()?;
+  if &header[0..4] != b"FORM" || !matches!(&header[8..12], b"AIFF" | b"AIFC") {
+    return None;
+  }
+  loop {
+    let mut chunk = [0u8; 8];
+    file.read_exact(&mut chunk).ok()?;
+    let len = u32::from_be_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
+    if &chunk[0..4] == b"COMM" {
+      // channels (2 bytes), then frames (4)
+      let mut comm = [0u8; 6];
+      file.read_exact(&mut comm).ok()?;
+      return Some(u32::from_be_bytes([comm[2], comm[3], comm[4], comm[5]]) as usize);
+    }
+    // a chunk with an odd length has a byte of padding after it
+    file.seek_relative(len as i64 + (len & 1) as i64).ok()?;
+  }
+}
 
 // a sample file's audio, decoded
 pub struct Pcm {
@@ -103,8 +130,12 @@ impl Pcm {
       .map_err(|e| format!("could not decode sample '{}': {}", path, e))?;
     let channels = source.channels();
     let rate = source.sample_rate();
+    let mut samples: Vec<i16> = source.collect();
+    if let Some(frames) = aiff_frames(path) {
+      samples.truncate(frames * channels as usize);
+    }
 
-    Ok(Pcm::new(source.collect(), channels, rate))
+    Ok(Pcm::new(samples, channels, rate))
   }
 
   pub fn samples(&self) -> &[i16] {
@@ -551,5 +582,36 @@ mod tests {
     let mut playing = reader(&live);
     assert_eq!(playing.next_frame(), Some([half, half]));
     assert_eq!(playing.next_frame(), Some([0., 0.]));
+  }
+
+  // tests/fixtures/aiff/kick.aif is assets/assets_66-bd-01.wav converted with
+  // `afconvert -f AIFF -d BEI16`: the same frames, stored big-endian
+  #[test]
+  fn test_an_aiff_loads_as_the_wav_it_was_made_from() {
+    let wav = Pcm::load("assets/assets_66-bd-01.wav").unwrap();
+    let aiff = Pcm::load("tests/fixtures/aiff/kick.aif").unwrap();
+    assert_eq!((aiff.channels(), aiff.rate()), (wav.channels(), wav.rate()));
+    assert_eq!(aiff.frames(), wav.frames());
+    assert!(aiff.samples() == wav.samples());
+  }
+
+  // a 24-bit AIFF from a sample pack: mono, 44.1kHz, 9.6 seconds, with an
+  // ID3 chunk after its audio (none of which is read as audio, see
+  // aiff_frames)
+  #[test]
+  fn test_a_24_bit_aiff_loads() {
+    let pcm = Pcm::load("assets/Mid Seed Shaker 100bpm On Accents.aif").unwrap();
+    assert_eq!((pcm.channels(), pcm.rate()), (1, 44_100));
+    assert_eq!(pcm.frames(), 423_360);
+    assert!(pcm.samples().iter().any(|s| s.unsigned_abs() > 1_000));
+  }
+
+  #[test]
+  fn test_only_an_aiff_has_its_frames_counted() {
+    assert_eq!(aiff_frames("assets/Mid Seed Shaker 100bpm On Accents.aif"), Some(423_360));
+    assert_eq!(aiff_frames("tests/fixtures/aiff/kick.aif"), Some(7_864));
+    assert_eq!(aiff_frames("assets/assets_66-bd-01.wav"), None);
+    assert_eq!(aiff_frames("assets/loop1.mp3"), None);
+    assert_eq!(aiff_frames("does/not/exist.aif"), None);
   }
 }

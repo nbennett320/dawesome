@@ -23,6 +23,7 @@ tauri-build = { version = "2", features = [] }
 base64 = "0.13"
 chrono = "0.4"
 rodio = "0.19"
+symphonia = { version = "0.5.5", default-features = false, features = ["aiff", "pcm"] }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 svg = "0.10.0"
