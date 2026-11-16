@@ -1,6 +1,6 @@
 // Mixdown: the whole playlist, as it's heard, rendered offline
 //
-// rendered the way playback renders it (see run_playlist in daw.rs): a
+// rendered the way playback renders it (see run_playlist in playback.rs): a
 // slice of the song's sounds a beat at a time, each clip through its
 // track's strip, all of it through the master strip and the limiter, but
 // on an engine of its own with no device, as fast as it can go. never the

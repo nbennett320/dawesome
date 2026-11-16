@@ -49,7 +49,7 @@ pub struct PlaylistTransport {
   beat_interval_ms: f64,
   // where the loop starts and ends, in beats (whether or not looping is
   // on). it plays in from before its start, and goes round to its start at
-  // its end (see daw::state::timeline_position)
+  // its end (see playlist::timeline_position)
   loop_start_beats: f64,
   loop_end_beats: f64,
   // whether there's a region drawn in the ruler (which is the loop), and
@@ -71,7 +71,7 @@ pub struct PlaylistTransport {
   // how long that pattern is, in steps (0 for none). it loops at this
   // length, counted from `start_time_ms`. when its length changes, its
   // steps are counted afresh from the one it's on (see
-  // daw::next_pattern_slice), so `start_time_ms` moves with it
+  // playback::next_pattern_slice), so `start_time_ms` moves with it
   pattern_length: u32,
 }
 
@@ -85,7 +85,7 @@ pub(crate) fn playlist_transport(state: &daw::Session) -> PlaylistTransport {
   let loop_end_pinned = state.playlist.loop_end_pin.lock().unwrap().is_some();
   let pattern = state.playlist.playing_pattern();
   // a pattern counts from the step it was on when it last came round,
-  // changed length, or started (see daw::pattern_anchor)
+  // changed length, or started (see playback::pattern_anchor)
   let (started, counted_from_ms) = match pattern {
     Some(_) => {
       let (step, heard) = playback::pattern_anchor(state);
@@ -115,7 +115,7 @@ pub(crate) fn playlist_transport(state: &daw::Session) -> PlaylistTransport {
   }
 }
 
-// change the tempo (see daw::set_playlist_tempo), as a step that can be
+// change the tempo (see playback::set_playlist_tempo), as a step that can be
 // undone. refused while recording
 // - gesture: the visit to the tempo field it's part of, if any
 pub fn change_tempo(state: &Arc<daw::Session>, tempo: f32, gesture: Option<u64>) -> Result<f32, String> {

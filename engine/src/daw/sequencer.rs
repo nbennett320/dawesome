@@ -16,10 +16,10 @@
 // sample_voice.rs
 //
 // a synth row's plugin lives in effects.rs under the row's slot id, and
-// follows this list (see commands/synth.rs)
+// follows this list (see daw/actions/synth.rs)
 //
 // a pattern plays on its own in the Pattern Sequencer and the Piano Roll
-// (see daw::run_playlist), and as pattern clips in the playlist (PatternNode
+// (see playback::run_playlist), and as pattern clips in the playlist (PatternNode
 // in audiograph.rs), which stay linked to it: editing a pattern changes
 // every clip of it
 //
@@ -1089,7 +1089,7 @@ impl Sequencer {
 
   // take a row out, and its notes out of every pattern, each pattern that
   // held them then trimmed to what's left, in bars of `beats_per_bar` beats
-  // (see trim_pattern). a synth row's plugin follows: see commands/synth.rs
+  // (see trim_pattern). a synth row's plugin follows: see daw/actions/synth.rs
   pub fn remove_row_and_trim(&mut self, id: u64, beats_per_bar: u16) -> Result<(), String> {
     for pattern in self.take_row(id)? {
       self.trim_pattern(pattern, beats_per_bar)?;
@@ -1204,7 +1204,7 @@ impl Sequencer {
   // play another plugin, which effects.rs has just loaded in a new slot (see
   // Effects::load_synth), on a synth row, keeping everything else about it.
   // its name is made unique among the other synth rows. the old slot's
-  // plugin follows the rows out (see commands/synth.rs)
+  // plugin follows the rows out (see daw/actions/synth.rs)
   pub fn replace_row_synth(&mut self, id: u64, synth: Synth) -> Result<(), String> {
     self.check_synth_row(id)?;
     let name = self.free_synth_name_besides(&synth.name, Some(id));

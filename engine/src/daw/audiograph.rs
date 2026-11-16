@@ -185,7 +185,7 @@ pub struct AudioNode {
   // the part of the sample the clip plays, in the sample's own time. None:
   // all of it. `start_offset` is where that part starts in the playlist
   window: Option<clip_reader::Window>,
-  // the waveform, ready to send (see daw::encode_levels). shared, as the
+  // the waveform, ready to send (see waveform::encode_levels). shared, as the
   // clip is copied whenever it's remembered (see history.rs)
   waveform: Arc<str>,
   // how the clip is played back

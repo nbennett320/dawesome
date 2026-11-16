@@ -1,4 +1,4 @@
-// the synth rows' commands (see actions/synth.rs)
+// the synth rows' commands (see daw/actions/synth.rs)
 use crate::daw::actions::sequencer::AddedRow;
 use crate::daw::sequencer;
 use crate::engine;

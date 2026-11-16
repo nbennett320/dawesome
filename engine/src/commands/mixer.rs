@@ -1,4 +1,4 @@
-// the Mixer tab's commands (see actions/mixer.rs)
+// the Mixer tab's commands (see daw/actions/mixer.rs)
 use crate::daw::actions::mixer::{
   change_master_volume, change_track_color, change_track_mute, change_track_name, change_track_pan,
   change_track_solo, change_track_volume, mixer_settings, reset,

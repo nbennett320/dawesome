@@ -14,8 +14,8 @@ use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy)]
 pub struct PlaylistUI {
-  // the playlist's length, in beats (read with daw::playlist_beats, worked
-  // out by daw::fit_playlist)
+  // the playlist's length, in beats (read with playback::playlist_beats, worked
+  // out by playback::fit_playlist)
   pub beats: u64,
   pub snap_enabled: bool,
   pub snap_subdivision: timing::Note,
@@ -51,7 +51,7 @@ pub struct Playlist {
   // will start (the playhead while stopped or paused)
   pub start_offset: Mutex<Duration>,
   // bumped by every run and every stop, so a run's thread can tell it's been
-  // replaced (see daw::run_playlist)
+  // replaced (see playback::run_playlist)
   pub run_id: AtomicU64,
   pub total_beats: AtomicU64,
   pub current_beat: AtomicU16,
@@ -74,14 +74,14 @@ pub struct Playlist {
   pub sequencer: Arc<Mutex<sequencer::Sequencer>>,
   // each mixer channel's effects (see effects.rs)
   pub effects: Arc<crate::daw::effects::Effects>,
-  // keys held on sample rows, auditioned (see commands/synth.rs)
+  // keys held on sample rows, auditioned (see daw/actions/synth.rs)
   pub held_keys: sample_voice::HeldKeys,
   // what the current (or last) run plays. set before each run starts
   pub mode: Mutex<PlayMode>,
   // the step a pattern playing on its own counts from, with
   // `started_time` when it's heard: the step its run started from (the
   // Piano Roll's start marker), then the one it's on each time it comes
-  // round or its length changes (see daw::next_pattern_slice). in steps, so
+  // round or its length changes (see playback::next_pattern_slice). in steps, so
   // it stays on its step if the tempo changes
   pub pattern_start: Mutex<f64>,
   pub ui: Arc<Mutex<PlaylistUI>>,
@@ -246,7 +246,7 @@ pub fn valid_loop_end_pin(beat: f64) -> Option<f64> {
   beat.is_finite().then(|| beat.max(1.))
 }
 
-// where the loop starts and ends on the timeline (see daw::loop_span)
+// where the loop starts and ends on the timeline (see playback::loop_span)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LoopSpan {
   pub start: Duration,
@@ -260,7 +260,7 @@ impl LoopSpan {
 }
 
 // where the timeline is `elapsed` into a run that started at `start`. a run
-// starts inside the loop or before it (see daw::start_playlist), so with
+// starts inside the loop or before it (see playback::start_playlist), so with
 // looping on, this plays in up to the loop's end, then goes round from its
 // start
 pub fn timeline_position(start: Duration, elapsed: Duration, span: Option<LoopSpan>) -> Duration {

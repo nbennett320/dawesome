@@ -1,5 +1,5 @@
 // a waveform's levels as the engine sends them (see encode_levels in
-// engine/src/daw/daw_core/waveform.rs): each level a little-endian u16 in
+// engine/src/daw/waveform.rs): each level a little-endian u16 in
 // base64, 0..65535 standing for 0..1
 export const decodeLevels = (encoded: string): Float32Array => {
   const bytes = atob(encoded)

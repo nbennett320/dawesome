@@ -269,7 +269,7 @@ fn test_effects_reach_an_output_opened_later() {
   rig.effects().add(Channel::Track(0), &gain().id, None).unwrap();
   assert!(rig.effects().inner.lock().unwrap().engine.is_none());
 
-  // the output opens (as daw::engine() would, telling follow_output)
+  // the output opens (as engine::engine() would, telling follow_output)
   *later.0.lock().unwrap() = Some(rig.engine.clone());
   rig.effects().output_opened();
   assert!(close(rig.level(Some(0)), 0.1));

@@ -35,7 +35,7 @@ export const loopMoved = (before: PlaylistTransport, after: PlaylistTransport) =
   before.loopStartBeats !== after.loopStartBeats || before.loopEndBeats !== after.loopEndBeats
 
 // where the playhead is at `nowMs` (ms since the unix epoch), following the
-// engine's run while playing. matches daw::state::timeline_position
+// engine's run while playing. matches playlist::timeline_position in engine/src/daw/playlist.rs
 export const positionAt = (t: PlaylistTransport, nowMs: number): number => {
   // a pattern playing on its own doesn't move the playlist's playhead
   if(!t.playing || t.startTimeMs === null || t.patternId !== null) return t.positionMs

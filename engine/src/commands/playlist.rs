@@ -1,4 +1,4 @@
-// the playlist's commands (see actions/playlist.rs)
+// the playlist's commands (see daw/actions/playlist.rs)
 use std::sync::Mutex;
 
 use crate::daw::actions::playlist::{add_track_to, snap_setting, SnapSetting};
@@ -10,7 +10,7 @@ use crate::commands::TState;
 #[derive(serde::Serialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaylistData {
-  // in beats (see daw::playlist_beats)
+  // in beats (see playback::playlist_beats)
   beats: u64,
   track_count: u32,
 }

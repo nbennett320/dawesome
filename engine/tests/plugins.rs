@@ -523,7 +523,7 @@ fn decent_sampler_copy_plays_once_settled() -> Result<Outcome, String> {
   Ok(Outcome::Pass(format!("rms {:.4} unsettled, {:.4} settled, {:.4} the first", levels[0], levels[1], live_level)))
 }
 
-// a synth played by two tracks, as effects/synths.rs keeps it: its master
+// a synth played by two tracks, as daw/effects/synths.rs keeps it: its master
 // copy, and a copy for each track given the master's settings, live and then
 // as a mixdown's offline copies. each copy sounds once it's settled, plays
 // only the notes it's sent, sounds again after the master's settings are

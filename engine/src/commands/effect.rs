@@ -1,5 +1,5 @@
 // the effects' commands: the plugins installed, and each mixer channel's
-// rack of effects (see actions/effect.rs)
+// rack of effects (see daw/actions/effect.rs)
 use crate::daw::actions::effect::{add, move_to, remove, set_bypassed, set_param, set_param_text, AddedEffect};
 use crate::commands::TState;
 use crate::daw::effects::Racks;

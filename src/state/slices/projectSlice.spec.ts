@@ -41,7 +41,7 @@ const emptyProject: LoadedProject = {
 }
 
 // where the engine saves a project saved somewhere new: in a folder of its
-// own, unless it's already in one (see engine/src/project_files.rs)
+// own, unless it's already in one (see engine/src/daw/project_files.rs)
 const projectFileFor = (path: string) => {
   const folder = path.slice(0, path.lastIndexOf('/'))
   const name = path.slice(path.lastIndexOf('/') + 1).replace(/\.dawesome$/, '')

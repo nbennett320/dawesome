@@ -1,4 +1,4 @@
-// the Mixdown tab's commands (see actions/mixdown.rs), and showing the file
+// the Mixdown tab's commands (see daw/actions/mixdown.rs), and showing the file
 // in the Finder
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;

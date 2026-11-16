@@ -30,7 +30,7 @@ import { openTab } from './windowSlice'
 // mirrors daw::timing::Note in the engine
 export type { SnapNote }
 
-// mirrors SnapSetting in engine/src/event_dispatch.rs
+// mirrors SnapSetting in engine/src/daw/actions/playlist.rs
 interface SnapSetting {
   enabled: boolean
   note: SnapNote
@@ -144,7 +144,7 @@ const patternItem = (clip: LoadedPatternClip): PlaylistItem => ({
 
 // pattern clips painted with the Draw tool, as the engine's
 // paint_pattern_clips returns them (Painted in
-// engine/src/commands/sequencer.rs): the clips made, in order, the pattern
+// engine/src/daw/actions/sequencer.rs): the clips made, in order, the pattern
 // they play (made by the paint when none was given), the sequencer, the
 // mixer, and how many tracks there are now
 export interface PaintedClips {
@@ -734,7 +734,7 @@ export const moveNodeInPlaylist = (
 }
 
 // where a clip in a moved group ended up. mirrors MovedNode in
-// engine/src/event_dispatch.rs
+// engine/src/daw/actions/clip.rs
 export interface MovedNode {
   id: number
   startBeat: number
@@ -1032,7 +1032,7 @@ const tookNewFiles = async (dispatch: Dispatch) => {
   dispatch(takesChanged())
 }
 
-// mirrors NEEDS_SAVING in engine/src/bounce.rs: what the engine says when a
+// mirrors NEEDS_SAVING in engine/src/daw/bounce.rs: what the engine says when a
 // file has to be written and the project has never been saved
 export const NEEDS_SAVING = 'The project has to be saved first, so its clips have somewhere to go.'
 

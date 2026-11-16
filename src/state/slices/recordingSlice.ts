@@ -6,7 +6,7 @@ import { LoadedProject, Recorded } from '../../types/project'
 import { setProjectNotice } from './projectSlice'
 import { playlistSlice, reduceLoadedProject, syncPlayingFrom } from './playlistSlice'
 
-// recording onto the playlist (see engine/src/recording.rs): which tracks are
+// recording onto the playlist (see engine/src/daw/recording.rs): which tracks are
 // armed and what each records, and whether a take is being recorded
 export interface RecordingState {
   recording: boolean

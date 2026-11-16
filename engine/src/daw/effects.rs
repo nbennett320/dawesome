@@ -582,7 +582,7 @@ impl Effects {
     self.next_id.fetch_add(1, Ordering::SeqCst)
   }
 
-  // ---- changes (each one undoable: see commands/effect.rs)
+  // ---- changes (each one undoable: see daw/actions/effect.rs)
 
   // add an installed effect to a channel, at `index` (or the end). gives the
   // new effect's id. if the plugin can't be loaded, or is an instrument

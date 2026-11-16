@@ -1,4 +1,4 @@
-// Edit › Undo and Redo (see actions/history.rs)
+// Edit › Undo and Redo (see daw/actions/history.rs)
 use crate::daw::actions::history::{travelled, Travelled};
 use crate::commands::TState;
 use crate::daw::history;

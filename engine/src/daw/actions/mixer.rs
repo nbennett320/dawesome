@@ -1,4 +1,4 @@
-// changing the mixer (see daw/daw_core/mixer.rs), each change recorded so
+// changing the mixer (see engine/mixer.rs), each change recorded so
 // it can be undone. commands/mixer.rs is the Mixer tab's side of these
 //
 // controls take effect straight away, even while playing. the setters return

@@ -964,7 +964,7 @@ fn noise_wav(name: &str, rate: u32, channels: u16, frames: u32) -> String {
   path.to_string_lossy().into_owned()
 }
 
-// play the graph as the scheduler does (see daw::run_playlist): from
+// play the graph as the scheduler does (see playback::run_playlist): from
 // `start`, a beat at a time, on an engine at `rate`. returns what's heard
 // in `total`, left and right
 fn play(graph: &mut AudioGraph<'static>, rate: u32, start: Duration, total: Duration) -> Vec<f32> {

@@ -1,7 +1,7 @@
 // the synth rows' plugins
 //
 // the synth rows themselves (names, volume, pan, mute, order) are the
-// sequencer's (see daw_core/sequencer.rs), and undo and projects go through
+// sequencer's (see daw/sequencer.rs), and undo and projects go through
 // them. this keeps each synth's plugins in line with those rows:
 // follow_synths is told the synths (by slot id) and which tracks play
 // which, and loads or lets go of plugins to match

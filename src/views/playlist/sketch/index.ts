@@ -211,7 +211,7 @@ interface GestureEvent extends UIEvent {
 
 export type { PlaylistTransport }
 
-// mirrors SnapSetting in engine/src/event_dispatch.rs
+// mirrors SnapSetting in engine/src/daw/actions/playlist.rs
 export interface SnapSetting {
   enabled: boolean
   // length of one snap step, in beats

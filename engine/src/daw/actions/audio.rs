@@ -1,5 +1,5 @@
 // the audio devices' status, what recording is set to, and managing the
-// project's recordings and clips on disk (see daw/daw_core/audio_settings.rs
+// project's recordings and clips on disk (see engine/audio_settings.rs
 // and recording.rs). commands/audio.rs is the Audio Settings tab's side
 use crate::daw;
 use crate::daw::{audiograph, sequencer};

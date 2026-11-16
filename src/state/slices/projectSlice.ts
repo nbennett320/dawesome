@@ -123,7 +123,7 @@ const withExtension = (path: string) =>
   (path.toLowerCase().endsWith(`.${PROJECT_EXTENSION}`) ? path : `${path}.${PROJECT_EXTENSION}`)
 
 // whether it's fine to replace the project: it has no unsaved changes (see
-// has_unsaved_changes in engine/src/project.rs), or the user says so
+// has_unsaved_changes in engine/src/daw/project.rs), or the user says so
 const okToReplace = async (): Promise<boolean> => {
   // if the engine can't say, ask: better than losing changes
   const changed = await invoke<boolean>('project_has_unsaved_changes').catch(() => true)

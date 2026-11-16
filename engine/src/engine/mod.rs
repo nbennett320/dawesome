@@ -4,7 +4,7 @@
 // the callback renders sounds (voices) it's been sent, each starting on an
 // exact frame of a run (a stretch of playback from play to stop). a run's
 // frame 0 is wherever the callback is when it gets the run's start, and the
-// scheduler (see daw::run_playlist) sends each beat's voices a little before
+// scheduler (see playback::run_playlist) sends each beat's voices a little before
 // the callback reaches them, tagged with the frame they start on
 //
 // it renders a block at a time, through buses. each track's voices are summed

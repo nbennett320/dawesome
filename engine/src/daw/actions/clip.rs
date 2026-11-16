@@ -1,5 +1,5 @@
 // trimming and cutting clips in the playlist (see the windows in
-// daw/daw_core/audiograph.rs and clip_reader.rs)
+// daw/audiograph.rs and engine/clip_reader.rs)
 //
 // the edits return every clip they changed or made, as it is now, for the
 // frontend to show. commands/clip.rs is the frontend's side of these

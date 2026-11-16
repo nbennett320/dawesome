@@ -188,7 +188,7 @@ pub fn playlist_beats(state: &daw::Session) -> u64 {
   state.playlist.ui.lock().unwrap().beats
 }
 
-// work out the playlist's length again (see daw::playlist_beats_for), when
+// work out the playlist's length again (see playlist::playlist_beats_for), when
 // the time signature changes or a project is loaded. moving or pasting clips
 // doesn't change it: a clip can only start within it, and one that ends past
 // it hangs over the end. (takes the graph's and sequencer's locks: call it
@@ -686,7 +686,7 @@ fn is_current(state: &daw::Session, run: u64) -> bool {
 // a pattern playing on its own in run `run`, after a slice `slice` long
 // from `offset`: where the next slice starts, at the pattern's length now
 // (`len`: it can be changed while it plays), going round to its start at
-// its end (see daw::advance_round). when it goes round, or its length
+// its end (see playlist::advance_round). when it goes round, or its length
 // isn't what the last slice's was (`was`), it counts its steps from there,
 // heard at `heard`. the cursors (pattern_step, and the frontend's from
 // get_playlist_transport) work out the step from that and its length now,

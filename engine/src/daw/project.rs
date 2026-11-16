@@ -29,7 +29,7 @@ use crate::daw::project_files::{self, recordings_dir_for};
 
 // the newest project format this version of the app reads and writes.
 // bump it when a change means older apps would misread a project. version 4
-// has a sequencer of rows and patterns as daw_core/sequencer.rs has them,
+// has a sequencer of rows and patterns as daw/sequencer.rs has them,
 // and pattern clips saved with their own start and length
 pub const PROJECT_VERSION: u32 = 4;
 // what a project without a sequencer or pattern clips is saved as, so older

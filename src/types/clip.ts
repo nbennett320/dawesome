@@ -22,7 +22,7 @@ export type ClipSetting = keyof ClipSettings
 
 // the part of its source a clip plays: seconds of the sample for a sample
 // clip, steps of the pattern for a pattern clip (mirrors ClipWindow in
-// engine/src/event_dispatch.rs)
+// engine/src/daw/actions/clip.rs)
 export interface ClipWindow {
   start: number
   // null: to the source's end
@@ -30,7 +30,7 @@ export interface ClipWindow {
 }
 
 // a clip's settings and lengths, from the engine's get_clip and
-// set_clip_settings (mirrors ClipInfo in engine/src/event_dispatch.rs)
+// set_clip_settings (mirrors ClipInfo in engine/src/daw/actions/clip.rs)
 export interface ClipInfo {
   settings: ClipSettings
   // seconds, before the settings change the clip's speed

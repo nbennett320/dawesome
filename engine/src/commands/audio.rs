@@ -1,4 +1,4 @@
-// the Audio Settings tab's commands (see actions/audio.rs)
+// the Audio Settings tab's commands (see daw/actions/audio.rs)
 //
 // they run off the main thread: listing devices and reopening the output can
 // take a moment

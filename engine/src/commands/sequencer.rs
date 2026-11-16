@@ -1,4 +1,4 @@
-// the Pattern Sequencer's commands (see actions/sequencer.rs)
+// the Pattern Sequencer's commands (see daw/actions/sequencer.rs)
 use std::thread;
 use crate::daw::actions::sequencer::{
   add_pattern_clip_to, add_pattern_folder_to, add_pattern_of, add_sample, beats_per_bar, duplicate_pattern_of, edit,

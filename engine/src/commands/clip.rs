@@ -1,4 +1,4 @@
-// the playlist's clip commands (see actions/clip.rs)
+// the playlist's clip commands (see daw/actions/clip.rs)
 use std::thread;
 use crate::daw::actions::clip::{
   add_clip, change_clip_settings, get_clip_of, move_clip, move_clips, remove_clips, set_windows, split, stretch,

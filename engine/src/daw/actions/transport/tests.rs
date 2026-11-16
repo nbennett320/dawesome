@@ -339,7 +339,7 @@ fn test_a_pattern_reports_its_length_and_the_step_it_counts_from() {
   // counted from step 20 (it was two bars long then), heard just now: step
   // 0 of that time round was heard 20 steps (2.5s) before. not from the
   // pattern's start, though step 20 is past its end now: the run carries on
-  // where step 20 falls in one bar (see daw::next_pattern_slice)
+  // where step 20 falls in one bar (see playback::next_pattern_slice)
   *state.playlist.pattern_start.lock().unwrap() = 20.;
   *state.playlist.started_time.lock().unwrap() = Some(Instant::now());
   let t = playlist_transport(&state);

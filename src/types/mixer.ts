@@ -1,5 +1,5 @@
 // the mixer: a channel strip per playlist track, summed into the master.
-// mirrors engine/src/daw/daw_core/mixer.rs
+// mirrors engine/src/engine/mixer.rs
 
 // the quietest a fader goes. at or below this it's silent (shown as -∞)
 export const MIN_DB = -60

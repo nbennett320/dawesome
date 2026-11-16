@@ -1,5 +1,5 @@
 // Edit › Undo and Redo. the engine keeps the history (see
-// engine/src/history.rs) and hands back the whole project as it is
+// engine/src/daw/history.rs) and hands back the whole project as it is
 // afterwards, which every slice then shows
 import { invoke } from '@tauri-apps/api/core'
 import type { AppDispatch, RootState } from './store'

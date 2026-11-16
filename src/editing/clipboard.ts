@@ -1,6 +1,6 @@
 // copying, pasting and repeating: where the copies go, the same in the
 // playlist and the Piano Roll. (clips are copied by the engine, in
-// engine/src/clipboard.rs, by these rules; notes are copied here.) plain
+// engine/src/daw/clipboard.rs, by these rules; notes are copied here.) plain
 // functions, with no canvas
 import { Span } from './edges'
 

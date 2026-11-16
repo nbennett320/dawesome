@@ -1,4 +1,4 @@
-// the synth rows (see daw_core/sequencer.rs): their plugins (see
+// the synth rows (see daw/sequencer.rs): their plugins (see
 // effects/synths.rs), and the keys auditioned on rows (see
 // context/pattern-merge-project/04-api.md for the contract with the
 // frontend)

@@ -8,7 +8,7 @@ import type { LoopRegion } from './transport'
 
 // project files (.dawesome) hold the playlist's clips and settings, and the
 // mixer. the
-// engine reads and writes them (see engine/src/project.rs, which these types
+// engine reads and writes them (see engine/src/daw/project.rs, which these types
 // mirror)
 
 export const PROJECT_EXTENSION = 'dawesome'
@@ -56,7 +56,7 @@ export interface LoadedPatternClip {
   window: ClipWindow
 }
 
-// clips as they are after a trim or a cut (see engine/src/commands/clip.rs)
+// clips as they are after a trim or a cut (see engine/src/daw/actions/clip.rs)
 export interface ChangedClips {
   clips: LoadedClip[]
   patternClips: LoadedPatternClip[]
@@ -100,7 +100,7 @@ export interface MovedClip {
   path: string
 }
 
-// a project that's been saved (see save_project in engine/src/project.rs)
+// a project that's been saved (see save_project in engine/src/daw/project.rs)
 export interface SavedProject {
   // the file it was saved to: saved somewhere new, it's in a folder of its own
   path: string
@@ -162,7 +162,7 @@ export interface Recorded {
 }
 
 // the project as it is now, after an undo or redo (see project_view in
-// engine/src/commands/history.rs)
+// engine/src/daw/actions/history.rs)
 export interface ProjectView {
   tempo: number
   clips: LoadedClip[]

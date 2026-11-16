@@ -1,4 +1,4 @@
-// editing the Pattern Sequencer (see daw/daw_core/sequencer.rs), and
+// editing the Pattern Sequencer (see daw/sequencer.rs), and
 // placing patterns in the playlist. commands/sequencer.rs is the frontend's
 // side of these
 //
