@@ -1,8 +1,7 @@
 use super::*;
+use crate::daw::test_support::{KICK, SNARE};
 
 const BEAT: Duration = Duration::from_millis(500);
-const KICK: &str = "assets/assets_66-bd-01.wav";
-const SNARE: &str = "assets/assets_66-sd-01.wav";
 
 fn ms(n: u64) -> Duration { Duration::from_millis(n) }
 

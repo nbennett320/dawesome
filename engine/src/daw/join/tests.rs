@@ -1,14 +1,12 @@
 use super::*;
+use crate::daw::test_support::{node, play, worst, KICK, SNARE};
 use crate::daw::{audiograph, sequencer, timing};
 use crate::engine::clip;
-use crate::daw::test_support::play;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use crate::daw::actions::clip::{add_clip, change_clip_settings, ClipWindow};
 use crate::daw::project;
 
-const KICK: &str = "assets/assets_66-bd-01.wav";
-const SNARE: &str = "assets/assets_66-sd-01.wav";
 const STEP: f32 = 1. / 32_768.;
 
 fn saved_project(name: &str) -> (Arc<daw::Session>, PathBuf) {
@@ -36,15 +34,6 @@ fn noise_wav(dir: &Path, name: &str, rate: u32, frames: u32, loud: f32) -> Strin
   }
   writer.finalize().unwrap();
   path.to_string_lossy().into_owned()
-}
-
-fn worst(a: &[f32], b: &[f32]) -> f32 {
-  assert_eq!(a.len(), b.len());
-  a.iter().zip(b).map(|(a, b)| (a - b).abs()).fold(0., f32::max)
-}
-
-fn node(state: &daw::Session, id: u64) -> audiograph::AudioNode {
-  state.playlist.audiograph.lock().unwrap().get_node_by_id(id).unwrap().clone()
 }
 
 fn saved(state: &daw::Session) -> project::Project {

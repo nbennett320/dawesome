@@ -1,13 +1,12 @@
 use super::*;
+use crate::daw::test_support::{node, play, worst, KICK};
 use crate::daw::{audiograph, sequencer, timing};
 use crate::engine::clip;
-use crate::daw::test_support::play;
 use std::sync::Arc;
 use std::time::Instant;
 use crate::daw::actions::clip::{add_clip, change_clip_settings, ClipWindow};
 use crate::daw::project;
 
-const KICK: &str = "assets/assets_66-bd-01.wav";
 
 // a state whose project is saved in a folder of its own, which is returned
 fn saved_project(name: &str) -> (Arc<daw::Session>, PathBuf) {
@@ -50,16 +49,7 @@ fn read(path: &Path) -> (hound::WavSpec, Vec<f32>) {
   (spec, reader.samples::<f32>().map(|sample| sample.unwrap()).collect())
 }
 
-fn node(state: &daw::Session, id: u64) -> audiograph::AudioNode {
-  state.playlist.audiograph.lock().unwrap().get_node_by_id(id).unwrap().clone()
-}
-
 const STEP: f32 = 1. / 32_768.;
-
-fn worst(a: &[f32], b: &[f32]) -> f32 {
-  assert_eq!(a.len(), b.len());
-  a.iter().zip(b).map(|(a, b)| (a - b).abs()).fold(0., f32::max)
-}
 
 #[test]
 fn test_a_copy_plays_what_the_clip_did() {

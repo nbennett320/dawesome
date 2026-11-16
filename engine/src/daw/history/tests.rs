@@ -1,12 +1,9 @@
 use super::*;
+use crate::daw::test_support::state;
 use crate::daw::{defaults, playback};
 use crate::engine::clip;
 use crate::daw::actions::clip::{add_clip, change_clip_settings, move_clip, remove_clips};
 use crate::daw::project;
-
-fn state() -> Arc<daw::Session> {
-  Arc::new(daw::Session::default())
-}
 
 // a clip of the metronome's tick on a beat
 fn clip(state: &daw::Session, track: u32, beat: f32) -> u64 {

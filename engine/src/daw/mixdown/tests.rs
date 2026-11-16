@@ -1,11 +1,10 @@
 use super::*;
+use crate::daw::test_support::{play, KICK};
 use crate::daw::{audiograph, sequencer, timing};
 use crate::engine::mixer;
-use crate::daw::test_support::play;
 use std::time::Instant;
 use crate::daw::actions::clip::add_clip;
 
-const KICK: &str = "assets/assets_66-bd-01.wav";
 const LONG: &str = "assets/slide_guitar.wav";
 
 fn mixdown(state: &daw::Session, rate: u32) -> Vec<f32> {

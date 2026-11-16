@@ -1,4 +1,5 @@
 use super::*;
+use crate::daw::test_support::{KICK, SNARE};
 use crate::daw::{defaults, playback, playlist, sequencer, timing, waveform};
 use crate::engine::{self, clip, clip_reader, mixer, sound_buffer};
 use std::time::Instant;
@@ -660,7 +661,6 @@ fn test_audiograph_node_functions() {
   assert_eq!(audiograph.len(), 3);
 }
 
-const KICK: &str = "assets/assets_66-bd-01.wav";
 
 // a graph with one pattern (one bar, kick on beats 1 and 3), and its ids
 fn graph_with_pattern() -> (AudioGraph<'static>, u64, u64) {
@@ -850,7 +850,6 @@ fn test_explode_tracks_tell_a_synth_row_from_a_sample() {
 #[test]
 fn test_explode_a_pattern_clip() {
   let (mut graph, kick, pattern) = graph_with_pattern();
-  const SNARE: &str = "assets/assets_66-sd-01.wav";
   {
     let mut seq = graph.sequencer.lock().unwrap();
     let snare = seq.add_row(SNARE).unwrap();

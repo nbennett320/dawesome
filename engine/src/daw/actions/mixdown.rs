@@ -137,9 +137,9 @@ pub(crate) fn start(
 mod tests {
   use super::*;
   use crate::daw::actions::clip::add_clip;
+  use crate::daw::test_support::KICK;
   use crate::daw::mixdown_file::Bits;
 
-  const KICK: &str = "assets/assets_66-bd-01.wav";
   const LONG: &str = "assets/slide_guitar.wav";
 
   fn folder(name: &str) -> PathBuf {

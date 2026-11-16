@@ -1,16 +1,11 @@
 use super::*;
-use std::sync::Arc;
-use crate::daw::{audiograph, timing};
+use crate::daw::test_support::{node, state, KICK};
+use crate::daw::timing;
 use crate::engine::clip;
 use crate::daw::actions::clip::{add_clip, change_clip_settings};
 use crate::daw::actions::playlist::node_beat;
 use crate::daw::project;
 
-const KICK: &str = "assets/assets_66-bd-01.wav";
-
-fn state() -> Arc<daw::Session> {
-  Arc::new(daw::Session::default())
-}
 
 fn saved(state: &daw::Session) -> project::Project {
   project::capture(state, None)
@@ -37,10 +32,6 @@ fn pattern_clip(state: &daw::Session, track: u32, beat: f64) -> (u64, u64) {
   let at = audiograph.beat_interval().mul_f64(beat);
   let clip = audiograph.add_pattern_node::<timing::Note>(pattern, at, track, None).unwrap();
   (pattern, clip)
-}
-
-fn node(state: &daw::Session, id: u64) -> audiograph::AudioNode {
-  state.playlist.audiograph.lock().unwrap().get_node_by_id(id).unwrap().clone()
 }
 
 #[test]

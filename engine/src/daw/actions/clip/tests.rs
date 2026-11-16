@@ -1,16 +1,12 @@
 use super::*;
 use std::sync::Arc;
+use crate::daw::test_support::{state, KICK};
 use crate::daw::{audiograph, playback, timing};
 use crate::engine::clip;
 use crate::daw::actions::clip::{add_clip, change_clip_settings};
 use crate::daw::actions::playlist::node_beat;
 use crate::daw::project;
 
-const KICK: &str = "assets/assets_66-bd-01.wav";
-
-fn state() -> Arc<daw::Session> {
-  Arc::new(daw::Session::default())
-}
 
 fn saved(state: &daw::Session) -> project::Project {
   project::capture(state, None)

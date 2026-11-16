@@ -1,11 +1,11 @@
 use super::*;
 use std::collections::BTreeMap;
+use crate::daw::test_support::{KICK, SNARE};
 use crate::daw::{audiograph, playback, playlist, sequencer};
 use crate::engine;
 use crate::daw::actions::clip::ClipWindow;
 use std::time::Duration;
 
-const KICK: &str = "assets/assets_66-bd-01.wav";
 
 #[test]
 fn test_a_pattern_follows_the_time_signature() {
@@ -309,7 +309,6 @@ fn test_pattern_length_in_the_transport_math() {
   assert_eq!(playback::pattern_len(&state, pattern), Some(Duration::from_millis(4_000)));
 }
 
-const SNARE: &str = "assets/assets_66-sd-01.wav";
 
 // the project as it would be saved: what undo and redo have to get back to
 fn saved(state: &daw::Session) -> crate::daw::project::Project {
