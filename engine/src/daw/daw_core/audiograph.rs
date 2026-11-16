@@ -768,7 +768,7 @@ impl PatternNode {
       // (on a resume, the times through as far back as one of the row's
       // notes can still be sounding: none, for a clip over by then)
       let passes = if slice.resume {
-        let back = instrument.longest(notes).as_nanos() as i128;
+        let back = instrument.longest(notes.iter().map(|note| note.pitch)).as_nanos() as i128;
         self.passes_heard(pattern.length, beat, slice.start - back, slice.end)
       } else {
         in_slice.clone()

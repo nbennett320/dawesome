@@ -49,10 +49,10 @@ impl SampleInstrument {
     Duration::from_secs_f64(self.pcm.frames() as f64 / rate as f64)
   }
 
-  // the longest any of `notes` can sound for: the sample played to its end
-  // at the lowest of their pitches, the slowest
-  pub fn longest(&self, notes: &[crate::daw::PatternNote]) -> Duration {
-    notes.iter().map(|note| note.pitch).min().map_or(Duration::ZERO, |pitch| self.played_len(pitch))
+  // the longest any of the notes at `pitches` can sound for: the sample
+  // played to its end at the lowest of them, the slowest
+  pub fn longest(&self, pitches: impl Iterator<Item = u8>) -> Duration {
+    pitches.min().map_or(Duration::ZERO, |pitch| self.played_len(pitch))
   }
 
   // a note at `pitch` and `velocity` (0 to 1), read out at `rate`

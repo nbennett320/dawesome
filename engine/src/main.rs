@@ -17,6 +17,7 @@ mod mixdown;
 mod mixdown_file;
 mod plugin;
 mod plugin_catalog;
+mod processor;
 mod main_thread;
 mod effects;
 mod effect_windows;

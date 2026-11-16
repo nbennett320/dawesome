@@ -34,11 +34,12 @@ use std::time::{Duration, Instant};
 use crate::daw::{self, Channel, Slot};
 use crate::main_thread::{self, DropOnMain};
 use crate::native::{self, Native};
-use crate::plugin::{self, PluginKind, Processor};
+use crate::plugin::{self, PluginKind};
 
 mod synths;
 
 use crate::plugin_catalog::Plugins;
+use crate::processor::Processor;
 
 // how long to wait for the engine to take a chain before carrying on (with
 // no output running it never does; a plugin is still safe to tear down then,
@@ -1271,7 +1272,8 @@ pub fn follow_output(effects: &Arc<Effects>) {
 pub mod testing {
   use super::*;
   use crate::plugin::scan::Catalog;
-  use crate::plugin::{Event, PluginInfo, Transport};
+  use crate::plugin::PluginInfo;
+  use crate::processor::{Event, Transport};
   use std::sync::atomic::{AtomicBool, AtomicU32};
 
   pub const RATE: u32 = 48_000;

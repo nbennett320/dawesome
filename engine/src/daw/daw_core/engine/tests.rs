@@ -159,7 +159,7 @@ fn close(a: f32, b: f32) -> bool {
 struct Gain(f32);
 
 impl Processor for Gain {
-  fn process(&mut self, input: [&[f32]; 2], output: [&mut [f32]; 2], _: &[plugin::Event], _: &Transport) {
+  fn process(&mut self, input: [&[f32]; 2], output: [&mut [f32]; 2], _: &[processor::Event], _: &Transport) {
     for (output, input) in output.into_iter().zip(input) {
       for (o, i) in output.iter_mut().zip(input) { *o = i * self.0; }
     }
@@ -179,7 +179,7 @@ impl Delay {
 }
 
 impl Processor for Delay {
-  fn process(&mut self, input: [&[f32]; 2], output: [&mut [f32]; 2], _: &[plugin::Event], _: &Transport) {
+  fn process(&mut self, input: [&[f32]; 2], output: [&mut [f32]; 2], _: &[processor::Event], _: &Transport) {
     let len = self.line[0].len();
     for (side, (output, input)) in output.into_iter().zip(input).enumerate() {
       for (i, (o, s)) in output.iter_mut().zip(input).enumerate() {
@@ -196,7 +196,7 @@ impl Processor for Delay {
 struct Watch(Arc<Mutex<Vec<(Transport, usize)>>>);
 
 impl Processor for Watch {
-  fn process(&mut self, input: [&[f32]; 2], output: [&mut [f32]; 2], _: &[plugin::Event], transport: &Transport) {
+  fn process(&mut self, input: [&[f32]; 2], output: [&mut [f32]; 2], _: &[processor::Event], transport: &Transport) {
     self.0.lock().unwrap().push((*transport, input[0].len()));
     for (output, input) in output.into_iter().zip(input) { output.copy_from_slice(input); }
   }
@@ -430,14 +430,14 @@ impl Tone {
 }
 
 impl Processor for Tone {
-  fn process(&mut self, _: [&[f32]; 2], output: [&mut [f32]; 2], events: &[plugin::Event], _: &Transport) {
+  fn process(&mut self, _: [&[f32]; 2], output: [&mut [f32]; 2], events: &[processor::Event], _: &Transport) {
     let [left, right] = output;
     let mut next = events.iter().peekable();
     for i in 0..left.len() {
       while let Some(event) = next.next_if(|e| e.offset() as usize <= i) {
         match *event {
-          plugin::Event::NoteOn { pitch, .. } => self.held[pitch as usize] = true,
-          plugin::Event::NoteOff { pitch, .. } => self.held[pitch as usize] = false,
+          processor::Event::NoteOn { pitch, .. } => self.held[pitch as usize] = true,
+          processor::Event::NoteOff { pitch, .. } => self.held[pitch as usize] = false,
         }
       }
       let level = if self.held.iter().any(|&h| h) { 0.25 } else { 0. };
@@ -812,7 +812,7 @@ impl Counted {
 }
 
 impl Processor for Counted {
-  fn process(&mut self, input: [&[f32]; 2], output: [&mut [f32]; 2], _: &[plugin::Event], _: &Transport) {
+  fn process(&mut self, input: [&[f32]; 2], output: [&mut [f32]; 2], _: &[processor::Event], _: &Transport) {
     self.frames.fetch_add(input[0].len(), Ordering::Relaxed);
     self.pending.store(false, Ordering::Relaxed);
     for (output, input) in output.into_iter().zip(input) { output.copy_from_slice(input); }
@@ -828,7 +828,7 @@ impl Processor for Counted {
 struct Hum(Arc<AtomicUsize>);
 
 impl Processor for Hum {
-  fn process(&mut self, input: [&[f32]; 2], output: [&mut [f32]; 2], _: &[plugin::Event], _: &Transport) {
+  fn process(&mut self, input: [&[f32]; 2], output: [&mut [f32]; 2], _: &[processor::Event], _: &Transport) {
     self.0.fetch_add(input[0].len(), Ordering::Relaxed);
     for output in output { output.fill(0.01); }
   }
@@ -1025,7 +1025,7 @@ fn test_the_device_output_runs() {
   let engine = engine().expect("could not open the output");
   let start = engine.frames();
   engine.start_run(99, master(), vec![
-    engine.voice(daw::METRONOME_TICK_SOURCE.convert_samples(), Some(99), 0, Route::Direct),
+    engine.voice(daw::SampleBuffer::load("assets/assets_66-hh-01-or.wav").unwrap().convert_samples(), Some(99), 0, Route::Direct),
   ]).unwrap();
 
   let anchor = engine.wait_for_anchor(99, Duration::from_secs(2)).unwrap();

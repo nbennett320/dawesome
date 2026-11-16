@@ -18,7 +18,8 @@ use std::sync::Arc;
 use dsp::{Entry, Kind, Runner, Store, Taper};
 
 use crate::effects::Hosted;
-use crate::plugin::{self, Event, PluginInfo, PluginKind, Processor, Transport};
+use crate::processor::{Event, Processor, Transport};
+use crate::plugin::{self, PluginInfo, PluginKind};
 
 pub const PREFIX: &str = "dawesome:";
 pub const VENDOR: &str = "Dawesome";

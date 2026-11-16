@@ -42,7 +42,7 @@
 // memory: voices, buses and chains arrive through a lock-free queue, and what
 // it's done with is sent back to be freed by whoever sends the next command
 use crate::daw;
-use crate::plugin::{self, Processor, Transport};
+use crate::processor::{self, Processor, Transport};
 use super::audio_settings::{buffer_choices, AudioSettings};
 use rodio::cpal::{
   self,
@@ -116,7 +116,7 @@ struct Playing {
   // what it plays this block, in order of their offsets. room for every
   // note a bus can hold is made up front, and a pitch's worth more for
   // ending held notes at a stop
-  events: Vec<plugin::Event>,
+  events: Vec<processor::Event>,
   // how many notes of each pitch are held, by the run playing and by
   // auditions
   held_by_run: [u16; 128],
@@ -365,7 +365,7 @@ fn sounds(pair: &[Vec<f32>; 2], frames: usize) -> bool {
 
 impl Bus {
   fn new(channel: Channel, strip: daw::Strip) -> Box<Bus> {
-    let pair = || [vec![0f32; plugin::MAX_BLOCK], vec![0f32; plugin::MAX_BLOCK]];
+    let pair = || [vec![0f32; processor::MAX_BLOCK], vec![0f32; processor::MAX_BLOCK]];
     Box::new(Bus {
       channel,
       buffers: [pair(), pair()],
@@ -441,7 +441,7 @@ impl Bus {
         playing.released[pitch] = false;
         // (room is kept for these)
         if playing.events.len() < playing.events.capacity() {
-          playing.events.push(plugin::Event::NoteOff { offset: 0, pitch: pitch as u8 });
+          playing.events.push(processor::Event::NoteOff { offset: 0, pitch: pitch as u8 });
         }
       }
     }
@@ -473,11 +473,11 @@ impl Bus {
         let event = match note.kind {
           NoteKind::On { velocity } => {
             *held = held.saturating_add(1);
-            plugin::Event::NoteOn { offset, pitch: note.pitch, velocity }
+            processor::Event::NoteOn { offset, pitch: note.pitch, velocity }
           }
           NoteKind::Off => {
             *held = held.saturating_sub(1);
-            plugin::Event::NoteOff { offset, pitch: note.pitch }
+            processor::Event::NoteOff { offset, pitch: note.pitch }
           }
         };
         // (there's always room: events has more than notes)
@@ -487,7 +487,7 @@ impl Bus {
     for slot in self.chain.iter() {
       let Some(playing) = (unsafe { slot.playing() }) else { continue };
       // (sort_unstable never allocates)
-      playing.events.sort_unstable_by_key(|event| (event.offset(), matches!(event, plugin::Event::NoteOn { .. })));
+      playing.events.sort_unstable_by_key(|event| (event.offset(), matches!(event, processor::Event::NoteOn { .. })));
     }
   }
 
@@ -522,7 +522,7 @@ impl Bus {
       let processor = unsafe { slot.processor() };
       let playing = unsafe { slot.playing() };
       // an instrument hears its own notes, an effect none
-      let events: &[plugin::Event] = match &playing {
+      let events: &[processor::Event] = match &playing {
         Some(playing) => &playing.events,
         None => &[],
       };
@@ -606,7 +606,7 @@ const QUEUE_LEN: usize = 4096;
 const STOP_FADE: Duration = Duration::from_millis(10);
 // the most frames rendered in one go (a block). longer buffers are rendered
 // in parts
-const MAX_CHUNK: usize = plugin::MAX_BLOCK;
+const MAX_CHUNK: usize = processor::MAX_BLOCK;
 // how many track buses there's room for at first (more are made room for as
 // they're needed)
 const BUS_ROOM: usize = 256;
