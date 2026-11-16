@@ -158,18 +158,6 @@ pub fn clips_dir(state: &daw::InnerState) -> Result<PathBuf, String> {
     .ok_or_else(|| NEEDS_SAVING.to_string())
 }
 
-// write each clip out to a file of its own in the project's clips folder,
-// and switch the clip to it: the same clip, where it was, playing the new
-// file with its settings at their defaults. a pattern clip becomes a
-// sample clip. one step to undo (which leaves the files where they are)
-//
-// every file is written before any clip is changed: if one can't be, the
-// files written so far are removed and no clip changes
-#[tauri::command(async)]
-pub fn deep_copy_clips(state: daw::TState<'_>, ids: Vec<u64>) -> Result<ChangedClips, String> {
-  deep_copy(&state, &ids, daw::open_engine_rate())
-}
-
 // - rate: the engine's rate. None when no output is open: each clip is
 //   then written at its sample's own rate
 pub(crate) fn deep_copy(state: &daw::InnerState, ids: &[u64], rate: Option<u32>) -> Result<ChangedClips, String> {

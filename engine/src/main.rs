@@ -37,16 +37,14 @@ fn init_tauri() {
   use commands::transport::*;
   use commands::sample::*;
   use commands::playlist::*;
-  use project::{save_project, load_project, new_project, project_file_for, project_has_unsaved_changes};
+  use commands::project::{save_project, load_project, new_project, project_file_for, project_has_unsaved_changes};
   use app::window::quit;
   use recent::{add_recent_project, remove_recent_project};
   use commands::mixer::*;
   use commands::audio::*;
   use commands::sequencer::*;
   use commands::clip::*;
-  use clipboard::*;
-  use bounce::*;
-  use join::*;
+  use commands::clipboard::*;
   use commands::mixdown::*;
   use commands::appearance::{themes, preferences, set_preferences, set_window_background};
   use commands::history::{undo, redo};

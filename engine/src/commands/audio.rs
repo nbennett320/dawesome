@@ -7,6 +7,7 @@ use crate::actions::audio::{
   move_recording_in, record_setup, rename_recording_folder_in, rename_recording_in, status, AudioStatus, Library,
   MovedRecording, RecordSetup,
 };
+use crate::commands::TState;
 use crate::daw;
 
 #[tauri::command]
@@ -23,7 +24,7 @@ pub fn get_audio_settings() -> AudioStatus {
 // keeps its place). settings that don't work are refused, leaving the old
 // ones playing
 #[tauri::command(async)]
-pub fn set_audio_settings(state: daw::TState<'_>, settings: daw::AudioSettings) -> Result<AudioStatus, String> {
+pub fn set_audio_settings(state: TState<'_>, settings: daw::AudioSettings) -> Result<AudioStatus, String> {
   if state.playlist.playing() {
     daw::pause_playlist(&state);
   }
@@ -65,14 +66,14 @@ pub fn get_input_levels() -> Vec<f32> {
 }
 
 #[tauri::command(async)]
-pub fn get_record_setup(state: daw::TState<'_>) -> RecordSetup {
+pub fn get_record_setup(state: TState<'_>) -> RecordSetup {
   record_setup(&state)
 }
 
 // arm a track to record these input channels, or (with none) disarm it
 #[tauri::command(async)]
 pub fn set_track_armed(
-  state: daw::TState<'_>,
+  state: TState<'_>,
   track_number: u32,
   input: Option<crate::recording::InputChoice>,
 ) -> RecordSetup {
@@ -84,7 +85,7 @@ pub fn set_track_armed(
 // record every armed track, playing from the playhead
 #[tauri::command(async)]
 pub fn start_recording(
-  state: daw::TState<'_>,
+  state: TState<'_>,
   prefs: tauri::State<'_, crate::preferences::AppPreferences>,
 ) -> Result<crate::recording::Recorded, String> {
   crate::recording::start(state.inner(), prefs.current().loop_recording)?;
@@ -94,7 +95,7 @@ pub fn start_recording(
 // stop recording (and playback, which keeps its place), with the clips the
 // takes became
 #[tauri::command(async)]
-pub fn stop_recording(state: daw::TState<'_>) -> crate::recording::Recorded {
+pub fn stop_recording(state: TState<'_>) -> crate::recording::Recorded {
   if crate::recording::is_recording(&state) {
     daw::pause_playlist(&state);
   }
@@ -104,14 +105,14 @@ pub fn stop_recording(state: daw::TState<'_>) -> crate::recording::Recorded {
 // whether it's still recording, and the clips recorded since last asked
 // (recording also ends when playback stops, or at a loop's end)
 #[tauri::command]
-pub fn collect_recording(state: daw::TState<'_>) -> crate::recording::Recorded {
+pub fn collect_recording(state: TState<'_>) -> crate::recording::Recorded {
   crate::recording::collect(&state)
 }
 
 // the project's takes (newest first) or clips, and folders, for the sidebar's
 // browsers
 #[tauri::command(async)]
-pub fn list_recordings(state: daw::TState<'_>, library: Option<Library>) -> crate::project_files::RecordingsListing {
+pub fn list_recordings(state: TState<'_>, library: Option<Library>) -> crate::project_files::RecordingsListing {
   let dir = existing_dir(&state, library.unwrap_or_default());
   dir.map(|dir| crate::project_files::list_recordings(&dir)).unwrap_or_default()
 }
@@ -119,28 +120,28 @@ pub fn list_recordings(state: daw::TState<'_>, library: Option<Library>) -> crat
 // rename a take (it stays in its folder), keeping the clips and sequencer
 // rows that play it
 #[tauri::command]
-pub fn rename_recording(state: daw::TState<'_>, path: String, name: String, library: Option<Library>) -> Result<MovedRecording, String> {
+pub fn rename_recording(state: TState<'_>, path: String, name: String, library: Option<Library>) -> Result<MovedRecording, String> {
   rename_recording_in(&state, &path, &name, library.unwrap_or_default())
 }
 
 // move a take into a folder (relative to the recordings folder, "" for the
 // top), keeping the clips and sequencer rows that play it
 #[tauri::command]
-pub fn move_recording(state: daw::TState<'_>, path: String, to_folder: String, library: Option<Library>) -> Result<MovedRecording, String> {
+pub fn move_recording(state: TState<'_>, path: String, to_folder: String, library: Option<Library>) -> Result<MovedRecording, String> {
   move_recording_in(&state, &path, &to_folder, library.unwrap_or_default())
 }
 
 // move one folder into another (both relative to the recordings folder),
 // with everything in it
 #[tauri::command]
-pub fn move_recording_folder(state: daw::TState<'_>, folder: String, to_folder: String, library: Option<Library>) -> Result<MovedRecording, String> {
+pub fn move_recording_folder(state: TState<'_>, folder: String, to_folder: String, library: Option<Library>) -> Result<MovedRecording, String> {
   move_recording_folder_in(&state, &folder, &to_folder, library.unwrap_or_default())
 }
 
 // a new, empty folder inside `parent` (relative to the recordings folder,
 // "" for the top). returns its path, relative
 #[tauri::command]
-pub fn create_recording_folder(state: daw::TState<'_>, parent: String, name: String, library: Option<Library>) -> Result<String, String> {
+pub fn create_recording_folder(state: TState<'_>, parent: String, name: String, library: Option<Library>) -> Result<String, String> {
   let library = library.unwrap_or_default();
   let dir = dir_to_change(&state, library, true)?;
   library.worded(crate::project_files::create_folder(&dir, &parent, &name))
@@ -148,19 +149,19 @@ pub fn create_recording_folder(state: daw::TState<'_>, parent: String, name: Str
 
 // rename a folder, keeping the clips and sequencer rows that play what's in it
 #[tauri::command]
-pub fn rename_recording_folder(state: daw::TState<'_>, folder: String, name: String, library: Option<Library>) -> Result<MovedRecording, String> {
+pub fn rename_recording_folder(state: TState<'_>, folder: String, name: String, library: Option<Library>) -> Result<MovedRecording, String> {
   rename_recording_folder_in(&state, &folder, &name, library.unwrap_or_default())
 }
 
 // move a take or clip the project doesn't use to the trash
 #[tauri::command]
-pub fn delete_recording(state: daw::TState<'_>, path: String, library: Option<Library>) -> Result<(), String> {
+pub fn delete_recording(state: TState<'_>, path: String, library: Option<Library>) -> Result<(), String> {
   delete_recording_in(&state, &path, library.unwrap_or_default())
 }
 
 // move a folder, and everything in it, to the trash. refused while the
 // project uses any take in it
 #[tauri::command]
-pub fn delete_recording_folder(state: daw::TState<'_>, folder: String, library: Option<Library>) -> Result<(), String> {
+pub fn delete_recording_folder(state: TState<'_>, folder: String, library: Option<Library>) -> Result<(), String> {
   delete_recording_folder_in(&state, &folder, library.unwrap_or_default())
 }

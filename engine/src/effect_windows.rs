@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use crate::daw;
+use crate::commands::TState;
 use crate::effects::{Effects, WindowPosition};
 use crate::main_thread;
 use crate::plugin::window::{self, Dock, EditorWindow, Rect};
@@ -203,20 +203,20 @@ fn undock(effects: &Effects, slot_id: u64) {
 }
 
 #[tauri::command]
-pub fn open_effect_window(window: tauri::WebviewWindow, state: daw::TState<'_>, slot_id: u64) -> Result<(), String> {
+pub fn open_effect_window(window: tauri::WebviewWindow, state: TState<'_>, slot_id: u64) -> Result<(), String> {
   let (parent, _) = native(&window);
   open_window(&state.playlist.effects, parent, slot_id)
 }
 
 #[tauri::command]
-pub fn close_effect_window(state: daw::TState<'_>, slot_id: u64) {
+pub fn close_effect_window(state: TState<'_>, slot_id: u64) {
   close_window(&state.playlist.effects, slot_id)
 }
 
 #[tauri::command]
 pub fn dock_effect(
   window: tauri::WebviewWindow,
-  state: daw::TState<'_>,
+  state: TState<'_>,
   slot_id: u64,
   clip: Rect,
   x: f64,
@@ -235,12 +235,12 @@ pub fn move_docked_effect(slot_id: u64, clip: Rect, x: f64, y: f64) {
 }
 
 #[tauri::command]
-pub fn resize_docked_effect(state: daw::TState<'_>, slot_id: u64, width: f64, height: f64) -> Result<EditorInfo, String> {
+pub fn resize_docked_effect(state: TState<'_>, slot_id: u64, width: f64, height: f64) -> Result<EditorInfo, String> {
   resize_docked(&state.playlist.effects, slot_id, Room { width, height })
 }
 
 #[tauri::command]
-pub fn undock_effect(state: daw::TState<'_>, slot_id: u64) {
+pub fn undock_effect(state: TState<'_>, slot_id: u64) {
   undock(&state.playlist.effects, slot_id)
 }
 

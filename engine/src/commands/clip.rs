@@ -4,7 +4,10 @@ use crate::actions::clip::{
   add_clip, change_clip_settings, get_clip_of, move_clip, move_clips, remove_clips, set_windows, split, stretch,
   ChangedClips, ClipInfo, MovedNode, PlacedNode, StretchEdit, WindowEdit,
 };
+use crate::bounce::deep_copy;
+use crate::commands::TState;
 use crate::daw;
+use crate::join::{join, Joined};
 
 // trim clips: set the part of its sample or pattern each one plays. the
 // sound stays where it is in the playlist, so a clip whose start is
@@ -14,7 +17,7 @@ use crate::daw;
 // the clips are trimmed, as one step to undo, or (when an id names no clip)
 // none are
 #[tauri::command]
-pub fn set_clip_windows(state: daw::TState<'_>, edits: Vec<WindowEdit>) -> Result<ChangedClips, String> {
+pub fn set_clip_windows(state: TState<'_>, edits: Vec<WindowEdit>) -> Result<ChangedClips, String> {
   set_windows(&state, &edits)
 }
 
@@ -25,7 +28,7 @@ pub fn set_clip_windows(state: daw::TState<'_>, edits: Vec<WindowEdit>) -> Resul
 //
 // returns both halves of every clip that was cut
 #[tauri::command]
-pub fn split_clips(state: daw::TState<'_>, ids: Vec<u64>, beat: f64) -> Result<ChangedClips, String> {
+pub fn split_clips(state: TState<'_>, ids: Vec<u64>, beat: f64) -> Result<ChangedClips, String> {
   split(&state, &ids, beat)
 }
 
@@ -35,14 +38,14 @@ pub fn split_clips(state: daw::TState<'_>, ids: Vec<u64>, beat: f64) -> Result<C
 // its range. all the clips are stretched, as one step to undo, or (when an
 // id doesn't name a sample clip) none are
 #[tauri::command]
-pub fn stretch_clips(state: daw::TState<'_>, edits: Vec<StretchEdit>) -> Result<ChangedClips, String> {
+pub fn stretch_clips(state: TState<'_>, edits: Vec<StretchEdit>) -> Result<ChangedClips, String> {
   stretch(&state, &edits)
 }
 
 // runs off the main thread (async): decoding the sample takes a while
 #[tauri::command(async)]
 pub fn add_audiograph_node(
-  state: daw::TState<'_>,
+  state: TState<'_>,
   sample_path: String,
   track_number: u32,
   drop_beat: Option<f32>,
@@ -52,7 +55,7 @@ pub fn add_audiograph_node(
 
 #[tauri::command]
 pub fn move_audiograph_node(
-  state: daw::TState<'_>,
+  state: TState<'_>,
   id: u64,
   track_number: u32,
   drop_beat: Option<f32>,
@@ -65,7 +68,7 @@ pub fn move_audiograph_node(
 // rest move by as much, so their spacing is kept
 #[tauri::command]
 pub fn move_audiograph_nodes(
-  state: daw::TState<'_>,
+  state: TState<'_>,
   ids: Vec<u64>,
   anchor_id: u64,
   drop_beat: f32,
@@ -78,7 +81,7 @@ pub fn move_audiograph_nodes(
 // one isn't there) none
 #[tauri::command]
 pub fn remove_audiograph_nodes(
-  state: daw::TState<'_>,
+  state: TState<'_>,
   ids: Vec<u64>,
 ) -> Result<(), String> {
   remove_clips(state.inner(), &ids)
@@ -86,7 +89,7 @@ pub fn remove_audiograph_nodes(
 
 #[tauri::command]
 pub fn get_node_data(
-  state: daw::TState<'_>,
+  state: TState<'_>,
   id: u64,
 ) -> Result<(String, f32), String> {
   let playlist = &state.playlist;
@@ -106,7 +109,7 @@ pub fn get_node_data(
 
 #[tauri::command]
 pub fn get_clip(
-  state: daw::TState<'_>,
+  state: TState<'_>,
   id: u64,
 ) -> Result<ClipInfo, String> {
   get_clip_of(&state, id)
@@ -120,7 +123,7 @@ pub fn get_clip(
 //   of, if any. the changes of one gesture are undone together
 #[tauri::command]
 pub fn set_clip_settings(
-  state: daw::TState<'_>,
+  state: TState<'_>,
   id: u64,
   settings: daw::ClipSettings,
   gesture: Option<u64>,
@@ -131,7 +134,7 @@ pub fn set_clip_settings(
 // play a clip on its own, with its settings
 #[tauri::command]
 pub fn preview_node(
-  state: daw::TState<'_>,
+  state: TState<'_>,
   id: u64,
 ) -> Result<(), String> {
   let source = state.playlist.audiograph.lock().unwrap()
@@ -146,4 +149,25 @@ pub fn preview_node(
   });
 
   Ok(())
+}
+
+// join clips into one (see the top of join.rs). the clips have to be on
+// one track and of one kind. the joined clip is the earliest of them, with
+// its id. one step to undo
+// (async: writing sample clips out as one file can take a while)
+#[tauri::command(async)]
+pub fn join_clips(state: TState<'_>, ids: Vec<u64>) -> Result<Joined, String> {
+  join(&state, &ids, daw::open_engine_rate())
+}
+
+// write each clip out to a file of its own in the project's clips folder,
+// and switch the clip to it: the same clip, where it was, playing the new
+// file with its settings at their defaults. a pattern clip becomes a
+// sample clip. one step to undo (which leaves the files where they are)
+//
+// every file is written before any clip is changed: if one can't be, the
+// files written so far are removed and no clip changes
+#[tauri::command(async)]
+pub fn deep_copy_clips(state: TState<'_>, ids: Vec<u64>) -> Result<ChangedClips, String> {
+  deep_copy(&state, &ids, daw::open_engine_rate())
 }

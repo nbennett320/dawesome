@@ -1,6 +1,5 @@
 use crate::daw::state::{Playlist};
 use std::sync::{
-  Arc, 
   Mutex,
 };
 use std::sync::atomic::{
@@ -63,4 +62,3 @@ impl InnerState {
   }
 }
 
-pub type TState<'a> = tauri::State<'a, Arc<InnerState>>;

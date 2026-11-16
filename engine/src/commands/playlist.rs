@@ -1,5 +1,6 @@
 // the playlist's commands (see actions/playlist.rs)
 use crate::actions::playlist::{add_track_to, snap_setting, SnapSetting};
+use crate::commands::TState;
 use crate::daw;
 
 // the playlist's length, and how many tracks it has
@@ -12,14 +13,14 @@ pub struct PlaylistData {
 }
 
 #[tauri::command]
-pub fn get_playlist_data(state: daw::TState<'_>) -> PlaylistData {
+pub fn get_playlist_data(state: TState<'_>) -> PlaylistData {
   let track_count = state.playlist.audiograph.lock().unwrap().track_count();
   PlaylistData { beats: daw::playlist_beats(&state), track_count }
 }
 
 #[tauri::command]
 pub fn init_playlist_workspace(
-  state: daw::TState<'_>,
+  state: TState<'_>,
   min_bound_x: f32,
   min_bound_y: f32,
   max_bound_x: f32,
@@ -42,7 +43,7 @@ pub fn init_playlist_workspace(
 
 #[tauri::command]
 pub fn toggle_snap_enabled(
-  state: daw::TState<'_>
+  state: TState<'_>
 ) {
   state
     .playlist
@@ -54,14 +55,14 @@ pub fn toggle_snap_enabled(
 
 #[tauri::command]
 pub fn get_snap_enabled(
-  state: daw::TState<'_>
+  state: TState<'_>
 ) -> Result<bool, String> {
   Ok(state.playlist.ui.lock().unwrap().snap_enabled)
 }
 
 #[tauri::command]
 pub fn get_snap_setting(
-  state: daw::TState<'_>
+  state: TState<'_>
 ) -> Result<SnapSetting, String> {
   Ok(snap_setting(state.inner()))
 }
@@ -69,7 +70,7 @@ pub fn get_snap_setting(
 // set the note value clips snap to, returns the new snap setting
 #[tauri::command]
 pub fn set_snap_subdivision(
-  state: daw::TState<'_>,
+  state: TState<'_>,
   note: daw::timing::Note,
 ) -> Result<SnapSetting, String> {
   state.playlist.ui.lock().unwrap().snap_subdivision = note;
@@ -80,6 +81,6 @@ pub fn set_snap_subdivision(
 // the plus below the last track: an empty track under it, which can be
 // undone. returns the new track count
 #[tauri::command]
-pub fn add_track(state: daw::TState<'_>) -> u32 {
+pub fn add_track(state: TState<'_>) -> u32 {
   add_track_to(&state)
 }

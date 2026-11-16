@@ -125,14 +125,6 @@ fn place(
   Ok((made, left_out))
 }
 
-// copy clips to the clipboard, replacing what was there. with no clips
-// (nothing was selected), the clipboard is left as it is. returns how many
-// clips the clipboard holds
-#[tauri::command]
-pub fn copy_clips(state: daw::TState<'_>, ids: Vec<u64>) -> usize {
-  copy(&state, &ids)
-}
-
 pub(crate) fn copy(state: &daw::InnerState, ids: &[u64]) -> usize {
   let audiograph = state.playlist.audiograph.lock().unwrap();
   // (an id given twice is copied once)
@@ -153,13 +145,6 @@ pub(crate) fn copy(state: &daw::InnerState, ids: &[u64]) -> usize {
     Copied { beats_after: if interval > 0. { after.as_secs_f64() / interval } else { 0. }, after, clip }
   }).collect();
   clipboard.len()
-}
-
-// copy clips to the clipboard and take them out of the playlist, leaving
-// the gap. one step to undo. returns how many clips the clipboard holds
-#[tauri::command]
-pub fn cut_clips(state: daw::TState<'_>, ids: Vec<u64>) -> Result<usize, String> {
-  cut(&state, &ids)
 }
 
 pub(crate) fn cut(state: &daw::InnerState, ids: &[u64]) -> Result<usize, String> {
@@ -185,18 +170,6 @@ pub struct Placed {
   pub clips: ChangedClips,
   // clips of patterns that are gone, which were left out
   pub left_out: usize,
-}
-
-// paste the clipboard's clips, the earliest starting at `beat` (which the
-// frontend has already snapped) and the rest as long after it as they were.
-// each goes on the track it was copied from, or, when `track` is given, the
-// topmost copied clip goes on that track and the others as many tracks
-// below it as they were. a paste can overlap what's there. one step to undo
-//
-// if any clip would start past the playlist's end, nothing is pasted
-#[tauri::command]
-pub fn paste_clips(state: daw::TState<'_>, beat: f64, track: Option<u32>) -> Result<Placed, String> {
-  paste(&state, beat, track)
 }
 
 pub(crate) fn paste(state: &daw::InnerState, beat: f64, track: Option<u32>) -> Result<Placed, String> {
@@ -231,17 +204,6 @@ pub(crate) fn paste(state: &daw::InnerState, beat: f64, track: Option<u32>) -> R
   }, |(made, _)| made.clone())?;
 
   Ok(Placed { clips: changed_clips(state, &made), left_out })
-}
-
-// duplicate clips so that the duplicates start exactly where the clips'
-// span ends: from the earliest start among them to the latest end. each
-// duplicate is on its original's track, and they keep the gaps between
-// them. the clipboard isn't changed. one step to undo
-//
-// if any duplicate would start past the playlist's end, nothing is repeated
-#[tauri::command]
-pub fn repeat_clips(state: daw::TState<'_>, ids: Vec<u64>) -> Result<Placed, String> {
-  repeat(&state, &ids)
 }
 
 pub(crate) fn repeat(state: &daw::InnerState, ids: &[u64]) -> Result<Placed, String> {

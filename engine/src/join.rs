@@ -37,15 +37,6 @@ pub struct Joined {
   pub sequencer: Option<daw::SequencerState>,
 }
 
-// join clips into one (see the top of the file). the clips have to be on
-// one track and of one kind. the joined clip is the earliest of them, with
-// its id. one step to undo
-// (async: writing sample clips out as one file can take a while)
-#[tauri::command(async)]
-pub fn join_clips(state: daw::TState<'_>, ids: Vec<u64>) -> Result<Joined, String> {
-  join(&state, &ids, daw::open_engine_rate())
-}
-
 // - rate: the engine's rate, for a file that has to be written. None when
 //   no output is open: the first clip's sample's own rate is used
 pub(crate) fn join(state: &daw::InnerState, ids: &[u64], rate: Option<u32>) -> Result<Joined, String> {

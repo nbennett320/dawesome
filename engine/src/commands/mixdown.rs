@@ -5,12 +5,13 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use crate::actions::mixdown::{defaults_for, start, MixdownDefaults, MixdownOptions, Mixdowns, Status};
+use crate::commands::TState;
 use crate::daw;
 
 pub type MixdownState<'a> = tauri::State<'a, Arc<Mixdowns>>;
 
 #[tauri::command]
-pub fn mixdown_defaults(state: daw::TState<'_>) -> MixdownDefaults {
+pub fn mixdown_defaults(state: TState<'_>) -> MixdownDefaults {
   defaults_for(state.project.lock().unwrap().path.as_deref())
 }
 
@@ -19,7 +20,7 @@ pub fn mixdown_defaults(state: daw::TState<'_>) -> MixdownDefaults {
 // the error; anything after, the status says
 // (off the main thread: it writes to the disk)
 #[tauri::command(async)]
-pub fn start_mixdown(state: daw::TState<'_>, mixdowns: MixdownState<'_>, options: MixdownOptions) -> Result<(), String> {
+pub fn start_mixdown(state: TState<'_>, mixdowns: MixdownState<'_>, options: MixdownOptions) -> Result<(), String> {
   start(&state, mixdowns.inner(), options, daw::open_engine_rate().unwrap_or(44_100)).map(|_| ())
 }
 
