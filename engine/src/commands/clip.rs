@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::daw;
 use crate::history;
-use crate::commands::playlist::{beat_to_offset, displayed_beats_and_duration, node_beat, offset_to_beat};
+use crate::actions::playlist::{beat_to_offset, displayed_beats_and_duration, node_beat, offset_to_beat};
 use crate::project::{LoadedClip, LoadedPatternClip};
 
 // clips as they are after a change, of either kind

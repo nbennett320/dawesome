@@ -56,7 +56,7 @@ fn test_added_tracks_are_saved() {
   let json: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
   assert!(json.get("tracks").is_none());
 
-  crate::commands::playlist::add_track_to(&state);
+  crate::actions::playlist::add_track_to(&state);
   save_to(&state, &file).unwrap();
 
   let loaded = daw::InnerState::default();

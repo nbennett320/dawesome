@@ -10,7 +10,7 @@ use serde::Serialize;
 
 use crate::daw;
 use crate::history;
-use crate::commands::playlist::beat_to_offset;
+use crate::actions::playlist::beat_to_offset;
 use crate::project::LoadedPatternClip;
 
 use crate::commands::synth::sequencer_state;

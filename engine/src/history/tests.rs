@@ -17,7 +17,7 @@ fn saved(state: &daw::InnerState) -> project::Project {
 }
 
 fn beat_of(state: &daw::InnerState, id: u64) -> Option<f32> {
-  crate::commands::playlist::node_beat(state, id).ok()
+  crate::actions::playlist::node_beat(state, id).ok()
 }
 
 fn steps(state: &daw::InnerState) -> usize {
@@ -301,7 +301,7 @@ fn test_a_clip_comes_back_on_its_beat_after_a_tempo_change() {
 
 #[test]
 fn test_mixer_changes() {
-  use crate::commands::mixer as mixer;
+  use crate::actions::mixer as mixer;
   let state = state();
   // something already set, which every undo has to leave alone
   mixer::change_track_pan(&state, 0, -0.5, None);
@@ -357,7 +357,7 @@ fn test_undoing_a_solo_lets_the_other_tracks_sound_again() {
   };
   assert!(level() > 0.);
 
-  crate::commands::mixer::change_track_solo(&state, 1, true);
+  crate::actions::mixer::change_track_solo(&state, 1, true);
   assert_eq!(level(), 0.);
   undo(&state).unwrap();
   assert!(level() > 0.);
@@ -371,7 +371,7 @@ fn test_undoing_a_solo_lets_the_other_tracks_sound_again() {
 
 #[test]
 fn test_a_fader_drag_is_one_step() {
-  use crate::commands::mixer as mixer;
+  use crate::actions::mixer as mixer;
   let state = state();
   mixer::change_track_volume(&state, 0, -6., None);
   let before = saved(&state);
@@ -480,7 +480,7 @@ fn test_adding_a_track() {
   let default = daw::defaults::NUM_OF_TRACKS;
   let before = saved(&state);
 
-  assert_eq!(crate::commands::playlist::add_track_to(&state), default + 1);
+  assert_eq!(crate::actions::playlist::add_track_to(&state), default + 1);
   let added = saved(&state);
   assert_eq!(added.tracks, default + 1);
   assert_eq!(steps(&state), 1);
@@ -492,7 +492,7 @@ fn test_adding_a_track() {
 
   // under clips past it, the next track added is below them
   let id = clip(&state, default + 3, 0.);
-  assert_eq!(crate::commands::playlist::add_track_to(&state), default + 5);
+  assert_eq!(crate::actions::playlist::add_track_to(&state), default + 5);
   remove_clips(&state, &[id]).unwrap();
   assert_eq!(state.playlist.audiograph.lock().unwrap().track_count(), default + 5);
 

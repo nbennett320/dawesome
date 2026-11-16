@@ -13,7 +13,7 @@ use std::time::Duration;
 use serde::Serialize;
 
 use crate::daw;
-use crate::commands::playlist::beat_to_offset;
+use crate::actions::playlist::beat_to_offset;
 use crate::commands::sequencer::AddedRow;
 use crate::history;
 use crate::commands::history::{project_view, ProjectView};

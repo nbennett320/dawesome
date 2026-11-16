@@ -1,7 +1,7 @@
 use super::*;
 use std::sync::Arc;
 use crate::commands::clip::{add_clip, change_clip_settings};
-use crate::commands::playlist::node_beat;
+use crate::actions::playlist::node_beat;
 use crate::project;
 
 const KICK: &str = "assets/assets_66-bd-01.wav";

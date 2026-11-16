@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use crate::daw;
 use crate::history;
-use crate::commands::mixer::mixer_settings;
+use crate::actions::mixer::mixer_settings;
 use crate::project::{LoadedClip, LoadedPatternClip};
 
 // the project as it is now, in the shapes the frontend already takes from a
