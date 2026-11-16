@@ -1,6 +1,6 @@
 // a delay line: one channel's recent sound, read back any time ago,
-// between samples too (4-point Hermite). a delay's echoes, and later a
-// chorus's and a reverb's lines
+// between samples too (4-point Hermite, interp.rs). a delay's echoes, and
+// later a chorus's and a reverb's lines
 //
 // its memory is set aside once, when it's made, and never grows: effects
 // are told of a new sample rate on the audio thread, which mustn't
@@ -14,6 +14,7 @@
 // one. `d` is at least MIN_DELAY (the interpolation needs a sample either
 // side)
 
+use crate::interp::hermite;
 use crate::svf::TINY;
 
 // the highest sample rate a line is made long enough for. above it, the
@@ -81,11 +82,7 @@ impl DelayLine {
     let t = (delay - whole as f64) as f32;
     // the sample at the delay, its newer neighbour, and the two older
     let (newer, x0, x1, x2) = (self.ago(whole - 1), self.ago(whole), self.ago(whole + 1), self.ago(whole + 2));
-    // 4-point, 3rd-order Hermite, from x0 (t = 0) toward x1 (t = 1)
-    let c1 = 0.5 * (x1 - newer);
-    let c2 = newer - 2.5 * x0 + 2. * x1 - 0.5 * x2;
-    let c3 = 0.5 * (x2 - newer) + 1.5 * (x0 - x1);
-    ((c3 * t + c2) * t + c1) * t + x0
+    hermite(newer, x0, x1, x2, t)
   }
 
   // put the next sample in (what's too small to hear as 0: a line holds

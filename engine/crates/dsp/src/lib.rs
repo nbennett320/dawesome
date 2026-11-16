@@ -20,6 +20,7 @@ pub mod delay_line;
 pub mod effect;
 pub mod effects;
 pub mod fft;
+pub mod interp;
 pub mod param;
 pub mod runner;
 pub mod smooth;
