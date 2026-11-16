@@ -6,10 +6,12 @@
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
+use crate::daw::audiograph;
+use crate::engine::{clip, clip_reader};
 use crate::daw;
-use crate::history;
-use crate::actions::playlist::{beat_to_offset, displayed_beats_and_duration, node_beat, offset_to_beat};
-use crate::project::{LoadedClip, LoadedPatternClip};
+use crate::daw::history;
+use crate::daw::actions::playlist::{beat_to_offset, displayed_beats_and_duration, node_beat, offset_to_beat};
+use crate::daw::project::{LoadedClip, LoadedPatternClip};
 
 // clips as they are after a change, of either kind
 #[derive(Serialize, Debug, PartialEq, Default)]
@@ -164,7 +166,7 @@ fn add_audiograph_node_at(
 ) -> Result<u64, String> {
   // decoded before taking the graph's lock, which playback (and the
   // playhead, polled from the UI) needs
-  let mut node = daw::AudioNode::new(0, sample_path, std::time::Duration::ZERO, track_number)?;
+  let mut node = audiograph::AudioNode::new(0, sample_path, std::time::Duration::ZERO, track_number)?;
   node.start_offset = start_offset(state);
 
   let subdivision = state.playlist.ui.lock().unwrap().snap_subdivision;
@@ -327,7 +329,7 @@ pub(crate) fn remove_clips(state: &daw::InnerState, ids: &[u64]) -> Result<(), S
 #[derive(serde::Serialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipInfo {
-  pub(crate) settings: daw::ClipSettings,
+  pub(crate) settings: clip::ClipSettings,
   // the sample's length, before the settings change its speed
   pub(crate) sample_duration: f32,
   // how long the clip plays for
@@ -351,14 +353,14 @@ pub struct ClipWindow {
 }
 
 impl ClipWindow {
-  pub fn of_sample(window: daw::Window) -> Self {
+  pub fn of_sample(window: clip_reader::Window) -> Self {
     ClipWindow { start: window.start.as_secs_f64(), end: window.end.map(|end| end.as_secs_f64()) }
   }
 
   // where in its pattern a pattern clip starts and ends (see
   // PatternNode::start). the end is never None, and can be past the
   // pattern's end
-  pub fn of_pattern(node: &daw::PatternNode) -> Self {
+  pub fn of_pattern(node: &audiograph::PatternNode) -> Self {
     ClipWindow { start: node.start, end: Some(node.end()) }
   }
 
@@ -375,7 +377,7 @@ impl ClipWindow {
   }
 }
 
-pub(crate) fn clip_info(node: &daw::AudioNode) -> ClipInfo {
+pub(crate) fn clip_info(node: &audiograph::AudioNode) -> ClipInfo {
   ClipInfo {
     settings: node.settings(),
     sample_duration: node.sample_duration().as_secs_f32(),
@@ -395,7 +397,7 @@ pub(crate) fn get_clip_of(state: &daw::InnerState, id: u64) -> Result<ClipInfo, 
 fn set_clip_settings_of(
   state: &daw::InnerState,
   id: u64,
-  settings: daw::ClipSettings,
+  settings: clip::ClipSettings,
 ) -> Result<ClipInfo, String> {
   let mut audiograph = state.playlist.audiograph.lock().unwrap();
   let node = audiograph.get_mut_node_by_id(id)
@@ -408,7 +410,7 @@ fn set_clip_settings_of(
 pub(crate) fn change_clip_settings(
   state: &daw::InnerState,
   id: u64,
-  settings: daw::ClipSettings,
+  settings: clip::ClipSettings,
   gesture: Option<u64>,
 ) -> Result<ClipInfo, String> {
   history::clip_edit(state, &[id], gesture, || set_clip_settings_of(state, id, settings), |_| vec![])

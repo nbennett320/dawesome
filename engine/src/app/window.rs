@@ -14,7 +14,7 @@ use tauri::{
   WebviewWindow,
   WebviewWindowBuilder,
 };
-use crate::{daw, project};
+use crate::daw::{self, project};
 use crate::preferences::{AppearanceSetting, AppPreferences, Preferences};
 use crate::recent::{self, RecentProjects};
 use crate::theme::{self, Appearance, ResolvedTheme, Rgba};

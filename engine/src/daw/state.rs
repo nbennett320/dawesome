@@ -1,4 +1,5 @@
-use crate::daw::state::{Playlist};
+use playlist::Playlist;
+use crate::daw::{playlist, timing};
 use std::sync::{
   Mutex,
 };
@@ -10,14 +11,14 @@ pub struct InnerState {
   pub metronome_enabled: AtomicBool,
   pub playlist: Playlist,
   // where the project is saved, and where its takes go
-  pub project: Mutex<crate::project_files::ProjectLocation>,
+  pub project: Mutex<crate::daw::project_files::ProjectLocation>,
   // the armed tracks, and the recording in progress
-  pub recorder: Mutex<crate::recording::Recorder>,
+  pub recorder: Mutex<crate::daw::recording::Recorder>,
   // what's been done to the project, to undo and redo. locked on its own,
   // never while another of the project's locks is held
-  pub history: Mutex<crate::history::History>,
+  pub history: Mutex<crate::daw::history::History>,
   // the clips last copied or cut (see clipboard.rs)
-  pub clipboard: Mutex<crate::clipboard::Clipboard>,
+  pub clipboard: Mutex<crate::daw::clipboard::Clipboard>,
 }
 
 impl InnerState {
@@ -58,7 +59,7 @@ impl InnerState {
     let after = audiograph.beat_interval();
 
     let mut playhead = self.playlist.start_offset.lock().unwrap();
-    *playhead = crate::daw::timing::keep_beat(*playhead, before, after);
+    *playhead = timing::keep_beat(*playhead, before, after);
   }
 }
 

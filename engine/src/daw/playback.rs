@@ -1,10 +1,7 @@
-use crate::daw::{
-  daw_core::{
-    self,
-    SampleBuffer,
-  }, 
-  state, 
-};
+use crate::daw;
+use crate::daw::{audiograph, playlist, sequencer, timing};
+use crate::engine;
+use crate::engine::sound_buffer::SampleBuffer;
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::{
@@ -90,28 +87,28 @@ pub fn play_sample(path: &str) -> Result<(), String> {
   let source = Decoder::new(BufReader::new(file))
     .map_err(|e| format!("could not decode '{}': {}", path, e))?;
 
-  daw_core::engine()?.preview(source.convert_samples::<f32>())
+  engine::engine()?.preview(source.convert_samples::<f32>())
 }
 
 // length of one beat at the playlist's tempo
-pub fn beat_interval(state: &state::InnerState) -> Duration {
+pub fn beat_interval(state: &daw::InnerState) -> Duration {
   state
     .playlist
     .audiograph
     .lock()
     .unwrap()
-    .interval_of_subdivision(daw_core::timing::QuarterNote::new())
+    .interval_of_subdivision(timing::QuarterNote::new())
 }
 
 // where the playhead is now: moving with the current run while playing, or
 // where the next run will start while stopped or paused
-pub fn playhead(state: &state::InnerState) -> Duration {
+pub fn playhead(state: &daw::InnerState) -> Duration {
   playhead_at(state, Instant::now())
 }
 
 // where the playhead is (or was, or will be) heard at `at`, as playhead.
 // before the run's first frame is heard (counting in), where it starts
-pub fn playhead_at(state: &state::InnerState, at: Instant) -> Duration {
+pub fn playhead_at(state: &daw::InnerState, at: Instant) -> Duration {
   let (start, started) = run_anchor(state);
   // a pattern playing on its own leaves the playlist's playhead where it is
   if !state.playlist.playing_playlist() { return start; }
@@ -121,13 +118,13 @@ pub fn playhead_at(state: &state::InnerState, at: Instant) -> Duration {
     None => return start,
   };
 
-  state::timeline_position(start, at.saturating_duration_since(started), active_loop(state))
+  playlist::timeline_position(start, at.saturating_duration_since(started), active_loop(state))
 }
 
 // where on the timeline the playhead counts from, and when that was heard
 // (None before the first run). read together, as they're moved together each
 // time the loop comes round (see run_playlist)
-pub fn run_anchor(state: &state::InnerState) -> (Duration, Option<std::time::Instant>) {
+pub fn run_anchor(state: &daw::InnerState) -> (Duration, Option<std::time::Instant>) {
   let start = state.playlist.start_offset.lock().unwrap();
   let started = *state.playlist.started_time.lock().unwrap();
   (*start, started)
@@ -139,14 +136,14 @@ pub fn run_anchor(state: &state::InnerState) -> (Duration, Option<std::time::Ins
 // - with a region drawn in the ruler, the region
 // - otherwise from the start up to the end flag: where it was dragged to,
 //   or the end of the last clip, on a bar line
-pub fn loop_span(state: &state::InnerState) -> state::LoopSpan {
-  if let Some(frozen) = crate::recording::loop_span_recording(state) { return frozen; }
+pub fn loop_span(state: &daw::InnerState) -> playlist::LoopSpan {
+  if let Some(frozen) = crate::daw::recording::loop_span_recording(state) { return frozen; }
 
   let interval = beat_interval(state);
   // (a region's edges a hair off a beat, from float rounding, are on it)
-  let at = |beat: f64| state::snap_to_beat(interval.mul_f64(beat.max(0.)), interval);
+  let at = |beat: f64| playlist::snap_to_beat(interval.mul_f64(beat.max(0.)), interval);
   if let Some(region) = *state.playlist.loop_region.lock().unwrap() {
-    return state::LoopSpan { start: at(region.start), end: at(region.end) };
+    return playlist::LoopSpan { start: at(region.start), end: at(region.end) };
   }
 
   let pinned = *state.playlist.loop_end_pin.lock().unwrap();
@@ -155,15 +152,15 @@ pub fn loop_span(state: &state::InnerState) -> state::LoopSpan {
     None => {
       let beats_per_bar = state.playlist.time_signature.lock().unwrap().numerator;
       let end = state.playlist.audiograph.lock().unwrap().end();
-      state::loop_end_after(end, interval, beats_per_bar)
+      playlist::loop_end_after(end, interval, beats_per_bar)
     }
   };
-  state::LoopSpan { start: Duration::ZERO, end }
+  playlist::LoopSpan { start: Duration::ZERO, end }
 }
 
 // the loop playback goes round, or None when looping is off (or the loop is
 // empty)
-pub fn active_loop(state: &state::InnerState) -> Option<state::LoopSpan> {
+pub fn active_loop(state: &daw::InnerState) -> Option<playlist::LoopSpan> {
   if !state.playlist.loop_enabled.load(Ordering::SeqCst) { return None; }
 
   let span = loop_span(state);
@@ -172,7 +169,7 @@ pub fn active_loop(state: &state::InnerState) -> Option<state::LoopSpan> {
 
 // how long a pattern plays for at the playlist's tempo, or None if there's no
 // such pattern, or it has no steps
-pub fn pattern_len(state: &state::InnerState, id: u64) -> Option<Duration> {
+pub fn pattern_len(state: &daw::InnerState, id: u64) -> Option<Duration> {
   let interval = beat_interval(state);
   state.playlist.sequencer.lock().unwrap()
     .pattern_len(id, interval)
@@ -180,31 +177,31 @@ pub fn pattern_len(state: &state::InnerState, id: u64) -> Option<Duration> {
 }
 
 // where the song ends (the last clip's end), or None with no clips
-pub fn song_end(state: &state::InnerState) -> Option<Duration> {
+pub fn song_end(state: &daw::InnerState) -> Option<Duration> {
   let end = state.playlist.audiograph.lock().unwrap().end();
   if end.is_zero() { None } else { Some(end) }
 }
 
 // how many beats long the playlist is: clips start within it, and the
 // playhead stays within it
-pub fn playlist_beats(state: &state::InnerState) -> u64 {
+pub fn playlist_beats(state: &daw::InnerState) -> u64 {
   state.playlist.ui.lock().unwrap().beats
 }
 
-// work out the playlist's length again (see state::playlist_beats_for), when
+// work out the playlist's length again (see daw::playlist_beats_for), when
 // the time signature changes or a project is loaded. moving or pasting clips
 // doesn't change it: a clip can only start within it, and one that ends past
 // it hangs over the end. (takes the graph's and sequencer's locks: call it
 // holding none)
-pub fn fit_playlist(state: &state::InnerState) {
+pub fn fit_playlist(state: &daw::InnerState) {
   let beats_per_bar = state.playlist.time_signature.lock().unwrap().numerator;
   let song_end = song_end(state).unwrap_or_default();
-  let beats = state::playlist_beats_for(song_end, beat_interval(state), beats_per_bar);
+  let beats = playlist::playlist_beats_for(song_end, beat_interval(state), beats_per_bar);
   state.playlist.ui.lock().unwrap().beats = beats;
 }
 
 // the beat counters (total beats in, and the beat of the bar) at an offset
-fn set_beat_counters(state: &state::InnerState, offset: Duration, interval: Duration) {
+fn set_beat_counters(state: &daw::InnerState, offset: Duration, interval: Duration) {
   let total = if interval.is_zero() { 0 } else { (offset.as_nanos() / interval.as_nanos()) as u64 };
   let numerator = state.playlist.time_signature.lock().unwrap().numerator.max(1);
 
@@ -240,7 +237,7 @@ pub fn count_in_clicks(beats: u16, beat: Duration) -> Vec<(Duration, bool)> {
 // - count_in: how long to count in for (none for no count-in). the run
 //   starts with that long of clicks, and the playlist after them
 pub fn run_playlist(
-  state_ref: &Arc<state::InnerState>,
+  state_ref: &Arc<daw::InnerState>,
   ready: mpsc::Sender<Result<(), String>>,
   count_in: Duration,
 ) {
@@ -256,7 +253,7 @@ pub fn run_playlist(
   println!("TEMPO INTERVAL {:?}", tempo_interval);
 
   thread::spawn(move || {
-    let engine = match daw_core::engine() {
+    let engine = match engine::engine() {
       Ok(engine) => engine,
       Err(e) => {
         let _ = ready.send(Err(e));
@@ -267,8 +264,8 @@ pub fn run_playlist(
     // the run plays from the playhead, or a pattern from the step it was
     // started from
     let first_step = match mode {
-      state::PlayMode::Playlist => None,
-      state::PlayMode::Pattern(id) => Some(pattern_start_step(&state, id)),
+      playlist::PlayMode::Playlist => None,
+      playlist::PlayMode::Pattern(id) => Some(pattern_start_step(&state, id)),
     };
     let start = match first_step {
       None => *state.playlist.start_offset.lock().unwrap(),
@@ -282,11 +279,11 @@ pub fn run_playlist(
       let audiograph_ref = state.playlist.audiograph.lock().unwrap();
       let metronome = on_beat && state.metronome_enabled.load(Ordering::SeqCst);
       let (sounds, notes) = match mode {
-        state::PlayMode::Playlist => (
+        playlist::PlayMode::Playlist => (
           audiograph_ref.run_sounds_until(at, engine.sample_rate(), dur, metronome, resume, loop_end),
           audiograph_ref.run_notes(dur, loop_end),
         ),
-        state::PlayMode::Pattern(id) => (
+        playlist::PlayMode::Pattern(id) => (
           audiograph_ref.pattern_sounds(id, at, engine.sample_rate(), dur, metronome, resume),
           audiograph_ref.pattern_notes(id, dur),
         ),
@@ -298,10 +295,10 @@ pub fn run_playlist(
         .collect::<Vec<_>>();
       (voices, notes)
     };
-    let send_notes = |at: Duration, notes: Vec<daw_core::SliceNote>| {
+    let send_notes = |at: Duration, notes: Vec<audiograph::SliceNote>| {
       if notes.is_empty() { return; }
       let copies = state.playlist.effects.copy_ids();
-      if let Err(e) = daw_core::play_slice_notes(&engine, run, at, notes, &copies) {
+      if let Err(e) = audiograph::play_slice_notes(&engine, run, at, notes, &copies) {
         println!("could not schedule a beat's notes: {}", e);
       }
     };
@@ -314,12 +311,12 @@ pub fn run_playlist(
 
     // a run from between beats plays the part beat up to the next one first,
     // so every later slice (and metronome tick) stays on the beat
-    let lead = state::until_next_beat(start, tempo_interval);
+    let lead = playlist::until_next_beat(start, tempo_interval);
     let first_loop = match mode {
-      state::PlayMode::Playlist => active_loop(&state),
-      state::PlayMode::Pattern(_) => None,
+      playlist::PlayMode::Playlist => active_loop(&state),
+      playlist::PlayMode::Pattern(_) => None,
     };
-    let mut slice = state::slice_len(start, tempo_interval, first_loop);
+    let mut slice = playlist::slice_len(start, tempo_interval, first_loop);
 
     // a count-in's clicks come first (whether the metronome's on or not),
     // then the playlist
@@ -329,14 +326,14 @@ pub fn run_playlist(
         .into_iter()
         .map(|(at, accented)| {
           let click: &SampleBuffer = if accented { &METRONOME_TICK_ACCENTED_SOURCE } else { &METRONOME_TICK_SOURCE };
-          engine.voice(click.convert_samples(), Some(run), engine.frames_in(at), daw_core::Route::Direct)
+          engine.voice(click.convert_samples(), Some(run), engine.frames_in(at), engine::Route::Direct)
         })
         .collect()
     };
     // a pattern's length as the last slice played it
     let mut played_len = match mode {
-      state::PlayMode::Playlist => Duration::ZERO,
-      state::PlayMode::Pattern(id) => pattern_len(&state, id).unwrap_or_default(),
+      playlist::PlayMode::Playlist => Duration::ZERO,
+      playlist::PlayMode::Pattern(id) => pattern_len(&state, id).unwrap_or_default(),
     };
     let (voices, first_notes) = slice_voices(count_in, slice, lead.is_zero(), true, first_loop.map(|span| span.end));
     first.extend(voices);
@@ -344,7 +341,7 @@ pub fn run_playlist(
     // where the run is in the song, for the effects: its frame 0 is the
     // playhead, less the count-in
     let signature = *state.playlist.time_signature.lock().unwrap();
-    let run_start = daw_core::RunStart {
+    let run_start = engine::RunStart {
       tempo: state.tempo() as f64,
       beats_per_bar: signature.numerator,
       beat_unit: signature.denominator,
@@ -386,7 +383,7 @@ pub fn run_playlist(
       *state.playlist.started_time.lock().unwrap() = Some(anchor.heard + count_in);
     }
     // the counters follow the playlist, which a pattern doesn't move
-    let counts_beats = mode == state::PlayMode::Playlist;
+    let counts_beats = mode == playlist::PlayMode::Playlist;
     if counts_beats { set_beat_counters(&state, start, tempo_interval); }
     state.playlist.set_playing(true);
     let _ = ready.send(Ok(()));
@@ -417,8 +414,8 @@ pub fn run_playlist(
       // a pattern always loops, at its length now (it can be changed while
       // it plays). a pattern deleted while playing ends the run
       let (span, pattern_len) = match mode {
-        state::PlayMode::Playlist => (active_loop(&state), None),
-        state::PlayMode::Pattern(id) => match pattern_len(&state, id) {
+        playlist::PlayMode::Playlist => (active_loop(&state), None),
+        playlist::PlayMode::Pattern(id) => match pattern_len(&state, id) {
           Some(len) => (None, Some(len)),
           None => {
             println!("the pattern that was playing is gone");
@@ -435,13 +432,13 @@ pub fn run_playlist(
           played_len = len;
           (next, false)
         }
-        None => state::advance(current_offset, slice, span),
+        None => playlist::advance(current_offset, slice, span),
       };
 
       // without looping, the tape runs out at the end of the song: stop
       // there, once the last clip has been heard. not while recording,
       // which can carry on past it
-      if span.is_none() && counts_beats && !crate::recording::is_recording(&state) {
+      if span.is_none() && counts_beats && !crate::daw::recording::is_recording(&state) {
         if let Some(end) = song_end(&state) {
           if next >= end {
             if engine.wait_for_frame(heard_at(next_at), &current) && current() {
@@ -459,11 +456,11 @@ pub fn run_playlist(
       // a recording that stops at the loop's end stops playback there too,
       // once what's before it has been heard, and the playhead goes back to
       // where the recording started, ready for another take
-      if wraps && crate::recording::stops_at_loop_end(&state) {
+      if wraps && crate::daw::recording::stops_at_loop_end(&state) {
         if engine.wait_for_frame(heard_at(next_at), &current) && current() {
           println!("recorded to the loop's end");
-          let back_to = crate::recording::started_at(&state).unwrap_or_default();
-          crate::recording::finish(&state, true);
+          let back_to = crate::daw::recording::started_at(&state).unwrap_or_default();
+          crate::daw::recording::finish(&state, true);
           end_run(&state);
           set_playhead(&state, back_to);
         }
@@ -474,7 +471,7 @@ pub fn run_playlist(
       // as it was recorded. (first: the pass before it is let out of being
       // held back, so it starts in this slice)
       let layers = if wraps {
-        crate::recording::layer_voices(&state, &engine, run, next_at, anchor.heard + next_at)
+        crate::daw::recording::layer_voices(&state, &engine, run, next_at, anchor.heard + next_at)
       } else {
         Vec::new()
       };
@@ -485,11 +482,11 @@ pub fn run_playlist(
       // (a playlist slice from an off-beat loop start runs up to the beat,
       // with no tick)
       let (on_beat, next_slice) = match mode {
-        state::PlayMode::Playlist => (
-          state::until_next_beat(next, tempo_interval).is_zero(),
-          state::slice_len(next, tempo_interval, span),
+        playlist::PlayMode::Playlist => (
+          playlist::until_next_beat(next, tempo_interval).is_zero(),
+          playlist::slice_len(next, tempo_interval, span),
         ),
-        state::PlayMode::Pattern(_) => (true, tempo_interval),
+        playlist::PlayMode::Pattern(_) => (true, tempo_interval),
       };
       slice = next_slice;
       let (mut voices, notes) = slice_voices(next_at, slice, on_beat, wraps, span.map(|span| span.end));
@@ -528,9 +525,9 @@ pub fn run_playlist(
 }
 
 // end the current run, if any, leaving the playhead where it is
-fn end_run(state: &state::InnerState) {
+fn end_run(state: &daw::InnerState) {
   // a recording ends with playback, its takes put on their tracks
-  crate::recording::finish(state, false);
+  crate::daw::recording::finish(state, false);
 
   // tell the run's thread it's done, even before it's flagged as playing
   let run = state.playlist.run_id.fetch_add(1, Ordering::SeqCst);
@@ -541,7 +538,7 @@ fn end_run(state: &state::InnerState) {
     .set_playing(false);
 
   // fade out what's playing now, rather than at the next beat
-  if let Some(engine) = daw_core::engine_if_open() {
+  if let Some(engine) = engine::engine_if_open() {
     if let Err(e) = engine.stop_run(run) {
       println!("could not stop playback: {}", e);
     }
@@ -553,7 +550,7 @@ fn end_run(state: &state::InnerState) {
 }
 
 // move the playhead (with no run going)
-fn set_playhead(state: &state::InnerState, offset: Duration) {
+fn set_playhead(state: &daw::InnerState, offset: Duration) {
   let interval = beat_interval(state);
   *state.playlist.start_offset.lock().unwrap() = offset;
   set_beat_counters(state, offset, interval);
@@ -561,7 +558,7 @@ fn set_playhead(state: &state::InnerState, offset: Duration) {
 
 // stop playing, keeping the playhead where it got to, so playing again
 // carries on from there
-pub fn pause_playlist(state: &state::InnerState) {
+pub fn pause_playlist(state: &daw::InnerState) {
   println!("pausing playlist");
 
   // a pattern playing on its own just stops: the playlist's playhead
@@ -574,11 +571,11 @@ pub fn pause_playlist(state: &state::InnerState) {
   // read before stopping, while the run's start time still applies
   let position = playhead(state);
   end_run(state);
-  set_playhead(state, state::snap_to_beat(position, beat_interval(state)));
+  set_playhead(state, playlist::snap_to_beat(position, beat_interval(state)));
 }
 
 // stop playing and wind back to the start
-pub fn stop_playlist(state: &state::InnerState) {
+pub fn stop_playlist(state: &daw::InnerState) {
   println!("stopping playlist");
 
   // stopping a pattern leaves the playlist's playhead alone
@@ -587,18 +584,18 @@ pub fn stop_playlist(state: &state::InnerState) {
   if !pattern { set_playhead(state, Duration::ZERO); }
 }
 
-pub fn start_playlist(state: &Arc<state::InnerState>) {
+pub fn start_playlist(state: &Arc<daw::InnerState>) {
   start_playlist_after(state, Duration::ZERO);
 }
 
 // play the playlist from the playhead, after a count-in this long (see
 // run_playlist)
-pub fn start_playlist_after(state: &Arc<state::InnerState>, count_in: Duration) {
+pub fn start_playlist_after(state: &Arc<daw::InnerState>, count_in: Duration) {
   println!("playing playlist");
 
   // a pattern playing on its own stops first
   if state.playlist.playing_pattern().is_some() { end_run(state); }
-  *state.playlist.mode.lock().unwrap() = state::PlayMode::Playlist;
+  *state.playlist.mode.lock().unwrap() = playlist::PlayMode::Playlist;
 
   play_inside_loop(state);
   start_run(state, count_in);
@@ -608,7 +605,7 @@ pub fn start_playlist_after(state: &Arc<state::InnerState>, count_in: Duration) 
 // (and the frontend cursor) stays inside the loop. one before the loop is
 // left where it is: it plays in. without looping, playing from the end of
 // the song starts it again
-pub fn play_inside_loop(state: &state::InnerState) {
+pub fn play_inside_loop(state: &daw::InnerState) {
   let (back_to, end) = match active_loop(state) {
     Some(span) => (span.start, Some(span.end)),
     None => (Duration::ZERO, song_end(state)),
@@ -622,11 +619,11 @@ pub fn play_inside_loop(state: &state::InnerState) {
 // start a run of whatever the mode is, and wait until the output stream is
 // open and the start time is set, so a `get_playlist_playing` right after
 // this sees the new run
-fn start_run(state: &Arc<state::InnerState>, count_in: Duration) {
+fn start_run(state: &Arc<daw::InnerState>, count_in: Duration) {
   // every synth's copies there, and in step with it, before anything plays
   // (here, as the run's thread can't reach the main thread: this one may be
   // it, waiting below)
-  crate::actions::synth::before_playing(state);
+  crate::daw::actions::synth::before_playing(state);
   let (ready_tx, ready_rx) = mpsc::channel();
   run_playlist(state, ready_tx, count_in);
 
@@ -640,17 +637,17 @@ fn start_run(state: &Arc<state::InnerState>, count_in: Duration) {
 // how long a number of steps (fractional) lasts, and how many steps a time
 // is, with beats `beat` long
 fn steps_time(steps: f64, beat: Duration) -> Duration {
-  Duration::from_secs_f64(beat.as_secs_f64() * steps.max(0.) / daw_core::STEPS_PER_BEAT as f64)
+  Duration::from_secs_f64(beat.as_secs_f64() * steps.max(0.) / sequencer::STEPS_PER_BEAT as f64)
 }
 
 fn time_steps(time: Duration, beat: Duration) -> f64 {
-  offset_beats(time, beat) * daw_core::STEPS_PER_BEAT as f64
+  offset_beats(time, beat) * sequencer::STEPS_PER_BEAT as f64
 }
 
 // the step a run of pattern `id` starts on: the step it was started from
 // (the Piano Roll's start marker), or its start if that's past its end (it
 // was made shorter)
-pub fn pattern_start_step(state: &state::InnerState, id: u64) -> f64 {
+pub fn pattern_start_step(state: &daw::InnerState, id: u64) -> f64 {
   let step = state.playlist.pattern_start.lock().unwrap().max(0.);
   let length = state.playlist.sequencer.lock().unwrap().pattern(id).map_or(0, |p| p.length);
   if step < length as f64 { step } else { 0. }
@@ -659,7 +656,7 @@ pub fn pattern_start_step(state: &state::InnerState, id: u64) -> f64 {
 // the step a pattern playing on its own counts from, and when that step is
 // (or was) heard: None before its run has started. read together, as
 // they're moved together (see next_pattern_slice)
-pub fn pattern_anchor(state: &state::InnerState) -> (f64, Option<Instant>) {
+pub fn pattern_anchor(state: &daw::InnerState) -> (f64, Option<Instant>) {
   let step = state.playlist.pattern_start.lock().unwrap();
   let heard = *state.playlist.started_time.lock().unwrap();
   (*step, heard)
@@ -668,7 +665,7 @@ pub fn pattern_anchor(state: &state::InnerState) -> (f64, Option<Instant>) {
 // the step (fractional) a pattern playing on its own has got to: counted
 // from its anchor (see pattern_anchor), wrapped at its length now. None
 // before it's started
-pub fn pattern_step(state: &state::InnerState, id: u64) -> Option<f64> {
+pub fn pattern_step(state: &daw::InnerState, id: u64) -> Option<f64> {
   let length = state.playlist.sequencer.lock().unwrap().pattern(id)?.length;
   let (from, heard) = pattern_anchor(state);
   let heard = heard?;
@@ -682,21 +679,21 @@ pub fn pattern_step(state: &state::InnerState, id: u64) -> Option<f64> {
 
 // whether run `run` is still the one playing: not stopped, and not replaced
 // by a newer run (a seek while playing stops one and starts another)
-fn is_current(state: &state::InnerState, run: u64) -> bool {
+fn is_current(state: &daw::InnerState, run: u64) -> bool {
   state.playlist.run_id.load(Ordering::SeqCst) == run && state.playlist.playing()
 }
 
 // a pattern playing on its own in run `run`, after a slice `slice` long
 // from `offset`: where the next slice starts, at the pattern's length now
 // (`len`: it can be changed while it plays), going round to its start at
-// its end (see state::advance_round). when it goes round, or its length
+// its end (see daw::advance_round). when it goes round, or its length
 // isn't what the last slice's was (`was`), it counts its steps from there,
 // heard at `heard`. the cursors (pattern_step, and the frontend's from
 // get_playlist_transport) work out the step from that and its length now,
 // so they stay on the step heard: a pattern grown while it plays carries
 // on from the same step
 pub fn next_pattern_slice(
-  state: &state::InnerState,
+  state: &daw::InnerState,
   run: u64,
   offset: Duration,
   slice: Duration,
@@ -704,7 +701,7 @@ pub fn next_pattern_slice(
   was: Duration,
   heard: Instant,
 ) -> Duration {
-  let next = state::advance_round(offset, slice, len);
+  let next = playlist::advance_round(offset, slice, len);
   if next != offset + slice || len != was {
     let step = time_steps(next, beat_interval(state));
     // (moved only by the run that's still playing: a seek or a tempo change
@@ -723,7 +720,7 @@ pub fn next_pattern_slice(
 // marker, fractional) to its end, then the whole pattern over and over. its
 // synth rows' notes are played by their plugins' master copies. the
 // playlist's playhead stays where it is
-pub fn start_pattern(state: &Arc<state::InnerState>, id: u64, from_step: f64) -> Result<(), String> {
+pub fn start_pattern(state: &Arc<daw::InnerState>, id: u64, from_step: f64) -> Result<(), String> {
   println!("playing pattern {} from step {}", id, from_step);
   if pattern_len(state, id).is_none() {
     return Err(format!("no pattern with id {}", id));
@@ -739,7 +736,7 @@ pub fn start_pattern(state: &Arc<state::InnerState>, id: u64, from_step: f64) ->
   }
   // (once the run before has ended, so it can't move the step on)
   *state.playlist.pattern_start.lock().unwrap() = if from_step.is_finite() { from_step.max(0.) } else { 0. };
-  *state.playlist.mode.lock().unwrap() = state::PlayMode::Pattern(id);
+  *state.playlist.mode.lock().unwrap() = playlist::PlayMode::Pattern(id);
   start_run(state, Duration::ZERO);
   Ok(())
 }
@@ -747,18 +744,18 @@ pub fn start_pattern(state: &Arc<state::InnerState>, id: u64, from_step: f64) ->
 // while pattern `id` plays on its own, carry on from `step` instead (the
 // Piano Roll's ruler was clicked). otherwise nothing changes: the marker the
 // next Play starts from is kept by the frontend
-pub fn seek_pattern(state: &Arc<state::InnerState>, id: u64, step: f64) -> Result<(), String> {
+pub fn seek_pattern(state: &Arc<daw::InnerState>, id: u64, step: f64) -> Result<(), String> {
   if state.playlist.playing_pattern() != Some(id) { return Ok(()); }
   start_pattern(state, id, step)
 }
 
 // move the playhead to a beat, kept within the playlist. while playing,
 // playback carries on from there. returns the beat it moved to
-pub fn seek_playlist(state: &Arc<state::InnerState>, beat: f64) -> f64 {
+pub fn seek_playlist(state: &Arc<daw::InnerState>, beat: f64) -> f64 {
   let interval = beat_interval(state);
   let end = playlist_beats(state) as f64;
   let beat = if beat.is_finite() { beat.clamp(0., end) } else { 0. };
-  let offset = state::snap_to_beat(interval.mul_f64(beat), interval);
+  let offset = playlist::snap_to_beat(interval.mul_f64(beat), interval);
 
   // a pattern playing on its own carries on: only the playhead moves
   let playing = state.playlist.playing_playlist();
@@ -786,13 +783,13 @@ pub enum Retimed {
 // stays on its beat: a playlist that was playing is left paused on the beat
 // it had got to, and a pattern on the step it had got to. returns what was
 // playing (see set_playlist_tempo)
-pub fn retime(state: &state::InnerState, tempo: f32) -> Result<Retimed, String> {
-  if !daw_core::timing::valid_tempo(tempo) {
+pub fn retime(state: &daw::InnerState, tempo: f32) -> Result<Retimed, String> {
+  if !timing::valid_tempo(tempo) {
     return Err(format!("the tempo can't be {}", tempo));
   }
   // carrying on at another tempo would cut a take short, and one being put
   // on its track is placed in the tempo it was recorded at
-  if crate::recording::is_busy(state) {
+  if crate::daw::recording::is_busy(state) {
     return Err("the tempo can't be changed while recording".into());
   }
   if state.tempo() == tempo { return Ok(Retimed::Stopped); }
@@ -829,7 +826,7 @@ pub fn retime(state: &state::InnerState, tempo: f32) -> Result<Retimed, String> 
 // change the tempo. every clip, and the playhead, stays on its beat. while
 // the playlist plays, it carries on from the beat it had got to (after a
 // short fade), and so does a pattern playing on its own. returns the tempo
-pub fn set_playlist_tempo(state: &Arc<state::InnerState>, tempo: f32) -> Result<f32, String> {
+pub fn set_playlist_tempo(state: &Arc<daw::InnerState>, tempo: f32) -> Result<f32, String> {
   match retime(state, tempo)? {
     Retimed::Playlist => start_playlist(state),
     // (the tempo's changed even if the pattern has gone meanwhile). from the
@@ -868,7 +865,7 @@ mod tests {
   // while playing counts from
   #[test]
   fn test_the_playhead_at_a_moment() {
-    let state = state::InnerState::default();
+    let state = daw::InnerState::default();
     let started = Instant::now();
     *state.playlist.start_offset.lock().unwrap() = Duration::from_secs(1);
     *state.playlist.started_time.lock().unwrap() = Some(started);
@@ -882,24 +879,24 @@ mod tests {
     assert_eq!(playhead_at(&state, started - Duration::from_millis(200)), Duration::from_secs(1));
   }
 
-  fn region(state: &state::InnerState, start: f64, end: f64) {
-    *state.playlist.loop_region.lock().unwrap() = Some(state::LoopRegion { start, end });
+  fn region(state: &daw::InnerState, start: f64, end: f64) {
+    *state.playlist.loop_region.lock().unwrap() = Some(playlist::LoopRegion { start, end });
   }
 
   #[test]
   fn test_the_loop_is_the_region_or_up_to_the_end_flag() {
-    let state = state::InnerState::default();
+    let state = daw::InnerState::default();
     let ms = |n: u64| Duration::from_millis(n);
     // nothing in the playlist: four bars from the start (120bpm)
-    assert_eq!(loop_span(&state), state::LoopSpan { start: ms(0), end: ms(8_000) });
+    assert_eq!(loop_span(&state), playlist::LoopSpan { start: ms(0), end: ms(8_000) });
 
     // the end flag dragged to bar 3
     *state.playlist.loop_end_pin.lock().unwrap() = Some(8.);
-    assert_eq!(loop_span(&state), state::LoopSpan { start: ms(0), end: ms(4_000) });
+    assert_eq!(loop_span(&state), playlist::LoopSpan { start: ms(0), end: ms(4_000) });
 
     // a region loops instead, between beats or not
     region(&state, 4., 10.5);
-    assert_eq!(loop_span(&state), state::LoopSpan { start: ms(2_000), end: ms(5_250) });
+    assert_eq!(loop_span(&state), playlist::LoopSpan { start: ms(2_000), end: ms(5_250) });
     assert_eq!(active_loop(&state), Some(loop_span(&state)));
 
     // looping off: still known, but nothing goes round
@@ -909,7 +906,7 @@ mod tests {
 
   #[test]
   fn test_the_playhead_goes_round_inside_a_region() {
-    let state = state::InnerState::default();
+    let state = daw::InnerState::default();
     region(&state, 4., 8.);
     let started = Instant::now();
     *state.playlist.started_time.lock().unwrap() = Some(started);
@@ -923,7 +920,7 @@ mod tests {
 
   #[test]
   fn test_play_starts_inside_the_loop() {
-    let state = state::InnerState::default();
+    let state = daw::InnerState::default();
     let start = |beat: u64| {
       *state.playlist.start_offset.lock().unwrap() = Duration::from_millis(beat * 500);
       play_inside_loop(&state);
@@ -949,7 +946,7 @@ mod tests {
   #[test]
   #[ignore = "needs an audio output device"]
   fn test_a_count_in_holds_the_playhead_for_a_bar() {
-    let state = Arc::new(state::InnerState::default());
+    let state = Arc::new(daw::InnerState::default());
     *state.playlist.start_offset.lock().unwrap() = Duration::from_secs(1);
     let count_in = Duration::from_secs(2);
 

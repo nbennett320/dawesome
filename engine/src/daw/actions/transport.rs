@@ -2,10 +2,11 @@
 // the time signature and the loop region. commands/transport.rs is the
 // frontend's side of these
 use std::sync::atomic::Ordering;
+use crate::daw::{playback, playlist, sequencer, timing};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 
-use crate::{daw, history};
+use crate::daw::{self, history};
 
 // convert the engine's monotonic start time into wall clock ms
 // (since the unix epoch), which the frontend can compare to Date.now()
@@ -75,11 +76,11 @@ pub struct PlaylistTransport {
 }
 
 pub(crate) fn playlist_transport(state: &daw::InnerState) -> PlaylistTransport {
-  let beat_interval = daw::beat_interval(state);
+  let beat_interval = playback::beat_interval(state);
   // read as a pair: both move when the loop comes round
-  let (start_offset, started) = daw::run_anchor(state);
+  let (start_offset, started) = playback::run_anchor(state);
   // (worked out before the struct, whose fields hold other locks as they're read)
-  let span = daw::loop_span(state);
+  let span = playback::loop_span(state);
   let loop_region = state.playlist.loop_region.lock().unwrap().is_some();
   let loop_end_pinned = state.playlist.loop_end_pin.lock().unwrap().is_some();
   let pattern = state.playlist.playing_pattern();
@@ -87,8 +88,8 @@ pub(crate) fn playlist_transport(state: &daw::InnerState) -> PlaylistTransport {
   // changed length, or started (see daw::pattern_anchor)
   let (started, counted_from_ms) = match pattern {
     Some(_) => {
-      let (step, heard) = daw::pattern_anchor(state);
-      (heard, step * beat_interval.as_secs_f64() * 1000. / daw::STEPS_PER_BEAT as f64)
+      let (step, heard) = playback::pattern_anchor(state);
+      (heard, step * beat_interval.as_secs_f64() * 1000. / sequencer::STEPS_PER_BEAT as f64)
     }
     None => (started, 0.),
   };
@@ -97,15 +98,15 @@ pub(crate) fn playlist_transport(state: &daw::InnerState) -> PlaylistTransport {
     playing: state.playlist.playing(),
     start_time_ms: started.and_then(|started| wall_clock_ms(started).ok()).map(|ms| ms - counted_from_ms),
     start_offset_ms: start_offset.as_secs_f64() * 1000.,
-    position_ms: daw::playhead(state).as_secs_f64() * 1000.,
+    position_ms: playback::playhead(state).as_secs_f64() * 1000.,
     beat_interval_ms: beat_interval.as_secs_f64() * 1000.,
-    loop_start_beats: daw::offset_beats(span.start, beat_interval),
-    loop_end_beats: daw::offset_beats(span.end, beat_interval),
+    loop_start_beats: playback::offset_beats(span.start, beat_interval),
+    loop_end_beats: playback::offset_beats(span.end, beat_interval),
     loop_region,
     loop_end_pinned,
-    beats_displayed: daw::playlist_beats(state),
+    beats_displayed: playback::playlist_beats(state),
     loop_enabled: state.playlist.loop_enabled.load(Ordering::SeqCst),
-    song_end_ms: daw::song_end(state).unwrap_or_default().as_secs_f64() * 1000.,
+    song_end_ms: playback::song_end(state).unwrap_or_default().as_secs_f64() * 1000.,
     beats_per_bar: state.playlist.time_signature.lock().unwrap().numerator,
     pattern_id: pattern,
     pattern_length: pattern
@@ -119,15 +120,15 @@ pub(crate) fn playlist_transport(state: &daw::InnerState) -> PlaylistTransport {
 // - gesture: the visit to the tempo field it's part of, if any
 pub fn change_tempo(state: &Arc<daw::InnerState>, tempo: f32, gesture: Option<u64>) -> Result<f32, String> {
   let before = state.tempo();
-  let after = daw::set_playlist_tempo(state, tempo)?;
+  let after = playback::set_playlist_tempo(state, tempo)?;
   history::record(state, history::Step::new().in_gesture(gesture).with_tempo(before, after));
   Ok(after)
 }
 
 // the playlist's length is counted in its bars, so it's worked out again
-pub fn set_time_signature(state: &daw::InnerState, signature: daw::timing::TimeSignature) {
+pub fn set_time_signature(state: &daw::InnerState, signature: timing::TimeSignature) {
   *state.playlist.time_signature.lock().unwrap() = signature;
-  daw::fit_playlist(state);
+  playback::fit_playlist(state);
 }
 
 // the loop as the playlist has it: the region drawn in the ruler, where the
@@ -135,7 +136,7 @@ pub fn set_time_signature(state: &daw::InnerState, signature: daw::timing::TimeS
 #[derive(serde::Serialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct LoopSettings {
-  region: Option<daw::LoopRegion>,
+  region: Option<playlist::LoopRegion>,
   end_pin: Option<f64>,
   enabled: bool,
 }
@@ -154,10 +155,10 @@ pub(crate) fn loop_settings(state: &daw::InnerState) -> LoopSettings {
 // it is until it's over (see toggle_loop_enabled), and nothing changes.
 // returns the loop as it is now
 pub fn change_loop_region(state: &daw::InnerState, start: f64, end: f64) -> LoopSettings {
-  if !crate::recording::is_recording(state) {
-    let beats = daw::playlist_beats(state) as f64;
+  if !crate::daw::recording::is_recording(state) {
+    let beats = playback::playlist_beats(state) as f64;
     let mut region = state.playlist.loop_region.lock().unwrap();
-    let new = daw::LoopRegion::between(start, end, beats);
+    let new = playlist::LoopRegion::between(start, end, beats);
     if region.is_none() && new.is_some() {
       state.playlist.loop_enabled.store(true, Ordering::SeqCst);
     }
@@ -169,7 +170,7 @@ pub fn change_loop_region(state: &daw::InnerState, start: f64, end: f64) -> Loop
 // take the region away: the loop's from the start to the end flag again.
 // not while recording
 pub fn remove_loop_region(state: &daw::InnerState) -> LoopSettings {
-  if !crate::recording::is_recording(state) {
+  if !crate::daw::recording::is_recording(state) {
     *state.playlist.loop_region.lock().unwrap() = None;
   }
   loop_settings(state)
@@ -178,9 +179,9 @@ pub fn remove_loop_region(state: &daw::InnerState) -> LoopSettings {
 // pin the loop's end flag at a beat (at least one in, and within the
 // playlist), so it stays there when clips move. not while recording
 pub fn change_loop_end(state: &daw::InnerState, beat: f64) -> LoopSettings {
-  if !crate::recording::is_recording(state) {
-    let beats = daw::playlist_beats(state) as f64;
-    if let Some(pin) = daw::valid_loop_end_pin(beat.min(beats)) {
+  if !crate::daw::recording::is_recording(state) {
+    let beats = playback::playlist_beats(state) as f64;
+    if let Some(pin) = playlist::valid_loop_end_pin(beat.min(beats)) {
       *state.playlist.loop_end_pin.lock().unwrap() = Some(pin);
     }
   }
@@ -189,7 +190,7 @@ pub fn change_loop_end(state: &daw::InnerState, beat: f64) -> LoopSettings {
 
 // let the loop's end flag follow the last clip again. not while recording
 pub fn unpin_loop_end(state: &daw::InnerState) -> LoopSettings {
-  if !crate::recording::is_recording(state) {
+  if !crate::daw::recording::is_recording(state) {
     *state.playlist.loop_end_pin.lock().unwrap() = None;
   }
   loop_settings(state)

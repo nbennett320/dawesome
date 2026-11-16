@@ -16,14 +16,16 @@
 #[path = "../src/plugin/mod.rs"]
 mod plugin;
 // (what the engine runs: a plugin's audio half implements it. not all of it
-// is used here)
-#[path = "../src/engine/processor.rs"]
-#[allow(dead_code)]
-mod processor;
+// is used here. plugin/ finds it at crate::engine::processor, as in the app)
+#[path = "../src/engine"]
+mod engine {
+  #[allow(dead_code)]
+  pub mod processor;
+}
 
 use plugin::scan::{self, Catalog};
 use plugin::{Plugin, PluginInfo, PluginKind};
-use processor::{Event, Transport};
+use engine::processor::{Event, Transport};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -162,7 +164,7 @@ fn sine(frames: usize, start: usize, rate: u32) -> Vec<f32> {
 
 // run blocks of a sine (or silence) through a processor, giving its output
 fn run_blocks(
-  processor: &mut dyn processor::Processor,
+  processor: &mut dyn engine::processor::Processor,
   blocks: usize,
   rate: u32,
   silent: bool,
@@ -483,7 +485,7 @@ fn decent_sampler_copy_plays_once_settled() -> Result<Outcome, String> {
   let Some((path, info)) = plugin_in("DecentSampler.vst3")? else { return not_installed("DecentSampler") };
   let mut live = Plugin::load(&path, &info.id, RATE)?;
   let mut live_processor = live.take_processor().ok_or("no processor")?;
-  let settle = |plugin: &mut Plugin, processor: &mut dyn processor::Processor| {
+  let settle = |plugin: &mut Plugin, processor: &mut dyn engine::processor::Processor| {
     let started = Instant::now();
     while started.elapsed().as_secs_f64() < 2. {
       run_blocks(processor, 1, RATE, true, &[]);
@@ -529,7 +531,7 @@ fn decent_sampler_copy_plays_once_settled() -> Result<Outcome, String> {
 fn decent_sampler_synth_copies_on_two_tracks() -> Result<Outcome, String> {
   let Some((path, info)) = plugin_in("DecentSampler.vst3")? else { return not_installed("DecentSampler") };
   // played silence while the run loop turns, as the app does
-  let settle = |copies: &mut [(Plugin, Box<dyn processor::Processor>)], seconds: f64| {
+  let settle = |copies: &mut [(Plugin, Box<dyn engine::processor::Processor>)], seconds: f64| {
     let started = Instant::now();
     while started.elapsed().as_secs_f64() < seconds {
       for (plugin, processor) in copies.iter_mut() {
@@ -539,7 +541,7 @@ fn decent_sampler_synth_copies_on_two_tracks() -> Result<Outcome, String> {
       pump(0.01);
     }
   };
-  let take = |mut plugin: Plugin| -> Result<(Plugin, Box<dyn processor::Processor>), String> {
+  let take = |mut plugin: Plugin| -> Result<(Plugin, Box<dyn engine::processor::Processor>), String> {
     let processor = plugin.take_processor().ok_or("no processor")?;
     Ok((plugin, processor))
   };

@@ -1,4 +1,4 @@
-use crate::daw;
+use crate::daw::timing;
 
 pub static SAMPLE_RATE: u32 = 44_100;
 pub static TEMPO: f32 = 120.;
@@ -9,5 +9,5 @@ pub static PLAYLIST_BARS: u64 = 128;
 pub static EMPTY_LOOP_BARS: u32 = 4;
 pub static SNAP_ENABLED: bool = true;
 // snap to the beat, which lines up with the playlist grid
-pub static SNAP_SUBDIVISION: daw::timing::Note = daw::timing::Note::QuarterNote;
+pub static SNAP_SUBDIVISION: timing::Note = timing::Note::QuarterNote;
 pub static NUM_OF_TRACKS: u32 = 4;

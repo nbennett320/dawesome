@@ -1,13 +1,14 @@
 // helpers the tests of more than one module share
 use std::time::{Duration, Instant};
 
+use crate::engine;
 use crate::daw;
 
 // what's heard of the playlist from its start, on an engine at `rate`, as the scheduler
 // plays it: a beat at a time, through the live mixer
 pub(crate) fn play(state: &daw::InnerState, rate: u32, total: Duration) -> Vec<f32> {
   let mut graph = state.playlist.audiograph.lock().unwrap();
-  let (engine, mut renderer) = daw::Engine::new(rate);
+  let (engine, mut renderer) = engine::Engine::new(rate);
   let beat = graph.beat_interval();
   graph.init();
   let mut voices = Vec::new();

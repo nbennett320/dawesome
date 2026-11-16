@@ -1,10 +1,10 @@
 // the playlist's commands (see actions/playlist.rs)
 use std::sync::Mutex;
 
-use crate::actions::playlist::{add_track_to, snap_setting, SnapSetting};
+use crate::daw::actions::playlist::{add_track_to, snap_setting, SnapSetting};
+use crate::daw::{playback, timing};
 use crate::app::workspaces::WorkspaceViewport;
 use crate::commands::TState;
-use crate::daw;
 
 // the playlist's length, and how many tracks it has
 #[derive(serde::Serialize, Debug, PartialEq)]
@@ -18,7 +18,7 @@ pub struct PlaylistData {
 #[tauri::command]
 pub fn get_playlist_data(state: TState<'_>) -> PlaylistData {
   let track_count = state.playlist.audiograph.lock().unwrap().track_count();
-  PlaylistData { beats: daw::playlist_beats(&state), track_count }
+  PlaylistData { beats: playback::playlist_beats(&state), track_count }
 }
 
 // where the playlist is on the screen (kept by the app: the DAW doesn't use
@@ -73,7 +73,7 @@ pub fn get_snap_setting(
 #[tauri::command]
 pub fn set_snap_subdivision(
   state: TState<'_>,
-  note: daw::timing::Note,
+  note: timing::Note,
 ) -> Result<SnapSetting, String> {
   state.playlist.ui.lock().unwrap().snap_subdivision = note;
 

@@ -31,15 +31,17 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::daw::{self, Channel, Slot};
-use crate::main_thread::{self, DropOnMain};
-use crate::native::{self, Native};
+use crate::daw::main_thread::{self, DropOnMain};
+use crate::daw::native::{self, Native};
+use crate::daw::audiograph;
+use crate::engine::{self, mixer};
+use crate::engine::{Channel, Slot};
 use crate::plugin::{self, PluginKind};
 
 mod synths;
 
-use crate::plugin_catalog::Plugins;
-use crate::processor::Processor;
+use crate::daw::plugin_catalog::Plugins;
+use crate::engine::processor::Processor;
 
 // how long to wait for the engine to take a chain before carrying on (with
 // no output running it never does; a plugin is still safe to tear down then,
@@ -137,19 +139,19 @@ impl Loader for Vst3 {
 // the engine the chains are played by
 pub trait Output: Send + Sync {
   // opening the output if it isn't
-  fn engine(&self) -> Result<Arc<daw::Engine>, String>;
-  fn engine_if_open(&self) -> Option<Arc<daw::Engine>>;
+  fn engine(&self) -> Result<Arc<engine::Engine>, String>;
+  fn engine_if_open(&self) -> Option<Arc<engine::Engine>>;
 }
 
 struct LiveOutput;
 
 impl Output for LiveOutput {
-  fn engine(&self) -> Result<Arc<daw::Engine>, String> {
-    daw::engine()
+  fn engine(&self) -> Result<Arc<engine::Engine>, String> {
+    engine::engine()
   }
 
-  fn engine_if_open(&self) -> Option<Arc<daw::Engine>> {
-    daw::engine_if_open()
+  fn engine_if_open(&self) -> Option<Arc<engine::Engine>> {
+    engine::engine_if_open()
   }
 }
 
@@ -371,7 +373,7 @@ impl RackSnap {
 pub struct MixdownEffects {
   pub chains: Vec<(Channel, Vec<Arc<Slot>>)>,
   // the synths' copies in them, by (synth, track)
-  pub copies: daw::CopyIds,
+  pub copies: audiograph::CopyIds,
   // torn down on the main thread when the mixdown's done with them
   pub plugins: DropOnMain<Vec<Box<dyn Hosted>>>,
   // how long they're played before the render, to set themselves up (see
@@ -391,14 +393,14 @@ struct Inner {
   racks: BTreeMap<Channel, Vec<Effect>>,
   // the engine the chains have been sent to, and what each of its chains
   // holds (slot ids), as far as we've sent
-  engine: Option<Arc<daw::Engine>>,
+  engine: Option<Arc<engine::Engine>>,
   sent: BTreeMap<Channel, Vec<u64>>,
   // the output is being replaced: nothing is sent until it's back
   paused: bool,
   // an engine the chains were taken off that hasn't been seen to let go of
   // them (its callback stalled). nothing is sent to another engine until it
   // has, or it's gone: a slot is never in two engines' chains
-  held_by: Option<Arc<daw::Engine>>,
+  held_by: Option<Arc<engine::Engine>>,
   // the rate plugins are loaded at while no output is open
   rate: u32,
   // the synths, by id (see synths.rs), and their order in the list
@@ -415,7 +417,7 @@ pub struct Effects {
   // plugins loaded, for the idle ticker
   loaded: AtomicUsize,
   // for the tracks' routes into the engine
-  mixer: Arc<daw::Mixer>,
+  mixer: Arc<mixer::Mixer>,
   // the plugins installed, which effects are added from
   pub plugins: Arc<Plugins>,
   backend: Mutex<Backend>,
@@ -437,7 +439,7 @@ pub struct Effects {
 }
 
 impl Effects {
-  pub fn new(mixer: Arc<daw::Mixer>) -> Effects {
+  pub fn new(mixer: Arc<mixer::Mixer>) -> Effects {
     Effects {
       inner: Mutex::new(Inner {
         racks: BTreeMap::new(),
@@ -922,7 +924,7 @@ impl Effects {
       let loader = self.backend().loader;
       let mut plugins = Vec::new();
       let mut chains: BTreeMap<Channel, Vec<Arc<Slot>>> = BTreeMap::new();
-      let mut copies = daw::CopyIds::new();
+      let mut copies = audiograph::CopyIds::new();
       for (channel, desc, hosted, synth) in live {
         let failed = |e: String| format!("{} couldn't be loaded for the mixdown: {}", desc.name, e);
         let state = hosted.lock().unwrap().state().map_err(failed)?;
@@ -1066,7 +1068,7 @@ impl Effects {
   // the engine has let go of their slots. the unload callbacks run first,
   // while with_plugin can still reach each plugin (through `unloading`), so
   // a window showing one is closed with its plugin there to let go of it
-  fn unload(&self, engine: Option<Arc<daw::Engine>>, effects: Vec<(u64, Loaded)>) {
+  fn unload(&self, engine: Option<Arc<engine::Engine>>, effects: Vec<(u64, Loaded)>) {
     let leaving: Vec<(u64, Arc<Mutex<Box<dyn Hosted>>>)> = effects.iter()
       .map(|(id, loaded)| (*id, loaded.plugin.clone()))
       .collect();
@@ -1088,14 +1090,14 @@ impl Effects {
   }
 
   // empty every chain sent to `engine`
-  fn empty(&self, engine: &daw::Engine, inner: &mut Inner) {
+  fn empty(&self, engine: &engine::Engine, inner: &mut Inner) {
     let channels: Vec<Channel> = inner.sent.keys().copied().collect();
     for channel in channels {
       self.send_chain(engine, channel, Vec::new(), inner);
     }
   }
 
-  fn send_chain(&self, engine: &daw::Engine, channel: Channel, ids: Vec<u64>, inner: &mut Inner) {
+  fn send_chain(&self, engine: &engine::Engine, channel: Channel, ids: Vec<u64>, inner: &mut Inner) {
     let slots: Vec<Arc<Slot>> = ids.iter().filter_map(|id| {
       let in_rack = inner.racks.get(&channel).and_then(|rack| rack.iter().find(|e| e.desc.id == *id));
       match in_rack {
@@ -1255,7 +1257,7 @@ pub fn keep_idling(effects: Arc<Effects>) {
 // with nothing new to send sends nothing)
 pub fn follow_output(effects: &Arc<Effects>) {
   let racks = Arc::downgrade(effects);
-  daw::on_output_opened(move || {
+  engine::on_output_opened(move || {
     let racks = racks.clone();
     let started = std::thread::Builder::new().name("effects to output".into()).spawn(move || {
       if let Some(effects) = racks.upgrade() { effects.output_opened(); }
@@ -1271,9 +1273,10 @@ pub fn follow_output(effects: &Arc<Effects>) {
 #[cfg(test)]
 pub mod testing {
   use super::*;
+  use crate::daw;
   use crate::plugin::scan::Catalog;
   use crate::plugin::PluginInfo;
-  use crate::processor::{Event, Transport};
+  use crate::engine::processor::{Event, Transport};
   use std::sync::atomic::{AtomicBool, AtomicU32};
 
   pub const RATE: u32 = 48_000;
@@ -1437,14 +1440,14 @@ pub mod testing {
   }
 
   // always the same engine (one without a device, rendered by the test)
-  pub struct Fixed(pub Arc<daw::Engine>);
+  pub struct Fixed(pub Arc<engine::Engine>);
 
   impl Output for Fixed {
-    fn engine(&self) -> Result<Arc<daw::Engine>, String> {
+    fn engine(&self) -> Result<Arc<engine::Engine>, String> {
       Ok(self.0.clone())
     }
 
-    fn engine_if_open(&self) -> Option<Arc<daw::Engine>> {
+    fn engine_if_open(&self) -> Option<Arc<engine::Engine>> {
       Some(self.0.clone())
     }
   }
@@ -1453,15 +1456,15 @@ pub mod testing {
   // renders
   pub struct Rig {
     pub state: Arc<daw::InnerState>,
-    pub engine: Arc<daw::Engine>,
-    pub renderer: daw::Renderer,
+    pub engine: Arc<engine::Engine>,
+    pub renderer: engine::Renderer,
     pub loader: Arc<FakeLoader>,
     pub run: u64,
   }
 
   pub fn rig() -> Rig {
     let state = Arc::new(daw::InnerState::default());
-    let (engine, renderer) = daw::Engine::new(RATE);
+    let (engine, renderer) = engine::Engine::new(RATE);
     let engine = Arc::new(engine);
     let loader = Arc::new(FakeLoader::default());
     state.playlist.effects.use_backend(loader.clone(), Arc::new(Fixed(engine.clone())), Duration::ZERO);
@@ -1481,8 +1484,8 @@ pub mod testing {
       self.run += 1;
       let source = SamplesBuffer::new(2, RATE, vec![0.2f32; 400]);
       let route = match track {
-        Some(n) => daw::Route::Track(self.state.playlist.mixer.track_route(n)),
-        None => daw::Route::Master,
+        Some(n) => engine::Route::Track(self.state.playlist.mixer.track_route(n)),
+        None => engine::Route::Master,
       };
       let voice = self.engine.voice(source, Some(self.run), 0, route);
       self.engine.start_run(self.run, self.state.playlist.mixer.master(), vec![voice]).unwrap();
@@ -1498,8 +1501,8 @@ pub mod testing {
     pub fn hear_notes(&mut self, synth: u64, track: Option<u32>, notes: &[(u8, u64, u64)], frames: usize) -> Vec<f32> {
       self.run += 1;
       self.engine.start_run(self.run, self.state.playlist.mixer.master(), vec![]).unwrap();
-      let timed: Vec<daw::TimedNote> = notes.iter()
-        .flat_map(|&(pitch, from, to)| [daw::TimedNote::on(from, pitch, 1.), daw::TimedNote::off(to, pitch)])
+      let timed: Vec<engine::TimedNote> = notes.iter()
+        .flat_map(|&(pitch, from, to)| [engine::TimedNote::on(from, pitch, 1.), engine::TimedNote::off(to, pitch)])
         .collect();
       if let Some(&copy) = self.effects().copy_ids().get(&(synth, track)) {
         match track {

@@ -9,10 +9,12 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::actions::clip::{changed_clips, ChangedClips};
+use crate::daw::{audiograph, sequencer};
+use crate::engine::sample_voice;
+use crate::daw::actions::clip::{changed_clips, ChangedClips};
 use crate::daw;
-use crate::history;
-use crate::project_files;
+use crate::daw::history;
+use crate::daw::project_files;
 
 // how long the end of a written-out pattern clip is faded over, so a hit
 // still ringing there doesn't end in a click
@@ -46,7 +48,7 @@ pub(crate) fn writing() -> std::sync::MutexGuard<'static, ()> {
 
 // a sample clip as it's heard in a run from the playlist's start: left and
 // right, at `rate`, nothing above full scale
-pub fn render_sample(node: &daw::AudioNode, rate: u32) -> Vec<f32> {
+pub fn render_sample(node: &audiograph::AudioNode, rate: u32) -> Vec<f32> {
   node.voice(rate, node.start_offset.as_nanos() as i128, 0)
     .map(|sample| sample.clamp(-1., 1.))
     .collect()
@@ -59,14 +61,14 @@ pub fn render_sample(node: &daw::AudioNode, rate: u32) -> Vec<f32> {
 // tempo as it is (synth rows' notes aren't written out)
 pub struct PatternHits {
   frames: usize,
-  hits: Vec<(usize, daw::SampleVoice)>,
+  hits: Vec<(usize, sample_voice::SampleVoice)>,
 }
 
-pub fn pattern_hits(audiograph: &daw::AudioGraph<'static>, node: &daw::PatternNode, rate: u32) -> Result<PatternHits, String> {
+pub fn pattern_hits(audiograph: &audiograph::AudioGraph<'static>, node: &audiograph::PatternNode, rate: u32) -> Result<PatternHits, String> {
   if audiograph.sequencer.lock().unwrap().pattern(node.pattern_id).is_none() {
     return Err(format!("no pattern with id {}", node.pattern_id));
   }
-  let frame = |at: Duration| daw::run_frame(at.as_nanos() as i128, rate);
+  let frame = |at: Duration| audiograph::run_frame(at.as_nanos() as i128, rate);
 
   let starts = frame(node.start_offset);
   let frames = (frame(node.start_offset + node.duration(audiograph.beat_interval())) - starts).max(0) as usize;
@@ -135,14 +137,14 @@ pub fn write_wav(path: &Path, rate: u32, samples: &[f32]) -> Result<(), String> 
 
 // what a clip's new file is named after: its sample's file (less any
 // number an earlier copy gave it), or its pattern
-pub(crate) fn source_name(audiograph: &daw::AudioGraph<'static>, id: u64, tag: &str) -> Option<String> {
+pub(crate) fn source_name(audiograph: &audiograph::AudioGraph<'static>, id: u64, tag: &str) -> Option<String> {
   if let Some(node) = audiograph.get_node_by_id(id) {
-    let stem = daw::sample_name(node.sample_path());
+    let stem = sequencer::sample_name(node.sample_path());
     return Some(project_files::file_stem_from(&project_files::without_number(&stem, tag)));
   }
   let node = audiograph.get_pattern_node_by_id(id)?;
   let name = audiograph.sequencer.lock().unwrap().pattern(node.pattern_id)
-    .map(daw::Pattern::label);
+    .map(sequencer::Pattern::label);
   Some(project_files::file_stem_from(&name.unwrap_or_else(|| "pattern".into())))
 }
 
@@ -168,8 +170,8 @@ pub(crate) fn deep_copy(state: &daw::InnerState, ids: &[u64], rate: Option<u32>)
   // each clip as it is now, and what its file will be called. only that
   // much is done with the graph's lock, which playback needs
   enum Source {
-    Sample(daw::AudioNode),
-    Pattern(daw::PatternNode, PatternHits),
+    Sample(audiograph::AudioNode),
+    Pattern(audiograph::PatternNode, PatternHits),
   }
   let sources: Vec<(u64, PathBuf, u32, Source)> = {
     let audiograph = state.playlist.audiograph.lock().unwrap();
@@ -195,7 +197,7 @@ pub(crate) fn deep_copy(state: &daw::InnerState, ids: &[u64], rate: Option<u32>)
   // the sound, the files, then the clips that will play them
   let mut written: Vec<PathBuf> = Vec::new();
   let mut was: Vec<(u64, history::ClipSnap)> = Vec::new();
-  let made = (|| -> Result<Vec<(u64, daw::AudioNode)>, String> {
+  let made = (|| -> Result<Vec<(u64, audiograph::AudioNode)>, String> {
     let mut clips = Vec::new();
     for (id, path, rate, source) in sources {
       let samples = match source {
@@ -214,7 +216,7 @@ pub(crate) fn deep_copy(state: &daw::InnerState, ids: &[u64], rate: Option<u32>)
       }
       write_wav(&path, rate, &samples)?;
       written.push(path.clone());
-      let node = daw::AudioNode::new(id, path.to_string_lossy().into_owned(), Duration::ZERO, 0)?;
+      let node = audiograph::AudioNode::new(id, path.to_string_lossy().into_owned(), Duration::ZERO, 0)?;
       clips.push((id, node));
     }
     Ok(clips)
@@ -256,7 +258,7 @@ pub const CHANGED_MEANWHILE: &str =
 
 // whether a clip is still as it was when it was written out: there, in
 // the same place, playing the same thing the same way
-pub(crate) fn unchanged(audiograph: &daw::AudioGraph<'static>, id: u64, was: &history::ClipSnap) -> bool {
+pub(crate) fn unchanged(audiograph: &audiograph::AudioGraph<'static>, id: u64, was: &history::ClipSnap) -> bool {
   match was {
     history::ClipSnap::Sample(was) => audiograph.get_node_by_id(id)
       .map_or(false, |node| node.same_clip(was) && node.start_offset == was.start_offset),

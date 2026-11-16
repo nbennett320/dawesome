@@ -1,9 +1,11 @@
 use super::*;
-use crate::test_support::play;
+use crate::daw::{audiograph, sequencer, timing};
+use crate::engine::clip;
+use crate::daw::test_support::play;
 use std::sync::Arc;
 use std::time::Instant;
-use crate::actions::clip::{add_clip, change_clip_settings, ClipWindow};
-use crate::project;
+use crate::daw::actions::clip::{add_clip, change_clip_settings, ClipWindow};
+use crate::daw::project;
 
 const KICK: &str = "assets/assets_66-bd-01.wav";
 
@@ -48,7 +50,7 @@ fn read(path: &Path) -> (hound::WavSpec, Vec<f32>) {
   (spec, reader.samples::<f32>().map(|sample| sample.unwrap()).collect())
 }
 
-fn node(state: &daw::InnerState, id: u64) -> daw::AudioNode {
+fn node(state: &daw::InnerState, id: u64) -> audiograph::AudioNode {
   state.playlist.audiograph.lock().unwrap().get_node_by_id(id).unwrap().clone()
 }
 
@@ -68,10 +70,10 @@ fn test_a_copy_plays_what_the_clip_did() {
     let path = noise_wav(&dir, "Noise.wav", file_rate, 2, file_rate * 2);
     let id = add_clip(&state, path.clone(), 2, Some(1.37)).unwrap().id;
     // trimmed, pitched down, faded in, panned and turned down
-    crate::actions::clip::set_windows(&state, &[crate::actions::clip::WindowEdit {
+    crate::daw::actions::clip::set_windows(&state, &[crate::daw::actions::clip::WindowEdit {
       id, window: ClipWindow { start: 0.3, end: Some(1.6) },
     }]).unwrap();
-    change_clip_settings(&state, id, daw::ClipSettings {
+    change_clip_settings(&state, id, clip::ClipSettings {
       pitch: -3., attack_ms: 50., pan: 0.5, gain_db: -6., decay_ms: 0.,
     }, None).unwrap();
     let before = node(&state, id);
@@ -85,7 +87,7 @@ fn test_a_copy_plays_what_the_clip_did() {
     assert_eq!(changed.clips.len(), 1);
     assert_eq!(changed.clips[0].id, id);
     assert_eq!((after.start_offset, after.track_number), (before.start_offset, 2));
-    assert_eq!(after.settings(), daw::ClipSettings::default());
+    assert_eq!(after.settings(), clip::ClipSettings::default());
     assert_eq!(after.window(), None);
     let file = dir.join("clips").join("Noise_copy_1.wav");
     assert_eq!(after.sample_path(), file.to_string_lossy());
@@ -132,7 +134,7 @@ fn test_a_copy_of_a_clip_too_loud_is_cut_off_at_full_scale() {
   let (state, dir) = saved_project("loud");
   let path = noise_wav(&dir, "loud.wav", rate, 1, rate);
   let id = add_clip(&state, path, 0, Some(0.)).unwrap().id;
-  change_clip_settings(&state, id, daw::ClipSettings { gain_db: 12., ..Default::default() }, None).unwrap();
+  change_clip_settings(&state, id, clip::ClipSettings { gain_db: 12., ..Default::default() }, None).unwrap();
   let original = render_sample_unclipped(&node(&state, id), rate);
   assert!(original.iter().any(|sample| sample.abs() > 1.5), "the clip isn't loud enough to clip");
 
@@ -150,7 +152,7 @@ fn test_a_copy_of_a_clip_too_loud_is_cut_off_at_full_scale() {
   let _ = std::fs::remove_dir_all(&dir);
 }
 
-fn render_sample_unclipped(node: &daw::AudioNode, rate: u32) -> Vec<f32> {
+fn render_sample_unclipped(node: &audiograph::AudioNode, rate: u32) -> Vec<f32> {
   node.voice(rate, node.start_offset.as_nanos() as i128, 0).collect()
 }
 
@@ -221,7 +223,7 @@ fn test_a_clip_changed_while_its_file_is_written_is_left_alone() {
     assert!(unchanged(&audiograph, id, &was));
   }
   // moved, trimmed, re-pitched or gone, it's no longer what was written
-  change_clip_settings(&state, id, daw::ClipSettings { pitch: 2., ..Default::default() }, None).unwrap();
+  change_clip_settings(&state, id, clip::ClipSettings { pitch: 2., ..Default::default() }, None).unwrap();
   {
     let audiograph = state.playlist.audiograph.lock().unwrap();
     assert!(!unchanged(&audiograph, id, &was));
@@ -306,7 +308,7 @@ fn test_a_copy_changes_no_other_clip_of_the_file() {
   let (state, dir) = saved_project("others");
   let path = noise_wav(&dir, "shared.wav", 44_100, 2, 22_050);
   let (a, b) = (add_clip(&state, path.clone(), 0, Some(0.)).unwrap().id, add_clip(&state, path.clone(), 1, Some(3.)).unwrap().id);
-  change_clip_settings(&state, a, daw::ClipSettings { pitch: 4., gain_db: -8., ..Default::default() }, None).unwrap();
+  change_clip_settings(&state, a, clip::ClipSettings { pitch: 4., gain_db: -8., ..Default::default() }, None).unwrap();
   let other = node(&state, b);
   let sound = render_sample(&other, 48_000);
   let bytes = std::fs::read(&path).unwrap();
@@ -375,10 +377,10 @@ fn test_a_pattern_clip_becomes_a_sample_clip_of_what_it_played() {
   let id = {
     let mut audiograph = state.playlist.audiograph.lock().unwrap();
     audiograph.set_tempo(97.);
-    audiograph.add_pattern_node::<daw::timing::Note>(pattern, Duration::from_nanos(1_234_567_891), 3, None).unwrap()
+    audiograph.add_pattern_node::<timing::Note>(pattern, Duration::from_nanos(1_234_567_891), 3, None).unwrap()
   };
   // steps 2 up to 16: the first kick isn't played
-  crate::actions::clip::set_windows(&state, &[crate::actions::clip::WindowEdit {
+  crate::daw::actions::clip::set_windows(&state, &[crate::daw::actions::clip::WindowEdit {
     id, window: ClipWindow { start: 2., end: None },
   }]).unwrap();
   let (start, length) = {
@@ -404,8 +406,8 @@ fn test_a_pattern_clip_becomes_a_sample_clip_of_what_it_played() {
   let (spec, samples) = read(&file);
   assert_eq!((spec.channels, spec.sample_rate), (2, rate));
   let frames = samples.len() / 2;
-  let first = daw::run_frame(start.as_nanos() as i128, rate) as usize;
-  let last = daw::run_frame((start + length).as_nanos() as i128, rate) as usize;
+  let first = audiograph::run_frame(start.as_nanos() as i128, rate) as usize;
+  let last = audiograph::run_frame((start + length).as_nanos() as i128, rate) as usize;
   assert_eq!(frames, last - first);
 
   // the same as the pattern clip played, up to the last 10ms, where the
@@ -438,7 +440,7 @@ fn test_a_pattern_clip_becomes_a_sample_clip_of_what_it_played() {
 
 #[test]
 fn test_a_pattern_clip_of_pitched_and_gated_notes_is_written_as_it_plays() {
-  let note = |pitch, start, length, velocity| daw::PatternNote { pitch, start, length, velocity };
+  let note = |pitch, start, length, velocity| sequencer::PatternNote { pitch, start, length, velocity };
   // the last: a clip from the middle of a step, round the pattern twice
   // and more, cut at the end of each time round
   let cases = [(97., 48_000, 44_100, None), (120., 44_100, 48_000, None), (97., 48_000, 44_100, Some((5.5, 47.25)))];
@@ -463,7 +465,7 @@ fn test_a_pattern_clip_of_pitched_and_gated_notes_is_written_as_it_plays() {
     let id = {
       let mut audiograph = state.playlist.audiograph.lock().unwrap();
       audiograph.set_tempo(tempo);
-      let id = audiograph.add_pattern_node::<daw::timing::Note>(pattern, Duration::from_nanos(987_654_321), 2, None).unwrap();
+      let id = audiograph.add_pattern_node::<timing::Note>(pattern, Duration::from_nanos(987_654_321), 2, None).unwrap();
       if let Some((start, end)) = window { audiograph.set_pattern_window(id, start, Some(end)).unwrap(); }
       id
     };
@@ -476,8 +478,8 @@ fn test_a_pattern_clip_of_pitched_and_gated_notes_is_written_as_it_plays() {
     let original = play(&state, rate, total);
 
     deep_copy(&state, &[id], Some(rate)).unwrap();
-    let first = daw::run_frame(start.as_nanos() as i128, rate) as usize;
-    let last = daw::run_frame((start + length).as_nanos() as i128, rate) as usize;
+    let first = audiograph::run_frame(start.as_nanos() as i128, rate) as usize;
+    let last = audiograph::run_frame((start + length).as_nanos() as i128, rate) as usize;
     let copy = play(&state, rate, total);
     // the same, frame for frame, up to the last 10ms (faded in the file)
     let body = first * 2..(last - rate as usize / 100) * 2;
@@ -530,7 +532,7 @@ fn test_a_minute_is_written_in_under_two_seconds() {
   let (state, dir) = saved_project("minute");
   let path = noise_wav(&dir, "minute.wav", 44_100, 2, 44_100 * 60);
   let id = add_clip(&state, path, 0, Some(0.)).unwrap().id;
-  change_clip_settings(&state, id, daw::ClipSettings { pitch: -2., attack_ms: 500., pan: -0.3, gain_db: -3., decay_ms: 800. }, None).unwrap();
+  change_clip_settings(&state, id, clip::ClipSettings { pitch: -2., attack_ms: 500., pan: -0.3, gain_db: -3., decay_ms: 800. }, None).unwrap();
 
   let started = Instant::now();
   deep_copy(&state, &[id], Some(48_000)).unwrap();

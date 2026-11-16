@@ -3,12 +3,13 @@ use std::path::Path;
 use std::sync::Arc;
 use serde_json::json;
 
-use crate::project::{capture, load_from, save_to, Project};
+use crate::daw::{self, sequencer};
+use crate::daw::project::{capture, load_from, save_to, Project};
 
 // what a project's JSON has once it's merged: its sequencer and pattern
 // clips, read as this app reads them (compared as values, 0 and 0.0 would
 // differ)
-fn merged(mut project: Value) -> (daw::SavedSequencer, Vec<ProjectPatternClip>) {
+fn merged(mut project: Value) -> (sequencer::SavedSequencer, Vec<ProjectPatternClip>) {
   merge_pattern_kinds(&mut project).unwrap();
   assert_eq!(project["version"], 4);
   assert!(project.get("sequencer").is_none());
@@ -106,7 +107,7 @@ fn test_the_worked_example() {
     ]
   }"#);
 
-  let expected: daw::SavedSequencer = serde_json::from_value(after["patternSequencer"].clone()).unwrap();
+  let expected: sequencer::SavedSequencer = serde_json::from_value(after["patternSequencer"].clone()).unwrap();
   let expected_clips: Vec<ProjectPatternClip> = serde_json::from_value(after["patternClips"].clone()).unwrap();
   assert_eq!(merged(before), (expected, expected_clips));
 }
@@ -132,7 +133,7 @@ fn test_only_projects_older_than_version_4_with_patterns_are_merged() {
   merge_pattern_kinds(&mut old).unwrap();
   assert_eq!(old["version"], 4);
   assert_eq!(merged(json!({ "version": 2, "patternClips": [{ "patternId": 0, "trackNumber": 0, "startBeat": 0 }] })),
-    (daw::SavedSequencer::default(), vec![]));
+    (sequencer::SavedSequencer::default(), vec![]));
 }
 
 #[test]
@@ -179,7 +180,7 @@ fn test_rows_and_synths_used_twice_are_left_out_and_the_rest_numbered() {
   assert_eq!(sequencer.rows[2].instrument.synth().unwrap().name, "X");
   // a drum pattern's steps go to the sample rows, deduplicated and in
   // order; a note pattern's notes to the synth's row
-  let starts = |pattern: &daw::SavedPattern, row: u64| -> Vec<f64> { pattern.notes[&row].iter().map(|n| n.start).collect() };
+  let starts = |pattern: &sequencer::SavedPattern, row: u64| -> Vec<f64> { pattern.notes[&row].iter().map(|n| n.start).collect() };
   assert_eq!(starts(&sequencer.patterns[0], 0), vec![0.]);
   assert_eq!(starts(&sequencer.patterns[0], 1), vec![2., 3.]);
   assert_eq!(sequencer.patterns[1].notes.keys().copied().collect::<Vec<_>>(), vec![2]);
@@ -300,18 +301,18 @@ fn test_a_clip_that_played_nothing_past_its_patterns_end_is_left_out_and_said() 
 // pattern in two folder trees that clash, unnamed patterns, trimmed clips
 const FIXTURE: &str = "tests/fixtures/v3-patterns.dawesome";
 
-fn step_notes(starts: &[u32]) -> Arc<Vec<daw::PatternNote>> {
+fn step_notes(starts: &[u32]) -> Arc<Vec<sequencer::PatternNote>> {
   Arc::new(starts.iter().map(|&start| step_note(start)).collect())
 }
 
-fn notes(list: &[(u8, f64, f64, f32)]) -> Arc<Vec<daw::PatternNote>> {
-  Arc::new(list.iter().map(|&(pitch, start, length, velocity)| daw::PatternNote { pitch, start, length, velocity }).collect())
+fn notes(list: &[(u8, f64, f64, f32)]) -> Arc<Vec<sequencer::PatternNote>> {
+  Arc::new(list.iter().map(|&(pitch, start, length, velocity)| sequencer::PatternNote { pitch, start, length, velocity }).collect())
 }
 
 #[test]
 fn test_the_v3_fixture_opens_as_the_old_app_showed_it() {
   // (fake plugins: the fixture's synths aren't among them)
-  let state = crate::effects::testing::rig().state;
+  let state = crate::daw::effects::testing::rig().state;
   let loaded = load_from(&state, Path::new(FIXTURE)).unwrap();
   assert!(loaded.missing.is_empty() && loaded.dropped.is_empty());
   // the two synths' plugin isn't installed: kept, missing
@@ -320,17 +321,17 @@ fn test_the_v3_fixture_opens_as_the_old_app_showed_it() {
   assert_eq!((loaded.settings.tempo, loaded.clips.len()), (97., 1));
 
   let samples = std::fs::canonicalize("tests/fixtures/samples").unwrap();
-  let sample = |name: &str, label: Option<&str>, volume: f32, pan: f32, muted: bool, id: u64| daw::RowState {
-    id, rev: daw::Rev::next(), label: label.map(str::to_string), volume, pan, muted, step_pitch: 60,
-    instrument: daw::InstrumentState::Sample(daw::SampleState {
+  let sample = |name: &str, label: Option<&str>, volume: f32, pan: f32, muted: bool, id: u64| sequencer::RowState {
+    id, rev: sequencer::Rev::next(), label: label.map(str::to_string), volume, pan, muted, step_pitch: 60,
+    instrument: sequencer::InstrumentState::Sample(sequencer::SampleState {
       path: samples.join(name).to_string_lossy().into_owned(), sample_pitch: 60, gated: false,
     }),
   };
   let slots: Vec<u64> = loaded.sequencer.rows.iter().filter_map(|row| row.synth()).map(|synth| synth.slot).collect();
   assert!(slots.len() == 2 && slots[0] != slots[1]);
-  let synth = |name: &str, slot: u64, id: u64| daw::RowState {
-    id, rev: daw::Rev::next(), label: None, volume: 1., pan: 0., muted: false, step_pitch: 60,
-    instrument: daw::InstrumentState::Synth(daw::SynthState {
+  let synth = |name: &str, slot: u64, id: u64| sequencer::RowState {
+    id, rev: sequencer::Rev::next(), label: None, volume: 1., pan: 0., muted: false, step_pitch: 60,
+    instrument: sequencer::InstrumentState::Synth(sequencer::SynthState {
       slot, plugin_id: "vst3:00000000000000000000000000BADBAD".into(), name: name.into(), vendor: "Nobody".into(),
       missing: true, has_editor: false,
     }),
@@ -343,8 +344,8 @@ fn test_the_v3_fixture_opens_as_the_old_app_showed_it() {
     synth("Synth 2", slots[1], 4),
   ]);
 
-  let pattern = |id: u64, name: &str, length: u32, folder: Option<u64>, notes: Vec<(u64, Arc<Vec<daw::PatternNote>>)>| daw::PatternState {
-    id, rev: daw::Rev::next(), name: Some(name.into()), length, floor: length, notes: notes.into_iter().collect(), folder,
+  let pattern = |id: u64, name: &str, length: u32, folder: Option<u64>, notes: Vec<(u64, Arc<Vec<sequencer::PatternNote>>)>| sequencer::PatternState {
+    id, rev: sequencer::Rev::next(), name: Some(name.into()), length, floor: length, notes: notes.into_iter().collect(), folder,
   };
   let all_evens: Vec<u32> = (0..16).map(|n| n * 2).collect();
   assert_eq!(loaded.sequencer.patterns, vec![
@@ -362,7 +363,7 @@ fn test_the_v3_fixture_opens_as_the_old_app_showed_it() {
   ]);
 
   // the note folder "Verse" beside the drum folder "Verse" is numbered
-  let folder = |id: u64, name: &str, parent: Option<u64>| daw::FolderState { id, name: name.into(), parent };
+  let folder = |id: u64, name: &str, parent: Option<u64>| sequencer::FolderState { id, name: name.into(), parent };
   assert_eq!(loaded.sequencer.folders, vec![
     folder(0, "Verse", None), folder(1, "Verse 2", None), folder(2, "Fills", Some(0)), folder(3, "Pads", Some(1)),
   ]);
@@ -399,7 +400,7 @@ fn test_the_v3_fixture_saves_as_version_4_and_opens_the_same() {
   std::fs::create_dir_all(&dir).unwrap();
   let file = dir.join("v4.dawesome");
 
-  let state = crate::effects::testing::rig().state;
+  let state = crate::daw::effects::testing::rig().state;
   load_from(&state, Path::new(FIXTURE)).unwrap();
   save_to(&state, &file).unwrap();
 
@@ -413,7 +414,7 @@ fn test_the_v3_fixture_saves_as_version_4_and_opens_the_same() {
   assert!(json["patternClips"].as_array().unwrap().iter().all(|clip| clip.get("window").is_none()));
 
   // opened again, it's the same project
-  let again = crate::effects::testing::rig().state;
+  let again = crate::daw::effects::testing::rig().state;
   load_from(&again, &file).unwrap();
   let mut first = capture(&state, Some(&dir));
   let mut second = capture(&again, Some(&dir));

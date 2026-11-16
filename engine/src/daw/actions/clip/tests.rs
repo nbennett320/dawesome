@@ -1,8 +1,10 @@
 use super::*;
 use std::sync::Arc;
-use crate::actions::clip::{add_clip, change_clip_settings};
-use crate::actions::playlist::node_beat;
-use crate::project;
+use crate::daw::{audiograph, playback, timing};
+use crate::engine::clip;
+use crate::daw::actions::clip::{add_clip, change_clip_settings};
+use crate::daw::actions::playlist::node_beat;
+use crate::daw::project;
 
 const KICK: &str = "assets/assets_66-bd-01.wav";
 
@@ -36,7 +38,7 @@ fn clips() -> (Arc<daw::InnerState>, u64, u64) {
     pattern
   };
   let clip = state.playlist.audiograph.lock().unwrap()
-    .add_pattern_node::<daw::timing::Note>(pattern, Duration::from_secs(4), 1, None).unwrap();
+    .add_pattern_node::<timing::Note>(pattern, Duration::from_secs(4), 1, None).unwrap();
   state.history.lock().unwrap().clear();
   (state, sample, clip)
 }
@@ -105,7 +107,7 @@ fn test_trimming_is_all_or_nothing() {
   set_windows(&state, &[edit(sample, 0.05, Some(0.01))]).unwrap();
   let node = state.playlist.audiograph.lock().unwrap().get_node_by_id(sample).unwrap().clone();
   assert_eq!(node.window().unwrap().start, Duration::from_millis(50));
-  assert_eq!(node.duration(), daw::MIN_CLIP);
+  assert_eq!(node.duration(), audiograph::MIN_CLIP);
 }
 
 #[test]
@@ -115,7 +117,7 @@ fn test_cutting_a_selection_is_one_step() {
   let elsewhere = add_clip(&state, KICK.to_string(), 2, Some(20.)).unwrap().id;
   // (the pattern clip is moved under the cut: onto beat 3)
   state.playlist.audiograph.lock().unwrap().move_node(pattern, Duration::from_millis(1_500), 1).unwrap();
-  change_clip_settings(&state, sample, daw::ClipSettings { attack_ms: 20., decay_ms: 30., ..Default::default() }, None).unwrap();
+  change_clip_settings(&state, sample, clip::ClipSettings { attack_ms: 20., decay_ms: 30., ..Default::default() }, None).unwrap();
   state.history.lock().unwrap().clear();
   let before = saved(&state);
 
@@ -165,12 +167,12 @@ fn test_cutting_a_selection_is_one_step() {
 fn test_stretching_clips_is_one_step() {
   let (state, sample, pattern) = clips();
   let other = add_clip(&state, KICK.to_string(), 2, Some(20.)).unwrap().id;
-  change_clip_settings(&state, other, daw::ClipSettings { pitch: 5., gain_db: -6., ..Default::default() }, None).unwrap();
+  change_clip_settings(&state, other, clip::ClipSettings { pitch: 5., gain_db: -6., ..Default::default() }, None).unwrap();
   state.history.lock().unwrap().clear();
   let before = saved(&state);
   let node = |id: u64| state.playlist.audiograph.lock().unwrap().get_node_by_id(id).unwrap().clone();
   let (was, other_was) = (node(sample), node(other));
-  let ends = |clip: &daw::AudioNode| clip.start_offset + clip.duration();
+  let ends = |clip: &audiograph::AudioNode| clip.start_offset + clip.duration();
 
   // one to twice its length from its start, the other to half its length
   // (an octave above where it was) from its end
@@ -270,18 +272,18 @@ fn test_edits_are_quick_with_five_hundred_clips() {
   timed("trim one clip", &mut || { set_windows(&state, &[edit(one, 0.02, Some(0.1))]).unwrap(); });
   timed("cut one clip", &mut || { split(&state, &[one], 100.1).unwrap(); });
   timed("stretch one clip", &mut || { stretch(&state, &[StretchEdit { id: ids[251], pitch: -5., keep: Keep::Start }]).unwrap(); });
-  timed("move one clip", &mut || { crate::actions::clip::move_clip(&state, ids[252], 3, Some(7.3)).unwrap(); });
+  timed("move one clip", &mut || { crate::daw::actions::clip::move_clip(&state, ids[252], 3, Some(7.3)).unwrap(); });
   timed("trim fifty clips", &mut || {
     let edits: Vec<WindowEdit> = ids[..50].iter().map(|&id| edit(id, 0.01, Some(0.12))).collect();
     set_windows(&state, &edits).unwrap();
   });
-  timed("copy fifty clips", &mut || { crate::clipboard::copy(&state, &ids[50..100]); });
-  timed("paste fifty clips", &mut || { crate::clipboard::paste(&state, 210., None).unwrap(); });
-  timed("repeat fifty clips", &mut || { crate::clipboard::repeat(&state, &ids[100..150]).unwrap(); });
-  timed("delete fifty clips", &mut || { crate::actions::clip::remove_clips(&state, &ids[150..200]).unwrap(); });
+  timed("copy fifty clips", &mut || { crate::daw::clipboard::copy(&state, &ids[50..100]); });
+  timed("paste fifty clips", &mut || { crate::daw::clipboard::paste(&state, 210., None).unwrap(); });
+  timed("repeat fifty clips", &mut || { crate::daw::clipboard::repeat(&state, &ids[100..150]).unwrap(); });
+  timed("delete fifty clips", &mut || { crate::daw::actions::clip::remove_clips(&state, &ids[150..200]).unwrap(); });
   let state_arc = state.clone();
   timed("undo", &mut || { history::undo(&state_arc).unwrap(); });
-  timed("the project after an undo", &mut || { crate::actions::history::project_view(&state); });
+  timed("the project after an undo", &mut || { crate::daw::actions::history::project_view(&state); });
   timed("redo", &mut || { history::redo(&state_arc).unwrap(); });
   println!("{:>28}: {:?}", "slowest", slowest);
 }
@@ -307,7 +309,7 @@ fn test_a_cut_that_cuts_nothing_is_no_step() {
 #[test]
 fn test_add_and_move_snap_to_the_snap_setting() {
   let state = daw::InnerState::default();
-  let sample = daw::METRONOME_TICK_PATH.to_string();
+  let sample = playback::METRONOME_TICK_PATH.to_string();
   let ms = |id: u64| state.playlist.audiograph.lock().unwrap()
     .get_node_by_id(id).unwrap().start_offset.as_millis();
 
@@ -322,7 +324,7 @@ fn test_add_and_move_snap_to_the_snap_setting() {
   assert_eq!(ms(id3), 700);
 
   // a different snap setting is respected (sixteenth notes = 125ms)
-  state.playlist.ui.lock().unwrap().snap_subdivision = daw::timing::Note::SixteenthNote;
+  state.playlist.ui.lock().unwrap().snap_subdivision = timing::Note::SixteenthNote;
   let id4 = add_node_at_offset(&state, sample, 0, Duration::from_millis(700), true).unwrap();
   assert_eq!(ms(id4), 750);
 }
@@ -330,15 +332,15 @@ fn test_add_and_move_snap_to_the_snap_setting() {
 #[test]
 fn test_clip_settings() {
   let state = daw::InnerState::default();
-  let sample = daw::METRONOME_TICK_PATH.to_string();
+  let sample = playback::METRONOME_TICK_PATH.to_string();
   let id = add_node_at_offset(&state, sample, 0, Duration::ZERO, false).unwrap();
 
   let info = get_clip_of(&state, id).unwrap();
-  assert_eq!(info.settings, daw::ClipSettings::default());
+  assert_eq!(info.settings, clip::ClipSettings::default());
   assert_eq!(info.sample_duration, info.played_duration);
 
   // an octave up halves the played length, and out of range values are kept in range
-  let info = set_clip_settings_of(&state, id, daw::ClipSettings {
+  let info = set_clip_settings_of(&state, id, clip::ClipSettings {
     pitch: 12.,
     gain_db: 99.,
     ..Default::default()
@@ -349,7 +351,7 @@ fn test_clip_settings() {
   assert_eq!(get_clip_of(&state, id).unwrap(), info);
 
   // the frontend's names deserialize
-  let settings: daw::ClipSettings = serde_json::from_str(
+  let settings: clip::ClipSettings = serde_json::from_str(
     r#"{"gainDb":-6,"pan":0.5,"pitch":0,"attackMs":10,"decayMs":20}"#).unwrap();
   assert_eq!(settings.pan, 0.5);
 
@@ -359,7 +361,7 @@ fn test_clip_settings() {
 #[test]
 fn test_snapped_nodes_report_their_beat() {
   let state = daw::InnerState::default();
-  let sample = daw::METRONOME_TICK_PATH.to_string();
+  let sample = playback::METRONOME_TICK_PATH.to_string();
 
   // dropped at beat 1.4 snaps to beat 1 (default snap is one beat)
   let id = add_node_at_offset(&state, sample, 0, beat_to_offset(&state, Some(1.4)), true).unwrap();
@@ -379,7 +381,7 @@ fn test_snapped_nodes_report_their_beat() {
 #[test]
 fn test_move_a_group_of_nodes() {
   let state = daw::InnerState::default();
-  let sample = daw::METRONOME_TICK_PATH.to_string();
+  let sample = playback::METRONOME_TICK_PATH.to_string();
   // 120bpm, one-beat snap. b is off the grid, a quarter beat after a
   let a = add_node_at_offset(&state, sample.clone(), 0, beat_to_offset(&state, Some(2.)), true).unwrap();
   let b = add_node_at_offset(&state, sample.clone(), 1, beat_to_offset(&state, Some(2.25)), false).unwrap();

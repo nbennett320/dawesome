@@ -52,7 +52,7 @@ impl Plugins {
 
   // (the built-in effects first: see native.rs)
   pub fn find(&self, id: &str) -> Option<PluginInfo> {
-    if crate::native::is_native(id) { return crate::native::find(id); }
+    if crate::daw::native::is_native(id) { return crate::daw::native::find(id); }
     self.catalog.lock().unwrap().find(id).cloned()
   }
 

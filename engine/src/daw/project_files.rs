@@ -34,7 +34,7 @@ pub struct ProjectLocation {
   pub session: Option<PathBuf>,
   // the project as it was last started, opened or saved, to tell whether
   // it's changed since (see project::has_unsaved_changes)
-  pub baseline: Option<crate::project::Project>,
+  pub baseline: Option<crate::daw::project::Project>,
 }
 
 impl ProjectLocation {

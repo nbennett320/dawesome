@@ -15,7 +15,7 @@ use super::processor::{Gate, Layout, VstProcessor};
 use super::state;
 use super::stream::MemoryStream;
 use crate::plugin::{ParamInfo, PluginInfo, PluginKind};
-use crate::processor::{Processor, MAX_BLOCK};
+use crate::engine::processor::{Processor, MAX_BLOCK};
 use ::vst3::Steinberg::Vst::BusDirections_::{kInput, kOutput};
 use ::vst3::Steinberg::Vst::MediaTypes_::{kAudio, kEvent};
 use ::vst3::Steinberg::Vst::ParameterInfo_::ParameterFlags_::{kCanAutomate, kIsBypass, kIsHidden, kIsReadOnly};

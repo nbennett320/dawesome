@@ -18,8 +18,8 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use crate::commands::TState;
-use crate::effects::{Effects, WindowPosition};
-use crate::main_thread;
+use crate::daw::effects::{Effects, WindowPosition};
+use crate::daw::main_thread;
 use crate::plugin::window::{self, Dock, EditorWindow, Rect};
 
 #[derive(Default)]
@@ -261,7 +261,7 @@ mod tests {
 
   #[test]
   fn test_a_slot_thats_not_docked_or_showing_is_left_alone() {
-    let rig = crate::effects::testing::rig();
+    let rig = crate::daw::effects::testing::rig();
     let effects = rig.effects();
     undock(effects, 41);
     close_window(effects, 41);

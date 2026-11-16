@@ -7,10 +7,11 @@
 use std::time::Duration;
 use serde::Serialize;
 
-use crate::actions::clip::{changed_clips, ChangedClips};
+use crate::daw::actions::clip::{changed_clips, ChangedClips};
+use crate::daw::{audiograph, playback};
 use crate::daw;
-use crate::actions::clip::remove_clips;
-use crate::history::{self, ClipSnap};
+use crate::daw::actions::clip::remove_clips;
+use crate::daw::history::{self, ClipSnap};
 
 // a copied clip
 #[derive(Clone)]
@@ -56,13 +57,13 @@ fn track_of(clip: &ClipSnap) -> u32 {
 }
 
 // a clip of either kind, as it is now
-fn snap(audiograph: &daw::AudioGraph<'static>, id: u64) -> Option<ClipSnap> {
+fn snap(audiograph: &audiograph::AudioGraph<'static>, id: u64) -> Option<ClipSnap> {
   audiograph.get_node_by_id(id).cloned().map(ClipSnap::Sample)
     .or_else(|| audiograph.get_pattern_node_by_id(id).cloned().map(ClipSnap::Pattern))
 }
 
 // where a clip ends
-fn end_of(audiograph: &daw::AudioGraph<'static>, clip: &ClipSnap) -> Duration {
+fn end_of(audiograph: &audiograph::AudioGraph<'static>, clip: &ClipSnap) -> Duration {
   match clip {
     ClipSnap::Sample(node) => node.start_offset + node.duration(),
     ClipSnap::Pattern(node) => node.start_offset + node.duration(audiograph.beat_interval()),
@@ -70,8 +71,8 @@ fn end_of(audiograph: &daw::AudioGraph<'static>, clip: &ClipSnap) -> Duration {
 }
 
 // the playlist's last beat, as a time: a clip can start there, and no later
-fn playlist_end(state: &daw::InnerState, audiograph: &daw::AudioGraph<'static>) -> Duration {
-  let beats = daw::playlist_beats(state);
+fn playlist_end(state: &daw::InnerState, audiograph: &audiograph::AudioGraph<'static>) -> Duration {
+  let beats = playback::playlist_beats(state);
   audiograph.beat_interval().mul_f64(beats as f64)
 }
 
@@ -83,7 +84,7 @@ const PAST_THE_END: &str = "would start past the end of the playlist";
 // clips' ids, and how many were left out
 fn place(
   state: &daw::InnerState,
-  audiograph: &mut daw::AudioGraph<'static>,
+  audiograph: &mut audiograph::AudioGraph<'static>,
   copies: Vec<(ClipSnap, Duration, u32)>,
   what: &str,
 ) -> Result<(Vec<u64>, usize), String> {

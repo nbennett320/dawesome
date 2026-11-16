@@ -9,7 +9,7 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
-use crate::recording::LoopRecording;
+use crate::daw::recording::LoopRecording;
 use crate::theme::{self, Appearance, ResolvedTheme};
 
 // follow the system, or always light or dark

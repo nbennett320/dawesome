@@ -19,7 +19,7 @@ fn add_clip(state: &daw::InnerState, path: &str, track: u32, beat: f64) -> u64 {
 fn record_take(dir: &Path, name: &str) -> String {
   fs::create_dir_all(dir).unwrap();
   let path = dir.join(name);
-  fs::copy(daw::METRONOME_TICK_PATH, &path).unwrap();
+  fs::copy(playback::METRONOME_TICK_PATH, &path).unwrap();
   path.to_string_lossy().into_owned()
 }
 
@@ -48,7 +48,7 @@ fn test_count_in_is_saved() {
 fn test_added_tracks_are_saved() {
   let dir = test_dir("added_tracks");
   let file = dir.join("song.dawesome");
-  let default = daw::defaults::NUM_OF_TRACKS;
+  let default = defaults::NUM_OF_TRACKS;
 
   // the default number isn't written
   let state = daw::InnerState::default();
@@ -56,7 +56,7 @@ fn test_added_tracks_are_saved() {
   let json: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
   assert!(json.get("tracks").is_none());
 
-  crate::actions::playlist::add_track_to(&state);
+  crate::daw::actions::playlist::add_track_to(&state);
   save_to(&state, &file).unwrap();
 
   let loaded = daw::InnerState::default();
@@ -72,7 +72,7 @@ fn test_added_tracks_are_saved() {
 
 #[test]
 fn test_armed_tracks_are_saved() {
-  use crate::recording::{ArmedTrack, InputChoice};
+  use crate::daw::recording::{ArmedTrack, InputChoice};
   let dir = test_dir("armed");
   let state = daw::InnerState::default();
   let armed = vec![
@@ -103,7 +103,7 @@ fn test_first_save_makes_a_folder_and_brings_in_takes() {
   state.project.lock().unwrap().session = Some(session.clone());
   let take = record_take(&session, "untitled_11092026_0.wav");
   let clip = add_clip(&state, &take, 0, 0.);
-  let sample = add_clip(&state, daw::METRONOME_TICK_PATH, 1, 4.);
+  let sample = add_clip(&state, playback::METRONOME_TICK_PATH, 1, 4.);
   let row = state.playlist.sequencer.lock().unwrap().add_row(&take).unwrap();
 
   let saved = save_project_to(&state, &dir.join("song.dawesome"), true).unwrap();
@@ -122,7 +122,7 @@ fn test_first_save_makes_a_folder_and_brings_in_takes() {
   assert_eq!(saved.moved_clips, vec![MovedClip { id: clip, path: recorded.to_string_lossy().into_owned() }]);
   let audiograph = state.playlist.audiograph.lock().unwrap();
   assert_eq!(audiograph.get_node_by_id(clip).unwrap().sample_path(), recorded.to_string_lossy());
-  assert_eq!(audiograph.get_node_by_id(sample).unwrap().sample_path(), daw::METRONOME_TICK_PATH);
+  assert_eq!(audiograph.get_node_by_id(sample).unwrap().sample_path(), playback::METRONOME_TICK_PATH);
   drop(audiograph);
   let rows = saved.sequencer.expect("the sequencer, with its row moved").rows;
   assert_eq!(rows.iter().find(|r| r.id == row).unwrap().sample_path(), Some(&*recorded.to_string_lossy()));
@@ -197,7 +197,7 @@ fn test_save_as_copies_takes_into_the_new_project() {
 fn test_a_project_saved_before_folders_stays_where_it_is() {
   let dir = test_dir("bare");
   let state = daw::InnerState::default();
-  add_clip(&state, daw::METRONOME_TICK_PATH, 0, 0.);
+  add_clip(&state, playback::METRONOME_TICK_PATH, 0, 0.);
   let file = dir.join("old.dawesome");
 
   let saved = save_project_to(&state, &file, false).unwrap();
@@ -230,7 +230,7 @@ fn test_opening_and_new_projects_move_where_takes_go() {
 
 #[test]
 fn test_clips_are_saved_on_their_beats_after_a_tempo_change() {
-  let sample = fs::canonicalize(daw::METRONOME_TICK_PATH).unwrap();
+  let sample = fs::canonicalize(playback::METRONOME_TICK_PATH).unwrap();
   let state = daw::InnerState::default();
   add_clip(&state, sample.to_str().unwrap(), 1, 4.5);
   add_clip(&state, sample.to_str().unwrap(), 0, 200.);
@@ -246,21 +246,21 @@ fn test_clips_are_saved_on_their_beats_after_a_tempo_change() {
 fn test_save_and_load_round_trip() {
   let dir = test_dir("round-trip");
   let project_path = dir.join("song.dawesome");
-  let sample = fs::canonicalize(daw::METRONOME_TICK_PATH).unwrap();
+  let sample = fs::canonicalize(playback::METRONOME_TICK_PATH).unwrap();
   let sample = sample.to_str().unwrap();
 
   let state = daw::InnerState::default();
   state.set_tempo(90.);
   *state.playlist.time_signature.lock().unwrap() =
-    daw::timing::TimeSignature { numerator: 3, denominator: 4 };
-  state.playlist.ui.lock().unwrap().snap_subdivision = daw::timing::Note::EighthNote;
+    timing::TimeSignature { numerator: 3, denominator: 4 };
+  state.playlist.ui.lock().unwrap().snap_subdivision = timing::Note::EighthNote;
   state.metronome_enabled.store(false, Ordering::SeqCst);
 
   add_clip(&state, sample, 0, 0.);
   let id = add_clip(&state, sample, 2, 4.5);
   state.playlist.audiograph.lock().unwrap()
     .get_mut_node_by_id(id).unwrap()
-    .set_settings(daw::ClipSettings { gain_db: -6., pitch: 12., attack_ms: 5., ..Default::default() });
+    .set_settings(clip::ClipSettings { gain_db: -6., pitch: 12., attack_ms: 5., ..Default::default() });
 
   save_to(&state, &project_path).unwrap();
   assert!(!dir.join("song.dawesome.tmp").exists());
@@ -273,7 +273,7 @@ fn test_save_and_load_round_trip() {
   assert!(loaded.missing.is_empty());
   assert_eq!(loaded.settings.tempo, 90.);
   assert_eq!(loaded.settings.time_signature.numerator, 3);
-  assert_eq!(loaded.settings.snap_note, daw::timing::Note::EighthNote);
+  assert_eq!(loaded.settings.snap_note, timing::Note::EighthNote);
   assert!(!loaded.settings.metronome_enabled);
   assert_eq!(loaded.clips.len(), 2);
   assert!(loaded.clips.iter().all(|c| c.id != old_id));
@@ -295,12 +295,12 @@ fn test_sample_paths_relative_to_the_project() {
   let dir = test_dir("relative");
   fs::create_dir_all(dir.join("samples")).unwrap();
   let sample = dir.join("samples").join("tick.wav");
-  fs::copy(daw::METRONOME_TICK_PATH, &sample).unwrap();
+  fs::copy(playback::METRONOME_TICK_PATH, &sample).unwrap();
 
   let state = daw::InnerState::default();
   add_clip(&state, sample.to_str().unwrap(), 0, 0.);
   // added by a relative path, which is saved as absolute
-  add_clip(&state, daw::METRONOME_TICK_PATH, 1, 0.);
+  add_clip(&state, playback::METRONOME_TICK_PATH, 1, 0.);
   save_to(&state, &dir.join("song.dawesome")).unwrap();
 
   let project = Project::from_json(
@@ -325,7 +325,7 @@ fn test_sample_paths_relative_to_the_project() {
 fn test_missing_samples_are_left_out() {
   let dir = test_dir("missing");
   let project_path = dir.join("song.dawesome");
-  let sample = fs::canonicalize(daw::METRONOME_TICK_PATH).unwrap();
+  let sample = fs::canonicalize(playback::METRONOME_TICK_PATH).unwrap();
   fs::write(&project_path, format!(r#"{{
       "version": 1,
       "tempo": 100,
@@ -341,7 +341,7 @@ fn test_missing_samples_are_left_out() {
   assert_eq!(loaded.settings.tempo, 100.);
   assert!(loaded.settings.loop_enabled);
   assert_eq!(loaded.clips.len(), 1);
-  assert_eq!(loaded.clips[0].info.settings, daw::ClipSettings::default());
+  assert_eq!(loaded.clips[0].info.settings, clip::ClipSettings::default());
   assert_eq!(loaded.missing.len(), 1);
   assert_eq!(Path::new(&loaded.missing[0].path), dir.join("gone.wav"));
 
@@ -352,7 +352,7 @@ fn test_missing_samples_are_left_out() {
 fn test_bad_projects_change_nothing() {
   let dir = test_dir("bad");
   let state = daw::InnerState::default();
-  add_clip(&state, daw::METRONOME_TICK_PATH, 0, 0.);
+  add_clip(&state, playback::METRONOME_TICK_PATH, 0, 0.);
 
   let bad = [
     "not json",
@@ -377,7 +377,7 @@ fn test_bad_projects_change_nothing() {
 #[test]
 fn test_new_project_clears_the_playlist() {
   let state = daw::InnerState::default();
-  let old_id = add_clip(&state, daw::METRONOME_TICK_PATH, 0, 0.);
+  let old_id = add_clip(&state, playback::METRONOME_TICK_PATH, 0, 0.);
   state.set_tempo(80.);
 
   let loaded = apply(&state, &Project::default(), None);
@@ -388,7 +388,7 @@ fn test_new_project_clears_the_playlist() {
   assert!(state.playlist.audiograph.lock().unwrap().nodes.is_empty());
 
   // ids aren't reused, so a stale id from the old project names nothing
-  let new_id = add_clip(&state, daw::METRONOME_TICK_PATH, 0, 0.);
+  let new_id = add_clip(&state, playback::METRONOME_TICK_PATH, 0, 0.);
   assert!(new_id > old_id);
 }
 
@@ -396,26 +396,26 @@ fn test_new_project_clears_the_playlist() {
 fn test_the_playlist_is_128_bars_of_the_projects_time_signature() {
   let state = daw::InnerState::default();
   let mut three_four = Project::default();
-  three_four.settings.time_signature = daw::timing::TimeSignature { numerator: 3, denominator: 4 };
+  three_four.settings.time_signature = timing::TimeSignature { numerator: 3, denominator: 4 };
 
   apply(&state, &three_four, None);
-  assert_eq!(daw::playlist_beats(&state), 384);
+  assert_eq!(playback::playlist_beats(&state), 384);
 
   // a clip past bar 128 of 3/4 (it was placed in 4/4): the playlist reaches
   // the beat it ends in, so it can still be seen and moved
   three_four.clips.push(ProjectClip {
-    path: daw::METRONOME_TICK_PATH.to_string(),
+    path: playback::METRONOME_TICK_PATH.to_string(),
     track_number: 0,
     start_beat: 500.,
-    settings: daw::ClipSettings::default(),
+    settings: clip::ClipSettings::default(),
     window: None,
   });
   apply(&state, &three_four, None);
-  assert_eq!(daw::playlist_beats(&state), 501);
+  assert_eq!(playback::playlist_beats(&state), 501);
 
   // a new project is 4/4 again
   apply(&state, &Project::default(), None);
-  assert_eq!(daw::playlist_beats(&state), 512);
+  assert_eq!(playback::playlist_beats(&state), 512);
 }
 
 #[test]
@@ -443,17 +443,17 @@ fn test_mixer_saved_and_loaded() {
   let name = |n: u32| loaded.mixer.tracks.iter().find(|t| t.track_number == n).unwrap().name.clone();
   assert_eq!(name(3).as_deref(), Some("Bass"));
   assert_eq!(name(2), None);
-  assert_eq!(track(2), daw::ChannelSettings { volume_db: -12., pan: 0., mute: false, solo: true });
+  assert_eq!(track(2), mixer::ChannelSettings { volume_db: -12., pan: 0., mute: false, solo: true });
   // the loading app's own changes don't carry over
-  assert_eq!(track(0), daw::ChannelSettings::default());
+  assert_eq!(track(0), mixer::ChannelSettings::default());
   assert_eq!(loaded.mixer.master.volume_db, -3.);
   // every track the playlist shows is listed
-  assert_eq!(loaded.mixer.tracks.len(), daw::defaults::NUM_OF_TRACKS as usize);
+  assert_eq!(loaded.mixer.tracks.len(), defaults::NUM_OF_TRACKS as usize);
 
   // an older project without a mixer loads with a flat one
   let old = Project::from_json(r#"{"version": 1, "tempo": 100}"#).unwrap();
   let loaded = apply(&other, &old, None);
-  assert!(loaded.mixer.tracks.iter().all(|t| t.settings == daw::ChannelSettings::default()));
+  assert!(loaded.mixer.tracks.iter().all(|t| t.settings == mixer::ChannelSettings::default()));
   assert_eq!(loaded.mixer.master.volume_db, 0.);
 
   fs::remove_dir_all(dir).unwrap();
@@ -482,8 +482,8 @@ fn test_patterns_saved_and_loaded() {
     };
     let _ = row;
     let beat = audiograph.beat_interval();
-    audiograph.add_pattern_node::<daw::timing::Note>(pattern, beat * 4, 1, None).unwrap();
-    audiograph.add_pattern_node::<daw::timing::Note>(pattern, beat * 0, 0, None).unwrap();
+    audiograph.add_pattern_node::<timing::Note>(pattern, beat * 4, 1, None).unwrap();
+    audiograph.add_pattern_node::<timing::Note>(pattern, beat * 0, 0, None).unwrap();
     pattern
   };
   save_to(&state, &project_path).unwrap();
@@ -516,7 +516,7 @@ fn test_patterns_saved_and_loaded() {
 #[test]
 fn test_projects_without_patterns_stay_version_1() {
   let state = daw::InnerState::default();
-  add_clip(&state, daw::METRONOME_TICK_PATH, 0, 0.);
+  add_clip(&state, playback::METRONOME_TICK_PATH, 0, 0.);
   let project = capture(&state, None);
   assert_eq!(project.version, PROJECT_VERSION_WITHOUT_WINDOWS);
 
@@ -526,8 +526,8 @@ fn test_projects_without_patterns_stay_version_1() {
   assert!(json.get("patternClips").is_none());
 }
 
-fn edit(id: u64, start: f64, end: Option<f64>) -> crate::actions::clip::WindowEdit {
-  crate::actions::clip::WindowEdit { id, window: ClipWindow { start, end } }
+fn edit(id: u64, start: f64, end: Option<f64>) -> crate::daw::actions::clip::WindowEdit {
+  crate::daw::actions::clip::WindowEdit { id, window: ClipWindow { start, end } }
 }
 
 // a one bar pattern with a kick step, and a clip of it on a beat
@@ -541,11 +541,11 @@ fn add_pattern_clip(state: &daw::InnerState, bars: u32, beat: f64) -> (u64, u64)
   };
   let mut audiograph = state.playlist.audiograph.lock().unwrap();
   let offset = audiograph.beat_interval().mul_f64(beat);
-  let clip = audiograph.add_pattern_node::<daw::timing::Note>(pattern, offset, 1, None).unwrap();
+  let clip = audiograph.add_pattern_node::<timing::Note>(pattern, offset, 1, None).unwrap();
   (pattern, clip)
 }
 
-fn sorted_nodes(state: &daw::InnerState) -> Vec<daw::AudioNode> {
+fn sorted_nodes(state: &daw::InnerState) -> Vec<audiograph::AudioNode> {
   let mut nodes = state.playlist.audiograph.lock().unwrap().nodes.clone();
   nodes.sort_by_key(|node| node.start_offset);
   nodes
@@ -557,7 +557,7 @@ fn test_a_trimmed_clip_is_saved_and_loaded() {
   let file = dir.join("song.dawesome");
   let state = daw::InnerState::default();
   let id = add_clip(&state, "assets/assets_66-bd-01.wav", 0, 2.);
-  crate::actions::clip::set_windows(&state, &[edit(id, 0.02, Some(0.08))]).unwrap();
+  crate::daw::actions::clip::set_windows(&state, &[edit(id, 0.02, Some(0.08))]).unwrap();
   let before = sorted_nodes(&state).remove(0);
   assert!(before.window().is_some());
   save_to(&state, &file).unwrap();
@@ -580,8 +580,8 @@ fn test_the_two_halves_of_a_cut_clip_come_back_to_the_nanosecond() {
   let file = dir.join("song.dawesome");
   let state = daw::InnerState::default();
   let id = add_clip(&state, "assets/assets_66-bd-01.wav", 0, 2.337);
-  crate::actions::clip::change_clip_settings(
-    &state, id, daw::ClipSettings { pitch: -7., ..Default::default() }, None,
+  crate::daw::actions::clip::change_clip_settings(
+    &state, id, clip::ClipSettings { pitch: -7., ..Default::default() }, None,
   ).unwrap();
   // a beat inside the clip
   let beat = {
@@ -589,7 +589,7 @@ fn test_the_two_halves_of_a_cut_clip_come_back_to_the_nanosecond() {
     let node = audiograph.get_node_by_id(id).unwrap();
     (node.start_offset + node.duration() / 2).as_secs_f64() / audiograph.beat_interval().as_secs_f64()
   };
-  crate::actions::clip::split(&state, &[id], beat).unwrap();
+  crate::daw::actions::clip::split(&state, &[id], beat).unwrap();
   let before = sorted_nodes(&state);
   assert_eq!(before.len(), 2);
   save_to(&state, &file).unwrap();
@@ -619,7 +619,7 @@ fn test_the_version_follows_what_a_project_uses() {
   assert!(!serde_json::to_string(&plain).unwrap().contains("\"window\""));
 
   // a trimmed sample clip, without patterns
-  crate::actions::clip::set_windows(&state, &[edit(id, 0.02, Some(0.08))]).unwrap();
+  crate::daw::actions::clip::set_windows(&state, &[edit(id, 0.02, Some(0.08))]).unwrap();
   let trimmed = capture(&state, None);
   assert_eq!(trimmed.version, 3);
   assert!(serde_json::to_string(&trimmed).unwrap().contains("\"window\""));
@@ -628,7 +628,7 @@ fn test_the_version_follows_what_a_project_uses() {
   let state = daw::InnerState::default();
   let (_, clip) = add_pattern_clip(&state, 1, 0.);
   assert_eq!(capture(&state, None).version, 4);
-  crate::actions::clip::set_windows(&state, &[edit(clip, 4., Some(12.))]).unwrap();
+  crate::daw::actions::clip::set_windows(&state, &[edit(clip, 4., Some(12.))]).unwrap();
   let trimmed = capture(&state, None);
   assert_eq!(trimmed.version, 4);
   // a pattern clip has a start and a length, never a window
@@ -651,7 +651,7 @@ fn test_a_pattern_clip_is_saved_with_its_own_start_and_length() {
   let state = daw::InnerState::default();
   let (pattern, clip) = add_pattern_clip(&state, 2, 0.);
   let (_, middle) = add_pattern_clip(&state, 2, 16.);
-  crate::actions::clip::set_windows(&state, &[edit(clip, 4., Some(24.)), edit(middle, 2., Some(10.))]).unwrap();
+  crate::daw::actions::clip::set_windows(&state, &[edit(clip, 4., Some(24.)), edit(middle, 2., Some(10.))]).unwrap();
   // the first now runs past its pattern's end: it plays steps 4 to 16, then
   // 0 to 8 again
   state.playlist.sequencer.lock().unwrap().set_pattern_bars(pattern, 1, 4).unwrap();
@@ -683,7 +683,7 @@ fn test_a_saved_pattern_clips_start_and_length_are_made_sensible() {
   let clip = |start: f64, length: f64| ProjectPatternClip { pattern_id: 0, track_number: 0, start_beat: 0., start, length };
   let kept = |start: f64, length: f64| {
     let (start, length) = saved_span(&clip(start, length), 16);
-    let mut node = daw::PatternNode::new(0, 0, Duration::ZERO, 0, 16);
+    let mut node = audiograph::PatternNode::new(0, 0, Duration::ZERO, 0, 16);
     node.set_span(start, length);
     (node.start, node.length)
   };
@@ -702,7 +702,7 @@ fn test_a_saved_pattern_clips_start_and_length_are_made_sensible() {
   // past the pattern's end: kept, at least a step long
   assert_eq!(kept(20., 0.), (20., 1.));
   // no longer than a clip can be
-  assert_eq!(kept(0., 1e12), (0., daw::MAX_PATTERN_CLIP));
+  assert_eq!(kept(0., 1e12), (0., audiograph::MAX_PATTERN_CLIP));
 }
 
 #[test]
@@ -785,9 +785,11 @@ fn test_missing_row_samples_and_unknown_patterns() {
 }
 
 // each channel's effects, without their ids: (track, [(name, bypassed, missing)])
-use crate::effects::SavedEffect;
+use crate::daw::{audiograph, defaults, playback, playlist, sequencer, timing};
+use crate::engine::{self, clip, mixer};
+use crate::daw::effects::SavedEffect;
 
-fn rack_shape(racks: &crate::effects::Racks) -> Vec<(Option<u32>, Vec<(String, bool, bool)>)> {
+fn rack_shape(racks: &crate::daw::effects::Racks) -> Vec<(Option<u32>, Vec<(String, bool, bool)>)> {
   racks.iter()
     .map(|r| (r.track, r.slots.iter().map(|s| (s.name.clone(), s.bypassed, s.missing)).collect()))
     .collect()
@@ -795,8 +797,8 @@ fn rack_shape(racks: &crate::effects::Racks) -> Vec<(Option<u32>, Vec<(String, b
 
 #[test]
 fn test_effects_saved_and_loaded() {
-  use crate::daw::Channel;
-  use crate::effects::testing::*;
+  use crate::engine::Channel;
+  use crate::daw::effects::testing::*;
   let dir = test_dir("effects");
   let file = dir.join("fx.dawesome");
 
@@ -841,15 +843,15 @@ fn test_effects_saved_and_loaded() {
 }
 
 // a rig that already has an effect, which loading a project replaces
-fn rig_with_an_effect() -> crate::effects::testing::Rig {
-  let rig = crate::effects::testing::rig();
-  rig.effects().add(crate::daw::Channel::Track(7), &crate::effects::testing::gain().id, None).unwrap();
+fn rig_with_an_effect() -> crate::daw::effects::testing::Rig {
+  let rig = crate::daw::effects::testing::rig();
+  rig.effects().add(engine::Channel::Track(7), &crate::daw::effects::testing::gain().id, None).unwrap();
   rig
 }
 
 #[test]
 fn test_missing_effects_are_kept_and_saved_as_they_were() {
-  use crate::effects::testing::*;
+  use crate::daw::effects::testing::*;
   let dir = test_dir("missing-effects");
   let file = dir.join("old.dawesome");
   let absent = absent();
@@ -922,27 +924,27 @@ fn test_new_project_clears_the_effects() {
 
 #[test]
 fn test_synth_rows_saved_and_loaded() {
-  use crate::effects::testing::*;
-  use crate::actions::sequencer::edit;
+  use crate::daw::effects::testing::*;
+  use crate::daw::actions::sequencer::edit;
   use std::sync::atomic::Ordering::SeqCst;
   let dir = test_dir("synths");
   let file = dir.join("keys.dawesome");
 
   let rig = rig();
   let state = rig.state.clone();
-  let synth = crate::actions::synth::add(&state, &synth().id).unwrap().row_id;
-  let quiet = crate::actions::synth::add(&state, &crate::effects::testing::synth().id).unwrap().row_id;
+  let synth = crate::daw::actions::synth::add(&state, &synth().id).unwrap().row_id;
+  let quiet = crate::daw::actions::synth::add(&state, &crate::daw::effects::testing::synth().id).unwrap().row_id;
   let slot = rig.slot_of(synth);
   rig.turn(slot, 0.3);
   edit(&state, None, |seq| seq.set_row_volume(synth, 0.5)).unwrap();
   edit(&state, None, |seq| seq.set_row_muted(quiet, true)).unwrap();
-  state.playlist.effects.keep_window_position(slot, crate::effects::WindowPosition { x: 5., y: 6. });
+  state.playlist.effects.keep_window_position(slot, crate::daw::effects::WindowPosition { x: 5., y: 6. });
   let pattern = state.playlist.sequencer.lock().unwrap().add_pattern(8, 4).unwrap();
-  let note = daw::PatternNote { pitch: 64, start: 2., length: 3., velocity: 0.5 };
-  crate::actions::sequencer::set_pattern_notes_in(&state, pattern, synth, vec![note], None, false).unwrap();
+  let note = sequencer::PatternNote { pitch: 64, start: 2., length: 3., velocity: 0.5 };
+  crate::daw::actions::sequencer::set_pattern_notes_in(&state, pattern, synth, vec![note], None, false).unwrap();
   let folder = state.playlist.sequencer.lock().unwrap().add_folder("Keys", None).unwrap();
   state.playlist.sequencer.lock().unwrap().move_pattern(pattern, Some(folder)).unwrap();
-  crate::actions::sequencer::add_pattern_clip_for_tests(&state, pattern, 3, Some(0.));
+  crate::daw::actions::sequencer::add_pattern_clip_for_tests(&state, pattern, 3, Some(0.));
   save_to(&state, &file).unwrap();
 
   let json: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
@@ -971,7 +973,7 @@ fn test_synth_rows_saved_and_loaded() {
   assert_eq!((made.length, made.floor, made.folder), (128, 128, Some(folder)));
   assert_eq!(*made.notes[&synth], vec![note]);
   assert!((other.gain_of(slot) - 0.3).abs() < 1e-6);
-  assert_eq!(other.effects().window_position(slot), Some(crate::effects::WindowPosition { x: 5., y: 6. }));
+  assert_eq!(other.effects().window_position(slot), Some(crate::daw::effects::WindowPosition { x: 5., y: 6. }));
   // the track's copy is there, playing the master copy's settings
   assert_eq!(other.copy_gain(slot, Some(3)), Some(0.3));
   assert!((other.hear_notes(slot, Some(3), &[(60, 0, 300)], 400)[100] - 0.3 * 0.5).abs() < 1e-6);
@@ -992,7 +994,7 @@ fn test_synth_rows_saved_and_loaded() {
 
 #[test]
 fn test_a_missing_synth_keeps_its_notes_and_settings() {
-  use crate::effects::testing::*;
+  use crate::daw::effects::testing::*;
   let gone = gone_synth();
   let json = serde_json::json!({
     "version": 4,
@@ -1025,7 +1027,7 @@ fn test_a_missing_synth_keeps_its_notes_and_settings() {
 
 #[test]
 fn test_a_stage_one_project_loads_without_its_instruments_and_notes() {
-  use crate::effects::testing::*;
+  use crate::daw::effects::testing::*;
   let json = serde_json::json!({
     "version": 2,
     "sequencer": {
@@ -1064,7 +1066,7 @@ fn test_a_stage_one_project_loads_without_its_instruments_and_notes() {
 // saved
 
 fn tick_clip(state: &daw::InnerState, track: u32, beat: f32) -> u64 {
-  crate::actions::clip::add_clip(state, daw::METRONOME_TICK_PATH.to_string(), track, Some(beat))
+  crate::daw::actions::clip::add_clip(state, playback::METRONOME_TICK_PATH.to_string(), track, Some(beat))
     .unwrap()
     .id
 }
@@ -1089,9 +1091,9 @@ fn test_a_clip_is_a_change_until_undone() {
 
   tick_clip(&state, 0, 4.);
   assert!(has_unsaved_changes(&state));
-  crate::history::undo(&state).unwrap();
+  crate::daw::history::undo(&state).unwrap();
   assert!(!has_unsaved_changes(&state));
-  crate::history::redo(&state).unwrap();
+  crate::daw::history::redo(&state).unwrap();
   assert!(has_unsaved_changes(&state));
 }
 
@@ -1099,16 +1101,16 @@ fn test_a_clip_is_a_change_until_undone() {
 fn test_the_loop_region_and_end_are_saved() {
   let dir = test_dir("loop-region");
   let state = daw::InnerState::default();
-  *state.playlist.loop_region.lock().unwrap() = Some(daw::LoopRegion { start: 4., end: 10.5 });
+  *state.playlist.loop_region.lock().unwrap() = Some(playlist::LoopRegion { start: 4., end: 10.5 });
   *state.playlist.loop_end_pin.lock().unwrap() = Some(12.);
   let file = dir.join("song.dawesome");
   save_to(&state, &file).unwrap();
 
   let loaded = daw::InnerState::default();
   let settings = load_from(&loaded, &file).unwrap().settings;
-  assert_eq!(settings.loop_region, Some(daw::LoopRegion { start: 4., end: 10.5 }));
+  assert_eq!(settings.loop_region, Some(playlist::LoopRegion { start: 4., end: 10.5 }));
   assert_eq!(settings.loop_end_pin, Some(12.));
-  assert_eq!(*loaded.playlist.loop_region.lock().unwrap(), Some(daw::LoopRegion { start: 4., end: 10.5 }));
+  assert_eq!(*loaded.playlist.loop_region.lock().unwrap(), Some(playlist::LoopRegion { start: 4., end: 10.5 }));
   assert_eq!(*loaded.playlist.loop_end_pin.lock().unwrap(), Some(12.));
 
   // another project (or one from before they were saved) has neither
@@ -1128,7 +1130,7 @@ fn test_the_loop_region_and_end_are_saved() {
 fn test_a_loop_region_that_makes_no_sense_isnt_loaded() {
   let dir = test_dir("bad-loop-region");
   let state = daw::InnerState::default();
-  *state.playlist.loop_region.lock().unwrap() = Some(daw::LoopRegion { start: 8., end: 4. });
+  *state.playlist.loop_region.lock().unwrap() = Some(playlist::LoopRegion { start: 8., end: 4. });
   *state.playlist.loop_end_pin.lock().unwrap() = Some(-3.);
   let file = dir.join("song.dawesome");
   save_to(&state, &file).unwrap();
@@ -1151,12 +1153,12 @@ fn test_settings_outside_the_history_are_changes() {
 
   let state = daw::InnerState::default();
   mark_unchanged(&state);
-  state.set_tempo(daw::defaults::TEMPO + 10.);
+  state.set_tempo(defaults::TEMPO + 10.);
   assert!(has_unsaved_changes(&state));
 
   let state = daw::InnerState::default();
   mark_unchanged(&state);
-  *state.playlist.loop_region.lock().unwrap() = Some(daw::LoopRegion { start: 4., end: 8. });
+  *state.playlist.loop_region.lock().unwrap() = Some(playlist::LoopRegion { start: 4., end: 8. });
   assert!(has_unsaved_changes(&state));
 
   let state = daw::InnerState::default();
@@ -1192,9 +1194,9 @@ fn test_clips_in_another_order_are_no_change() {
   mark_unchanged(&state);
 
   // undoing a move puts the clip back at the end of the graph's list
-  crate::actions::clip::move_clip(&state, early, 0, Some(8.)).unwrap();
+  crate::daw::actions::clip::move_clip(&state, early, 0, Some(8.)).unwrap();
   assert!(has_unsaved_changes(&state));
-  crate::history::undo(&state).unwrap();
+  crate::daw::history::undo(&state).unwrap();
   assert!(!has_unsaved_changes(&state));
 }
 

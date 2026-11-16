@@ -2,6 +2,8 @@
 // project's recordings and clips on disk (see daw/daw_core/audio_settings.rs
 // and recording.rs). commands/audio.rs is the Audio Settings tab's side
 use crate::daw;
+use crate::daw::{audiograph, sequencer};
+use crate::engine::{self, audio_settings, input};
 use std::path::{Path, PathBuf};
 use rodio::cpal::traits::{DeviceTrait, HostTrait};
 use serde::Serialize;
@@ -34,7 +36,7 @@ pub struct OutputStatus {
 #[derive(Serialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AudioStatus {
-  settings: daw::AudioSettings,
+  settings: audio_settings::AudioSettings,
   // device names, to choose from
   outputs: Vec<String>,
   inputs: Vec<String>,
@@ -56,9 +58,9 @@ fn device_names<I: Iterator<Item = rodio::cpal::Device>>(devices: Result<I, rodi
 
 pub(crate) fn status() -> AudioStatus {
   let host = rodio::cpal::default_host();
-  let settings = daw::audio_settings();
+  let settings = engine::audio_settings();
 
-  let (output, open_error) = match daw::engine() {
+  let (output, open_error) = match engine::engine() {
     Ok(engine) => (Some(OutputStatus {
       device: engine.device_name().to_string(),
       sample_rate: engine.sample_rate(),
@@ -68,11 +70,11 @@ pub(crate) fn status() -> AudioStatus {
     Err(e) => (None, Some(format!("The audio output couldn't be opened: {}", e))),
   };
 
-  let buffer_choices = daw::output_device(settings.output_device.as_deref())
+  let buffer_choices = engine::output_device(settings.output_device.as_deref())
     .ok()
     .and_then(|device| device.default_output_config().ok())
-    .map(|config| daw::buffer_choices(config.buffer_size()))
-    .unwrap_or_else(|| daw::BUFFER_CHOICES.to_vec());
+    .map(|config| audio_settings::buffer_choices(config.buffer_size()))
+    .unwrap_or_else(|| audio_settings::BUFFER_CHOICES.to_vec());
 
   AudioStatus {
     settings,
@@ -80,7 +82,7 @@ pub(crate) fn status() -> AudioStatus {
     inputs: device_names(host.input_devices()),
     buffer_choices,
     output,
-    input: daw::input_if_open().map(|input| InputStatus {
+    input: input::input_if_open().map(|input| InputStatus {
       device: input.device_name().to_string(),
       channels: input.device_channels(),
       sample_rate: input.sample_rate(),
@@ -88,7 +90,7 @@ pub(crate) fn status() -> AudioStatus {
     }),
     notice: {
       // anything wrong with the output, then the input
-      let notices: Vec<String> = [open_error.or_else(daw::audio_notice), daw::input_notice()]
+      let notices: Vec<String> = [open_error.or_else(engine::audio_notice), input::input_notice()]
         .into_iter().flatten().collect();
       if notices.is_empty() { None } else { Some(notices.join(". ")) }
     },
@@ -100,14 +102,14 @@ pub(crate) fn status() -> AudioStatus {
 #[derive(Serialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordSetup {
-  armed: Vec<crate::recording::ArmedTrack>,
+  armed: Vec<crate::daw::recording::ArmedTrack>,
   // none when there's no input to record from
   input_channels: Option<u16>,
   input_error: Option<String>,
 }
 
 pub(crate) fn record_setup(state: &daw::InnerState) -> RecordSetup {
-  let (input_channels, input_error) = match daw::input_channel_count() {
+  let (input_channels, input_error) = match input::input_channel_count() {
     Ok(channels) => (Some(channels), None),
     Err(e) => (None, Some(e)),
   };
@@ -150,7 +152,7 @@ pub(crate) fn existing_dir(state: &daw::InnerState, library: Library) -> Option<
   match library {
     Library::Recordings => location.existing_recordings_dir(),
     Library::Clips => location.path.as_deref()
-      .map(crate::project_files::clips_dir_for)
+      .map(crate::daw::project_files::clips_dir_for)
       .filter(|dir| dir.is_dir()),
   }
 }
@@ -160,12 +162,12 @@ pub(crate) fn existing_dir(state: &daw::InnerState, library: Library) -> Option<
 // - make: make the folder for a project that hasn't got one yet (recordings
 //   can be made for an unsaved project, clips only for a saved one)
 pub(crate) fn dir_to_change(state: &daw::InnerState, library: Library, make: bool) -> Result<PathBuf, String> {
-  if library == Library::Recordings && crate::recording::is_busy(state) {
+  if library == Library::Recordings && crate::daw::recording::is_busy(state) {
     return Err("wait for the recording to finish".into());
   }
   let mut location = state.project.lock().unwrap();
   if library == Library::Clips {
-    let dir = location.path.as_deref().map(crate::project_files::clips_dir_for)
+    let dir = location.path.as_deref().map(crate::daw::project_files::clips_dir_for)
       .ok_or_else(|| "the project has no clips yet".to_string())?;
     if !dir.is_dir() {
       if !make { return Err("the project has no clips yet".into()); }
@@ -188,9 +190,9 @@ pub struct MovedRecording {
   // where it is now: a take's full path, or a folder's path relative to the
   // recordings folder (as they were given)
   pub path: String,
-  pub moved_clips: Vec<crate::project::MovedClip>,
+  pub moved_clips: Vec<crate::daw::project::MovedClip>,
   // the sequencer, when a row plays a take that moved
-  pub sequencer: Option<daw::SequencerState>,
+  pub sequencer: Option<sequencer::SequencerState>,
   // the saved project file couldn't be changed to follow it, so it'll only
   // find it once the project's saved again
   pub problem: Option<String>,
@@ -207,10 +209,10 @@ fn moved_path(path: &str, from: &Path, to: &Path) -> Option<String> {
 // from where it is now, and so does the saved project file
 fn moved(state: &daw::InnerState, from: &Path, to: &Path, path: String) -> MovedRecording {
   let (moved_clips, sequencer) = repoint(state, from, to);
-  crate::project::follow_moved_in_baseline(state, from, to);
+  crate::daw::project::follow_moved_in_baseline(state, from, to);
   let project = state.project.lock().unwrap().path.clone();
   let problem = project
-    .and_then(|file| crate::project::follow_moved_recording(&file, from, to).err())
+    .and_then(|file| crate::daw::project::follow_moved_recording(&file, from, to).err())
     .map(|e| format!("the project file still has the old place, until it's saved: {}", e));
   if let Some(problem) = &problem { println!("{}", problem); }
   MovedRecording { path, moved_clips, sequencer, problem }
@@ -218,7 +220,7 @@ fn moved(state: &daw::InnerState, from: &Path, to: &Path, path: String) -> Moved
 
 // clips and sequencer rows playing `from` (a take, or anything in a folder)
 // play from `to` instead
-fn repoint(state: &daw::InnerState, from: &Path, to: &Path) -> (Vec<crate::project::MovedClip>, Option<daw::SequencerState>) {
+fn repoint(state: &daw::InnerState, from: &Path, to: &Path) -> (Vec<crate::daw::project::MovedClip>, Option<sequencer::SequencerState>) {
   let mut moved_clips = Vec::new();
   if from == to { return (moved_clips, None); }
 
@@ -226,7 +228,7 @@ fn repoint(state: &daw::InnerState, from: &Path, to: &Path) -> (Vec<crate::proje
   for node in audiograph.nodes.iter_mut() {
     if let Some(path) = moved_path(node.sample_path(), from, to) {
       node.set_sample_path(path.clone());
-      moved_clips.push(crate::project::MovedClip { id: node.id, path });
+      moved_clips.push(crate::daw::project::MovedClip { id: node.id, path });
     }
   }
 
@@ -238,7 +240,7 @@ fn repoint(state: &daw::InnerState, from: &Path, to: &Path) -> (Vec<crate::proje
   // clips and rows that undoing would put back follow the file too
   state.history.lock().unwrap().repoint(&|path| moved_path(path, from, to));
   // and so does the sound decoded from it, for clips made of it from now on
-  daw::decoded_moved(&|path| moved_path(path, from, to));
+  audiograph::decoded_moved(&|path| moved_path(path, from, to));
 
   (moved_clips, sequencer)
 }
@@ -255,7 +257,7 @@ fn in_use(state: &daw::InnerState, path: &Path) -> bool {
 pub(crate) fn rename_recording_in(state: &daw::InnerState, path: &str, name: &str, library: Library) -> Result<MovedRecording, String> {
   let dir = dir_to_change(state, library, false)?;
   let from = PathBuf::from(path);
-  let to = library.worded(crate::project_files::rename_take(&from, &dir, name))?;
+  let to = library.worded(crate::daw::project_files::rename_take(&from, &dir, name))?;
   let path = to.to_string_lossy().into_owned();
   Ok(moved(state, &from, &to, path))
 }
@@ -266,7 +268,7 @@ pub(crate) fn move_recording_in(state: &daw::InnerState, path: &str, to_folder: 
   if !from.is_file() {
     return Err(format!("that isn't one of the project's {}", library.nouns()));
   }
-  let to = library.worded(crate::project_files::move_into(&dir, &from, to_folder))?;
+  let to = library.worded(crate::daw::project_files::move_into(&dir, &from, to_folder))?;
   let path = to.to_string_lossy().into_owned();
   Ok(moved(state, &from, &to, path))
 }
@@ -276,23 +278,23 @@ pub(crate) fn move_recording_folder_in(state: &daw::InnerState, folder: &str, to
   if folder.is_empty() {
     return Err(format!("the {} folder itself can't be moved", library.nouns()));
   }
-  let from = library.worded(crate::project_files::folder_in(&dir, folder))?;
-  let to = library.worded(crate::project_files::move_into(&dir, &from, to_folder))?;
-  let path = crate::project_files::relative(&dir, &to);
+  let from = library.worded(crate::daw::project_files::folder_in(&dir, folder))?;
+  let to = library.worded(crate::daw::project_files::move_into(&dir, &from, to_folder))?;
+  let path = crate::daw::project_files::relative(&dir, &to);
   Ok(moved(state, &from, &to, path))
 }
 
 pub(crate) fn rename_recording_folder_in(state: &daw::InnerState, folder: &str, name: &str, library: Library) -> Result<MovedRecording, String> {
   let dir = dir_to_change(state, library, false)?;
-  let (from, to) = library.worded(crate::project_files::rename_folder(&dir, folder, name))?;
-  let path = crate::project_files::relative(&dir, &to);
+  let (from, to) = library.worded(crate::daw::project_files::rename_folder(&dir, folder, name))?;
+  let path = crate::daw::project_files::relative(&dir, &to);
   Ok(moved(state, &from, &to, path))
 }
 
 pub(crate) fn delete_recording_in(state: &daw::InnerState, path: &str, library: Library) -> Result<(), String> {
   let dir = dir_to_change(state, library, false)?;
   let file = Path::new(path);
-  if !file.is_file() || !crate::project_files::is_inside(file, &dir) {
+  if !file.is_file() || !crate::daw::project_files::is_inside(file, &dir) {
     return Err(format!("that isn't one of the project's {}", library.nouns()));
   }
   if in_use(state, file) {
@@ -306,7 +308,7 @@ pub(crate) fn delete_recording_folder_in(state: &daw::InnerState, folder: &str, 
   if folder.is_empty() {
     return Err(format!("the {} folder itself can't be deleted", library.nouns()));
   }
-  let path = library.worded(crate::project_files::folder_in(&dir, folder))?;
+  let path = library.worded(crate::daw::project_files::folder_in(&dir, folder))?;
   if in_use(state, &path) {
     return Err(format!("the project still uses {} in this folder", library.nouns()));
   }

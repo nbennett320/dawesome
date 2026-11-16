@@ -1,4 +1,5 @@
 use super::*;
+use crate::engine;
 use std::path::Path;
 
 const RATE: u32 = 1_000;
@@ -357,7 +358,7 @@ fn test_a_take_that_cannot_be_created_leaves_the_input_usable() {
 #[test]
 #[ignore = "needs an audio input device"]
 fn test_the_device_input_records() {
-  let rate = daw::engine().expect("could not open the output").sample_rate();
+  let rate = engine::engine().expect("could not open the output").sample_rate();
   let input = open_input(None, rate).expect("could not open the input");
   let path = temp_take("device");
 

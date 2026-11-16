@@ -1,5 +1,5 @@
 // copy, cut, paste and repeat clips (see clipboard.rs)
-use crate::clipboard::{copy, cut, paste, repeat, Placed};
+use crate::daw::clipboard::{copy, cut, paste, repeat, Placed};
 use crate::commands::TState;
 
 // copy clips to the clipboard, replacing what was there. with no clips

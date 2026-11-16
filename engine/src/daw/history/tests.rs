@@ -1,6 +1,8 @@
 use super::*;
-use crate::actions::clip::{add_clip, change_clip_settings, move_clip, remove_clips};
-use crate::project;
+use crate::daw::{defaults, playback};
+use crate::engine::clip;
+use crate::daw::actions::clip::{add_clip, change_clip_settings, move_clip, remove_clips};
+use crate::daw::project;
 
 fn state() -> Arc<daw::InnerState> {
   Arc::new(daw::InnerState::default())
@@ -8,7 +10,7 @@ fn state() -> Arc<daw::InnerState> {
 
 // a clip of the metronome's tick on a beat
 fn clip(state: &daw::InnerState, track: u32, beat: f32) -> u64 {
-  add_clip(state, daw::METRONOME_TICK_PATH.to_string(), track, Some(beat)).unwrap().id
+  add_clip(state, playback::METRONOME_TICK_PATH.to_string(), track, Some(beat)).unwrap().id
 }
 
 // the project as it would be saved: what undo and redo have to get back to
@@ -17,7 +19,7 @@ fn saved(state: &daw::InnerState) -> project::Project {
 }
 
 fn beat_of(state: &daw::InnerState, id: u64) -> Option<f32> {
-  crate::actions::playlist::node_beat(state, id).ok()
+  crate::daw::actions::playlist::node_beat(state, id).ok()
 }
 
 fn steps(state: &daw::InnerState) -> usize {
@@ -73,7 +75,7 @@ fn test_moving_a_selection_is_one_step() {
   let was = steps(&state);
 
   // the command the playlist uses for a dragged selection
-  let moved = crate::actions::clip::move_clips(&state, &[a, b], a, 10., 2);
+  let moved = crate::daw::actions::clip::move_clips(&state, &[a, b], a, 10., 2);
   assert!(moved.is_ok());
   assert_eq!(steps(&state), was + 1);
   let after = saved(&state);
@@ -86,7 +88,7 @@ fn test_moving_a_selection_is_one_step() {
 fn test_deleting_a_selection_is_one_step() {
   let state = state();
   let ids: Vec<u64> = (0..5).map(|n| clip(&state, n % 3, n as f32 * 2.)).collect();
-  change_clip_settings(&state, ids[2], daw::ClipSettings { pitch: 7., ..Default::default() }, None).unwrap();
+  change_clip_settings(&state, ids[2], clip::ClipSettings { pitch: 7., ..Default::default() }, None).unwrap();
   let before = saved(&state);
   let was = steps(&state);
 
@@ -128,7 +130,7 @@ fn test_a_gesture_is_one_step() {
 
   // a knob dragged from 0 to -19dB sends many changes
   for n in 0..20 {
-    let settings = daw::ClipSettings { gain_db: -(n as f32), ..Default::default() };
+    let settings = clip::ClipSettings { gain_db: -(n as f32), ..Default::default() };
     change_clip_settings(&state, id, settings, Some(7)).unwrap();
   }
   assert_eq!(steps(&state), was + 1);
@@ -137,9 +139,9 @@ fn test_a_gesture_is_one_step() {
   there_and_back(&state, &before, &after);
 
   // another gesture is another step, and so is a change with none
-  change_clip_settings(&state, id, daw::ClipSettings { pan: 0.5, ..Default::default() }, Some(8)).unwrap();
-  change_clip_settings(&state, id, daw::ClipSettings { pan: 0.7, ..Default::default() }, None).unwrap();
-  change_clip_settings(&state, id, daw::ClipSettings { pan: 0.9, ..Default::default() }, None).unwrap();
+  change_clip_settings(&state, id, clip::ClipSettings { pan: 0.5, ..Default::default() }, Some(8)).unwrap();
+  change_clip_settings(&state, id, clip::ClipSettings { pan: 0.7, ..Default::default() }, None).unwrap();
+  change_clip_settings(&state, id, clip::ClipSettings { pan: 0.9, ..Default::default() }, None).unwrap();
   assert_eq!(steps(&state), was + 4);
 }
 
@@ -151,13 +153,13 @@ fn test_a_change_that_changes_nothing_is_no_step() {
 
   // dropped where it was
   move_clip(&state, id, 0, Some(4.)).unwrap();
-  change_clip_settings(&state, id, daw::ClipSettings::default(), None).unwrap();
+  change_clip_settings(&state, id, clip::ClipSettings::default(), None).unwrap();
   assert_eq!(steps(&state), was);
 
   // a gesture that ends where it began leaves nothing to undo
-  change_clip_settings(&state, id, daw::ClipSettings { pan: 0.5, ..Default::default() }, Some(3)).unwrap();
+  change_clip_settings(&state, id, clip::ClipSettings { pan: 0.5, ..Default::default() }, Some(3)).unwrap();
   assert_eq!(steps(&state), was + 1);
-  change_clip_settings(&state, id, daw::ClipSettings::default(), Some(3)).unwrap();
+  change_clip_settings(&state, id, clip::ClipSettings::default(), Some(3)).unwrap();
   assert_eq!(steps(&state), was);
 }
 
@@ -259,7 +261,7 @@ fn test_undo_and_redo_leave_files_alone() {
   std::fs::create_dir_all(&dir).unwrap();
   // a take, as a recording leaves it
   let take = dir.join("take.wav");
-  std::fs::copy(daw::METRONOME_TICK_PATH, &take).unwrap();
+  std::fs::copy(playback::METRONOME_TICK_PATH, &take).unwrap();
   let bytes = std::fs::read(&take).unwrap();
   let listing = || {
     let mut names: Vec<String> = std::fs::read_dir(&dir).unwrap()
@@ -272,7 +274,7 @@ fn test_undo_and_redo_leave_files_alone() {
 
   let state = state();
   let id = add_clip(&state, take.to_string_lossy().into_owned(), 0, Some(1.)).unwrap().id;
-  change_clip_settings(&state, id, daw::ClipSettings { pitch: 3., ..Default::default() }, None).unwrap();
+  change_clip_settings(&state, id, clip::ClipSettings { pitch: 3., ..Default::default() }, None).unwrap();
   move_clip(&state, id, 2, Some(6.)).unwrap();
   remove_clips(&state, &[id]).unwrap();
 
@@ -301,7 +303,7 @@ fn test_a_clip_comes_back_on_its_beat_after_a_tempo_change() {
 
 #[test]
 fn test_mixer_changes() {
-  use crate::actions::mixer as mixer;
+  use crate::daw::actions::mixer as mixer;
   let state = state();
   // something already set, which every undo has to leave alone
   mixer::change_track_pan(&state, 0, -0.5, None);
@@ -357,7 +359,7 @@ fn test_undoing_a_solo_lets_the_other_tracks_sound_again() {
   };
   assert!(level() > 0.);
 
-  crate::actions::mixer::change_track_solo(&state, 1, true);
+  crate::daw::actions::mixer::change_track_solo(&state, 1, true);
   assert_eq!(level(), 0.);
   undo(&state).unwrap();
   assert!(level() > 0.);
@@ -371,7 +373,7 @@ fn test_undoing_a_solo_lets_the_other_tracks_sound_again() {
 
 #[test]
 fn test_a_fader_drag_is_one_step() {
-  use crate::actions::mixer as mixer;
+  use crate::daw::actions::mixer as mixer;
   let state = state();
   mixer::change_track_volume(&state, 0, -6., None);
   let before = saved(&state);
@@ -402,7 +404,7 @@ fn test_a_fader_drag_is_one_step() {
 
 #[test]
 fn test_tempo_changes() {
-  use crate::actions::transport::change_tempo;
+  use crate::daw::actions::transport::change_tempo;
   let state = state();
   let id = clip(&state, 0, 8.);
   let ms = |id: u64| {
@@ -441,7 +443,7 @@ fn test_tempo_changes() {
 
 #[test]
 fn test_a_visit_to_the_tempo_field_is_one_step() {
-  use crate::actions::transport::change_tempo;
+  use crate::daw::actions::transport::change_tempo;
   let state = state();
   let before = saved(&state);
   // 100 typed, then changed to 140, without leaving the field
@@ -477,10 +479,10 @@ fn test_clips_that_come_back_follow_moved_files() {
 #[test]
 fn test_adding_a_track() {
   let state = state();
-  let default = daw::defaults::NUM_OF_TRACKS;
+  let default = defaults::NUM_OF_TRACKS;
   let before = saved(&state);
 
-  assert_eq!(crate::actions::playlist::add_track_to(&state), default + 1);
+  assert_eq!(crate::daw::actions::playlist::add_track_to(&state), default + 1);
   let added = saved(&state);
   assert_eq!(added.tracks, default + 1);
   assert_eq!(steps(&state), 1);
@@ -492,7 +494,7 @@ fn test_adding_a_track() {
 
   // under clips past it, the next track added is below them
   let id = clip(&state, default + 3, 0.);
-  assert_eq!(crate::actions::playlist::add_track_to(&state), default + 5);
+  assert_eq!(crate::daw::actions::playlist::add_track_to(&state), default + 5);
   remove_clips(&state, &[id]).unwrap();
   assert_eq!(state.playlist.audiograph.lock().unwrap().track_count(), default + 5);
 

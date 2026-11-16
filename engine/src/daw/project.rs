@@ -21,9 +21,11 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
+use crate::daw::{audiograph, defaults, playback, playlist, sequencer, timing};
+use crate::engine::{clip, mixer};
 use crate::daw;
-use crate::actions::clip::{clip_info, ClipInfo, ClipWindow};
-use crate::project_files::{self, recordings_dir_for};
+use crate::daw::actions::clip::{clip_info, ClipInfo, ClipWindow};
+use crate::daw::project_files::{self, recordings_dir_for};
 
 // the newest project format this version of the app reads and writes.
 // bump it when a change means older apps would misread a project. version 4
@@ -42,17 +44,17 @@ pub const PROJECT_VERSION_WITHOUT_WINDOWS: u32 = 1;
 #[serde(rename_all = "camelCase", default)]
 pub struct ProjectSettings {
   pub tempo: f32,
-  pub time_signature: daw::timing::TimeSignature,
+  pub time_signature: timing::TimeSignature,
   pub metronome_enabled: bool,
   pub loop_enabled: bool,
   pub snap_enabled: bool,
-  pub snap_note: daw::timing::Note,
+  pub snap_note: timing::Note,
   // whether recording counts in a bar first
   pub count_in: bool,
   // the part of the playlist that loops, drawn in the ruler (left out with
   // none, and by older apps)
   #[serde(skip_serializing_if = "Option::is_none")]
-  pub loop_region: Option<daw::LoopRegion>,
+  pub loop_region: Option<playlist::LoopRegion>,
   // where the loop's end flag was dragged to, in beats (left out when it
   // follows the last clip)
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -62,12 +64,12 @@ pub struct ProjectSettings {
 impl Default for ProjectSettings {
   fn default() -> Self {
     ProjectSettings {
-      tempo: daw::defaults::TEMPO,
-      time_signature: daw::timing::TimeSignature { numerator: 4, denominator: 4 },
+      tempo: defaults::TEMPO,
+      time_signature: timing::TimeSignature { numerator: 4, denominator: 4 },
       metronome_enabled: true,
       loop_enabled: true,
-      snap_enabled: daw::defaults::SNAP_ENABLED,
-      snap_note: daw::defaults::SNAP_SUBDIVISION,
+      snap_enabled: defaults::SNAP_ENABLED,
+      snap_note: defaults::SNAP_SUBDIVISION,
       count_in: false,
       loop_region: None,
       loop_end_pin: None,
@@ -85,7 +87,7 @@ pub struct ProjectClip {
   // beats from the start of the playlist
   pub start_beat: f64,
   #[serde(default)]
-  pub settings: daw::ClipSettings,
+  pub settings: clip::ClipSettings,
   // the part of the sample it plays, in seconds. left out for all of it
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub window: Option<ClipWindow>,
@@ -127,21 +129,21 @@ pub struct Project {
   #[serde(skip_serializing_if = "is_default_track_count")]
   pub tracks: u32,
   // only tracks changed from their defaults, or named, are saved
-  pub mixer: daw::MixerSettings,
+  pub mixer: mixer::MixerSettings,
   // the Sequencer tab's rows (with their sample paths saved like clips'),
   // patterns and folders, left out when there are none. under a key of its
   // own, which older apps don't read: they get as far as the version, and
   // say the project is newer
-  #[serde(rename = "patternSequencer", skip_serializing_if = "daw::SavedSequencer::is_empty")]
-  pub sequencer: daw::SavedSequencer,
+  #[serde(rename = "patternSequencer", skip_serializing_if = "sequencer::SavedSequencer::is_empty")]
+  pub sequencer: sequencer::SavedSequencer,
   #[serde(skip_serializing_if = "Vec::is_empty")]
   pub pattern_clips: Vec<ProjectPatternClip>,
   // the tracks armed to record, and the input channels each records
   #[serde(skip_serializing_if = "Vec::is_empty")]
-  pub armed: Vec<crate::recording::ArmedTrack>,
+  pub armed: Vec<crate::daw::recording::ArmedTrack>,
   // each channel's effects, in order, left out when there are none
   #[serde(skip_serializing_if = "Vec::is_empty")]
-  pub effects: Vec<crate::effects::SavedRack>,
+  pub effects: Vec<crate::daw::effects::SavedRack>,
   // what was left out of the file as it was read, a sentence for each kind
   // of thing (never saved)
   #[serde(skip)]
@@ -149,7 +151,7 @@ pub struct Project {
 }
 
 fn is_default_track_count(tracks: &u32) -> bool {
-  *tracks == daw::defaults::NUM_OF_TRACKS
+  *tracks == defaults::NUM_OF_TRACKS
 }
 
 // the most tracks a project file can ask for, so a bad one can't make the
@@ -162,9 +164,9 @@ impl Default for Project {
       version: PROJECT_VERSION_WITHOUT_WINDOWS,
       settings: ProjectSettings::default(),
       clips: Vec::new(),
-      tracks: daw::defaults::NUM_OF_TRACKS,
-      mixer: daw::MixerSettings::default(),
-      sequencer: daw::SavedSequencer::default(),
+      tracks: defaults::NUM_OF_TRACKS,
+      mixer: mixer::MixerSettings::default(),
+      sequencer: sequencer::SavedSequencer::default(),
       pattern_clips: Vec::new(),
       armed: Vec::new(),
       effects: Vec::new(),
@@ -196,7 +198,7 @@ impl Project {
     }
 
     let tempo = self.settings.tempo;
-    if !daw::timing::valid_tempo(tempo) {
+    if !timing::valid_tempo(tempo) {
       return Err(format!("the project's tempo ({}) is out of range", tempo));
     }
 
@@ -227,7 +229,7 @@ pub struct LoadedClip {
 impl LoadedClip {
   // a clip in the playlist, as the frontend shows it
   // - interval: a beat's length
-  pub fn of(node: &daw::AudioNode, interval: Duration) -> Self {
+  pub fn of(node: &audiograph::AudioNode, interval: Duration) -> Self {
     LoadedClip {
       id: node.id,
       path: node.sample_path().to_string(),
@@ -252,7 +254,7 @@ pub struct LoadedPatternClip {
 }
 
 impl LoadedPatternClip {
-  pub fn of(node: &daw::PatternNode, interval: Duration) -> Self {
+  pub fn of(node: &audiograph::PatternNode, interval: Duration) -> Self {
     LoadedPatternClip {
       id: node.id,
       pattern_id: node.pattern_id,
@@ -325,15 +327,15 @@ pub struct LoadedProject {
   pub clips: Vec<LoadedClip>,
   pub missing: Vec<MissingSample>,
   // every track's strip, up to the playlist's track count
-  pub mixer: daw::MixerSettings,
-  pub sequencer: daw::SequencerState,
+  pub mixer: mixer::MixerSettings,
+  pub sequencer: sequencer::SequencerState,
   pub pattern_clips: Vec<LoadedPatternClip>,
-  pub armed: Vec<crate::recording::ArmedTrack>,
+  pub armed: Vec<crate::daw::recording::ArmedTrack>,
   // each channel's effects
-  pub effects: crate::effects::Racks,
+  pub effects: crate::daw::effects::Racks,
   // effects whose plugins couldn't be loaded (they're in their racks,
   // marked missing), and synth rows' (in their rows, marked missing)
-  pub missing_effects: Vec<crate::effects::MissingEffect>,
+  pub missing_effects: Vec<crate::daw::effects::MissingEffect>,
   // what the file had that was left out, a sentence for each kind of thing
   // (for the project notice; empty when nothing was)
   pub dropped: Vec<String>,
@@ -453,7 +455,7 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
   }
 
   let mut mixer = state.playlist.mixer.settings(0);
-  mixer.tracks.retain(|track| track.settings != daw::ChannelSettings::default() || track.labelled());
+  mixer.tracks.retain(|track| track.settings != mixer::ChannelSettings::default() || track.labelled());
 
   let uses_patterns = !sequencer.is_empty() || !pattern_clips.is_empty();
   let uses_windows = clips.iter().any(|clip| clip.window.is_some());
@@ -493,10 +495,10 @@ pub fn capture(state: &daw::InnerState, project_dir: Option<&Path>) -> Project {
 // the pattern's end (see PatternNode::set_span for the rest)
 fn saved_span(clip: &ProjectPatternClip, length: u32) -> (f64, f64) {
   let start = if clip.start.is_finite() { clip.start.max(0.) } else { 0. };
-  let own = if clip.length.is_finite() && clip.length >= daw::MIN_PATTERN_CLIP {
+  let own = if clip.length.is_finite() && clip.length >= audiograph::MIN_PATTERN_CLIP {
     clip.length
   } else {
-    (length as f64 - start).max(daw::MIN_PATTERN_CLIP)
+    (length as f64 - start).max(audiograph::MIN_PATTERN_CLIP)
   };
   (start, own)
 }
@@ -509,7 +511,7 @@ pub fn apply(
   project: &Project,
   project_dir: Option<&Path>,
 ) -> LoadedProject {
-  daw::stop_playlist(state);
+  playback::stop_playlist(state);
   // another project's changes can't be undone in this one, nor its clips
   // pasted into it
   state.history.lock().unwrap().clear();
@@ -517,12 +519,12 @@ pub fn apply(
 
   // the samples are decoded before taking any locks: it takes a while, and
   // playback (and the playhead, polled from the UI) needs the graph's
-  let decoded: Vec<(String, Result<daw::AudioNode, String>)> = project.clips.iter()
+  let decoded: Vec<(String, Result<audiograph::AudioNode, String>)> = project.clips.iter()
     .map(|clip| {
       let path = resolved_path(&clip.path, project_dir);
       let path_str = path.to_string_lossy().into_owned();
       let node = if path.is_file() {
-        daw::AudioNode::new(0, path_str.clone(), Duration::ZERO, clip.track_number)
+        audiograph::AudioNode::new(0, path_str.clone(), Duration::ZERO, clip.track_number)
       } else {
         Err("file not found".into())
       };
@@ -538,7 +540,7 @@ pub fn apply(
     *path = resolved_path(path, project_dir).to_string_lossy().into_owned();
   }
   saved.renumber_slots(|| state.playlist.effects.new_id());
-  let row_sounds = daw::RowSound::load_rows(&saved);
+  let row_sounds = sequencer::RowSound::load_rows(&saved);
   // the effects and synths, with no lock held: their plugins load on the
   // main thread. the synths' plugins don't follow the rows until they're
   // the new project's
@@ -547,12 +549,12 @@ pub fn apply(
   missing_effects.extend(state.playlist.effects.load_synths(&saved.rows));
   // the UI isn't frozen while that loads: anything played meanwhile stops
   // before the playlist changes under it
-  daw::stop_playlist(state);
+  playback::stop_playlist(state);
 
   // (a loop region or end that makes no sense is left out)
   let settings = ProjectSettings {
-    loop_region: project.settings.loop_region.and_then(daw::LoopRegion::valid),
-    loop_end_pin: project.settings.loop_end_pin.and_then(daw::valid_loop_end_pin),
+    loop_region: project.settings.loop_region.and_then(playlist::LoopRegion::valid),
+    loop_end_pin: project.settings.loop_end_pin.and_then(playlist::valid_loop_end_pin),
     ..project.settings
   };
   state.metronome_enabled.store(settings.metronome_enabled, Ordering::SeqCst);
@@ -572,7 +574,7 @@ pub fn apply(
 
   let mut audiograph = state.playlist.audiograph.lock().unwrap();
   audiograph.clear();
-  audiograph.min_tracks = project.tracks.clamp(daw::defaults::NUM_OF_TRACKS, MAX_SAVED_TRACKS);
+  audiograph.min_tracks = project.tracks.clamp(defaults::NUM_OF_TRACKS, MAX_SAVED_TRACKS);
   audiograph.set_tempo(settings.tempo);
   let interval = audiograph.beat_interval();
 
@@ -626,7 +628,7 @@ pub fn apply(
       continue;
     };
     let start_beat = if clip.start_beat.is_finite() { clip.start_beat.max(0.) } else { 0. };
-    match audiograph.add_pattern_node::<daw::timing::Note>(
+    match audiograph.add_pattern_node::<timing::Note>(
       clip.pattern_id, interval.mul_f64(start_beat), clip.track_number, None,
     ) {
       Ok(id) => {
@@ -654,9 +656,9 @@ pub fn apply(
   drop(audiograph);
   // each track gets a copy of the synths it plays
   drop(pause);
-  crate::actions::synth::follow(state);
+  crate::daw::actions::synth::follow(state);
   // in bars of the project's time signature, and as long as its clips
-  daw::fit_playlist(state);
+  playback::fit_playlist(state);
 
   LoadedProject {
     settings,
@@ -858,7 +860,7 @@ pub struct SavedProject {
   pub path: String,
   pub moved_clips: Vec<MovedClip>,
   // the sequencer, when a row's take was brought in too
-  pub sequencer: Option<daw::SequencerState>,
+  pub sequencer: Option<sequencer::SequencerState>,
   // takes that couldn't be brought into the project. they're still used
   // from where they are
   pub problems: Vec<String>,

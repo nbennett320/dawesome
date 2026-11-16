@@ -13,11 +13,13 @@ use std::collections::{BTreeMap, HashSet};
 use std::time::Duration;
 use serde::Serialize;
 
-use crate::bounce;
-use crate::actions::clip::{changed_clips, ChangedClips};
+use crate::daw::{audiograph, sequencer};
+use crate::engine::clip;
+use crate::daw::bounce;
+use crate::daw::actions::clip::{changed_clips, ChangedClips};
 use crate::daw;
-use crate::history;
-use crate::project_files;
+use crate::daw::history;
+use crate::daw::project_files;
 
 pub const ONE_TRACK: &str = "Join needs the clips to be on one track.";
 pub const ONE_KIND: &str = "Join needs clips of one kind: sample clips, or pattern clips.";
@@ -34,7 +36,7 @@ pub struct Joined {
   // the other clips, which are gone
   pub removed: Vec<u64>,
   // the sequencer, when joining pattern clips made a pattern
-  pub sequencer: Option<daw::SequencerState>,
+  pub sequencer: Option<sequencer::SequencerState>,
 }
 
 // - rate: the engine's rate, for a file that has to be written. None when
@@ -56,8 +58,8 @@ pub(crate) fn join(state: &daw::InnerState, ids: &[u64], rate: Option<u32>) -> R
     let tracks: HashSet<u32> = ids.iter().filter_map(|&id| audiograph.placement(id)).map(|(_, track)| track).collect();
     if tracks.len() > 1 { return Err(ONE_TRACK.into()); }
 
-    let mut samples: Vec<daw::AudioNode> = ids.iter().filter_map(|&id| audiograph.get_node_by_id(id).cloned()).collect();
-    let mut patterns: Vec<daw::PatternNode> = ids.iter().filter_map(|&id| audiograph.get_pattern_node_by_id(id).cloned()).collect();
+    let mut samples: Vec<audiograph::AudioNode> = ids.iter().filter_map(|&id| audiograph.get_node_by_id(id).cloned()).collect();
+    let mut patterns: Vec<audiograph::PatternNode> = ids.iter().filter_map(|&id| audiograph.get_pattern_node_by_id(id).cloned()).collect();
     samples.sort_by_key(|node| (node.start_offset, node.id));
     patterns.sort_by_key(|node| (node.start_offset, node.id));
     (samples, patterns)
@@ -73,7 +75,7 @@ pub(crate) fn join(state: &daw::InnerState, ids: &[u64], rate: Option<u32>) -> R
 // whether sample clips, in the order they start, are neighbouring parts of
 // one sample that still meet: played one after another, they're what one
 // clip of the lot would play
-fn samples_line_up(clips: &[daw::AudioNode]) -> bool {
+fn samples_line_up(clips: &[audiograph::AudioNode]) -> bool {
   clips.windows(2).all(|pair| {
     let (left, right) = (&pair[0], &pair[1]);
     let (a, b) = (left.settings(), right.settings());
@@ -88,7 +90,7 @@ fn samples_line_up(clips: &[daw::AudioNode]) -> bool {
   })
 }
 
-fn join_samples(state: &daw::InnerState, clips: Vec<daw::AudioNode>, rate: Option<u32>) -> Result<Joined, String> {
+fn join_samples(state: &daw::InnerState, clips: Vec<audiograph::AudioNode>, rate: Option<u32>) -> Result<Joined, String> {
   let ids: Vec<u64> = clips.iter().map(|node| node.id).collect();
   let (first, rest) = (ids[0], ids[1..].to_vec());
 
@@ -107,7 +109,7 @@ fn join_samples(state: &daw::InnerState, clips: Vec<daw::AudioNode>, rate: Optio
       for &id in &rest { audiograph.remove_node(id)?; }
       let node = audiograph.get_mut_node_by_id(first).expect("a clip that was just found");
       node.restore_window(start, end);
-      node.set_settings(daw::ClipSettings { decay_ms, ..node.settings() });
+      node.set_settings(clip::ClipSettings { decay_ms, ..node.settings() });
       Ok(())
     }, |_| vec![])?;
 
@@ -118,7 +120,7 @@ fn join_samples(state: &daw::InnerState, clips: Vec<daw::AudioNode>, rate: Optio
   let dir = bounce::clips_dir(state)?;
   let _writing = bounce::writing();
   let rate = rate.unwrap_or_else(|| clips[0].sample_rate());
-  let frame = |at: Duration| daw::run_frame(at.as_nanos() as i128, rate);
+  let frame = |at: Duration| audiograph::run_frame(at.as_nanos() as i128, rate);
   let starts = frame(clips[0].start_offset);
   let mut mixed: Vec<f32> = Vec::new();
   for clip in &clips {
@@ -141,7 +143,7 @@ fn join_samples(state: &daw::InnerState, clips: Vec<daw::AudioNode>, rate: Optio
   let path = project_files::numbered_path(&dir, &name, "join", &HashSet::new());
   bounce::write_wav(&path, rate, &mixed)?;
 
-  let swapped = daw::AudioNode::new(first, path.to_string_lossy().into_owned(), Duration::ZERO, 0)
+  let swapped = audiograph::AudioNode::new(first, path.to_string_lossy().into_owned(), Duration::ZERO, 0)
     .and_then(|mut node| history::clip_edit(state, &ids, None, || {
       let mut audiograph = state.playlist.audiograph.lock().unwrap();
       // a clip removed or changed while the file was being written: the
@@ -166,7 +168,7 @@ fn join_samples(state: &daw::InnerState, clips: Vec<daw::AudioNode>, rate: Optio
 
 // whether pattern clips, in the order they start, are neighbouring parts
 // of one pattern that still meet
-fn patterns_line_up(clips: &[daw::PatternNode], beat: Duration) -> bool {
+fn patterns_line_up(clips: &[audiograph::PatternNode], beat: Duration) -> bool {
   clips.windows(2).all(|pair| {
     let (left, right) = (&pair[0], &pair[1]);
     left.pattern_id == right.pattern_id
@@ -182,7 +184,7 @@ fn whole(steps: f64) -> Option<u32> {
 }
 
 // what a pattern is called (see Pattern::label)
-fn label(pattern: &daw::Pattern) -> String {
+fn label(pattern: &sequencer::Pattern) -> String {
   pattern.label()
 }
 
@@ -196,7 +198,7 @@ pub fn joined_name(names: &[String]) -> String {
   }
 }
 
-fn join_patterns(state: &daw::InnerState, clips: Vec<daw::PatternNode>) -> Result<Joined, String> {
+fn join_patterns(state: &daw::InnerState, clips: Vec<audiograph::PatternNode>) -> Result<Joined, String> {
   let ids: Vec<u64> = clips.iter().map(|node| node.id).collect();
   let (first, rest) = (ids[0], ids[1..].to_vec());
   let before = history::picture(state, &ids);
@@ -207,7 +209,7 @@ fn join_patterns(state: &daw::InnerState, clips: Vec<daw::PatternNode>) -> Resul
     let beat = audiograph.beat_interval();
     // a step's length, in seconds (not rounded to a whole nanosecond: over
     // a few bars that would add up to more than "on the grid" allows)
-    let step = beat.as_secs_f64() / daw::STEPS_PER_BEAT as f64;
+    let step = beat.as_secs_f64() / sequencer::STEPS_PER_BEAT as f64;
     if !(step > 0.) { return Err("there's no tempo to join at".into()); }
     if let Some(gone) = ids.iter().find(|&&id| audiograph.get_pattern_node_by_id(id).is_none()) {
       return Err(format!("no node with id {}", gone));
@@ -224,7 +226,7 @@ fn join_patterns(state: &daw::InnerState, clips: Vec<daw::PatternNode>) -> Resul
 
     let mut sequencer = audiograph.sequencer.lock().unwrap();
     let beats_per_bar = state.playlist.time_signature.lock().unwrap().numerator;
-    let mut notes: BTreeMap<u64, Vec<daw::PatternNote>> = BTreeMap::new();
+    let mut notes: BTreeMap<u64, Vec<sequencer::PatternNote>> = BTreeMap::new();
     let mut names = Vec::new();
     // how many steps the clips span, from the first's start
     let mut span = 0f64;
@@ -245,7 +247,7 @@ fn join_patterns(state: &daw::InnerState, clips: Vec<daw::PatternNode>) -> Resul
         for pass in clip.passes(pattern.length) {
           for note in pass.notes(row_notes) {
             let (starts, ends) = pass.plays(note);
-            notes.entry(row).or_default().push(daw::PatternNote {
+            notes.entry(row).or_default().push(sequencer::PatternNote {
               start: starts - from_step as f64 + at as f64,
               length: ends - starts,
               ..*note
@@ -256,15 +258,15 @@ fn join_patterns(state: &daw::InnerState, clips: Vec<daw::PatternNode>) -> Resul
       span = span.max(after + clip.length);
     }
     // (a long clip of a short pattern can hold more than a pattern can)
-    if notes.values().any(|row| row.len() > daw::MAX_NOTES) {
-      return Err(format!("a pattern can hold at most {} notes for a row", daw::MAX_NOTES));
+    if notes.values().any(|row| row.len() > sequencer::MAX_NOTES) {
+      return Err(format!("a pattern can hold at most {} notes for a row", sequencer::MAX_NOTES));
     }
 
     // as long as the clips' span, up to the next bar line
-    let bar = daw::steps_in_bars(1, beats_per_bar);
+    let bar = sequencer::steps_in_bars(1, beats_per_bar);
     let bars = ((span - 1e-6) / bar as f64).ceil().max(1.) as u32;
-    if bars > daw::PATTERN_BARS_MAX {
-      return Err(format!("Join needs the pattern clips to span no more than {} bars.", daw::PATTERN_BARS_MAX));
+    if bars > sequencer::PATTERN_BARS_MAX {
+      return Err(format!("Join needs the pattern clips to span no more than {} bars.", sequencer::PATTERN_BARS_MAX));
     }
     let length = bars * bar;
     let made = sequencer.add_pattern_after(clips[0].pattern_id, joined_name(&names), length, notes)?;
@@ -282,7 +284,7 @@ fn join_patterns(state: &daw::InnerState, clips: Vec<daw::PatternNode>) -> Resul
   // (recorded whatever happened: on a refusal nothing changed, and that's
   // no step)
   history::record_between(state, None, before, history::picture(state, &ids));
-  let sequencer = joined?.map(|_| crate::actions::synth::sequencer_state(state));
+  let sequencer = joined?.map(|_| crate::daw::actions::synth::sequencer_state(state));
   Ok(Joined { clips: changed_clips(state, &[first]), removed: rest, sequencer })
 }
 

@@ -19,7 +19,7 @@ use std::time::Duration;
 use rodio::Source;
 use serde::{Deserialize, Serialize};
 
-use crate::util::math::clamp_or;
+use crate::engine::util::math::clamp_or;
 
 // the quietest a fader goes. at or below this it's silent (shown as -∞)
 // (JSON has no infinity, so silence is stored as this)

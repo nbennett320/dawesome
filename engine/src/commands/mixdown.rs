@@ -4,9 +4,9 @@ use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use crate::actions::mixdown::{defaults_for, start, MixdownDefaults, MixdownOptions, Mixdowns, Status};
+use crate::daw::actions::mixdown::{defaults_for, start, MixdownDefaults, MixdownOptions, Mixdowns, Status};
+use crate::engine;
 use crate::commands::TState;
-use crate::daw;
 
 pub type MixdownState<'a> = tauri::State<'a, Arc<Mixdowns>>;
 
@@ -21,7 +21,7 @@ pub fn mixdown_defaults(state: TState<'_>) -> MixdownDefaults {
 // (off the main thread: it writes to the disk)
 #[tauri::command(async)]
 pub fn start_mixdown(state: TState<'_>, mixdowns: MixdownState<'_>, options: MixdownOptions) -> Result<(), String> {
-  start(&state, mixdowns.inner(), options, daw::open_engine_rate().unwrap_or(44_100)).map(|_| ())
+  start(&state, mixdowns.inner(), options, engine::open_engine_rate().unwrap_or(44_100)).map(|_| ())
 }
 
 #[tauri::command]

@@ -1,18 +1,19 @@
 // the Pattern Sequencer's commands (see actions/sequencer.rs)
 use std::thread;
-use crate::actions::sequencer::{
+use crate::daw::actions::sequencer::{
   add_pattern_clip_to, add_pattern_folder_to, add_pattern_of, add_sample, beats_per_bar, duplicate_pattern_of, edit,
   edit_pattern, edit_row, explode, paint, remove_pattern_folder_of, remove_pattern_of, remove_row_of, replace_sample,
   set_pattern_notes_in, set_pattern_step_in, toggle_pattern_in, trim_pattern_in, AddedFolder, AddedPattern, AddedRow,
   Exploded, Painted, RemovedPattern,
 };
+use crate::daw::{playback, sequencer};
+use crate::engine;
 use crate::commands::TState;
-use crate::actions::synth::sequencer_state;
-use crate::daw;
-use crate::project::LoadedPatternClip;
+use crate::daw::actions::synth::sequencer_state;
+use crate::daw::project::LoadedPatternClip;
 
 #[tauri::command]
-pub fn get_sequencer(state: TState<'_>) -> daw::SequencerState {
+pub fn get_sequencer(state: TState<'_>) -> sequencer::SequencerState {
   sequencer_state(&state)
 }
 
@@ -27,19 +28,19 @@ pub fn add_sample_row(state: TState<'_>, path: String) -> Result<AddedRow, Strin
 // plugin), each pattern they were in trimmed to what's left (see
 // Sequencer::trim_pattern)
 #[tauri::command]
-pub fn remove_row(state: TState<'_>, row_id: u64) -> Result<daw::SequencerState, String> {
+pub fn remove_row(state: TState<'_>, row_id: u64) -> Result<sequencer::SequencerState, String> {
   remove_row_of(&state, row_id)
 }
 
 // move a row to `index` in the list
 #[tauri::command]
-pub fn move_row(state: TState<'_>, row_id: u64, index: usize) -> Result<daw::SequencerState, String> {
+pub fn move_row(state: TState<'_>, row_id: u64, index: usize) -> Result<sequencer::SequencerState, String> {
   edit(&state, None, |seq| seq.move_row(row_id, index))
 }
 
 // label a row ("Snare"). a blank label shows its instrument's name again
 #[tauri::command]
-pub fn rename_row(state: TState<'_>, row_id: u64, name: String) -> Result<daw::RowChange, String> {
+pub fn rename_row(state: TState<'_>, row_id: u64, name: String) -> Result<sequencer::RowChange, String> {
   edit_row(&state, None, row_id, |seq| seq.rename_row(row_id, &name))
 }
 
@@ -50,7 +51,7 @@ pub fn set_row_volume(
   row_id: u64,
   volume: f32,
   gesture: Option<u64>,
-) -> Result<daw::RowChange, String> {
+) -> Result<sequencer::RowChange, String> {
   edit_row(&state, gesture, row_id, |seq| seq.set_row_volume(row_id, volume))
 }
 
@@ -61,7 +62,7 @@ pub fn set_row_pan(
   row_id: u64,
   pan: f32,
   gesture: Option<u64>,
-) -> Result<daw::RowChange, String> {
+) -> Result<sequencer::RowChange, String> {
   edit_row(&state, gesture, row_id, |seq| seq.set_row_pan(row_id, pan))
 }
 
@@ -71,7 +72,7 @@ pub fn set_row_muted(
   row_id: u64,
   muted: bool,
   gesture: Option<u64>,
-) -> Result<daw::RowChange, String> {
+) -> Result<sequencer::RowChange, String> {
   edit_row(&state, gesture, row_id, |seq| seq.set_row_muted(row_id, muted))
 }
 
@@ -83,7 +84,7 @@ pub fn replace_row_sample(
   state: TState<'_>,
   row_id: u64,
   path: String,
-) -> Result<daw::RowChange, String> {
+) -> Result<sequencer::RowChange, String> {
   replace_sample(&state, row_id, &path)
 }
 
@@ -99,7 +100,7 @@ pub fn preview_row(state: TState<'_>, row_id: u64) -> Result<(), String> {
 
   // (the output may have to be opened first, which takes a moment)
   thread::spawn(move || {
-    let previewed = daw::engine().and_then(|engine| engine.preview(instrument.preview(engine.sample_rate())));
+    let previewed = engine::engine().and_then(|engine| engine.preview(instrument.preview(engine.sample_rate())));
     if let Err(e) = previewed {
       println!("could not preview row {}: {}", row_id, e);
     }
@@ -112,19 +113,19 @@ pub fn preview_row(state: TState<'_>, row_id: u64) -> Result<(), String> {
 // each pattern where all of them were at the old one (so a row showing
 // steps still does)
 #[tauri::command]
-pub fn set_row_step_pitch(state: TState<'_>, row_id: u64, pitch: u8) -> Result<daw::SequencerState, String> {
+pub fn set_row_step_pitch(state: TState<'_>, row_id: u64, pitch: u8) -> Result<sequencer::SequencerState, String> {
   edit(&state, None, |seq| seq.set_row_step_pitch(row_id, pitch))
 }
 
 // the pitch that plays a sample row's sample unchanged
 #[tauri::command]
-pub fn set_row_sample_pitch(state: TState<'_>, row_id: u64, pitch: u8) -> Result<daw::RowChange, String> {
+pub fn set_row_sample_pitch(state: TState<'_>, row_id: u64, pitch: u8) -> Result<sequencer::RowChange, String> {
   edit_row(&state, None, row_id, |seq| seq.set_row_sample_pitch(row_id, pitch))
 }
 
 // whether a sample row's notes stop at their ends, or play the sample out
 #[tauri::command]
-pub fn set_row_gated(state: TState<'_>, row_id: u64, gated: bool) -> Result<daw::RowChange, String> {
+pub fn set_row_gated(state: TState<'_>, row_id: u64, gated: bool) -> Result<sequencer::RowChange, String> {
   edit_row(&state, None, row_id, |seq| seq.set_row_gated(row_id, gated))
 }
 
@@ -153,39 +154,39 @@ pub fn add_pattern_folder(state: TState<'_>, name: String, parent: Option<u64>) 
 }
 
 #[tauri::command]
-pub fn rename_pattern_folder(state: TState<'_>, folder_id: u64, name: String) -> Result<daw::SequencerState, String> {
+pub fn rename_pattern_folder(state: TState<'_>, folder_id: u64, name: String) -> Result<sequencer::SequencerState, String> {
   edit(&state, None, |seq| seq.rename_folder(folder_id, &name))
 }
 
 // move a folder of patterns into another, or (none) to the top
 #[tauri::command]
-pub fn move_pattern_folder(state: TState<'_>, folder_id: u64, parent: Option<u64>) -> Result<daw::SequencerState, String> {
+pub fn move_pattern_folder(state: TState<'_>, folder_id: u64, parent: Option<u64>) -> Result<sequencer::SequencerState, String> {
   edit(&state, None, |seq| seq.move_folder(folder_id, parent))
 }
 
 // put a pattern in a folder, or (none) at the top
 #[tauri::command]
-pub fn move_pattern(state: TState<'_>, pattern_id: u64, folder: Option<u64>) -> Result<daw::SequencerState, String> {
+pub fn move_pattern(state: TState<'_>, pattern_id: u64, folder: Option<u64>) -> Result<sequencer::SequencerState, String> {
   edit(&state, None, |seq| seq.move_pattern(pattern_id, folder))
 }
 
 // delete a folder of patterns, with its folders and patterns. refused while
 // any of its patterns is in the playlist, so no clip goes with it unseen
 #[tauri::command]
-pub fn remove_pattern_folder(state: TState<'_>, folder_id: u64) -> Result<daw::SequencerState, String> {
+pub fn remove_pattern_folder(state: TState<'_>, folder_id: u64) -> Result<sequencer::SequencerState, String> {
   remove_pattern_folder_of(&state, folder_id)
 }
 
 // name a pattern. a blank name shows its number again
 #[tauri::command]
-pub fn rename_pattern(state: TState<'_>, pattern_id: u64, name: String) -> Result<daw::SequencerState, String> {
+pub fn rename_pattern(state: TState<'_>, pattern_id: u64, name: String) -> Result<sequencer::SequencerState, String> {
   edit(&state, None, |seq| seq.rename_pattern(pattern_id, &name))
 }
 
 // make a pattern `bars` long (1 to PATTERN_BARS_MAX), and never trimmed
 // shorter. its clips in the playlist keep their own lengths
 #[tauri::command]
-pub fn set_pattern_bars(state: TState<'_>, pattern_id: u64, bars: u32) -> Result<daw::PatternChange, String> {
+pub fn set_pattern_bars(state: TState<'_>, pattern_id: u64, bars: u32) -> Result<sequencer::PatternChange, String> {
   let beats = beats_per_bar(&state);
   edit_pattern(&state, None, pattern_id, |seq| seq.set_pattern_bars(pattern_id, bars, beats))
 }
@@ -203,7 +204,7 @@ pub fn set_pattern_step(
   on: bool,
   gesture: Option<u64>,
   trim: Option<bool>,
-) -> Result<daw::PatternChange, String> {
+) -> Result<sequencer::PatternChange, String> {
   set_pattern_step_in(&state, pattern_id, row_id, step, on, gesture, trim.unwrap_or(false))
 }
 
@@ -217,10 +218,10 @@ pub fn set_pattern_notes(
   state: TState<'_>,
   pattern_id: u64,
   row_id: u64,
-  notes: Vec<daw::PatternNote>,
+  notes: Vec<sequencer::PatternNote>,
   gesture: Option<u64>,
   trim: Option<bool>,
-) -> Result<daw::PatternChange, String> {
+) -> Result<sequencer::PatternChange, String> {
   set_pattern_notes_in(&state, pattern_id, row_id, notes, gesture, trim.unwrap_or(false))
 }
 
@@ -230,7 +231,7 @@ pub fn set_pattern_notes(
 // newest. with nothing to trim (notes went back in those bars), nothing
 // changes and it's no step
 #[tauri::command]
-pub fn trim_pattern(state: TState<'_>, pattern_id: u64, gesture: Option<u64>) -> Result<daw::PatternChange, String> {
+pub fn trim_pattern(state: TState<'_>, pattern_id: u64, gesture: Option<u64>) -> Result<sequencer::PatternChange, String> {
   trim_pattern_in(&state, pattern_id, gesture)
 }
 
@@ -239,7 +240,7 @@ pub fn trim_pattern(state: TState<'_>, pattern_id: u64, gesture: Option<u64>) ->
 // plugins' master copies
 #[tauri::command]
 pub fn play_pattern(state: TState<'_>, pattern_id: u64, from_step: Option<f64>) -> Result<(), String> {
-  daw::start_pattern(state.inner(), pattern_id, from_step.unwrap_or(0.))
+  playback::start_pattern(state.inner(), pattern_id, from_step.unwrap_or(0.))
 }
 
 // pause whatever is playing, or loop the pattern if nothing is (from
@@ -253,7 +254,7 @@ pub fn toggle_pattern(state: TState<'_>, pattern_id: u64, from_step: Option<f64>
 // ruler). otherwise nothing happens
 #[tauri::command]
 pub fn seek_pattern(state: TState<'_>, pattern_id: u64, step: f64) -> Result<(), String> {
-  daw::seek_pattern(state.inner(), pattern_id, step)
+  playback::seek_pattern(state.inner(), pattern_id, step)
 }
 
 // place a pattern in the playlist, dropped at `drop_beat` on `track_number`

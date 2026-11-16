@@ -2,8 +2,8 @@
 use std::path::Path;
 
 use crate::commands::TState;
-use crate::project::{apply, has_unsaved_changes, load_from, mark_unchanged, save_project_to, LoadedProject, Project, SavedProject};
-use crate::project_files;
+use crate::daw::project::{apply, has_unsaved_changes, load_from, mark_unchanged, save_project_to, LoadedProject, Project, SavedProject};
+use crate::daw::project_files;
 
 // (async, like load_project: off the main thread, as it can take a while)
 #[tauri::command(async)]
@@ -23,7 +23,7 @@ pub fn project_file_for(path: String) -> String {
 pub fn load_project(state: TState<'_>, path: String) -> Result<LoadedProject, String> {
   let loaded = load_from(&state, Path::new(&path));
   // its armed tracks keep the input open, ready to record
-  crate::recording::hold_input_for_armed(&state);
+  crate::daw::recording::hold_input_for_armed(&state);
   loaded
 }
 
@@ -34,7 +34,7 @@ pub fn new_project(state: TState<'_>) -> LoadedProject {
   state.project.lock().unwrap().reset(None);
   mark_unchanged(&state);
   // nothing's armed: the input can close
-  crate::recording::hold_input_for_armed(&state);
+  crate::daw::recording::hold_input_for_armed(&state);
   loaded
 }
 

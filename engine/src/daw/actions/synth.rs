@@ -12,23 +12,25 @@ use std::sync::Arc;
 use std::time::Duration;
 use serde::Serialize;
 
+use crate::daw::sequencer;
+use crate::engine::{self, sample_voice};
 use crate::daw;
-use crate::actions::playlist::beat_to_offset;
-use crate::actions::sequencer::AddedRow;
-use crate::history;
-use crate::actions::history::{project_view, ProjectView};
+use crate::daw::actions::playlist::beat_to_offset;
+use crate::daw::actions::sequencer::AddedRow;
+use crate::daw::history;
+use crate::daw::actions::history::{project_view, ProjectView};
 
 // how often the synths are brought in line with the playlist, whatever
 // changed it, and the settings of those showing passed on to their copies
 const FOLLOW_EVERY: Duration = Duration::from_millis(250);
 
 // the sequencer as the frontend sees it, with its synth rows' plugins
-pub fn sequencer_state(state: &daw::InnerState) -> daw::SequencerState {
+pub fn sequencer_state(state: &daw::InnerState) -> sequencer::SequencerState {
   state.playlist.sequencer.lock().unwrap().state(&*state.playlist.effects)
 }
 
 // the synth rows' plugins, and which of them each track plays
-fn wanted(state: &daw::InnerState) -> (Vec<daw::Synth>, BTreeSet<(u64, u32)>) {
+fn wanted(state: &daw::InnerState) -> (Vec<sequencer::Synth>, BTreeSet<(u64, u32)>) {
   // the graph is locked before the sequencer, as everywhere
   let audiograph = state.playlist.audiograph.lock().unwrap();
   let needed = audiograph.synth_tracks();
@@ -75,11 +77,11 @@ pub fn add(state: &daw::InnerState, plugin_id: &str) -> Result<AddedRow, String>
 // another installed instrument on a synth row, in a new slot: the row keeps
 // its id, notes and settings, and the old plugin goes (undo brings it back,
 // with its own settings: see follow). one step to undo
-pub fn replace(state: &daw::InnerState, row_id: u64, plugin_id: &str) -> Result<daw::RowChange, String> {
+pub fn replace(state: &daw::InnerState, row_id: u64, plugin_id: &str) -> Result<sequencer::RowChange, String> {
   // (checked first, so a refusal loads nothing)
   state.playlist.sequencer.lock().unwrap().check_synth_row(row_id)?;
   let synth = state.playlist.effects.load_synth(plugin_id)?;
-  crate::actions::sequencer::edit_row(state, None, row_id, |seq| seq.replace_row_synth(row_id, synth))
+  crate::daw::actions::sequencer::edit_row(state, None, row_id, |seq| seq.replace_row_synth(row_id, synth))
 }
 
 #[derive(Serialize, Debug)]
@@ -129,7 +131,7 @@ pub fn add_on_track(state: &daw::InnerState, plugin_id: &str, track: u32, drop_b
 // - a synth row's plays on its plugin's master copy, which its mute does
 //   silence (that one plugin plays the pattern on its own too, which the
 //   mute is for), and a missing plugin plays nothing
-pub fn play_row_note_on(state: &daw::InnerState, engine: &daw::Engine, row_id: u64, pitch: u8, velocity: f32) -> Result<(), String> {
+pub fn play_row_note_on(state: &daw::InnerState, engine: &engine::Engine, row_id: u64, pitch: u8, velocity: f32) -> Result<(), String> {
   if pitch > 127 { return Err(format!("there's no note {}", pitch)); }
   let velocity = if velocity.is_finite() { velocity.clamp(0., 1.) } else { 1. };
   match key_on(state, row_id)? {
@@ -138,28 +140,28 @@ pub fn play_row_note_on(state: &daw::InnerState, engine: &daw::Engine, row_id: u
       if let Some(release) = release {
         state.playlist.held_keys.hold(row_id, pitch, release);
       }
-      engine.play(vec![engine.voice(voice, None, 0, daw::Route::Master)])
+      engine.play(vec![engine.voice(voice, None, 0, engine::Route::Master)])
     }
     KeyOn::Synth(slot) => {
       let Some(&copy) = state.playlist.effects.copy_ids().get(&(slot, None)) else { return Ok(()) };
-      engine.play_master_notes(copy, None, vec![daw::TimedNote::on(0, pitch, velocity)])
+      engine.play_master_notes(copy, None, vec![engine::TimedNote::on(0, pitch, velocity)])
     }
   }
 }
 
-pub fn stop_row_note_on(state: &daw::InnerState, engine: &daw::Engine, row_id: u64, pitch: u8) -> Result<(), String> {
+pub fn stop_row_note_on(state: &daw::InnerState, engine: &engine::Engine, row_id: u64, pitch: u8) -> Result<(), String> {
   let pitch = pitch.min(127);
   // (whatever a sample row's key is holding fades out)
   state.playlist.held_keys.let_go(row_id, pitch);
   let KeyOn::Synth(slot) = key_on(state, row_id)? else { return Ok(()) };
   let Some(&copy) = state.playlist.effects.copy_ids().get(&(slot, None)) else { return Ok(()) };
-  engine.play_master_notes(copy, None, vec![daw::TimedNote::off(0, pitch)])
+  engine.play_master_notes(copy, None, vec![engine::TimedNote::off(0, pitch)])
 }
 
 // what a key on a row plays
 enum KeyOn {
   // a sample row's sample
-  Sample(daw::SampleInstrument),
+  Sample(sample_voice::SampleInstrument),
   // a synth row's plugin, by its slot
   Synth(u64),
 }

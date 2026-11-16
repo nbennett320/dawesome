@@ -1,9 +1,11 @@
 use super::*;
-use crate::test_support::play;
+use crate::daw::{audiograph, sequencer, timing};
+use crate::engine::clip;
+use crate::daw::test_support::play;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use crate::actions::clip::{add_clip, change_clip_settings, ClipWindow};
-use crate::project;
+use crate::daw::actions::clip::{add_clip, change_clip_settings, ClipWindow};
+use crate::daw::project;
 
 const KICK: &str = "assets/assets_66-bd-01.wav";
 const SNARE: &str = "assets/assets_66-sd-01.wav";
@@ -41,7 +43,7 @@ fn worst(a: &[f32], b: &[f32]) -> f32 {
   a.iter().zip(b).map(|(a, b)| (a - b).abs()).fold(0., f32::max)
 }
 
-fn node(state: &daw::InnerState, id: u64) -> daw::AudioNode {
+fn node(state: &daw::InnerState, id: u64) -> audiograph::AudioNode {
   state.playlist.audiograph.lock().unwrap().get_node_by_id(id).unwrap().clone()
 }
 
@@ -61,7 +63,7 @@ fn test_the_halves_of_a_cut_are_put_back_together_and_nothing_is_written() {
   let state = Arc::new(daw::InnerState::default());
   state.playlist.ui.lock().unwrap().snap_enabled = false;
   let id = add_clip(&state, KICK.to_string(), 1, Some(1.337)).unwrap().id;
-  change_clip_settings(&state, id, daw::ClipSettings {
+  change_clip_settings(&state, id, clip::ClipSettings {
     pitch: -5., gain_db: -3., pan: 0.2, attack_ms: 10., decay_ms: 20.,
   }, None).unwrap();
   let whole = node(&state, id);
@@ -69,8 +71,8 @@ fn test_the_halves_of_a_cut_are_put_back_together_and_nothing_is_written() {
   let before = saved(&state);
 
   // cut in three, then joined
-  let right = crate::actions::clip::split(&state, &[id], 1.45).unwrap().clips[1].id;
-  let last = crate::actions::clip::split(&state, &[right], 1.6).unwrap().clips[1].id;
+  let right = crate::daw::actions::clip::split(&state, &[id], 1.45).unwrap().clips[1].id;
+  let last = crate::daw::actions::clip::split(&state, &[right], 1.6).unwrap().clips[1].id;
   state.history.lock().unwrap().clear();
   let joined = join(&state, &[last, id, right], Some(rate)).unwrap();
 
@@ -98,7 +100,7 @@ fn test_halves_that_no_longer_line_up_are_not_healed() {
   let state = Arc::new(daw::InnerState::default());
   let cut = |beat: f32| {
     let id = add_clip(&state, KICK.to_string(), 0, Some(beat)).unwrap().id;
-    let right = crate::actions::clip::split(&state, &[id], beat as f64 + 0.1).unwrap().clips[1].id;
+    let right = crate::daw::actions::clip::split(&state, &[id], beat as f64 + 0.1).unwrap().clips[1].id;
     (id, right)
   };
   let refused = |ids: &[u64]| join(&state, ids, Some(44_100)).unwrap_err();
@@ -110,10 +112,10 @@ fn test_halves_that_no_longer_line_up_are_not_healed() {
   state.playlist.audiograph.lock().unwrap().move_node(b, Duration::from_millis(1_100), 0).unwrap();
   assert_eq!(refused(&[a, b]), bounce::NEEDS_SAVING);
   let (a, b) = cut(8.);
-  change_clip_settings(&state, b, daw::ClipSettings { pitch: 1., ..Default::default() }, None).unwrap();
+  change_clip_settings(&state, b, clip::ClipSettings { pitch: 1., ..Default::default() }, None).unwrap();
   assert_eq!(refused(&[a, b]), bounce::NEEDS_SAVING);
   let (a, b) = cut(16.);
-  change_clip_settings(&state, a, daw::ClipSettings { decay_ms: 5., ..Default::default() }, None).unwrap();
+  change_clip_settings(&state, a, clip::ClipSettings { decay_ms: 5., ..Default::default() }, None).unwrap();
   assert_eq!(refused(&[a, b]), bounce::NEEDS_SAVING);
   // two whole clips of the same file end to end aren't parts of one clip
   let a = add_clip(&state, KICK.to_string(), 0, Some(24.)).unwrap().id;
@@ -132,10 +134,10 @@ fn test_other_sample_clips_are_written_out_as_one_file() {
   let a = add_clip(&state, one, 2, Some(1.25)).unwrap().id;
   let b = add_clip(&state, two.clone(), 2, Some(3.75)).unwrap().id;
   let c = add_clip(&state, two, 2, Some(4.5)).unwrap().id;
-  change_clip_settings(&state, a, daw::ClipSettings { pitch: -4., pan: -0.5, attack_ms: 30., ..Default::default() }, None).unwrap();
-  change_clip_settings(&state, b, daw::ClipSettings { gain_db: -9., ..Default::default() }, None).unwrap();
-  change_clip_settings(&state, c, daw::ClipSettings { gain_db: -9., pan: 0.5, decay_ms: 100., ..Default::default() }, None).unwrap();
-  crate::actions::clip::set_windows(&state, &[crate::actions::clip::WindowEdit {
+  change_clip_settings(&state, a, clip::ClipSettings { pitch: -4., pan: -0.5, attack_ms: 30., ..Default::default() }, None).unwrap();
+  change_clip_settings(&state, b, clip::ClipSettings { gain_db: -9., ..Default::default() }, None).unwrap();
+  change_clip_settings(&state, c, clip::ClipSettings { gain_db: -9., pan: 0.5, decay_ms: 100., ..Default::default() }, None).unwrap();
+  crate::daw::actions::clip::set_windows(&state, &[crate::daw::actions::clip::WindowEdit {
     id: c, window: ClipWindow { start: 0.1, end: Some(0.6) },
   }]).unwrap();
   let (start, track) = (node(&state, a).start_offset, 2);
@@ -150,13 +152,13 @@ fn test_other_sample_clips_are_written_out_as_one_file() {
   let after = node(&state, a);
   assert_eq!(state.playlist.audiograph.lock().unwrap().nodes.len(), 1);
   assert_eq!((after.start_offset, after.track_number), (start, track));
-  assert_eq!((after.settings(), after.window()), (daw::ClipSettings::default(), None));
+  assert_eq!((after.settings(), after.window()), (clip::ClipSettings::default(), None));
   // named after the first clip's file
   let file = dir.join("clips").join("First_join_1.wav");
   assert_eq!(after.sample_path(), file.to_string_lossy());
   // to the latest end, give or take a frame
   let frames = (hound::WavReader::open(&file).unwrap().len() / 2) as i64;
-  let span = daw::run_frame(end.as_nanos() as i128, rate) - daw::run_frame(start.as_nanos() as i128, rate);
+  let span = audiograph::run_frame(end.as_nanos() as i128, rate) - audiograph::run_frame(start.as_nanos() as i128, rate);
   assert!((frames - span).abs() <= 1, "{} frames for a span of {}", frames, span);
 
   // it plays what the three did, gap, overlap and all
@@ -214,7 +216,7 @@ fn test_what_join_refuses() {
     pattern
   };
   let p = state.playlist.audiograph.lock().unwrap()
-    .add_pattern_node::<daw::timing::Note>(pattern, Duration::from_secs(8), 0, None).unwrap();
+    .add_pattern_node::<timing::Note>(pattern, Duration::from_secs(8), 0, None).unwrap();
   state.history.lock().unwrap().clear();
   let before = project::capture(&state, Some(&dir));
 
@@ -247,14 +249,14 @@ fn two_patterns(state: &daw::InnerState) -> (u64, u64, u64, u64) {
 }
 
 // where a row's notes start in a pattern
-fn starts(pattern: &daw::PatternState, row: u64) -> Vec<f64> {
+fn starts(pattern: &sequencer::PatternState, row: u64) -> Vec<f64> {
   pattern.notes[&row].iter().map(|note| note.start).collect()
 }
 
 fn pattern_clip(state: &daw::InnerState, pattern: u64, beat: f64) -> u64 {
   let mut audiograph = state.playlist.audiograph.lock().unwrap();
   let at = audiograph.beat_interval().mul_f64(beat);
-  audiograph.add_pattern_node::<daw::timing::Note>(pattern, at, 1, None).unwrap()
+  audiograph.add_pattern_node::<timing::Note>(pattern, at, 1, None).unwrap()
 }
 
 #[test]
@@ -266,7 +268,7 @@ fn test_pattern_clips_become_one_clip_of_a_new_pattern() {
   // a bar of "a" on bar 2, a bar's gap, then the other on bar 4
   let (first, second) = (pattern_clip(&state, a, 4.), pattern_clip(&state, b, 12.));
   let original = play(&state, rate, total);
-  let patterns_before = crate::actions::synth::sequencer_state(&state);
+  let patterns_before = crate::daw::actions::synth::sequencer_state(&state);
   state.history.lock().unwrap().clear();
   let before = saved(&state);
 
@@ -300,7 +302,7 @@ fn test_pattern_clips_become_one_clip_of_a_new_pattern() {
   let undone = history::undo(&state).unwrap().unwrap();
   assert_eq!(undone.clips, Some(vec![first, second]));
   assert_eq!(saved(&state), before);
-  assert_eq!(crate::actions::synth::sequencer_state(&state), patterns_before);
+  assert_eq!(crate::daw::actions::synth::sequencer_state(&state), patterns_before);
   assert!(play(&state, rate, total) == original);
   history::redo(&state).unwrap();
   assert!(play(&state, rate, total) == original);
@@ -315,7 +317,7 @@ fn test_joined_pattern_clips_keep_their_span_and_merge_where_they_overlap() {
   // the second starts half way through the first, and is trimmed to end
   // two steps early: 16 + 8 - 2 steps in all
   let (first, second) = (pattern_clip(&state, a, 2.), pattern_clip(&state, b, 4.));
-  crate::actions::clip::set_windows(&state, &[crate::actions::clip::WindowEdit {
+  crate::daw::actions::clip::set_windows(&state, &[crate::daw::actions::clip::WindowEdit {
     id: second, window: ClipWindow { start: 0., end: Some(14.) },
   }]).unwrap();
   let original = play(&state, rate, total);
@@ -336,10 +338,10 @@ fn test_joined_pattern_clips_keep_their_span_and_merge_where_they_overlap() {
 #[test]
 fn test_joined_pattern_clips_keep_the_notes_they_play() {
   let state = Arc::new(daw::InnerState::default());
-  let note = |pitch, start, length| daw::PatternNote { pitch, start, length, velocity: 0.5 };
+  let note = |pitch, start, length| sequencer::PatternNote { pitch, start, length, velocity: 0.5 };
   let (a, b, s) = {
     let mut sequencer = state.playlist.sequencer.lock().unwrap();
-    let s = sequencer.add_synth_row(daw::Synth {
+    let s = sequencer.add_synth_row(sequencer::Synth {
       id: 40, plugin_id: "vst3:synth".into(), path: String::new(), name: "Synth".into(),
       vendor: String::new(), volume: 1., pan: 0., muted: false,
     });
@@ -381,7 +383,7 @@ fn test_a_looping_clip_is_joined_as_it_plays() {
   // times (its kick on steps 8, then 0 and 8, then 0), and the second
   // straight after it
   let first = pattern_clip(&state, a, 2.);
-  crate::actions::clip::set_windows(&state, &[crate::actions::clip::WindowEdit {
+  crate::daw::actions::clip::set_windows(&state, &[crate::daw::actions::clip::WindowEdit {
     id: first, window: ClipWindow { start: 4., end: Some(40.) },
   }]).unwrap();
   let second = pattern_clip(&state, b, 12.);
@@ -404,7 +406,7 @@ fn test_an_old_drum_pattern_and_an_old_note_pattern_join() {
   // pattern and "Bass" a note pattern
   let rate = 44_100;
   let total = Duration::from_secs(6);
-  let state = crate::effects::testing::rig().state;
+  let state = crate::daw::effects::testing::rig().state;
   let loaded = project::load_from(&state, Path::new("tests/fixtures/v3-patterns.dawesome")).unwrap();
   // Loop 1's first clip, the whole bar on track 0 from beat 0, and Bass's,
   // from its step 8 to its end, moved to track 0 at beat 8
@@ -428,8 +430,8 @@ fn test_an_old_drum_pattern_and_an_old_note_pattern_join() {
   assert_eq!(starts(&made, 0), vec![0., 4., 8., 12.]);
   assert_eq!(starts(&made, 1), vec![4., 12.]);
   assert_eq!(*made.notes[&3], vec![
-    daw::PatternNote { pitch: 43, start: 32., length: 1.5, velocity: 0.6 },
-    daw::PatternNote { pitch: 41, start: 40.25, length: 3., velocity: 0.8 },
+    sequencer::PatternNote { pitch: 43, start: 32., length: 1.5, velocity: 0.6 },
+    sequencer::PatternNote { pitch: 41, start: 40.25, length: 3., velocity: 0.8 },
   ]);
   assert!(play(&state, rate, total) == original);
 }
@@ -451,7 +453,7 @@ fn test_a_join_too_long_or_too_full_for_a_pattern_is_refused() {
     let mut sequencer = state.playlist.sequencer.lock().unwrap();
     let row = sequencer.rows()[0].id;
     let full = sequencer.add_pattern(1, 4).unwrap();
-    let notes = (0..320).map(|n| daw::PatternNote { pitch: 60, start: n as f64 * 0.05, length: 0.04, velocity: 1. }).collect();
+    let notes = (0..320).map(|n| sequencer::PatternNote { pitch: 60, start: n as f64 * 0.05, length: 0.04, velocity: 1. }).collect();
     sequencer.set_pattern_notes(full, row, notes).unwrap();
     full
   };
@@ -472,13 +474,13 @@ fn test_the_halves_of_a_cut_looping_clip_join_again_after_a_save() {
   let clip = {
     let mut audiograph = state.playlist.audiograph.lock().unwrap();
     audiograph.set_tempo(97.);
-    let clip = audiograph.add_pattern_node::<daw::timing::Note>(a, start, 1, None).unwrap();
+    let clip = audiograph.add_pattern_node::<timing::Note>(a, start, 1, None).unwrap();
     audiograph.set_pattern_window(clip, 0., Some(40.)).unwrap();
     clip
   };
   // cut on its second time round, between steps
   let beat = state.playlist.audiograph.lock().unwrap().beat_interval().as_secs_f64();
-  crate::actions::clip::split(&state, &[clip], start.as_secs_f64() / beat + 21.3 / 4.).unwrap();
+  crate::daw::actions::clip::split(&state, &[clip], start.as_secs_f64() / beat + 21.3 / 4.).unwrap();
   let file = dir.join("song.dawesome");
   project::save_to(&state, &file).unwrap();
 
@@ -499,10 +501,10 @@ fn test_the_halves_of_a_cut_pattern_clip_are_one_clip_of_its_pattern_again() {
   let (_, _, a, _) = two_patterns(&state);
   let clip = pattern_clip(&state, a, 4.);
   let before = saved(&state);
-  let patterns = crate::actions::synth::sequencer_state(&state);
+  let patterns = crate::daw::actions::synth::sequencer_state(&state);
   // cut between steps, and again
-  let right = crate::actions::clip::split(&state, &[clip], 5.375).unwrap().pattern_clips[1].id;
-  let last = crate::actions::clip::split(&state, &[right], 7.).unwrap().pattern_clips[1].id;
+  let right = crate::daw::actions::clip::split(&state, &[clip], 5.375).unwrap().pattern_clips[1].id;
+  let last = crate::daw::actions::clip::split(&state, &[right], 7.).unwrap().pattern_clips[1].id;
 
   let joined = join(&state, &[clip, right, last], None).unwrap();
   assert_eq!(joined.sequencer, None);
@@ -510,7 +512,7 @@ fn test_the_halves_of_a_cut_pattern_clip_are_one_clip_of_its_pattern_again() {
   assert_eq!(joined.clips.pattern_clips[0].window, ClipWindow { start: 0., end: Some(16.) });
   assert_eq!(joined.clips.pattern_clips[0].pattern_id, a);
   // no new pattern
-  assert_eq!(crate::actions::synth::sequencer_state(&state), patterns);
+  assert_eq!(crate::daw::actions::synth::sequencer_state(&state), patterns);
   assert_eq!(saved(&state), before);
 }
 
@@ -529,7 +531,7 @@ fn test_pattern_clips_off_the_grid_are_not_joined() {
 
   // a clip cut between two steps starts off its own pattern's grid
   let third = pattern_clip(&state, b, 16.);
-  let right = crate::actions::clip::split(&state, &[third], 17.125).unwrap().pattern_clips[1].id;
+  let right = crate::daw::actions::clip::split(&state, &[third], 17.125).unwrap().pattern_clips[1].id;
   let fourth = pattern_clip(&state, a, 24.125);
   assert_eq!(join(&state, &[right, fourth], None).unwrap_err(), SAME_GRID);
 }

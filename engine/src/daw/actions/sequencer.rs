@@ -8,12 +8,14 @@
 use std::sync::Arc;
 use serde::Serialize;
 
+use crate::daw::{audiograph, playback, sequencer, timing};
+use crate::engine::mixer;
 use crate::daw;
-use crate::history;
-use crate::actions::playlist::beat_to_offset;
-use crate::project::LoadedPatternClip;
+use crate::daw::history;
+use crate::daw::actions::playlist::beat_to_offset;
+use crate::daw::project::LoadedPatternClip;
 
-use crate::actions::synth::sequencer_state;
+use crate::daw::actions::synth::sequencer_state;
 
 // run an edit on the sequencer, as a step that can be undone, then return
 // the whole sequencer
@@ -22,8 +24,8 @@ use crate::actions::synth::sequencer_state;
 pub(crate) fn edit(
   state: &daw::InnerState,
   gesture: Option<u64>,
-  f: impl FnOnce(&mut daw::Sequencer) -> Result<(), String>,
-) -> Result<daw::SequencerState, String> {
+  f: impl FnOnce(&mut sequencer::Sequencer) -> Result<(), String>,
+) -> Result<sequencer::SequencerState, String> {
   history::sequencer_edit(state, &[], gesture, || f(&mut state.playlist.sequencer.lock().unwrap()))?;
   Ok(sequencer_state(state))
 }
@@ -33,8 +35,8 @@ pub(crate) fn edit_row(
   state: &daw::InnerState,
   gesture: Option<u64>,
   row_id: u64,
-  f: impl FnOnce(&mut daw::Sequencer) -> Result<(), String>,
-) -> Result<daw::RowChange, String> {
+  f: impl FnOnce(&mut sequencer::Sequencer) -> Result<(), String>,
+) -> Result<sequencer::RowChange, String> {
   history::sequencer_edit(state, &[], gesture, || f(&mut state.playlist.sequencer.lock().unwrap()))?;
   state.playlist.sequencer.lock().unwrap().row_change(row_id, &*state.playlist.effects)
 }
@@ -44,8 +46,8 @@ pub(crate) fn edit_pattern(
   state: &daw::InnerState,
   gesture: Option<u64>,
   pattern_id: u64,
-  f: impl FnOnce(&mut daw::Sequencer) -> Result<(), String>,
-) -> Result<daw::PatternChange, String> {
+  f: impl FnOnce(&mut sequencer::Sequencer) -> Result<(), String>,
+) -> Result<sequencer::PatternChange, String> {
   history::sequencer_edit(state, &[], gesture, || f(&mut state.playlist.sequencer.lock().unwrap()))?;
   state.playlist.sequencer.lock().unwrap().pattern_change(pattern_id)
 }
@@ -59,26 +61,26 @@ pub(crate) fn beats_per_bar(state: &daw::InnerState) -> u16 {
 #[serde(rename_all = "camelCase")]
 pub struct AddedRow {
   pub row_id: u64,
-  pub sequencer: daw::SequencerState,
+  pub sequencer: sequencer::SequencerState,
 }
 
 pub(crate) fn add_sample(state: &daw::InnerState, path: &str) -> Result<AddedRow, String> {
   // decoded before taking the sequencer's lock, which playback needs
-  let sound = daw::RowSound::load(path)?;
+  let sound = sequencer::RowSound::load(path)?;
   let row_id = history::sequencer_edit(state, &[], None, || {
     Ok(state.playlist.sequencer.lock().unwrap().add_sample_row(path, sound))
   })?;
   Ok(AddedRow { row_id, sequencer: sequencer_state(state) })
 }
 
-pub(crate) fn remove_row_of(state: &daw::InnerState, row_id: u64) -> Result<daw::SequencerState, String> {
+pub(crate) fn remove_row_of(state: &daw::InnerState, row_id: u64) -> Result<sequencer::SequencerState, String> {
   let beats = beats_per_bar(state);
   edit(state, None, |seq| seq.remove_row_and_trim(row_id, beats))
 }
 
-pub(crate) fn replace_sample(state: &daw::InnerState, row_id: u64, path: &str) -> Result<daw::RowChange, String> {
+pub(crate) fn replace_sample(state: &daw::InnerState, row_id: u64, path: &str) -> Result<sequencer::RowChange, String> {
   // decoded before taking the sequencer's lock, which playback needs
-  let sound = daw::RowSound::load(path)?;
+  let sound = sequencer::RowSound::load(path)?;
   edit_row(state, None, row_id, |seq| seq.replace_row_sample(row_id, path, sound))
 }
 
@@ -87,7 +89,7 @@ pub(crate) fn replace_sample(state: &daw::InnerState, row_id: u64, path: &str) -
 #[serde(rename_all = "camelCase")]
 pub struct AddedPattern {
   id: u64,
-  sequencer: daw::SequencerState,
+  sequencer: sequencer::SequencerState,
 }
 
 pub(crate) fn add_pattern_of(state: &daw::InnerState, bars: u32) -> Result<AddedPattern, String> {
@@ -111,7 +113,7 @@ pub(crate) fn duplicate_pattern_of(state: &daw::InnerState, pattern_id: u64) -> 
 #[serde(rename_all = "camelCase")]
 pub struct RemovedPattern {
   removed_clips: Vec<u64>,
-  sequencer: daw::SequencerState,
+  sequencer: sequencer::SequencerState,
 }
 
 pub(crate) fn remove_pattern_of(state: &daw::InnerState, pattern_id: u64) -> Result<RemovedPattern, String> {
@@ -136,7 +138,7 @@ pub(crate) fn remove_pattern_of(state: &daw::InnerState, pattern_id: u64) -> Res
 #[serde(rename_all = "camelCase")]
 pub struct AddedFolder {
   id: u64,
-  sequencer: daw::SequencerState,
+  sequencer: sequencer::SequencerState,
 }
 
 pub(crate) fn add_pattern_folder_to(state: &daw::InnerState, name: &str, parent: Option<u64>) -> Result<AddedFolder, String> {
@@ -146,7 +148,7 @@ pub(crate) fn add_pattern_folder_to(state: &daw::InnerState, name: &str, parent:
   Ok(AddedFolder { id, sequencer: sequencer_state(state) })
 }
 
-pub(crate) fn remove_pattern_folder_of(state: &daw::InnerState, folder_id: u64) -> Result<daw::SequencerState, String> {
+pub(crate) fn remove_pattern_folder_of(state: &daw::InnerState, folder_id: u64) -> Result<sequencer::SequencerState, String> {
   history::sequencer_edit(state, &[], None, || {
     // the graph is locked before the sequencer, as everywhere
     let audiograph = state.playlist.audiograph.lock().unwrap();
@@ -172,7 +174,7 @@ pub(crate) fn set_pattern_step_in(
   on: bool,
   gesture: Option<u64>,
   trim: bool,
-) -> Result<daw::PatternChange, String> {
+) -> Result<sequencer::PatternChange, String> {
   let beats = beats_per_bar(state);
   edit_pattern(state, gesture, pattern_id, |seq| {
     seq.set_pattern_step(pattern_id, row_id, step, on, beats)?;
@@ -185,10 +187,10 @@ pub(crate) fn set_pattern_notes_in(
   state: &daw::InnerState,
   pattern_id: u64,
   row_id: u64,
-  notes: Vec<daw::PatternNote>,
+  notes: Vec<sequencer::PatternNote>,
   gesture: Option<u64>,
   trim: bool,
-) -> Result<daw::PatternChange, String> {
+) -> Result<sequencer::PatternChange, String> {
   let beats = beats_per_bar(state);
   edit_pattern(state, gesture, pattern_id, |seq| {
     seq.edit_pattern_notes(pattern_id, row_id, notes, beats)?;
@@ -197,17 +199,17 @@ pub(crate) fn set_pattern_notes_in(
   })
 }
 
-pub(crate) fn trim_pattern_in(state: &daw::InnerState, pattern_id: u64, gesture: Option<u64>) -> Result<daw::PatternChange, String> {
+pub(crate) fn trim_pattern_in(state: &daw::InnerState, pattern_id: u64, gesture: Option<u64>) -> Result<sequencer::PatternChange, String> {
   let beats = beats_per_bar(state);
   edit_pattern(state, gesture, pattern_id, |seq| seq.trim_pattern(pattern_id, beats))
 }
 
 pub(crate) fn toggle_pattern_in(state: &Arc<daw::InnerState>, pattern_id: u64, from_step: f64) -> Result<(), String> {
   if state.playlist.playing() {
-    daw::pause_playlist(state);
+    playback::pause_playlist(state);
     Ok(())
   } else {
-    daw::start_pattern(state, pattern_id, from_step)
+    playback::start_pattern(state, pattern_id, from_step)
   }
 }
 
@@ -224,7 +226,7 @@ pub(crate) fn add_pattern_clip_to(
   };
 
   // one step to undo
-  let id = crate::history::clip_edit(state, &[], None, || state.playlist.audiograph.lock().unwrap()
+  let id = crate::daw::history::clip_edit(state, &[], None, || state.playlist.audiograph.lock().unwrap()
     .add_pattern_node(pattern_id, start_offset, track_number, subdivision), |&id| vec![id])?;
 
   let audiograph = state.playlist.audiograph.lock().unwrap();
@@ -240,8 +242,8 @@ pub(crate) fn add_pattern_clip_to(
 pub struct Exploded {
   removed: Vec<u64>,
   clips: Vec<LoadedPatternClip>,
-  sequencer: daw::SequencerState,
-  mixer: daw::MixerSettings,
+  sequencer: sequencer::SequencerState,
+  mixer: mixer::MixerSettings,
 }
 
 pub(crate) fn explode(state: &daw::InnerState, ids: &[u64]) -> Result<Exploded, String> {
@@ -283,7 +285,7 @@ fn explode_each(state: &daw::InnerState, ids: &[u64], touched: &mut Vec<u64>) ->
 // whether a clip is a pattern clip with notes to explode. (a selection
 // often holds an empty clip painted with the Draw tool: refusing it would
 // leave the clips exploded before it unseen by the app)
-fn explodable(audiograph: &daw::AudioGraph<'static>, id: u64) -> bool {
+fn explodable(audiograph: &audiograph::AudioGraph<'static>, id: u64) -> bool {
   let Some(clip) = audiograph.get_pattern_node_by_id(id) else { return false };
   audiograph.sequencer.lock().unwrap().pattern(clip.pattern_id).map_or(false, |p| p.plays_notes())
 }
@@ -329,8 +331,8 @@ pub(crate) fn paint_bars(from: f64, to: f64, beats_per_bar: f64, max_bars: u32) 
 pub struct Painted {
   clips: Vec<LoadedPatternClip>,
   pattern_id: u64,
-  sequencer: daw::SequencerState,
-  mixer: daw::MixerSettings,
+  sequencer: sequencer::SequencerState,
+  mixer: mixer::MixerSettings,
   track_count: u32,
 }
 
@@ -364,7 +366,7 @@ pub(crate) fn paint(
       let pattern = match pattern_id {
         Some(id) => id,
         None => {
-          let bars = paint_bars(start_beat, end_beat, beats_per_bar as f64, daw::PATTERN_BARS_MAX);
+          let bars = paint_bars(start_beat, end_beat, beats_per_bar as f64, sequencer::PATTERN_BARS_MAX);
           sequencer.add_pattern(bars, beats_per_bar)?
         }
       };
@@ -373,12 +375,12 @@ pub(crate) fn paint(
       (pattern, steps)
     };
 
-    let per_beat = daw::STEPS_PER_BEAT as f64;
+    let per_beat = sequencer::STEPS_PER_BEAT as f64;
     let length = steps as f64 / per_beat;
     let interval = audiograph.beat_interval();
     let mut clips = Vec::new();
-    for (at, until) in paint_spans(start_beat, end_beat, length, daw::MIN_PATTERN_CLIP / per_beat) {
-      let id = audiograph.add_pattern_node(pattern, interval.mul_f64(at), track_number, None::<daw::timing::Note>)?;
+    for (at, until) in paint_spans(start_beat, end_beat, length, audiograph::MIN_PATTERN_CLIP / per_beat) {
+      let id = audiograph.add_pattern_node(pattern, interval.mul_f64(at), track_number, None::<timing::Note>)?;
       clips.push(id);
       // (the last, cut short where the drag ends)
       if until < at + length {

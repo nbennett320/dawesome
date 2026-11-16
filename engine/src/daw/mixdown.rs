@@ -25,6 +25,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crate::daw::{audiograph, timing};
+use crate::engine::{self, mixer};
 use crate::daw;
 
 // the run every voice belongs to (the engine is the render's own)
@@ -49,13 +51,13 @@ pub const CANCELLED: &str = "Mixdown cancelled";
 
 // the song as it was when the mixdown started
 pub struct Snapshot {
-  graph: daw::AudioGraph<'static>,
+  graph: audiograph::AudioGraph<'static>,
   // where the last clip ends
   end: Duration,
   // for the effects' transport
-  time_signature: daw::TimeSignature,
+  time_signature: timing::TimeSignature,
   // second instances of the effects, for the render's own engine
-  effects: crate::effects::MixdownEffects,
+  effects: crate::daw::effects::MixdownEffects,
 }
 
 impl Snapshot {
@@ -72,12 +74,12 @@ pub fn snapshot(state: &daw::InnerState, rate: u32) -> Result<Snapshot, String> 
   let time_signature = *state.playlist.time_signature.lock().unwrap();
   let graph = {
     let live = state.playlist.audiograph.lock().unwrap();
-    let mut graph = daw::AudioGraph::new(live.sample_rate(), live.tempo());
+    let mut graph = audiograph::AudioGraph::new(live.sample_rate(), live.tempo());
     graph.nodes = live.nodes.clone();
     graph.pattern_nodes = live.pattern_nodes.clone();
     graph.sequencer = Arc::new(Mutex::new(live.sequencer.lock().unwrap().clone()));
     // a mixer of its own, set as the live one is now
-    let mixer = daw::Mixer::default();
+    let mixer = mixer::Mixer::default();
     mixer.apply(&live.mixer.changed());
     graph.mixer = Arc::new(mixer);
     graph
@@ -131,15 +133,15 @@ pub fn render(
 ) -> Result<u64, String> {
   // (declared first, so the plugins go after the engine that runs them)
   let Snapshot { mut graph, end, time_signature, effects } = snapshot;
-  let crate::effects::MixdownEffects { chains, copies, plugins: _plugins, settle } = effects;
+  let crate::daw::effects::MixdownEffects { chains, copies, plugins: _plugins, settle } = effects;
   let beat = graph.beat_interval();
   if beat.is_zero() { return Err("the tempo is zero".into()); }
 
-  let (engine, mut renderer) = daw::Engine::new(rate);
+  let (engine, mut renderer) = engine::Engine::new(rate);
   for (channel, slots) in chains {
     match channel {
-      daw::Channel::Track(n) => engine.set_track_chain(&graph.mixer.track_route(n), slots)?,
-      daw::Channel::Master => engine.set_master_chain(slots)?,
+      engine::Channel::Track(n) => engine.set_track_chain(&graph.mixer.track_route(n), slots)?,
+      engine::Channel::Master => engine.set_master_chain(slots)?,
     }
   }
   let end_frame = engine.frames_in(end);
@@ -191,7 +193,7 @@ pub fn render(
     let notes = graph.run_notes(beat, None);
     if at.is_zero() {
       // the mix starts at the song's start
-      let start = daw::RunStart {
+      let start = engine::RunStart {
         tempo: graph.tempo() as f64,
         beats_per_bar: time_signature.numerator,
         beat_unit: time_signature.denominator,
@@ -201,7 +203,7 @@ pub fn render(
     } else {
       engine.play(voices)?;
     }
-    daw::play_slice_notes(&engine, RUN, at, notes, &copies)?;
+    audiograph::play_slice_notes(&engine, RUN, at, notes, &copies)?;
 
     at += beat;
     render_to(engine.frames_in(at.min(end)), &mut frame, sink)?;

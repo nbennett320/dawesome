@@ -1,13 +1,13 @@
 // the playlist's clip commands (see actions/clip.rs)
 use std::thread;
-use crate::actions::clip::{
+use crate::daw::actions::clip::{
   add_clip, change_clip_settings, get_clip_of, move_clip, move_clips, remove_clips, set_windows, split, stretch,
   ChangedClips, ClipInfo, MovedNode, PlacedNode, StretchEdit, WindowEdit,
 };
-use crate::bounce::deep_copy;
+use crate::daw::bounce::deep_copy;
+use crate::engine::{self, clip};
 use crate::commands::TState;
-use crate::daw;
-use crate::join::{join, Joined};
+use crate::daw::join::{join, Joined};
 
 // trim clips: set the part of its sample or pattern each one plays. the
 // sound stays where it is in the playlist, so a clip whose start is
@@ -125,7 +125,7 @@ pub fn get_clip(
 pub fn set_clip_settings(
   state: TState<'_>,
   id: u64,
-  settings: daw::ClipSettings,
+  settings: clip::ClipSettings,
   gesture: Option<u64>,
 ) -> Result<ClipInfo, String> {
   change_clip_settings(&state, id, settings, gesture)
@@ -143,7 +143,7 @@ pub fn preview_node(
     .source();
 
   thread::spawn(move || {
-    if let Err(e) = daw::engine().and_then(|engine| engine.preview(source)) {
+    if let Err(e) = engine::engine().and_then(|engine| engine.preview(source)) {
       println!("could not preview clip {}: {}", id, e);
     }
   });
@@ -157,7 +157,7 @@ pub fn preview_node(
 // (async: writing sample clips out as one file can take a while)
 #[tauri::command(async)]
 pub fn join_clips(state: TState<'_>, ids: Vec<u64>) -> Result<Joined, String> {
-  join(&state, &ids, daw::open_engine_rate())
+  join(&state, &ids, engine::open_engine_rate())
 }
 
 // write each clip out to a file of its own in the project's clips folder,
@@ -169,5 +169,5 @@ pub fn join_clips(state: TState<'_>, ids: Vec<u64>) -> Result<Joined, String> {
 // files written so far are removed and no clip changes
 #[tauri::command(async)]
 pub fn deep_copy_clips(state: TState<'_>, ids: Vec<u64>) -> Result<ChangedClips, String> {
-  deep_copy(&state, &ids, daw::open_engine_rate())
+  deep_copy(&state, &ids, engine::open_engine_rate())
 }

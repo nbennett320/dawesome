@@ -17,8 +17,8 @@ use std::sync::Arc;
 
 use dsp::{Entry, Kind, Runner, Store, Taper};
 
-use crate::effects::Hosted;
-use crate::processor::{Event, Processor, Transport};
+use crate::daw::effects::Hosted;
+use crate::engine::processor::{Event, Processor, Transport};
 use crate::plugin::{self, PluginInfo, PluginKind};
 
 pub const PREFIX: &str = "dawesome:";

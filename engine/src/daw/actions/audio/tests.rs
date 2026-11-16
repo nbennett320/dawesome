@@ -1,4 +1,5 @@
 use super::*;
+use crate::daw::playback;
 
 fn test_dir(name: &str) -> PathBuf {
   let dir = std::env::temp_dir()
@@ -16,20 +17,20 @@ fn saved_project(name: &str) -> (daw::InnerState, PathBuf, PathBuf, String) {
   let recordings = dir.join("song").join("recordings");
   std::fs::create_dir_all(&recordings).unwrap();
   let take = recordings.join("song_11092026_0.wav").to_string_lossy().into_owned();
-  std::fs::copy(daw::METRONOME_TICK_PATH, &take).unwrap();
+  std::fs::copy(playback::METRONOME_TICK_PATH, &take).unwrap();
   std::fs::create_dir_all(recordings.join("Vocals")).unwrap();
 
   state.playlist.audiograph.lock().unwrap()
     .construct_and_add_node(take.clone(), std::time::Duration::ZERO, 0).unwrap();
   state.playlist.sequencer.lock().unwrap().add_row(&take).unwrap();
-  crate::project::save_project_to(&state, &file, false).unwrap();
+  crate::daw::project::save_project_to(&state, &file, false).unwrap();
   (state, dir, file, take)
 }
 
 // the project as it opens next time, and the samples it couldn't find
-fn reopen(file: &Path) -> (crate::project::LoadedProject, daw::InnerState) {
+fn reopen(file: &Path) -> (crate::daw::project::LoadedProject, daw::InnerState) {
   let state = daw::InnerState::default();
-  let loaded = crate::project::load_from(&state, file).unwrap();
+  let loaded = crate::daw::project::load_from(&state, file).unwrap();
   (loaded, state)
 }
 
@@ -68,7 +69,7 @@ fn test_moving_a_take_saves_nothing_else() {
   let (state, dir, file, take) = saved_project("reopen-unsaved");
   // a change made after saving, and not saved
   state.playlist.audiograph.lock().unwrap()
-    .construct_and_add_node(daw::METRONOME_TICK_PATH.to_string(), std::time::Duration::ZERO, 1).unwrap();
+    .construct_and_add_node(playback::METRONOME_TICK_PATH.to_string(), std::time::Duration::ZERO, 1).unwrap();
   move_recording_in(&state, &take, "Vocals", Library::Recordings).unwrap();
 
   let (loaded, _) = reopen(&file);
@@ -82,7 +83,7 @@ fn project_with_a_clip_file(name: &str) -> (daw::InnerState, PathBuf, PathBuf, S
   let clips = dir.join("song").join("clips");
   std::fs::create_dir_all(&clips).unwrap();
   let clip = clips.join("song_join_0.wav").to_string_lossy().into_owned();
-  std::fs::copy(daw::METRONOME_TICK_PATH, &clip).unwrap();
+  std::fs::copy(playback::METRONOME_TICK_PATH, &clip).unwrap();
   state.playlist.audiograph.lock().unwrap()
     .construct_and_add_node(clip.clone(), std::time::Duration::ZERO, 1).unwrap();
   (state, dir, file, clip)
@@ -95,10 +96,10 @@ fn clip_paths(state: &daw::InnerState) -> Vec<String> {
 #[test]
 fn test_the_clips_library_lists_clips_and_not_recordings() {
   let (state, dir, _, clip) = project_with_a_clip_file("clips-list");
-  let clips = crate::project_files::list_recordings(&existing_dir(&state, Library::Clips).unwrap());
+  let clips = crate::daw::project_files::list_recordings(&existing_dir(&state, Library::Clips).unwrap());
   assert_eq!(clips.takes.len(), 1);
   assert_eq!(clips.takes[0].path, clip);
-  let recordings = crate::project_files::list_recordings(&existing_dir(&state, Library::Recordings).unwrap());
+  let recordings = crate::daw::project_files::list_recordings(&existing_dir(&state, Library::Recordings).unwrap());
   assert!(recordings.takes.iter().all(|take| take.path != clip));
   let _ = std::fs::remove_dir_all(&dir);
 }
@@ -121,7 +122,7 @@ fn test_a_clip_file_moved_into_a_new_folder_is_followed_by_its_clip() {
   let dir_clips = dir.join("song").join("clips");
   let made = dir_to_change(&state, Library::Clips, true).unwrap();
   assert_eq!(made, dir_clips);
-  crate::project_files::create_folder(&made, "", "Joins").unwrap();
+  crate::daw::project_files::create_folder(&made, "", "Joins").unwrap();
   let moved = move_recording_in(&state, &clip, "Joins", Library::Clips).unwrap();
   assert!(moved.path.ends_with("clips/Joins/song_join_0.wav"), "{}", moved.path);
   assert_eq!(moved.moved_clips.len(), 1);
@@ -149,8 +150,8 @@ fn test_a_file_that_undo_could_bring_back_is_in_use() {
   let (state, dir, _, clip) = project_with_a_clip_file("clips-history");
   // a second clip of the file, dropped in and then deleted (which can be
   // undone), and the first taken away without a trace
-  let added = crate::actions::clip::add_clip(&state, clip.clone(), 2, Some(4.)).unwrap().id;
-  crate::actions::clip::remove_clips(&state, &[added]).unwrap();
+  let added = crate::daw::actions::clip::add_clip(&state, clip.clone(), 2, Some(4.)).unwrap().id;
+  crate::daw::actions::clip::remove_clips(&state, &[added]).unwrap();
   let first = state.playlist.audiograph.lock().unwrap().nodes.iter()
     .find(|node| node.sample_path() == clip).unwrap().id;
   state.playlist.audiograph.lock().unwrap().remove_node(first).unwrap();

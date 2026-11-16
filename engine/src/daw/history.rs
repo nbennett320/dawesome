@@ -26,6 +26,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::daw::{audiograph, playback, sequencer};
+use crate::engine::mixer;
 use crate::daw;
 
 // how many steps are kept
@@ -34,8 +36,8 @@ pub const LIMIT: usize = 100;
 // a clip as it was, kept so it can be put back with the same id
 #[derive(Clone)]
 pub enum ClipSnap {
-  Sample(daw::AudioNode),
-  Pattern(daw::PatternNode),
+  Sample(audiograph::AudioNode),
+  Pattern(audiograph::PatternNode),
 }
 
 impl ClipSnap {
@@ -85,7 +87,7 @@ pub fn clips(state: &daw::InnerState, ids: &[u64]) -> Clips {
   clips_in(&audiograph, ids)
 }
 
-pub fn clips_in(audiograph: &daw::AudioGraph<'static>, ids: &[u64]) -> Clips {
+pub fn clips_in(audiograph: &audiograph::AudioGraph<'static>, ids: &[u64]) -> Clips {
   let interval = audiograph.beat_interval();
   let beat = |offset: Duration| if interval.is_zero() { 0. } else {
     offset.as_secs_f64() / interval.as_secs_f64()
@@ -105,10 +107,10 @@ pub struct Step {
   // are folded into it
   gesture: Option<u64>,
   clips: BTreeMap<u64, (Option<Placed>, Option<Placed>)>,
-  mixer: Option<(daw::MixerSettings, daw::MixerSettings)>,
-  sequencer: Option<(daw::Sequencer, daw::Sequencer)>,
+  mixer: Option<(mixer::MixerSettings, mixer::MixerSettings)>,
+  sequencer: Option<(sequencer::Sequencer, sequencer::Sequencer)>,
   tempo: Option<(f32, f32)>,
-  effects: Option<(crate::effects::RackSnap, crate::effects::RackSnap)>,
+  effects: Option<(crate::daw::effects::RackSnap, crate::daw::effects::RackSnap)>,
   // built-in effects' parameters (plain values, by id), by slot
   params: BTreeMap<u64, (Vec<f32>, Vec<f32>)>,
   // the playlist's fewest tracks (see AudioGraph::min_tracks)
@@ -140,12 +142,12 @@ impl Step {
     self
   }
 
-  pub fn with_mixer(mut self, before: daw::MixerSettings, after: daw::MixerSettings) -> Self {
+  pub fn with_mixer(mut self, before: mixer::MixerSettings, after: mixer::MixerSettings) -> Self {
     self.mixer = Some((before, after));
     self
   }
 
-  pub fn with_sequencer(mut self, before: daw::Sequencer, after: daw::Sequencer) -> Self {
+  pub fn with_sequencer(mut self, before: sequencer::Sequencer, after: sequencer::Sequencer) -> Self {
     self.sequencer = Some((before, after));
     self
   }
@@ -155,7 +157,7 @@ impl Step {
     self
   }
 
-  pub fn with_effects(mut self, before: crate::effects::RackSnap, after: crate::effects::RackSnap) -> Self {
+  pub fn with_effects(mut self, before: crate::daw::effects::RackSnap, after: crate::daw::effects::RackSnap) -> Self {
     self.effects = Some((before, after));
     self
   }
@@ -355,7 +357,7 @@ pub fn redo(state: &Arc<daw::InnerState>) -> Result<Option<Applied>, String> {
 
 fn travel(state: &Arc<daw::InnerState>, way: Way) -> Result<Option<Applied>, String> {
   // a take is going onto the playlist as it is now
-  if crate::recording::is_busy(state) { return Ok(None); }
+  if crate::daw::recording::is_busy(state) { return Ok(None); }
 
   let (step, changes) = {
     let mut history = state.history.lock().unwrap();
@@ -394,7 +396,7 @@ fn apply(state: &Arc<daw::InnerState>, step: &mut Step, way: Way) -> Applied {
 
   if let Some((before, after)) = step.tempo {
     let tempo = if pick(true) { before } else { after };
-    if let Err(e) = daw::set_playlist_tempo(state, tempo) {
+    if let Err(e) = playback::set_playlist_tempo(state, tempo) {
       println!("could not put the tempo back to {}: {}", tempo, e);
     }
   }
@@ -445,7 +447,7 @@ fn apply(state: &Arc<daw::InnerState>, step: &mut Step, way: Way) -> Applied {
     }
   }
   // the synths' plugins follow the list and the clips put back
-  crate::actions::synth::follow(state);
+  crate::daw::actions::synth::follow(state);
 
   Applied { clips: if step.clips.is_empty() { None } else { Some(clips) } }
 }
@@ -469,7 +471,7 @@ pub fn clip_edit<T>(
   record(state, Step::new().in_gesture(gesture).with_clips(before, after));
   // a clip of a pattern with synth rows' notes, on a track that hasn't
   // their copies yet
-  crate::actions::synth::follow(state);
+  crate::daw::actions::synth::follow(state);
 
   Ok(result)
 }
@@ -478,8 +480,8 @@ pub fn clip_edit<T>(
 // the sequencer, the mixer (exploding names tracks) and some clips
 pub struct Picture {
   clips: Clips,
-  sequencer: daw::Sequencer,
-  mixer: daw::MixerSettings,
+  sequencer: sequencer::Sequencer,
+  mixer: mixer::MixerSettings,
 }
 
 // - ids: the clips the edit may change, add or remove
@@ -499,7 +501,7 @@ pub fn record_between(state: &daw::InnerState, gesture: Option<u64>, before: Pic
     .with_clips(before.clips, after.clips)
     .with_sequencer(before.sequencer, after.sequencer)
     .with_mixer(before.mixer, after.mixer));
-  crate::actions::synth::follow(state);
+  crate::daw::actions::synth::follow(state);
 }
 
 // run something that changes the sequencer, and record it as a step

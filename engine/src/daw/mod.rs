@@ -1,5 +1,4 @@
-mod daw_core;
-mod playback;
+pub(crate) mod playback;
 mod state;
 
 pub mod defaults;
@@ -26,6 +25,5 @@ pub(crate) mod recording;
 #[cfg(test)]
 pub(crate) mod test_support;
 
-pub use playback::*;
-pub use daw_core::*;
-pub use state::*;
+// (for now: it moves in here, as Session, next)
+pub use state::InnerState;

@@ -1,13 +1,13 @@
 // the Mixer tab's commands (see actions/mixer.rs)
-use crate::actions::mixer::{
+use crate::daw::actions::mixer::{
   change_master_volume, change_track_color, change_track_mute, change_track_name, change_track_pan,
   change_track_solo, change_track_volume, mixer_settings, reset,
 };
+use crate::engine::mixer;
 use crate::commands::TState;
-use crate::daw;
 
 #[tauri::command]
-pub fn get_mixer(state: TState<'_>) -> daw::MixerSettings {
+pub fn get_mixer(state: TState<'_>) -> mixer::MixerSettings {
   mixer_settings(&state)
 }
 
@@ -51,12 +51,12 @@ pub fn set_track_color(state: TState<'_>, track_number: u32, color: Option<u8>) 
 
 // every strip back to its defaults (names and colors are kept)
 #[tauri::command]
-pub fn reset_mixer(state: TState<'_>) -> daw::MixerSettings {
+pub fn reset_mixer(state: TState<'_>) -> mixer::MixerSettings {
   reset(&state)
 }
 
 // each strip's loudest sample since the last call, for the meters
 #[tauri::command]
-pub fn get_mixer_levels(state: TState<'_>) -> daw::MixerLevels {
+pub fn get_mixer_levels(state: TState<'_>) -> mixer::MixerLevels {
   state.playlist.mixer.take_levels()
 }

@@ -12,9 +12,10 @@
 // the project they time is made in `big_project`, through the sequencer's
 // own commands: the one place to change when the pattern model does
 use std::hint::black_box;
+use crate::daw::{audiograph, sequencer, timing};
+use crate::engine;
 use std::time::{Duration, Instant};
 
-use crate::daw;
 
 // the engine's own drum samples, for the rows
 const SAMPLES: [&str; 8] = [
@@ -46,9 +47,9 @@ struct Big {
   long: u64,
 }
 
-fn big_project(seq: &mut daw::Sequencer) -> Big {
+fn big_project(seq: &mut sequencer::Sequencer) -> Big {
   let samples: Vec<u64> = (0..SAMPLE_ROWS).map(|n| seq.add_row(SAMPLES[n % SAMPLES.len()]).unwrap()).collect();
-  let synths: Vec<u64> = (0..SYNTHS).map(|n| seq.add_synth_row(daw::Synth {
+  let synths: Vec<u64> = (0..SYNTHS).map(|n| seq.add_synth_row(sequencer::Synth {
     id: 1_000 + n, plugin_id: "vst3:perf".into(), path: String::new(), name: format!("Synth {}", n + 1),
     vendor: String::new(), volume: 1., pan: 0., muted: false,
   })).collect();
@@ -66,7 +67,7 @@ fn big_project(seq: &mut daw::Sequencer) -> Big {
     let length = seq.pattern(id).unwrap().length;
     for (n, &row) in synths.iter().enumerate() {
       // a rising line, an octave per synth
-      let notes = (0..length).map(|step| daw::PatternNote {
+      let notes = (0..length).map(|step| sequencer::PatternNote {
         pitch: (36 + n as u32 * 6 + step % 12) as u8, start: step as f64, length: 1., velocity: 0.8,
       }).collect();
       seq.set_pattern_notes(id, row, notes).unwrap();
@@ -79,12 +80,12 @@ fn big_project(seq: &mut daw::Sequencer) -> Big {
 }
 
 // a graph holding project (b), with these clips: (pattern, bar, track)
-fn big_graph(clips: impl Fn(&Big) -> Vec<(u64, u32, u32)>) -> (daw::AudioGraph<'static>, Big) {
-  let mut graph = daw::AudioGraph::new(RATE, TEMPO);
+fn big_graph(clips: impl Fn(&Big) -> Vec<(u64, u32, u32)>) -> (audiograph::AudioGraph<'static>, Big) {
+  let mut graph = audiograph::AudioGraph::new(RATE, TEMPO);
   let big = big_project(&mut graph.sequencer.lock().unwrap());
   let bar = graph.beat_interval() * 4;
   for (pattern, at, track) in clips(&big) {
-    graph.add_pattern_node::<daw::timing::QuarterNote>(pattern, bar * at, track, None).unwrap();
+    graph.add_pattern_node::<timing::QuarterNote>(pattern, bar * at, track, None).unwrap();
   }
   graph.init();
   (graph, big)
@@ -110,11 +111,11 @@ fn report(name: &str, times: &[Duration], scheduled: usize) {
 // as run_playlist's slice_voices makes it (its sounds made voices, and its
 // notes). returns the times and how many hits and notes they scheduled
 fn time_slices(
-  graph: &mut daw::AudioGraph<'static>,
-  engine: &daw::Engine,
+  graph: &mut audiograph::AudioGraph<'static>,
+  engine: &engine::Engine,
   beats: u32,
   rounds: usize,
-  slice: impl Fn(&daw::AudioGraph<'static>, Duration, Duration, bool) -> (Vec<daw::SliceSound>, Vec<daw::SliceNote>),
+  slice: impl Fn(&audiograph::AudioGraph<'static>, Duration, Duration, bool) -> (Vec<audiograph::SliceSound>, Vec<audiograph::SliceNote>),
 ) -> (Vec<Duration>, usize) {
   let beat = graph.beat_interval();
   let mut times = Vec::new();
@@ -141,8 +142,8 @@ fn time_slices(
 #[test]
 #[ignore]
 fn perf_slice() {
-  let (engine, _renderer) = daw::Engine::new(RATE);
-  let playlist = |graph: &daw::AudioGraph<'static>, at: Duration, beat: Duration, first: bool| (
+  let (engine, _renderer) = engine::Engine::new(RATE);
+  let playlist = |graph: &audiograph::AudioGraph<'static>, at: Duration, beat: Duration, first: bool| (
     graph.run_sounds_at(at, RATE, beat, false, first),
     graph.run_notes(beat, None),
   );
@@ -170,14 +171,14 @@ fn perf_slice() {
   let (mut graph, _) = big_graph(|big| vec![(big.long, 0, 1), (big.drums, 0, 0), (big.short, 0, 2)]);
   let looping: Vec<u64> = graph.pattern_nodes[1..].iter().map(|node| node.id).collect();
   for id in looping {
-    graph.set_pattern_window(id, 0., Some((LONG_BARS * 4 * daw::STEPS_PER_BEAT) as f64)).unwrap();
+    graph.set_pattern_window(id, 0., Some((LONG_BARS * 4 * sequencer::STEPS_PER_BEAT) as f64)).unwrap();
   }
   let (times, scheduled) = time_slices(&mut graph, &engine, LONG_BARS * 4, 10, playlist);
   report(&format!("slice playlist, 3 clips (2 looping), {} bars", LONG_BARS), &times, scheduled);
 
   // a pattern playing on its own
   let (mut graph, big) = big_graph(|_| vec![]);
-  let alone = |id: u64| move |graph: &daw::AudioGraph<'static>, at: Duration, beat: Duration, first: bool| (
+  let alone = |id: u64| move |graph: &audiograph::AudioGraph<'static>, at: Duration, beat: Duration, first: bool| (
     graph.pattern_sounds(id, at, RATE, beat, false, first),
     graph.pattern_notes(id, beat),
   );
@@ -193,10 +194,10 @@ fn perf_slice() {
 #[test]
 #[ignore]
 fn perf_resume() {
-  let (engine, _renderer) = daw::Engine::new(RATE);
+  let (engine, _renderer) = engine::Engine::new(RATE);
   let (mut graph, _) = big_graph(|big| vec![(big.drums, 0, 0)]);
   let clip = graph.pattern_nodes[0].id;
-  graph.set_pattern_window(clip, 0., Some((128 * 4 * daw::STEPS_PER_BEAT) as f64)).unwrap();
+  graph.set_pattern_window(clip, 0., Some((128 * 4 * sequencer::STEPS_PER_BEAT) as f64)).unwrap();
   let beat = graph.beat_interval();
   graph.set_current_offset(Some(beat * 4 * 120));
 
@@ -220,7 +221,7 @@ fn perf_resume() {
 #[test]
 #[ignore]
 fn perf_replies() {
-  let mut seq = daw::Sequencer::default();
+  let mut seq = sequencer::Sequencer::default();
   let big = big_project(&mut seq);
   seq.set_pattern_step(big.drums, big.samples[0], 0, false, 4).unwrap();
 
@@ -292,15 +293,15 @@ mod counting {
 #[test]
 #[ignore]
 fn perf_history() {
-  use crate::history::{History, Step};
+  use crate::daw::history::{History, Step};
   use counting::held;
 
-  let mut seq = daw::Sequencer::default();
+  let mut seq = sequencer::Sequencer::default();
   let big = big_project(&mut seq);
   let rows = big.samples.clone();
   let drum_steps = seq.pattern(big.drums).unwrap().length;
   // the n-th step edit: a different step cleared each time
-  let edit = |seq: &mut daw::Sequencer, n: u32| {
+  let edit = |seq: &mut sequencer::Sequencer, n: u32| {
     let (row, step) = (rows[n as usize % rows.len()], (n / rows.len() as u32) % drum_steps);
     seq.set_pattern_step(big.drums, row, step, false, 4).unwrap();
   };
@@ -327,7 +328,7 @@ fn perf_history() {
   // history::sequencer_edit): the sequencer copied before and after, and the
   // step kept, which compares the two
   let mut history = History::default();
-  let step_edit = |seq: &mut daw::Sequencer, history: &mut History, n: u32| {
+  let step_edit = |seq: &mut sequencer::Sequencer, history: &mut History, n: u32| {
     let before = seq.clone();
     edit(seq, n);
     history.push(Step::new().with_sequencer(before, seq.clone()));
@@ -340,7 +341,7 @@ fn perf_history() {
   let count = |id: u64| -> usize { seq.pattern(id).unwrap().notes.values().map(|notes| notes.len()).sum() };
   let notes = count(big.short) + count(big.long);
   let steps = count(big.drums);
-  let payload = (notes + steps) * std::mem::size_of::<daw::PatternNote>();
+  let payload = (notes + steps) * std::mem::size_of::<sequencer::PatternNote>();
 
   let before = held();
   let copy = seq.clone();
@@ -350,7 +351,7 @@ fn perf_history() {
   let before = held();
   let mut history = History::default();
   let mut work = seq.clone();
-  for n in 0..crate::history::LIMIT as u32 {
+  for n in 0..crate::daw::history::LIMIT as u32 {
     step_edit(&mut work, &mut history, n);
   }
   drop(work);

@@ -1,20 +1,20 @@
 // the transport's commands (see actions/transport.rs)
 use std::sync::atomic::Ordering;
 
-use crate::actions::transport::{
+use crate::daw::actions::transport::{
   change_loop_end, change_loop_region, change_tempo, loop_settings, playlist_transport, remove_loop_region,
   set_time_signature, unpin_loop_end, LoopSettings, PlaylistTransport,
 };
+use crate::daw::{playback, timing};
 use crate::commands::TState;
-use crate::daw;
 
 #[tauri::command]
 pub fn toggle_playlist(state: TState<'_>) {
   if state.playlist.playing() {
-    daw::pause_playlist(state.inner());
+    playback::pause_playlist(state.inner());
   } else {
     // start playlist
-    daw::start_playlist(state.inner());
+    playback::start_playlist(state.inner());
   }
 }
 
@@ -23,7 +23,7 @@ pub fn toggle_playlist(state: TState<'_>) {
 pub fn play_playlist(state: TState<'_>) {
   // a pattern playing on its own is replaced by the playlist
   if !state.playlist.playing_playlist() {
-    daw::start_playlist(state.inner());
+    playback::start_playlist(state.inner());
   }
 }
 
@@ -31,21 +31,21 @@ pub fn play_playlist(state: TState<'_>) {
 #[tauri::command]
 pub fn pause_playlist(state: TState<'_>) {
   if state.playlist.playing() {
-    daw::pause_playlist(state.inner());
+    playback::pause_playlist(state.inner());
   }
 }
 
 // stop and go back to the start
 #[tauri::command]
 pub fn stop_playlist(state: TState<'_>) {
-  daw::stop_playlist(state.inner());
+  playback::stop_playlist(state.inner());
 }
 
 // move the playhead to a beat (kept within the playlist), carrying on playing
 // from there if playing. returns the beat it moved to
 #[tauri::command]
 pub fn seek_playlist(state: TState<'_>, beat: f64) -> f64 {
-  daw::seek_playlist(state.inner(), beat)
+  playback::seek_playlist(state.inner(), beat)
 }
 
 #[tauri::command]
@@ -99,7 +99,7 @@ pub fn set_playlist_time_signature(
   numerator: u16,
   denominator: u16,
 ) {
-  set_time_signature(&state, daw::timing::TimeSignature { numerator, denominator });
+  set_time_signature(&state, timing::TimeSignature { numerator, denominator });
 }
 
 #[tauri::command]
@@ -108,7 +108,7 @@ pub fn toggle_loop_enabled(
 ) {
   // a recording cuts its passes where the loop comes round: it stays as it
   // is until the recording's over
-  if crate::recording::is_recording(&state) { return; }
+  if crate::daw::recording::is_recording(&state) { return; }
 
   let val = !state
     .playlist

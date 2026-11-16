@@ -3,8 +3,8 @@ use rodio::buffer::SamplesBuffer;
 
 const RATE: u32 = 1_000;
 
-fn master() -> Arc<daw::ChannelControls> {
-  daw::Mixer::default().master()
+fn master() -> Arc<mixer::ChannelControls> {
+  mixer::Mixer::default().master()
 }
 
 // a stereo click: `frames` frames of 1.0 at the test rate
@@ -202,13 +202,13 @@ impl Processor for Watch {
   }
 }
 
-fn track(engine: &Engine, mixer: &daw::Mixer, number: u32, source: SamplesBuffer<f32>, at: u64) -> Box<Voice> {
+fn track(engine: &Engine, mixer: &mixer::Mixer, number: u32, source: SamplesBuffer<f32>, at: u64) -> Box<Voice> {
   engine.voice(source, Some(1), at, Route::Track(mixer.track_route(number)))
 }
 
 #[test]
 fn test_track_buses_mix_as_gain_per_voice() {
-  let mixer = daw::Mixer::default();
+  let mixer = mixer::Mixer::default();
   mixer.set_volume_db(0, -6.);
   mixer.set_pan(0, -0.5);
   mixer.set_volume_db(1, -12.);
@@ -234,7 +234,7 @@ fn test_track_buses_mix_as_gain_per_voice() {
   let mut expected = vec![(0f32, 0f32); 100];
   for (number, at, samples) in &voices {
     let controls = mixer.track(*number);
-    let volume = daw::db_to_gain(controls.volume_db());
+    let volume = mixer::db_to_gain(controls.volume_db());
     let pan = controls.pan();
     let gain = (volume * (1. - pan).min(1.), volume * (1. + pan).min(1.));
     for (i, frame) in samples.chunks(2).enumerate() {
@@ -249,7 +249,7 @@ fn test_track_buses_mix_as_gain_per_voice() {
 
 #[test]
 fn test_a_track_chain_changes_only_its_track_and_the_master_chain_all_but_direct() {
-  let mixer = daw::Mixer::default();
+  let mixer = mixer::Mixer::default();
   let play = |engine: &Engine, renderer: &mut Renderer| -> Vec<f32> {
     engine.start_run(1, mixer.master(), vec![
       track(engine, &mixer, 0, steady(10, 0.2), 0),
@@ -273,7 +273,7 @@ fn test_a_track_chain_changes_only_its_track_and_the_master_chain_all_but_direct
 
 #[test]
 fn test_an_effect_tail_rings_on_after_the_voices_end_and_after_a_stop() {
-  let mixer = daw::Mixer::default();
+  let mixer = mixer::Mixer::default();
   let (engine, mut renderer) = Engine::new(RATE);
   engine.set_track_chain(&mixer.track_route(0), vec![Slot::new(1, Box::new(Delay::new(50)))]).unwrap();
 
@@ -292,7 +292,7 @@ fn test_an_effect_tail_rings_on_after_the_voices_end_and_after_a_stop() {
 
 #[test]
 fn test_a_bypassed_slot_passes_the_signal_through() {
-  let mixer = daw::Mixer::default();
+  let mixer = mixer::Mixer::default();
   let (engine, mut renderer) = Engine::new(RATE);
   let silence = Slot::new(7, Box::new(Gain(0.)));
   silence.set_bypassed(true);
@@ -310,7 +310,7 @@ fn test_a_bypassed_slot_passes_the_signal_through() {
 
 #[test]
 fn test_a_replaced_chain_comes_back_to_be_dropped() {
-  let mixer = daw::Mixer::default();
+  let mixer = mixer::Mixer::default();
   let (engine, mut renderer) = Engine::new(RATE);
   let first = Slot::new(1, Box::new(Gain(1.)));
   let master = Slot::new(2, Box::new(Gain(1.)));
@@ -334,7 +334,7 @@ fn test_a_replaced_chain_comes_back_to_be_dropped() {
 
 #[test]
 fn test_a_track_voice_lands_on_its_frame() {
-  let mixer = daw::Mixer::default();
+  let mixer = mixer::Mixer::default();
   let (engine, mut renderer) = Engine::new(RATE);
   render(&mut renderer, 37);
 
@@ -350,7 +350,7 @@ fn test_a_track_voice_lands_on_its_frame() {
 
 #[test]
 fn test_processors_see_the_transport() {
-  let mixer = daw::Mixer::default();
+  let mixer = mixer::Mixer::default();
   let (engine, mut renderer) = Engine::new(RATE);
   let seen = Arc::new(Mutex::new(Vec::new()));
   let watch = Slot::new(1, Box::new(Watch(seen.clone())));
@@ -384,7 +384,7 @@ fn test_processors_see_the_transport() {
 
 #[test]
 fn test_mute_solo_and_meters_work_per_track() {
-  let mixer = daw::Mixer::default();
+  let mixer = mixer::Mixer::default();
   let (engine, mut renderer) = Engine::new(RATE);
   let play = |renderer: &mut Renderer| -> Vec<f32> {
     // a moment of nothing first, so the buses start afresh, as new clips would
@@ -400,7 +400,7 @@ fn test_mute_solo_and_meters_work_per_track() {
 
   mixer.set_volume_db(0, -6.);
   mixer.set_mute(1, true);
-  let quieter = 0.5 * daw::db_to_gain(-6.);
+  let quieter = 0.5 * mixer::db_to_gain(-6.);
   let out = play(&mut renderer);
   assert!(close(out[0], quieter) && out[1] == 0. && close(out[2], 0.5), "{:?}", out);
   // each meter shows its bus, after the fader
@@ -448,8 +448,8 @@ impl Processor for Tone {
 }
 
 // an engine with a Tone at the head of track 0's chain, and the mixer
-fn with_tone() -> (Engine, Renderer, daw::Mixer) {
-  let mixer = daw::Mixer::default();
+fn with_tone() -> (Engine, Renderer, mixer::Mixer) {
+  let mixer = mixer::Mixer::default();
   let (engine, renderer) = Engine::new(RATE);
   engine.set_track_chain(&mixer.track_route(0), vec![Tone::slot(1)]).unwrap();
   (engine, renderer, mixer)
@@ -634,7 +634,7 @@ fn test_an_instrument_is_added_to_the_clips_and_both_go_through_the_effects() {
   let instrument = Tone::slot(1);
   engine.set_track_chain(&route, vec![instrument.clone(), Slot::new(2, Box::new(Gain(0.5)))]).unwrap();
   mixer.set_volume_db(0, -6.);
-  let fader = daw::db_to_gain(-6.);
+  let fader = mixer::db_to_gain(-6.);
 
   engine.start_run(1, mixer.master(), vec![track(&engine, &mixer, 0, steady(100, 0.2), 0)]).unwrap();
   engine.play_notes(&route, 1, Some(1), vec![TimedNote::on(20, 60, 1.), TimedNote::off(40, 60)]).unwrap();
@@ -664,7 +664,7 @@ fn test_too_many_notes_waiting_are_dropped_not_made_room_for() {
 
 #[test]
 fn test_two_instruments_on_a_bus_each_hear_only_their_own_notes() {
-  let mixer = daw::Mixer::default();
+  let mixer = mixer::Mixer::default();
   let (engine, mut renderer) = Engine::new(RATE);
   let route = mixer.track_route(0);
   let (a, b) = (Tone::slot(1), Tone::slot(2));
@@ -690,7 +690,7 @@ fn test_two_instruments_on_a_bus_each_hear_only_their_own_notes() {
 
 #[test]
 fn test_an_instrument_on_the_master_plays_through_the_master_chain() {
-  let mixer = daw::Mixer::default();
+  let mixer = mixer::Mixer::default();
   let (engine, mut renderer) = Engine::new(RATE);
   engine.set_master_chain(vec![Tone::slot(5), Slot::new(6, Box::new(Gain(0.5)))]).unwrap();
 
@@ -741,7 +741,7 @@ fn test_an_instruments_gain_ramps_to_a_new_value_across_a_block() {
 
 #[test]
 fn test_a_stop_ends_what_each_instrument_holds_for_the_run() {
-  let mixer = daw::Mixer::default();
+  let mixer = mixer::Mixer::default();
   let (engine, mut renderer) = Engine::new(RATE);
   let route = mixer.track_route(0);
   let (a, b) = (Tone::slot(1), Tone::slot(2));
@@ -844,7 +844,7 @@ const REST: usize = 2 * RATE as usize;
 
 #[test]
 fn test_a_silent_chain_rests_after_two_seconds_and_sound_wakes_it_at_once() {
-  let mixer = daw::Mixer::default();
+  let mixer = mixer::Mixer::default();
   let (engine, mut renderer) = Engine::new(RATE);
   let (counted, frames, _) = Counted::new(Some(0));
   engine.set_track_chain(&mixer.track_route(0), vec![Slot::new(1, Box::new(counted))]).unwrap();
@@ -874,7 +874,7 @@ fn test_a_silent_chain_rests_after_two_seconds_and_sound_wakes_it_at_once() {
 #[test]
 fn test_an_echo_within_two_seconds_is_heard_and_a_longer_one_needs_its_tail_said() {
   for (delay, tail, heard) in [(1_500, Some(0), true), (2_500, Some(0), false), (2_500, Some(2_500), true), (2_500, None, true)] {
-    let mixer = daw::Mixer::default();
+    let mixer = mixer::Mixer::default();
     let (engine, mut renderer) = Engine::new(RATE);
     let (counted, _, _) = Counted::new(tail);
     engine.set_track_chain(&mixer.track_route(0), vec![
@@ -891,7 +891,7 @@ fn test_an_echo_within_two_seconds_is_heard_and_a_longer_one_needs_its_tail_said
 
 #[test]
 fn test_a_plugin_that_never_stops_or_that_sounds_by_itself_never_rests() {
-  let mixer = daw::Mixer::default();
+  let mixer = mixer::Mixer::default();
   let (engine, mut renderer) = Engine::new(RATE);
   let (endless, endless_frames, _) = Counted::new(None);
   let hum_frames = Arc::new(AtomicUsize::new(0));
@@ -914,7 +914,7 @@ fn test_a_plugin_that_never_stops_or_that_sounds_by_itself_never_rests() {
 
 #[test]
 fn test_a_note_wakes_a_resting_instrument_on_its_frame_and_a_held_one_keeps_it_awake() {
-  let mixer = daw::Mixer::default();
+  let mixer = mixer::Mixer::default();
   let (engine, mut renderer) = Engine::new(RATE);
   // (an instrument that's silent even while it holds a note: a pad with
   // a slow attack)
@@ -946,7 +946,7 @@ fn test_a_note_wakes_a_resting_instrument_on_its_frame_and_a_held_one_keeps_it_a
 
 #[test]
 fn test_a_showing_interface_a_turned_knob_a_switch_and_a_new_chain_run_a_resting_chain() {
-  let mixer = daw::Mixer::default();
+  let mixer = mixer::Mixer::default();
   let (engine, mut renderer) = Engine::new(RATE);
   let (counted, frames, pending) = Counted::new(Some(0));
   let slot = Slot::new(1, Box::new(counted));
@@ -985,7 +985,7 @@ fn test_a_showing_interface_a_turned_knob_a_switch_and_a_new_chain_run_a_resting
 
 #[test]
 fn test_the_master_chain_rests_too_and_what_goes_round_it_is_still_heard() {
-  let mixer = daw::Mixer::default();
+  let mixer = mixer::Mixer::default();
   let (engine, mut renderer) = Engine::new(RATE);
   let (counted, frames, _) = Counted::new(Some(0));
   engine.set_master_chain(vec![Slot::new(1, Box::new(counted))]).unwrap();
@@ -1003,14 +1003,14 @@ fn test_the_master_chain_rests_too_and_what_goes_round_it_is_still_heard() {
   engine.start_run(1, mixer.master(), vec![track(&engine, &mixer, 0, steady(5, 0.5), 20)]).unwrap();
   let out = render_blocks(&mut renderer, 100);
   assert_eq!(sounding(&out), vec![(20, 25)]);
-  assert!(out[20..25].iter().all(|&s| close(s, daw::soft_limit(0.5))), "{:?}", &out[20..25]);
+  assert!(out[20..25].iter().all(|&s| close(s, mixer::soft_limit(0.5))), "{:?}", &out[20..25]);
   assert_eq!(frames.load(Ordering::Relaxed), REST + 100);
 }
 
 #[test]
 fn test_a_bus_with_no_chain_is_as_it_was() {
   // nothing to rest: a voice two seconds into silence plays as ever
-  let mixer = daw::Mixer::default();
+  let mixer = mixer::Mixer::default();
   let (engine, mut renderer) = Engine::new(RATE);
   engine.start_run(1, mixer.master(), vec![track(&engine, &mixer, 0, steady(5, 0.5), 4_010)]).unwrap();
   let out = render_blocks(&mut renderer, 5_000);
@@ -1025,7 +1025,7 @@ fn test_the_device_output_runs() {
   let engine = engine().expect("could not open the output");
   let start = engine.frames();
   engine.start_run(99, master(), vec![
-    engine.voice(daw::SampleBuffer::load("assets/assets_66-hh-01-or.wav").unwrap().convert_samples(), Some(99), 0, Route::Direct),
+    engine.voice(sound_buffer::SampleBuffer::load("assets/assets_66-hh-01-or.wav").unwrap().convert_samples(), Some(99), 0, Route::Direct),
   ]).unwrap();
 
   let anchor = engine.wait_for_anchor(99, Duration::from_secs(2)).unwrap();

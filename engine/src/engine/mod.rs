@@ -52,7 +52,6 @@ pub(crate) mod sample_voice;
 pub(crate) mod sound_buffer;
 pub(crate) mod util;
 
-use crate::daw;
 use self::processor::{Processor, Transport};
 use self::audio_settings::{buffer_choices, AudioSettings};
 use rodio::cpal::{
@@ -78,7 +77,7 @@ pub type VoiceSource = Box<dyn Source<Item = f32> + Send>;
 #[derive(Clone, Debug)]
 pub enum Route {
   // on its track's bus (the playlist's clips and pattern hits)
-  Track(daw::TrackRoute),
+  Track(mixer::TrackRoute),
   // straight on the master bus (a pattern played in the Sequencer tab)
   Master,
   // straight to the output, after the limiter (the metronome and previews)
@@ -228,7 +227,7 @@ impl Slot {
 
   // each side's gain an instrument plays at: its gain, panned
   fn gains(&self) -> [f32; 2] {
-    daw::pan_gains(self.pan()).map(|side| side * self.gain())
+    clip::pan_gains(self.pan()).map(|side| side * self.gain())
   }
 
   // only for the audio thread running the chain that holds the slot
@@ -347,7 +346,7 @@ struct Bus {
   // and the chain passes the signal from one to the other (a processor never
   // reads and writes the same buffer)
   buffers: [[Vec<f32>; 2]; 2],
-  strip: daw::Strip,
+  strip: mixer::Strip,
   chain: Vec<Arc<Slot>>,
   // notes still to come for its instruments, in no order. room for
   // MAX_NOTES of them is made up front
@@ -375,7 +374,7 @@ fn sounds(pair: &[Vec<f32>; 2], frames: usize) -> bool {
 }
 
 impl Bus {
-  fn new(channel: Channel, strip: daw::Strip) -> Box<Bus> {
+  fn new(channel: Channel, strip: mixer::Strip) -> Box<Bus> {
     let pair = || [vec![0f32; processor::MAX_BLOCK], vec![0f32; processor::MAX_BLOCK]];
     Box::new(Bus {
       channel,
@@ -576,7 +575,7 @@ impl Bus {
 enum Command {
   // start a run, stopping any other, with the master strip's controls,
   // where it is in the song, and its first voices
-  Start { run: u64, master: Arc<daw::ChannelControls>, start: RunStart, voices: Vec<Box<Voice>> },
+  Start { run: u64, master: Arc<mixer::ChannelControls>, start: RunStart, voices: Vec<Box<Voice>> },
   // stop a run (if it's the one playing), fading out what's sounding
   Stop { run: u64 },
   Play(Vec<Box<Voice>>),
@@ -589,9 +588,9 @@ enum Command {
   // allocates on the callback)
   Buses(Vec<Box<Bus>>),
   // a track's bus plays by other controls (the mixer was replaced)
-  Retarget(daw::TrackRoute),
+  Retarget(mixer::TrackRoute),
   // the master strip's controls
-  Master(Arc<daw::ChannelControls>),
+  Master(Arc<mixer::ChannelControls>),
   // a bus's whole chain, replacing the one it has
   Chain { channel: Channel, slots: Vec<Arc<Slot>> },
 }
@@ -605,8 +604,8 @@ enum Garbage {
   Notes(Vec<TimedNote>),
   Bus(Box<Bus>),
   Buses(Vec<Box<Bus>>),
-  Route(daw::TrackRoute),
-  Controls(Arc<daw::ChannelControls>, Option<Arc<AtomicUsize>>),
+  Route(mixer::TrackRoute),
+  Controls(Arc<mixer::ChannelControls>, Option<Arc<AtomicUsize>>),
   Chain(Vec<Arc<Slot>>),
 }
 
@@ -668,7 +667,7 @@ pub struct Anchor {
 // the track buses that have been sent to the callback
 struct Buses {
   // by track number, with the controls each plays by
-  tracks: HashMap<u32, daw::TrackRoute>,
+  tracks: HashMap<u32, mixer::TrackRoute>,
   // how many the callback's list has room for
   room: usize,
 }
@@ -779,7 +778,7 @@ impl Engine {
 
   // send a track's bus to the callback the first time it's needed, or its
   // new controls if the mixer has been replaced since
-  fn track_bus(&self, track: &daw::TrackRoute) -> Result<(), String> {
+  fn track_bus(&self, track: &mixer::TrackRoute) -> Result<(), String> {
     let mut buses = self.buses.lock().unwrap();
     match buses.tracks.get(&track.number) {
       Some(sent) if Arc::ptr_eq(&sent.controls, &track.controls)
@@ -791,7 +790,7 @@ impl Engine {
           self.send(Command::Buses(Vec::with_capacity(room)))?;
           buses.room = room;
         }
-        let strip = daw::Strip::new(track.controls.clone(), Some(track.solo_count.clone()), self.sample_rate, true);
+        let strip = mixer::Strip::new(track.controls.clone(), Some(track.solo_count.clone()), self.sample_rate, true);
         self.send(Command::Bus(Bus::new(Channel::Track(track.number), strip)))?;
       }
     }
@@ -807,7 +806,7 @@ impl Engine {
   pub fn start_run(
     &self,
     run: u64,
-    master: Arc<daw::ChannelControls>,
+    master: Arc<mixer::ChannelControls>,
     voices: Vec<Box<Voice>>,
   ) -> Result<(), String> {
     self.start_run_at(run, master, RunStart::default(), voices)
@@ -817,7 +816,7 @@ impl Engine {
   pub fn start_run_at(
     &self,
     run: u64,
-    master: Arc<daw::ChannelControls>,
+    master: Arc<mixer::ChannelControls>,
     start: RunStart,
     voices: Vec<Box<Voice>>,
   ) -> Result<(), String> {
@@ -838,7 +837,7 @@ impl Engine {
   // frames into a run, or, without one, straight away (a key auditioned: see
   // the top of the file). no other instrument hears them. the track's bus is
   // sent first if it hasn't been
-  pub fn play_notes(&self, route: &daw::TrackRoute, instrument: u64, run: Option<u64>, notes: Vec<TimedNote>) -> Result<(), String> {
+  pub fn play_notes(&self, route: &mixer::TrackRoute, instrument: u64, run: Option<u64>, notes: Vec<TimedNote>) -> Result<(), String> {
     if notes.is_empty() { return Ok(()); }
     self.track_bus(route)?;
     self.send(Command::Notes { channel: Channel::Track(route.number), instrument, run, notes })
@@ -861,13 +860,13 @@ impl Engine {
   // the master strip's controls, before any run sets them (a run's start
   // sets them too, and they stay after it ends)
   #[allow(dead_code)]
-  pub fn set_master(&self, controls: Arc<daw::ChannelControls>) -> Result<(), String> {
+  pub fn set_master(&self, controls: Arc<mixer::ChannelControls>) -> Result<(), String> {
     self.send(Command::Master(controls))
   }
 
   // replace a track's chain of effects (making its bus if need be). the old
   // slots come back to be dropped here; see wait_for_chains
-  pub fn set_track_chain(&self, route: &daw::TrackRoute, slots: Vec<Arc<Slot>>) -> Result<(), String> {
+  pub fn set_track_chain(&self, route: &mixer::TrackRoute, slots: Vec<Arc<Slot>>) -> Result<(), String> {
     self.track_bus(route)?;
     self.send_chain(Channel::Track(route.number), slots)
   }
@@ -1018,7 +1017,7 @@ impl Renderer {
     shared: Arc<Shared>,
   ) -> Self {
     // until a run sets its controls, the master passes the mix unchanged
-    let master = daw::Strip::new(Arc::new(daw::ChannelControls::default()), None, sample_rate, true);
+    let master = mixer::Strip::new(Arc::new(mixer::ChannelControls::default()), None, sample_rate, true);
     Renderer {
       commands,
       garbage,
@@ -1201,8 +1200,8 @@ impl Renderer {
     let at = self.master.run(frames, &transport);
     let [l, r] = &self.master.buffers[at];
     for (i, frame) in out.chunks_exact_mut(2).enumerate() {
-      frame[0] = daw::soft_limit(l[i]) + direct_l[i];
-      frame[1] = daw::soft_limit(r[i]) + direct_r[i];
+      frame[0] = mixer::soft_limit(l[i]) + direct_l[i];
+      frame[1] = mixer::soft_limit(r[i]) + direct_r[i];
     }
 
     self.frame = end;
@@ -1275,7 +1274,7 @@ impl Renderer {
     }
   }
 
-  fn set_master(&mut self, controls: Arc<daw::ChannelControls>) {
+  fn set_master(&mut self, controls: Arc<mixer::ChannelControls>) {
     if Arc::ptr_eq(self.master.strip.controls(), &controls) {
       self.throw_away(Garbage::Controls(controls, None));
     } else {

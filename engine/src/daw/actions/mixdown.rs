@@ -11,8 +11,8 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use crate::daw;
-use crate::mixdown::{self, Progress, CANCELLED};
-use crate::mixdown_file::{Format, MixdownFile};
+use crate::daw::mixdown::{self, Progress, CANCELLED};
+use crate::daw::mixdown_file::{Format, MixdownFile};
 
 // the folder in a saved project's folder that mixdowns go in by default
 const MIXDOWNS_FOLDER: &str = "mixdowns";
@@ -78,7 +78,7 @@ pub struct MixdownDefaults {
 // a saved project's name, and a folder next to its file. a project that's
 // never been saved: "Untitled", in the Music folder
 pub(crate) fn defaults_for(project: Option<&Path>) -> MixdownDefaults {
-  let name = project.and_then(crate::project_files::project_name).unwrap_or_else(|| UNTITLED.into());
+  let name = project.and_then(crate::daw::project_files::project_name).unwrap_or_else(|| UNTITLED.into());
   let dir = match project {
     Some(path) => path.parent().unwrap_or_else(|| Path::new("")).join(MIXDOWNS_FOLDER),
     None => dirs::audio_dir().or_else(dirs::home_dir).unwrap_or_default(),
@@ -136,8 +136,8 @@ pub(crate) fn start(
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::actions::clip::add_clip;
-  use crate::mixdown_file::Bits;
+  use crate::daw::actions::clip::add_clip;
+  use crate::daw::mixdown_file::Bits;
 
   const KICK: &str = "assets/assets_66-bd-01.wav";
   const LONG: &str = "assets/slide_guitar.wav";
@@ -217,7 +217,7 @@ mod tests {
     let mixdowns = Arc::new(Mixdowns::default());
     assert_eq!(start(&state, &mixdowns, options(&dir, "song"), 48_000).err().unwrap(), mixdown::NOTHING_TO_MIX);
     add_clip(&state, KICK.into(), 0, Some(0.)).unwrap();
-    assert_eq!(start(&state, &mixdowns, options(&dir, "  "), 48_000).err().unwrap(), crate::mixdown_file::NEEDS_NAME);
+    assert_eq!(start(&state, &mixdowns, options(&dir, "  "), 48_000).err().unwrap(), crate::daw::mixdown_file::NEEDS_NAME);
     assert_eq!(mixdowns.status(), Status::Idle);
     assert!(!dir.exists());
   }

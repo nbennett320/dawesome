@@ -2,17 +2,19 @@
 //
 // they run off the main thread: listing devices and reopening the output can
 // take a moment
-use crate::actions::audio::{
+use crate::daw::actions::audio::{
   delete_recording_folder_in, delete_recording_in, dir_to_change, existing_dir, move_recording_folder_in,
   move_recording_in, record_setup, rename_recording_folder_in, rename_recording_in, status, AudioStatus, Library,
   MovedRecording, RecordSetup,
 };
+use crate::daw::playback;
+use crate::engine::{self, audio_settings, input};
 use crate::commands::TState;
-use crate::daw;
+use crate::engine::drivers;
 
 #[tauri::command]
 pub fn get_audio_drivers() -> Result<Vec<String>, String> {
-  Ok(daw::drivers::get_sound_host_names())
+  Ok(drivers::get_sound_host_names())
 }
 
 #[tauri::command(async)]
@@ -24,20 +26,20 @@ pub fn get_audio_settings() -> AudioStatus {
 // keeps its place). settings that don't work are refused, leaving the old
 // ones playing
 #[tauri::command(async)]
-pub fn set_audio_settings(state: TState<'_>, settings: daw::AudioSettings) -> Result<AudioStatus, String> {
+pub fn set_audio_settings(state: TState<'_>, settings: audio_settings::AudioSettings) -> Result<AudioStatus, String> {
   if state.playlist.playing() {
-    daw::pause_playlist(&state);
+    playback::pause_playlist(&state);
   }
 
-  let before = daw::audio_settings();
+  let before = engine::audio_settings();
   // the effects come off the output before it's replaced, and go onto
   // whichever one is open after (the old one, if the new settings failed),
   // with their plugins prepared for its rate
-  let reopens = daw::engine_if_open().is_some()
+  let reopens = engine::engine_if_open().is_some()
     && (before.output_device != settings.output_device || before.buffer_frames != settings.buffer_frames);
   let effects = &state.playlist.effects;
   if reopens { effects.detach(); }
-  let applied = daw::apply_audio_settings(settings.clone());
+  let applied = engine::apply_audio_settings(settings.clone());
   effects.attach();
   applied?;
 
@@ -47,7 +49,7 @@ pub fn set_audio_settings(state: TState<'_>, settings: daw::AudioSettings) -> Re
     || before.buffer_frames != settings.buffer_frames
   {
     // (playback, and so any recording, has already stopped)
-    daw::reset_input();
+    input::reset_input();
   }
   Ok(status())
 }
@@ -55,14 +57,14 @@ pub fn set_audio_settings(state: TState<'_>, settings: daw::AudioSettings) -> Re
 // start or stop metering the input, for as long as the Audio tab shows it
 #[tauri::command(async)]
 pub fn listen_to_input(on: bool) -> Result<(), String> {
-  daw::listen_to_input(on)
+  input::listen_to_input(on)
 }
 
 // each input channel's loudest level since last asked, from 0 to 1 (empty
 // while nothing's listening)
 #[tauri::command]
 pub fn get_input_levels() -> Vec<f32> {
-  daw::input_if_open().map(|input| input.take_peaks()).unwrap_or_default()
+  input::input_if_open().map(|input| input.take_peaks()).unwrap_or_default()
 }
 
 #[tauri::command(async)]
@@ -75,10 +77,10 @@ pub fn get_record_setup(state: TState<'_>) -> RecordSetup {
 pub fn set_track_armed(
   state: TState<'_>,
   track_number: u32,
-  input: Option<crate::recording::InputChoice>,
+  input: Option<crate::daw::recording::InputChoice>,
 ) -> RecordSetup {
   state.recorder.lock().unwrap().arm(track_number, input);
-  crate::recording::hold_input_for_armed(&state);
+  crate::daw::recording::hold_input_for_armed(&state);
   record_setup(&state)
 }
 
@@ -87,34 +89,34 @@ pub fn set_track_armed(
 pub fn start_recording(
   state: TState<'_>,
   prefs: tauri::State<'_, crate::preferences::AppPreferences>,
-) -> Result<crate::recording::Recorded, String> {
-  crate::recording::start(state.inner(), prefs.current().loop_recording)?;
-  Ok(crate::recording::collect(&state))
+) -> Result<crate::daw::recording::Recorded, String> {
+  crate::daw::recording::start(state.inner(), prefs.current().loop_recording)?;
+  Ok(crate::daw::recording::collect(&state))
 }
 
 // stop recording (and playback, which keeps its place), with the clips the
 // takes became
 #[tauri::command(async)]
-pub fn stop_recording(state: TState<'_>) -> crate::recording::Recorded {
-  if crate::recording::is_recording(&state) {
-    daw::pause_playlist(&state);
+pub fn stop_recording(state: TState<'_>) -> crate::daw::recording::Recorded {
+  if crate::daw::recording::is_recording(&state) {
+    playback::pause_playlist(&state);
   }
-  crate::recording::collect(&state)
+  crate::daw::recording::collect(&state)
 }
 
 // whether it's still recording, and the clips recorded since last asked
 // (recording also ends when playback stops, or at a loop's end)
 #[tauri::command]
-pub fn collect_recording(state: TState<'_>) -> crate::recording::Recorded {
-  crate::recording::collect(&state)
+pub fn collect_recording(state: TState<'_>) -> crate::daw::recording::Recorded {
+  crate::daw::recording::collect(&state)
 }
 
 // the project's takes (newest first) or clips, and folders, for the sidebar's
 // browsers
 #[tauri::command(async)]
-pub fn list_recordings(state: TState<'_>, library: Option<Library>) -> crate::project_files::RecordingsListing {
+pub fn list_recordings(state: TState<'_>, library: Option<Library>) -> crate::daw::project_files::RecordingsListing {
   let dir = existing_dir(&state, library.unwrap_or_default());
-  dir.map(|dir| crate::project_files::list_recordings(&dir)).unwrap_or_default()
+  dir.map(|dir| crate::daw::project_files::list_recordings(&dir)).unwrap_or_default()
 }
 
 // rename a take (it stays in its folder), keeping the clips and sequencer
@@ -144,7 +146,7 @@ pub fn move_recording_folder(state: TState<'_>, folder: String, to_folder: Strin
 pub fn create_recording_folder(state: TState<'_>, parent: String, name: String, library: Option<Library>) -> Result<String, String> {
   let library = library.unwrap_or_default();
   let dir = dir_to_change(&state, library, true)?;
-  library.worded(crate::project_files::create_folder(&dir, &parent, &name))
+  library.worded(crate::daw::project_files::create_folder(&dir, &parent, &name))
 }
 
 // rename a folder, keeping the clips and sequencer rows that play what's in it

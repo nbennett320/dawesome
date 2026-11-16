@@ -27,8 +27,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::actions::clip::ClipWindow;
-use crate::daw;
+use crate::daw::{audiograph, sequencer};
+use crate::daw::actions::clip::ClipWindow;
 use super::ProjectPatternClip;
 
 // the first version whose patterns hold notes for every row
@@ -97,7 +97,7 @@ struct OldSynth {
   #[serde(default)]
   state: String,
   #[serde(default)]
-  window: Option<crate::effects::WindowPosition>,
+  window: Option<crate::daw::effects::WindowPosition>,
 }
 
 #[derive(Deserialize)]
@@ -112,7 +112,7 @@ struct OldPattern {
   #[serde(default)]
   folder: Option<u64>,
   #[serde(default)]
-  notes: BTreeMap<u64, Vec<daw::PatternNote>>,
+  notes: BTreeMap<u64, Vec<sequencer::PatternNote>>,
 }
 
 #[derive(Deserialize)]
@@ -165,15 +165,15 @@ pub(super) fn merge_pattern_kinds(project: &mut Value) -> Result<Vec<String>, St
   let (rows, ids) = merged_rows(old.rows, old.synths);
   let folders = mended_folders(old.folders);
   let kinds: BTreeMap<u64, Kind> = folders.iter().map(|f| (f.id, f.kind)).collect();
-  let patterns: Vec<daw::SavedPattern> = old.patterns.into_iter()
+  let patterns: Vec<sequencer::SavedPattern> = old.patterns.into_iter()
     .map(|pattern| merged_pattern(pattern, &ids, &kinds))
     .collect();
   let (clips, empty) = frozen_clips(old_clips, &patterns);
 
-  let sequencer = daw::SavedSequencer {
+  let sequencer = sequencer::SavedSequencer {
     rows,
     patterns,
-    folders: folders.into_iter().map(|f| daw::PatternFolder { id: f.id, name: f.name, parent: f.parent }).collect(),
+    folders: folders.into_iter().map(|f| sequencer::PatternFolder { id: f.id, name: f.name, parent: f.parent }).collect(),
   };
   fields.insert("patternSequencer".into(), serde_json::to_value(sequencer).map_err(invalid)?);
   fields.insert("patternClips".into(), serde_json::to_value(clips).map_err(invalid)?);
@@ -195,7 +195,7 @@ struct RowIds {
 // the sample rows, then the synths, as rows numbered from 0. an id used
 // twice (in rows, or in synths) is left out the second time, as the old
 // app left it out
-fn merged_rows(old_rows: Vec<OldRow>, old_synths: Vec<OldSynth>) -> (Vec<daw::SavedRow>, RowIds) {
+fn merged_rows(old_rows: Vec<OldRow>, old_synths: Vec<OldSynth>) -> (Vec<sequencer::SavedRow>, RowIds) {
   let mut ids = RowIds { rows: BTreeMap::new(), synths: BTreeMap::new() };
   let mut rows = Vec::new();
 
@@ -203,16 +203,16 @@ fn merged_rows(old_rows: Vec<OldRow>, old_synths: Vec<OldSynth>) -> (Vec<daw::Sa
     if ids.rows.contains_key(&old.id) { continue; }
     let id = rows.len() as u64;
     ids.rows.insert(old.id, id);
-    rows.push(daw::SavedRow {
+    rows.push(sequencer::SavedRow {
       id,
       label: old.label,
       volume: old.volume,
       pan: old.pan,
       muted: old.muted,
-      step_pitch: daw::DEFAULT_PITCH,
-      instrument: daw::SavedInstrument::Sample(daw::SavedSample {
+      step_pitch: sequencer::DEFAULT_PITCH,
+      instrument: sequencer::SavedInstrument::Sample(sequencer::SavedSample {
         path: old.path,
-        sample_pitch: daw::DEFAULT_PITCH,
+        sample_pitch: sequencer::DEFAULT_PITCH,
         gated: false,
       }),
     });
@@ -221,14 +221,14 @@ fn merged_rows(old_rows: Vec<OldRow>, old_synths: Vec<OldSynth>) -> (Vec<daw::Sa
     if ids.synths.contains_key(&old.id) { continue; }
     let id = rows.len() as u64;
     ids.synths.insert(old.id, id);
-    rows.push(daw::SavedRow {
+    rows.push(sequencer::SavedRow {
       id,
       label: None,
       volume: old.volume,
       pan: 0.,
       muted: old.muted,
-      step_pitch: daw::DEFAULT_PITCH,
-      instrument: daw::SavedInstrument::Synth(daw::SavedSynth {
+      step_pitch: sequencer::DEFAULT_PITCH,
+      instrument: sequencer::SavedInstrument::Synth(sequencer::SavedSynth {
         slot: old.id,
         plugin_id: old.plugin_id,
         name: old.name,
@@ -295,19 +295,19 @@ fn renamed_clashes(folders: &mut [OldFolder]) {
 
 // a pattern as version 4 has it (see the top of the file)
 // - kinds: each folder's kind
-fn merged_pattern(old: OldPattern, ids: &RowIds, kinds: &BTreeMap<u64, Kind>) -> daw::SavedPattern {
-  let notes: BTreeMap<u64, Vec<daw::PatternNote>> = match old.kind {
+fn merged_pattern(old: OldPattern, ids: &RowIds, kinds: &BTreeMap<u64, Kind>) -> sequencer::SavedPattern {
+  let notes: BTreeMap<u64, Vec<sequencer::PatternNote>> = match old.kind {
     Kind::Drum => old.steps.into_iter()
       .filter_map(|(row, steps)| Some((*ids.rows.get(&row)?, steps.into_iter().map(step_note).collect())))
       .collect(),
     Kind::Note => old.notes.into_iter()
       .filter_map(|(synth, mut notes)| {
-        daw::sort_notes(&mut notes);
+        sequencer::sort_notes(&mut notes);
         Some((*ids.synths.get(&synth)?, notes))
       })
       .collect(),
   };
-  daw::SavedPattern {
+  sequencer::SavedPattern {
     id: old.id,
     name: Some(old.name.unwrap_or_else(|| old.kind.unnamed(old.id + 1))),
     length: old.length,
@@ -321,8 +321,8 @@ fn merged_pattern(old: OldPattern, ids: &RowIds, kinds: &BTreeMap<u64, Kind>) ->
 
 // a lit step as a note: one step long at the row's step pitch, as loud as a
 // hit was (D3)
-fn step_note(step: u32) -> daw::PatternNote {
-  daw::PatternNote { pitch: daw::DEFAULT_PITCH, start: step as f64, length: 1., velocity: 1. }
+fn step_note(step: u32) -> sequencer::PatternNote {
+  sequencer::PatternNote { pitch: sequencer::DEFAULT_PITCH, start: step as f64, length: 1., velocity: 1. }
 }
 
 // the pattern clips, each with the part of its pattern it played frozen as
@@ -333,18 +333,18 @@ fn step_note(step: u32) -> daw::PatternNote {
 // shortest clip from its pattern's end, or past it, and played no notes
 // there: kept the shortest clip's length, it would go round into its
 // pattern's start. returns the clips, and how many of those were left out
-fn frozen_clips(old: Vec<OldPatternClip>, patterns: &[daw::SavedPattern]) -> (Vec<ProjectPatternClip>, usize) {
+fn frozen_clips(old: Vec<OldPatternClip>, patterns: &[sequencer::SavedPattern]) -> (Vec<ProjectPatternClip>, usize) {
   let mut empty = 0;
   let clips = old.into_iter().filter_map(|clip| {
     let pattern = patterns.iter().find(|p| p.id == clip.pattern_id)?;
     let length = pattern.length as f64;
     let start = clip.window.map(|w| w.start).filter(|start| start.is_finite() && *start > 0.).unwrap_or(0.);
     let end = clip.window.and_then(|w| w.end).filter(|end| end.is_finite() && *end > start);
-    if start + daw::MIN_PATTERN_CLIP > length && !plays_from(pattern, start) {
+    if start + audiograph::MIN_PATTERN_CLIP > length && !plays_from(pattern, start) {
       empty += 1;
       return None;
     }
-    let to = end.unwrap_or(length).min(length).max(start + daw::MIN_PATTERN_CLIP);
+    let to = end.unwrap_or(length).min(length).max(start + audiograph::MIN_PATTERN_CLIP);
     Some(ProjectPatternClip {
       pattern_id: clip.pattern_id,
       track_number: clip.track_number,
@@ -357,7 +357,7 @@ fn frozen_clips(old: Vec<OldPatternClip>, patterns: &[daw::SavedPattern]) -> (Ve
 }
 
 // whether any note of a pattern starts from `step` up to its end
-fn plays_from(pattern: &daw::SavedPattern, step: f64) -> bool {
+fn plays_from(pattern: &sequencer::SavedPattern, step: f64) -> bool {
   let length = pattern.length as f64;
   pattern.notes.values().flatten().any(|note| note.start >= step && note.start < length)
 }

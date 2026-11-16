@@ -1,4 +1,5 @@
 use super::testing::*;
+use crate::engine;
 use super::*;
 
 fn close(a: f32, b: f32) -> bool {
@@ -206,7 +207,7 @@ fn test_an_unload_callback_can_still_reach_the_plugin() {
 fn test_chains_wait_for_a_stalled_engine_to_let_go_before_going_to_another() {
   let mut rig = rig();
   // the old engine never takes the chains it's sent (nor empties them)
-  let (stalled, stalled_renderer) = daw::Engine::new(RATE);
+  let (stalled, stalled_renderer) = engine::Engine::new(RATE);
   let stalled = Arc::new(stalled);
   rig.effects().use_backend(rig.loader.clone(), Arc::new(Fixed(stalled.clone())), Duration::ZERO);
   let a = rig.effects().add(Channel::Track(0), &gain().id, None).unwrap();
@@ -231,7 +232,7 @@ fn test_chains_wait_for_a_stalled_engine_to_let_go_before_going_to_another() {
 #[test]
 fn test_chains_go_to_a_stalled_engine_once_it_has_caught_up() {
   let mut rig = rig();
-  let (stalled, mut stalled_renderer) = daw::Engine::new(RATE);
+  let (stalled, mut stalled_renderer) = engine::Engine::new(RATE);
   rig.effects().use_backend(rig.loader.clone(), Arc::new(Fixed(Arc::new(stalled))), Duration::ZERO);
   rig.effects().add(Channel::Track(0), &gain().id, None).unwrap();
   rig.effects().detach();
@@ -250,14 +251,14 @@ fn test_chains_go_to_a_stalled_engine_once_it_has_caught_up() {
 // soon as one is
 #[test]
 fn test_effects_reach_an_output_opened_later() {
-  struct Later(Mutex<Option<Arc<daw::Engine>>>);
+  struct Later(Mutex<Option<Arc<engine::Engine>>>);
 
   impl Output for Later {
-    fn engine(&self) -> Result<Arc<daw::Engine>, String> {
+    fn engine(&self) -> Result<Arc<engine::Engine>, String> {
       self.engine_if_open().ok_or_else(|| "no output yet".into())
     }
 
-    fn engine_if_open(&self) -> Option<Arc<daw::Engine>> {
+    fn engine_if_open(&self) -> Option<Arc<engine::Engine>> {
       self.0.lock().unwrap().clone()
     }
   }
@@ -284,7 +285,7 @@ fn test_a_new_output_rate_reaches_every_plugin() {
   let b = rig.effects().add(Channel::Track(0), &gain().id, None).unwrap();
   assert!(close(rig.level(Some(0)), 0.2));
 
-  let (engine, renderer) = daw::Engine::new(96_000);
+  let (engine, renderer) = engine::Engine::new(96_000);
   let engine = Arc::new(engine);
   rig.effects().use_backend(rig.loader.clone(), Arc::new(Fixed(engine.clone())), Duration::ZERO);
   rig.engine = engine;
@@ -377,7 +378,7 @@ fn test_a_real_reverb_rings_out_then_its_channel_rests() {
   rig.effects().plugins.set(plugin::scan::Catalog { plugins: vec![info.clone()], ..Default::default() });
   // the renderer runs on a thread of its own, about as fast as an
   // output's would, noting each block's loudest sample
-  let mut renderer = std::mem::replace(&mut rig.renderer, daw::Engine::new(RATE).1);
+  let mut renderer = std::mem::replace(&mut rig.renderer, engine::Engine::new(RATE).1);
   let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
   let peaks: Arc<Mutex<Vec<f32>>> = Arc::default();
   const BLOCK: usize = 480;
@@ -401,7 +402,7 @@ fn test_a_real_reverb_rings_out_then_its_channel_rests() {
       let s = 0.3 * (i as f32 * 440. * std::f32::consts::TAU / RATE as f32).sin();
       [s, s]
     }).collect();
-    let voice = rig.engine.voice(SamplesBuffer::new(2, RATE, sine), Some(run), 0, daw::Route::Track(rig.state.playlist.mixer.track_route(0)));
+    let voice = rig.engine.voice(SamplesBuffer::new(2, RATE, sine), Some(run), 0, engine::Route::Track(rig.state.playlist.mixer.track_route(0)));
     rig.engine.start_run(run, rig.state.playlist.mixer.master(), vec![voice]).unwrap();
   };
 
@@ -460,7 +461,7 @@ fn test_chow_tape_model_through_the_racks() {
   rig.effects().plugins.set(plugin::scan::Catalog { plugins: vec![info.clone()], ..Default::default() });
   // the renderer runs on a thread of its own, as an output's would, so
   // the engine takes the chains it's sent
-  let renderer = Arc::new(Mutex::new(std::mem::replace(&mut rig.renderer, daw::Engine::new(RATE).1)));
+  let renderer = Arc::new(Mutex::new(std::mem::replace(&mut rig.renderer, engine::Engine::new(RATE).1)));
   let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
   let output: Arc<Mutex<Vec<f32>>> = Arc::default();
   let render = {
@@ -484,7 +485,7 @@ fn test_chow_tape_model_through_the_racks() {
       let s = 0.3 * (i as f32 * 440. * std::f32::consts::TAU / RATE as f32).sin();
       [s, s]
     }).collect();
-    let voice = rig.engine.voice(SamplesBuffer::new(2, RATE, sine), Some(run), 0, daw::Route::Track(rig.state.playlist.mixer.track_route(track)));
+    let voice = rig.engine.voice(SamplesBuffer::new(2, RATE, sine), Some(run), 0, engine::Route::Track(rig.state.playlist.mixer.track_route(track)));
     output.lock().unwrap().clear();
     rig.engine.start_run(run, rig.state.playlist.mixer.master(), vec![voice]).unwrap();
     std::thread::sleep(Duration::from_millis(600));

@@ -5,10 +5,12 @@
 // is afterwards, and the frontend shows that
 use serde::Serialize;
 
+use crate::daw::sequencer;
+use crate::engine::mixer;
 use crate::daw;
-use crate::history;
-use crate::actions::mixer::mixer_settings;
-use crate::project::{LoadedClip, LoadedPatternClip};
+use crate::daw::history;
+use crate::daw::actions::mixer::mixer_settings;
+use crate::daw::project::{LoadedClip, LoadedPatternClip};
 
 // the project as it is now, in the shapes the frontend already takes from a
 // loaded project
@@ -18,10 +20,10 @@ pub struct ProjectView {
   pub tempo: f32,
   pub clips: Vec<LoadedClip>,
   pub pattern_clips: Vec<LoadedPatternClip>,
-  pub mixer: daw::MixerSettings,
-  pub sequencer: daw::SequencerState,
+  pub mixer: mixer::MixerSettings,
+  pub sequencer: sequencer::SequencerState,
   // each channel's effects
-  pub effects: crate::effects::Racks,
+  pub effects: crate::daw::effects::Racks,
 }
 
 pub fn project_view(state: &daw::InnerState) -> ProjectView {
@@ -39,7 +41,7 @@ pub fn project_view(state: &daw::InnerState) -> ProjectView {
     clips,
     pattern_clips,
     mixer: mixer_settings(state),
-    sequencer: crate::actions::synth::sequencer_state(state),
+    sequencer: crate::daw::actions::synth::sequencer_state(state),
     effects: state.playlist.effects.racks(),
   }
 }

@@ -1,16 +1,16 @@
 // the effects' commands: the plugins installed, and each mixer channel's
 // rack of effects (see actions/effect.rs)
-use crate::actions::effect::{add, move_to, remove, set_bypassed, set_param, set_param_text, AddedEffect};
+use crate::daw::actions::effect::{add, move_to, remove, set_bypassed, set_param, set_param_text, AddedEffect};
 use crate::commands::TState;
-use crate::effects::Racks;
-use crate::native::{EffectParams, EffectSpectrum, ParamValue};
-use crate::plugin_catalog::PluginCatalog;
+use crate::daw::effects::Racks;
+use crate::daw::native::{EffectParams, EffectSpectrum, ParamValue};
+use crate::daw::plugin_catalog::PluginCatalog;
 
 // the plugins installed, after Dawesome's own effects (native.rs)
 #[tauri::command]
 pub fn get_plugins(state: TState<'_>) -> PluginCatalog {
   let mut catalog = state.playlist.effects.plugins.status();
-  catalog.plugins.splice(0..0, crate::native::catalog());
+  catalog.plugins.splice(0..0, crate::daw::native::catalog());
   catalog
 }
 

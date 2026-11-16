@@ -1,15 +1,17 @@
 use super::super::testing::*;
 use super::*;
-use crate::actions::sequencer::edit;
-use crate::actions::synth as synths;
+use crate::daw::{audiograph, sequencer};
+use crate::engine;
+use crate::daw::actions::sequencer::edit;
+use crate::daw::actions::synth as synths;
 use std::sync::atomic::Ordering::SeqCst;
 
 fn close(a: f32, b: f32) -> bool {
   (a - b).abs() < 1e-5
 }
 
-fn note(pitch: u8, start: f64, length: f64) -> daw::PatternNote {
-  daw::PatternNote { pitch, start, length, velocity: 1. }
+fn note(pitch: u8, start: f64, length: f64) -> sequencer::PatternNote {
+  sequencer::PatternNote { pitch, start, length, velocity: 1. }
 }
 
 // a synth row (its master copy at `gain`), below a sample row so its id
@@ -20,7 +22,7 @@ fn synth_with_notes(rig: &Rig, gain: f32) -> (u64, u64) {
   let slot = rig.slot_of(row);
   rig.turn(slot, gain);
   let pattern = rig.state.playlist.sequencer.lock().unwrap().add_pattern(1, 4).unwrap();
-  crate::actions::sequencer::set_pattern_notes_in(&rig.state, pattern, row, vec![note(60, 0., 4.)], None, false).unwrap();
+  crate::daw::actions::sequencer::set_pattern_notes_in(&rig.state, pattern, row, vec![note(60, 0., 4.)], None, false).unwrap();
   (slot, pattern)
 }
 
@@ -31,7 +33,7 @@ fn row_of(rig: &Rig, slot: u64) -> u64 {
 }
 
 fn clip(rig: &Rig, pattern: u64, track: u32) -> u64 {
-  crate::actions::sequencer::add_pattern_clip_for_tests(&rig.state, pattern, track, Some(0.))
+  crate::daw::actions::sequencer::add_pattern_clip_for_tests(&rig.state, pattern, track, Some(0.))
 }
 
 fn steps(rig: &Rig) -> usize {
@@ -50,7 +52,7 @@ fn test_a_synth_is_an_instrument_with_a_unique_name_and_its_master_copy_on_the_m
   let mut rig = rig();
   let a = synths::add(&rig.state, &synth().id).unwrap();
   let b = synths::add(&rig.state, &synth().id).unwrap();
-  let synths: Vec<&daw::SynthState> = b.sequencer.rows.iter().filter_map(|row| row.synth()).collect();
+  let synths: Vec<&sequencer::SynthState> = b.sequencer.rows.iter().filter_map(|row| row.synth()).collect();
   let names: Vec<&str> = synths.iter().map(|s| s.name.as_str()).collect();
   assert_eq!(names, vec!["Synth", "Synth 2"]);
   assert!(!synths[0].missing);
@@ -116,9 +118,9 @@ fn test_two_tracks_playing_a_synth_each_hear_only_their_own_notes() {
   let run = rig.run;
   rig.engine.start_run(run, rig.state.playlist.mixer.master(), vec![]).unwrap();
   let mut slice = vec![
-    daw::SliceNote { on: Duration::ZERO, off: Duration::from_millis(2), synth, route: Some(rig.state.playlist.mixer.track_route(0)), pitch: 60, velocity: 1. },
+    audiograph::SliceNote { on: Duration::ZERO, off: Duration::from_millis(2), synth, route: Some(rig.state.playlist.mixer.track_route(0)), pitch: 60, velocity: 1. },
   ];
-  daw::play_slice_notes(&rig.engine, run, Duration::ZERO, slice.clone(), &copies).unwrap();
+  audiograph::play_slice_notes(&rig.engine, run, Duration::ZERO, slice.clone(), &copies).unwrap();
   let mut out = vec![0f32; 400 * 2];
   rig.renderer.render(&mut out, Instant::now(), Duration::ZERO);
   assert!(close(out[20], 0.5));
@@ -128,7 +130,7 @@ fn test_two_tracks_playing_a_synth_each_hear_only_their_own_notes() {
   let run = rig.run;
   rig.engine.start_run(run, rig.state.playlist.mixer.master(), vec![]).unwrap();
   slice[0].route = Some(rig.state.playlist.mixer.track_route(1));
-  daw::play_slice_notes(&rig.engine, run, Duration::ZERO, slice, &copies).unwrap();
+  audiograph::play_slice_notes(&rig.engine, run, Duration::ZERO, slice, &copies).unwrap();
   rig.renderer.render(&mut out, Instant::now(), Duration::ZERO);
   assert!((out[20] / 0.5 - 0.501).abs() < 0.01, "{}", out[20]);
 }
@@ -192,9 +194,9 @@ fn test_volume_and_mute_reach_every_copy() {
   assert!(heard(&mut rig, synth, Some(1)).iter().all(|&s| s == 0.));
   assert!(heard(&mut rig, synth, None).iter().all(|&s| s == 0.));
 
-  crate::history::undo(&rig.state).unwrap();
+  crate::daw::history::undo(&rig.state).unwrap();
   assert!(close(heard(&mut rig, synth, Some(1))[100], 0.25));
-  crate::history::undo(&rig.state).unwrap();
+  crate::daw::history::undo(&rig.state).unwrap();
   assert!(close(heard(&mut rig, synth, Some(1))[100], 0.5));
   assert!(edit(&rig.state, None, |seq| seq.set_row_volume(999, 1.)).is_err());
 }
@@ -208,7 +210,7 @@ fn heard_both(rig: &mut Rig, synth: u64, track: Option<u32>, frames: usize) -> V
     rig.run += 1;
     rig.engine.start_run(rig.run, rig.state.playlist.mixer.master(), vec![]).unwrap();
     let copy = rig.effects().copy_ids()[&(synth, track)];
-    let notes = vec![daw::TimedNote::on(0, 60, 1.), daw::TimedNote::off(frames as u64 - 100, 60)];
+    let notes = vec![engine::TimedNote::on(0, 60, 1.), engine::TimedNote::off(frames as u64 - 100, 60)];
     match track {
       Some(n) => rig.engine.play_notes(&rig.state.playlist.mixer.track_route(n), copy, Some(rig.run), notes).unwrap(),
       None => rig.engine.play_master_notes(copy, Some(rig.run), notes).unwrap(),
@@ -249,8 +251,8 @@ fn test_a_synth_rows_pan_reaches_every_copy() {
   assert!(close(heard[100][0], 0.2) && close(heard[100][1], 0.4), "{:?}", heard[100]);
 
   // undone, it's back where it was
-  crate::history::undo(&rig.state).unwrap();
-  crate::history::undo(&rig.state).unwrap();
+  crate::daw::history::undo(&rig.state).unwrap();
+  crate::daw::history::undo(&rig.state).unwrap();
   assert!(heard_both(&mut rig, synth, Some(1), 400)[100] == [0.4, 0.4]);
 }
 
@@ -269,7 +271,7 @@ fn test_a_synth_rows_pan_glides() {
   rig.run += 1;
   rig.engine.start_run(rig.run, rig.state.playlist.mixer.master(), vec![]).unwrap();
   let copy = rig.effects().copy_ids()[&(synth, Some(1))];
-  let notes = vec![daw::TimedNote::on(0, 60, 1.), daw::TimedNote::off(300, 60)];
+  let notes = vec![engine::TimedNote::on(0, 60, 1.), engine::TimedNote::off(300, 60)];
   rig.engine.play_notes(&rig.state.playlist.mixer.track_route(1), copy, Some(rig.run), notes).unwrap();
   let mut samples = vec![0f32; 256 * 2];
   rig.renderer.render(&mut samples, Instant::now(), Duration::ZERO);
@@ -301,7 +303,7 @@ fn test_removing_a_synth_and_undoing_it_brings_back_its_notes_and_settings() {
   assert!(heard.lock().unwrap().contains(&synth));
   assert!(rig.effects().slot_name(synth).is_none());
 
-  crate::history::undo(&rig.state).unwrap();
+  crate::daw::history::undo(&rig.state).unwrap();
   let seq = synths::sequencer_state(&rig.state);
   assert_eq!(seq.rows[1].synth().unwrap().slot, synth);
   assert_eq!(*seq.pattern(pattern).unwrap().notes[&row], vec![note(60, 0., 4.)]);
@@ -311,9 +313,9 @@ fn test_removing_a_synth_and_undoing_it_brings_back_its_notes_and_settings() {
   assert!(close(rig.hear_notes(synth, Some(2), &[(60, 0, 300)], 400)[100], 0.35));
 
   // redone and undone again: the same
-  crate::history::redo(&rig.state).unwrap();
+  crate::daw::history::redo(&rig.state).unwrap();
   assert_eq!(rig.loader.alive.load(SeqCst), 0);
-  crate::history::undo(&rig.state).unwrap();
+  crate::daw::history::undo(&rig.state).unwrap();
   assert!(close(rig.gain_of(synth), 0.35));
 }
 
@@ -346,15 +348,15 @@ fn test_replacing_a_synths_plugin_keeps_its_row_and_undoing_it_brings_back_the_o
   assert!(rig.effects().copy_ids().get(&(old, Some(2))).is_none());
 
   // undone: the old plugin back in its slot with its settings, on its track
-  crate::history::undo(&rig.state).unwrap();
+  crate::daw::history::undo(&rig.state).unwrap();
   assert_eq!(rig.slot_of(row), old);
   assert!(close(rig.gain_of(old), 0.35));
   assert_eq!(rig.copy_gain(old, Some(2)), Some(0.35));
   assert!(close(rig.hear_notes(old, Some(2), &[(60, 0, 300)], 400)[100], 0.35));
   assert!(rig.effects().slot_name(new).is_none());
-  crate::history::redo(&rig.state).unwrap();
+  crate::daw::history::redo(&rig.state).unwrap();
   assert_eq!(rig.slot_of(row), new);
-  crate::history::undo(&rig.state).unwrap();
+  crate::daw::history::undo(&rig.state).unwrap();
 
   // refused, loading nothing and with no step: a sample row, a row that
   // isn't there, and a plugin that isn't an instrument
@@ -371,7 +373,7 @@ fn test_replacing_a_synths_plugin_keeps_its_row_and_undoing_it_brings_back_the_o
 #[test]
 fn test_adding_a_synth_on_a_track_is_one_step() {
   let rig = rig();
-  let before = crate::project::capture(&rig.state, None);
+  let before = crate::daw::project::capture(&rig.state, None);
   let had = steps(&rig);
   let added = synths::add_on_track(&rig.state, &synth().id, 4, Some(8.)).unwrap();
   assert_eq!(steps(&rig), had + 1);
@@ -384,19 +386,19 @@ fn test_adding_a_synth_on_a_track_is_one_step() {
   assert_eq!((clip.pattern_id, clip.track_number, clip.start_beat), (added.pattern_id, 4, 8.));
   let json = serde_json::to_value(&added).unwrap();
   assert!(json.get("rowId").is_some() && json.get("patternId").is_some() && json["project"].get("pattern_clips").is_none());
-  let after = crate::project::capture(&rig.state, None);
+  let after = crate::daw::project::capture(&rig.state, None);
 
   // its first note makes the track's copy
   let slot = rig.slot_of(added.row_id);
-  crate::actions::sequencer::set_pattern_notes_in(&rig.state, added.pattern_id, added.row_id, vec![note(60, 0., 1.)], None, false).unwrap();
+  crate::daw::actions::sequencer::set_pattern_notes_in(&rig.state, added.pattern_id, added.row_id, vec![note(60, 0., 1.)], None, false).unwrap();
   assert!(rig.effects().copy_ids().contains_key(&(slot, Some(4))));
-  crate::history::undo(&rig.state).unwrap();
+  crate::daw::history::undo(&rig.state).unwrap();
 
-  crate::history::undo(&rig.state).unwrap();
-  assert_eq!(crate::project::capture(&rig.state, None), before);
+  crate::daw::history::undo(&rig.state).unwrap();
+  assert_eq!(crate::daw::project::capture(&rig.state, None), before);
   assert_eq!(rig.loader.alive.load(SeqCst), 0);
-  crate::history::redo(&rig.state).unwrap();
-  assert_eq!(crate::project::capture(&rig.state, None), after);
+  crate::daw::history::redo(&rig.state).unwrap();
+  assert_eq!(crate::daw::project::capture(&rig.state, None), after);
   assert!(synths::add_on_track(&rig.state, &gain().id, 0, None).is_err());
   assert_eq!(steps(&rig), had + 1);
 }

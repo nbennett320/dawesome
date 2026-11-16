@@ -4,10 +4,11 @@
 // controls take effect straight away, even while playing. the setters return
 // the value actually used, after it's kept in range
 use crate::daw;
-use crate::history;
+use crate::engine::mixer;
+use crate::daw::history;
 
 // every track's strip, up to the playlist's track count, and the master
-pub fn mixer_settings(state: &daw::InnerState) -> daw::MixerSettings {
+pub fn mixer_settings(state: &daw::InnerState) -> mixer::MixerSettings {
   let track_count = state.playlist.audiograph.lock().unwrap().track_count();
   state.playlist.mixer.settings(track_count)
 }
@@ -15,7 +16,7 @@ pub fn mixer_settings(state: &daw::InnerState) -> daw::MixerSettings {
 // change the mixer, and record the change so it can be undone
 // - gesture: the fader or knob drag it's part of, if any. one drag is one
 //   step, however many values it sends
-fn edit<T>(state: &daw::InnerState, gesture: Option<u64>, change: impl FnOnce(&daw::Mixer) -> T) -> T {
+fn edit<T>(state: &daw::InnerState, gesture: Option<u64>, change: impl FnOnce(&mixer::Mixer) -> T) -> T {
   let mixer = &state.playlist.mixer;
   let before = mixer.changed();
   let result = change(mixer);
@@ -51,24 +52,25 @@ pub fn change_track_color(state: &daw::InnerState, track_number: u32, color: Opt
   edit(state, None, |mixer| mixer.set_color(track_number, color))
 }
 
-pub fn reset(state: &daw::InnerState) -> daw::MixerSettings {
+pub fn reset(state: &daw::InnerState) -> mixer::MixerSettings {
   edit(state, None, |mixer| mixer.reset());
   mixer_settings(state)
 }
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::daw::{defaults, playback};
 
   #[test]
   fn test_settings_cover_every_track_in_the_playlist() {
     let state = daw::InnerState::default();
-    assert_eq!(mixer_settings(&state).tracks.len(), daw::defaults::NUM_OF_TRACKS as usize);
+    assert_eq!(mixer_settings(&state).tracks.len(), defaults::NUM_OF_TRACKS as usize);
 
     // a clip on a new track gives the mixer a strip for it too
     {
       let mut audiograph = state.playlist.audiograph.lock().unwrap();
       audiograph
-        .construct_and_add_node(daw::METRONOME_TICK_PATH.to_string(), std::time::Duration::ZERO, 6)
+        .construct_and_add_node(playback::METRONOME_TICK_PATH.to_string(), std::time::Duration::ZERO, 6)
         .unwrap();
     }
     let tracks = mixer_settings(&state).tracks;

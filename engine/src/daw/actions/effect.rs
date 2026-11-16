@@ -8,10 +8,11 @@
 // the sequencer's synth rows (see actions/synth.rs)
 use serde::Serialize;
 
-use crate::daw::{self, Channel};
-use crate::effects::Racks;
-use crate::history;
-use crate::native::{Native, ParamValue};
+use crate::daw;
+use crate::engine::Channel;
+use crate::daw::effects::Racks;
+use crate::daw::history;
+use crate::daw::native::{Native, ParamValue};
 
 fn channel(track: Option<u32>) -> Channel {
   track.map_or(Channel::Master, Channel::Track)
@@ -22,7 +23,7 @@ fn channel(track: Option<u32>) -> Channel {
 fn edit<T>(
   state: &daw::InnerState,
   keep: Option<u64>,
-  change: impl FnOnce(&crate::effects::Effects) -> Result<T, String>,
+  change: impl FnOnce(&crate::daw::effects::Effects) -> Result<T, String>,
 ) -> Result<T, String> {
   let effects = &state.playlist.effects;
   let mut before = effects.snapshot();
@@ -91,7 +92,7 @@ pub fn set_param_text(state: &daw::InnerState, slot_id: u64, id: u32, text: &str
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::effects::testing::*;
+  use crate::daw::effects::testing::*;
   use std::sync::atomic::Ordering;
   use std::sync::Arc;
 
@@ -269,10 +270,10 @@ mod tests {
     let state = rig.state.clone();
     add(&state, None, &gain().id, None).unwrap();
     undo(&state);
-    assert!(crate::actions::history::project_view(&state).effects.is_empty());
+    assert!(crate::daw::actions::history::project_view(&state).effects.is_empty());
     redo(&state);
-    assert_eq!(crate::actions::history::project_view(&state).effects, state.playlist.effects.racks());
-    assert_eq!(crate::actions::history::project_view(&state).effects.len(), 1);
+    assert_eq!(crate::daw::actions::history::project_view(&state).effects, state.playlist.effects.racks());
+    assert_eq!(crate::daw::actions::history::project_view(&state).effects.len(), 1);
   }
 
   // ---- built-in effects' knobs

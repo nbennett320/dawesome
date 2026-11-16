@@ -1,5 +1,5 @@
-use crate::daw;
-use crate::daw::timing;
+use crate::daw::{audiograph, defaults, sequencer, timing};
+use crate::engine::{mixer, sample_voice};
 use std::sync::{
   Arc, 
   Mutex,
@@ -18,16 +18,16 @@ pub struct PlaylistUI {
   // out by daw::fit_playlist)
   pub beats: u64,
   pub snap_enabled: bool,
-  pub snap_subdivision: daw::timing::Note,
+  pub snap_subdivision: timing::Note,
 }
 
 impl PlaylistUI {
   pub fn new() -> Self {
     PlaylistUI {
       // a new playlist's: in 4/4, with no clips
-      beats: daw::state::defaults::PLAYLIST_BARS * 4,
-      snap_enabled: daw::state::defaults::SNAP_ENABLED,
-      snap_subdivision: daw::state::defaults::SNAP_SUBDIVISION,
+      beats: defaults::PLAYLIST_BARS * 4,
+      snap_enabled: defaults::SNAP_ENABLED,
+      snap_subdivision: defaults::SNAP_SUBDIVISION,
     }
   }
 
@@ -65,17 +65,17 @@ pub struct Playlist {
   pub loop_end_pin: Mutex<Option<f64>>,
   // whether recording counts in a bar first
   pub count_in: AtomicBool,
-  pub audiograph: Arc<Mutex<daw::AudioGraph<'static>>>,
+  pub audiograph: Arc<Mutex<audiograph::AudioGraph<'static>>>,
   // the same mixer the audio graph plays clips through, reachable without
   // the graph's lock
-  pub mixer: Arc<daw::Mixer>,
+  pub mixer: Arc<mixer::Mixer>,
   // the same sequencer the audio graph plays pattern clips from. lock it
   // after the graph, never before
-  pub sequencer: Arc<Mutex<daw::Sequencer>>,
+  pub sequencer: Arc<Mutex<sequencer::Sequencer>>,
   // each mixer channel's effects (see effects.rs)
-  pub effects: Arc<crate::effects::Effects>,
+  pub effects: Arc<crate::daw::effects::Effects>,
   // keys held on sample rows, auditioned (see commands/synth.rs)
-  pub held_keys: daw::HeldKeys,
+  pub held_keys: sample_voice::HeldKeys,
   // what the current (or last) run plays. set before each run starts
   pub mode: Mutex<PlayMode>,
   // the step a pattern playing on its own counts from, with
@@ -93,10 +93,10 @@ impl Playlist {
   }
 
   pub fn default() -> Self {
-    let audiograph = daw::AudioGraph::new(daw::state::defaults::SAMPLE_RATE, daw::state::defaults::TEMPO);
+    let audiograph = audiograph::AudioGraph::new(defaults::SAMPLE_RATE, defaults::TEMPO);
     let mixer = audiograph.mixer.clone();
     let sequencer = audiograph.sequencer.clone();
-    let effects = Arc::new(crate::effects::Effects::new(mixer.clone()));
+    let effects = Arc::new(crate::daw::effects::Effects::new(mixer.clone()));
 
     Playlist {
       playing: AtomicBool::from(false),
@@ -119,7 +119,7 @@ impl Playlist {
       mixer,
       sequencer,
       effects,
-      held_keys: daw::HeldKeys::default(),
+      held_keys: sample_voice::HeldKeys::default(),
       mode: Mutex::new(PlayMode::Playlist),
       pattern_start: Mutex::new(0.),
 
@@ -160,7 +160,7 @@ impl Playlist {
 pub fn loop_end_after(song_end: Duration, beat_interval: Duration, beats_per_bar: u16) -> Duration {
   let bar = beat_interval * beats_per_bar.max(1) as u32;
   if bar.is_zero() { return Duration::ZERO; }
-  if song_end.is_zero() { return bar * daw::state::defaults::EMPTY_LOOP_BARS; }
+  if song_end.is_zero() { return bar * defaults::EMPTY_LOOP_BARS; }
 
   // a clip ending a hair past a bar line (float noise) ends on it
   let end = song_end.saturating_sub(ON_BEAT_TOLERANCE).as_nanos();
@@ -173,7 +173,7 @@ pub fn loop_end_after(song_end: Duration, beat_interval: Duration, beats_per_bar
 // bar leaves no clip past the end
 // - song_end: where the last clip finishes (zero with no clips)
 pub fn playlist_beats_for(song_end: Duration, beat_interval: Duration, beats_per_bar: u16) -> u64 {
-  let bars = daw::state::defaults::PLAYLIST_BARS * beats_per_bar.max(1) as u64;
+  let bars = defaults::PLAYLIST_BARS * beats_per_bar.max(1) as u64;
   if beat_interval.is_zero() { return bars; }
 
   // a clip ending a hair past a beat (float noise) ends on it

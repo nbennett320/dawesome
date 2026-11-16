@@ -31,12 +31,12 @@
 // frontend can tell what an edit changed. edits change rows and patterns
 // only through row_mut and pattern_mut, which give the new rev
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use crate::engine::{clip_reader, sample_voice};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
-use crate::daw;
 
 // a step is a 16th note
 pub const STEPS_PER_BEAT: u32 = 4;
@@ -166,7 +166,7 @@ pub struct Synth {
 // sequencer, whose lock playback needs. it's what the row's path holds, so
 // it isn't compared
 #[derive(Clone)]
-pub struct RowSound(Arc<daw::Pcm>);
+pub struct RowSound(Arc<clip_reader::Pcm>);
 
 impl PartialEq for RowSound {
   fn eq(&self, _: &RowSound) -> bool { true }
@@ -176,7 +176,7 @@ impl RowSound {
   // decoded here, so a file that isn't audio is refused when it's added
   // rather than when it's played
   pub fn load(path: &str) -> Result<Self, String> {
-    let pcm = daw::Pcm::load(path)?;
+    let pcm = clip_reader::Pcm::load(path)?;
     if pcm.frames() == 0 {
       return Err(format!("sample '{}' contains no audio", path));
     }
@@ -190,7 +190,7 @@ impl RowSound {
   }
 
   #[cfg(test)]
-  pub fn pcm(&self) -> &Arc<daw::Pcm> {
+  pub fn pcm(&self) -> &Arc<clip_reader::Pcm> {
     &self.0
   }
 }
@@ -243,9 +243,9 @@ impl Row {
 
   // what plays a sample row's notes: its sample, at its volume and pan
   // (none for a synth row)
-  pub fn sample_instrument(&self) -> Option<daw::SampleInstrument> {
+  pub fn sample_instrument(&self) -> Option<sample_voice::SampleInstrument> {
     let sample = self.sample()?;
-    Some(daw::SampleInstrument {
+    Some(sample_voice::SampleInstrument {
       pcm: sample.sound.0.clone(),
       sample_pitch: sample.sample_pitch,
       gated: sample.gated,
@@ -723,7 +723,7 @@ pub struct SavedSynth {
   pub state: String,
   // where its floating window was last, if it's been open
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub window: Option<crate::effects::WindowPosition>,
+  pub window: Option<crate::daw::effects::WindowPosition>,
 }
 
 // a pattern as saved in a project
@@ -998,7 +998,7 @@ impl Sequencer {
   // each sample row's notes a pattern plays (those that start inside it),
   // with what plays them, in row order. muted rows, and rows without notes,
   // are left out
-  pub fn sample_notes<'a>(&'a self, pattern: &'a Pattern) -> impl Iterator<Item = (daw::SampleInstrument, &'a [PatternNote])> + 'a {
+  pub fn sample_notes<'a>(&'a self, pattern: &'a Pattern) -> impl Iterator<Item = (sample_voice::SampleInstrument, &'a [PatternNote])> + 'a {
     self.rows.iter()
       .filter(|row| !row.muted)
       .map(|row| (row, pattern.heard(row.id)))

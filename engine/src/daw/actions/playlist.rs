@@ -3,6 +3,7 @@
 // frontend's side of these
 use std::time::Duration;
 
+use crate::daw::{playback, timing};
 use crate::daw;
 
 // the snap setting, so the frontend can preview where a dragged clip will land
@@ -11,14 +12,14 @@ use crate::daw;
 pub struct SnapSetting {
   enabled: bool,
   // the note value clips snap to
-  note: daw::timing::Note,
+  note: timing::Note,
   // length of one snap step, in beats
   beats: f32,
 }
 
 pub(crate) fn snap_setting(state: &daw::InnerState) -> SnapSetting {
   let ui = state.playlist.ui.lock().unwrap();
-  let (num, den) = daw::timing::MusicalTiming::ratio(&ui.snap_subdivision);
+  let (num, den) = timing::MusicalTiming::ratio(&ui.snap_subdivision);
 
   SnapSetting {
     enabled: ui.snap_enabled,
@@ -33,8 +34,8 @@ pub(crate) fn displayed_beats_and_duration(
   state: &daw::InnerState,
 ) -> (f32, std::time::Duration) {
   let tempo = state.playlist.audiograph.lock().unwrap().tempo();
-  let beats = daw::playlist_beats(state);
-  let dur = daw::timing::n_beat_duration_from_tempo(tempo, beats as u32);
+  let beats = playback::playlist_beats(state);
+  let dur = timing::n_beat_duration_from_tempo(tempo, beats as u32);
 
   (beats as f32, dur)
 }
@@ -108,7 +109,7 @@ pub fn add_track_to(state: &daw::InnerState) -> u32 {
     let before = audiograph.min_tracks;
     (before, audiograph.add_track())
   };
-  crate::history::record(state, crate::history::Step::new().with_tracks(before, count));
+  crate::daw::history::record(state, crate::daw::history::Step::new().with_tracks(before, count));
   count
 }
 
@@ -120,7 +121,7 @@ mod tests {
   fn test_snap_setting() {
     let state = daw::InnerState::default();
 
-    use daw::timing::Note;
+    use timing::Note;
 
     // default: snap on, one beat
     assert_eq!(

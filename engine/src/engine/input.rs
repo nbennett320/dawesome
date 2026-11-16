@@ -10,7 +10,8 @@
 // it: the Audio tab's meter, a track armed to record (so pressing Record
 // doesn't wait for the device to open), or a take being recorded. on macOS
 // that's when the microphone light shows
-use crate::daw::{self, AtomicF32};
+use crate::engine::{self, clip_reader};
+use crate::engine::mixer::AtomicF32;
 use rodio::cpal::{
   self,
   traits::{DeviceTrait, HostTrait, StreamTrait},
@@ -150,7 +151,7 @@ pub struct Passes {
 #[derive(Clone)]
 pub struct LivePass {
   pub index: u32,
-  pub files: Vec<Arc<daw::LiveSamples>>,
+  pub files: Vec<Arc<clip_reader::LiveSamples>>,
 }
 
 // the newest passes of a loop recording, as they're recorded
@@ -386,7 +387,7 @@ struct Cutting {
   late: u64,
   sample_rate: u32,
   // what's been written of the pass, to be played as it's recorded
-  live: Vec<Arc<daw::LiveSamples>>,
+  live: Vec<Arc<clip_reader::LiveSamples>>,
 }
 
 impl Cutting {
@@ -408,7 +409,7 @@ impl Cutting {
   fn start_live(&mut self, files: &[TakeFile], live: &LivePasses) {
     let frames = (self.until - self.from) as usize;
     self.live = files.iter()
-      .map(|file| Arc::new(daw::LiveSamples::new(frames, file.channels.len() as u16, self.sample_rate)))
+      .map(|file| Arc::new(clip_reader::LiveSamples::new(frames, file.channels.len() as u16, self.sample_rate)))
       .collect();
     live.add(LivePass { index: self.index, files: self.live.clone() });
   }
@@ -710,8 +711,8 @@ fn with_fallback<T>(
 fn open_or_reuse(inputs: &mut Inputs) -> Result<Arc<Input>, String> {
   if let Some(input) = &inputs.open { return Ok(input.clone()); }
 
-  let rate = daw::engine()?.sample_rate();
-  let settings = daw::audio_settings();
+  let rate = engine::engine()?.sample_rate();
+  let settings = engine::audio_settings();
   let (input, notice) = with_fallback(settings.input_device.as_deref(), |name| open_input(name, rate))?;
   if let Some(notice) = &notice { println!("{}", notice); }
 
@@ -768,7 +769,7 @@ pub fn input_channel_count() -> Result<u16, String> {
   if let Some(input) = input_if_open() { return Ok(input.device_channels()); }
 
   // the same input opening it would use
-  let settings = daw::audio_settings();
+  let settings = engine::audio_settings();
   let (channels, _) = with_fallback(settings.input_device.as_deref(), |name| {
     input_device(name)?
       .default_input_config()

@@ -6,7 +6,7 @@
 use std::ops::RangeInclusive;
 use std::time::Duration;
 
-use crate::util::math::clamp_or;
+use crate::engine::util::math::clamp_or;
 #[cfg(test)]
 use rodio::Source;
 
