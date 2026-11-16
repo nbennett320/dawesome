@@ -195,4 +195,63 @@ mod tests {
       }
     }
   }
+
+  // ---- the golden fixture the app's curve is checked against
+  //
+  // the app draws the EQ's curve itself (src/views/native-effect/eq/), with
+  // the same maths in TypeScript. fixtures/eq-response.json pins what these
+  // filters give, and the app's tests check their copy against it. if this
+  // fails because the filters changed on purpose, write the file again with
+  // UPDATE_FIXTURES=1 cargo test -p dawesome-dsp, and check the app's tests
+
+  // (shape as eq.rs's list numbers it, freq, gain, q)
+  const CASES: [(usize, f32, f32, f32); 14] = [
+    (0, 1000., 6., 0.707), (0, 120., -9., 4.), (0, 8000., 12., 0.3),
+    (1, 200., 6., 0.707), (1, 80., -12., 1.5),
+    (2, 6000., 4., 0.707), (2, 12_000., -8., 2.),
+    (3, 60., 0., 0.707), (3, 300., 0., 3.),
+    (4, 10_000., 0., 0.707), (4, 2000., 0., 0.5),
+    (5, 50., 0., 8.), (6, 1500., 0., 2.), (6, 19_000., 0., 0.7),
+  ];
+  const FREQS: [f32; 16] = [
+    20., 31.5, 50., 80., 125., 200., 315., 500., 800., 1250., 2000., 3150., 5000., 8000., 12_500., 20_000.,
+  ];
+
+  fn fixture() -> String {
+    let shapes = crate::effects::eq::SHAPES;
+    let mut out = format!("{{\n  \"rate\": {},\n  \"freqs\": [{}],\n  \"cases\": [\n", RATE,
+      FREQS.iter().map(|f| f.to_string()).collect::<Vec<_>>().join(", "));
+    for (i, &(shape, freq, gain, q)) in CASES.iter().enumerate() {
+      let c = Coefs::new(shapes[shape], freq, gain, q, RATE);
+      let db: Vec<String> = FREQS.iter().map(|&f| format!("{:.4}", db(c.response(f, RATE)).max(-200.))).collect();
+      out += &format!(
+        "    {{ \"shape\": {}, \"freq\": {}, \"gain\": {}, \"q\": {}, \"db\": [{}] }}{}\n",
+        shape, freq, gain, q, db.join(", "), if i + 1 < CASES.len() { "," } else { "" }
+      );
+    }
+    out + "  ]\n}\n"
+  }
+
+  // every number in a text, in order
+  fn numbers(text: &str) -> Vec<f64> {
+    text.split(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-'))
+      .filter(|t| !t.is_empty() && *t != "-")
+      .map(|t| t.parse().unwrap())
+      .collect()
+  }
+
+  #[test]
+  fn test_the_apps_curve_fixture_is_what_the_filters_give() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/eq-response.json");
+    let now = fixture();
+    if std::env::var("UPDATE_FIXTURES").is_ok() {
+      std::fs::write(&path, &now).unwrap();
+    }
+    let saved = std::fs::read_to_string(&path).expect("fixtures/eq-response.json (UPDATE_FIXTURES=1 writes it)");
+    let (a, b) = (numbers(&now), numbers(&saved));
+    assert_eq!(a.len(), b.len(), "the fixture has a different shape: write it again");
+    for (x, y) in a.iter().zip(&b) {
+      assert!((x - y).abs() < 1e-3, "the filters give {} where the fixture says {}", x, y);
+    }
+  }
 }

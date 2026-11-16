@@ -3,12 +3,15 @@ import { Notice } from '../../components/common'
 import { groupParams } from '../../types/nativeEffect'
 import ParamControl from './ParamControl'
 import { EffectParamsApi, useEffectParams } from './useEffectParams'
+import EqPanel from './eq/EqPanel'
 
 // a built-in effect's own panel, for one that wants more than knobs (the
-// EQ's curve, in stage 3), by the effect's id. one that has none gets the
-// generated panel
+// EQ's curve), by the effect's id. one that has none gets the generated
+// panel
 export type CustomPanel = React.ComponentType<{ api: EffectParamsApi }>
-const PANELS: Record<string, CustomPanel> = {}
+const PANELS: Record<string, CustomPanel> = {
+  eq: EqPanel,
+}
 
 // every parameter, a group to a box, the boxes wrapping to the tab's
 // width: what any built-in effect gets without a panel of its own

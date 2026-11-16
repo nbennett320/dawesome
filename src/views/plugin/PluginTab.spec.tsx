@@ -136,7 +136,8 @@ describe('a built-in effect’s tab', () => {
     const base = mockInvoke.getMockImplementation()!
     mockInvoke.mockImplementation(async (command: string, args: never) => {
       if(command === 'get_effect_params') {
-        return { effect: 'eq', params: [{
+        // (an effect with no panel of its own: the generated one)
+        return { effect: 'gain', params: [{
           id: 40, key: 'output', name: 'Output', group: 'Output', unit: 'dB', min: -24, max: 24, default: 0,
           defaultNormalized: 0.5, taper: 'linear', stepCount: 0, labels: [],
           value: { id: 40, value: 0, normalized: 0.5, text: '0.0 dB' },

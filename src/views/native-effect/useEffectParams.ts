@@ -16,8 +16,9 @@ export interface EffectParamsApi {
   // in id order (empty until they've come)
   params: ParamWire[]
   // set one by its normalized value: shown at once, and corrected by what
-  // the engine says it became
-  set: (id: number, normalized: number) => void
+  // the engine says it became. undone with the mouse press it's part of,
+  // unless it's given a gesture of its own (several sets as one step)
+  set: (id: number, normalized: number, gesture?: number | null) => void
   // set one from what was typed ("2.5k", "-3 dB"). what can't be read
   // changes nothing
   setText: (id: number, text: string) => void
@@ -84,12 +85,12 @@ export const useEffectParams = (slotId: number): EffectParamsApi => {
       .catch(logError('set the effect’s parameter'))
   }, [apply, dispatch])
 
-  const set = React.useCallback((id: number, normalized: number) => {
+  const set = React.useCallback((id: number, normalized: number, given?: number | null) => {
     // where it's going, before the engine says (its text follows the answer)
     setParams(prev => prev.map(p => (p.id === id
       ? { ...p, value: { ...p.value, normalized, value: plainOf(p, normalized) } }
       : p)))
-    const gesture = currentGesture()
+    const gesture = given === undefined ? currentGesture() : given
     send(id, () => invoke<ParamValue>('set_effect_param', { slotId, id, normalized, gesture }))
   }, [slotId, send])
 

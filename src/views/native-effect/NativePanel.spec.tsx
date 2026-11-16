@@ -8,8 +8,10 @@ import effectsReducer from '../../state/slices/effectsSlice'
 import playlistReducer, { reduceProjectView } from '../../state/slices/playlistSlice'
 import { ProjectView } from '../../types/project'
 import { EffectParams, ParamValue } from '../../types/nativeEffect'
-import { param } from '../../types/nativeEffect.spec'
+import { param } from '../../types/nativeEffect.fixture'
 import NativePanel from './NativePanel'
+import { applyTheme } from '../../theme/apply'
+import { slateLightTheme } from '../../theme/fixture'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 // the mouse held down (a drag) or not
@@ -59,6 +61,12 @@ const setup = async () => {
   render(<Provider store={store}><NativePanel slotId={7} /></Provider>)
   await act(async () => {})
 }
+
+beforeAll(() => {
+  applyTheme(slateLightTheme)
+  // jsdom has no canvas: nothing is drawn
+  HTMLCanvasElement.prototype.getContext = (() => null) as never
+})
 
 beforeEach(() => {
   vi.resetAllMocks()
@@ -175,6 +183,13 @@ describe('a built-in effect’s generated panel', () => {
     await act(async () => {})
     expect((screen.getByRole('textbox', { name: 'Output value' }) as HTMLInputElement).value).toBe('-12.0 dB')
     expect(mockInvoke.mock.calls.filter(([name]) => name === 'get_effect_params')).toHaveLength(2)
+  })
+
+  it('gives the EQ its own panel, with its curve', async () => {
+    answers.get_effect_params = () => ({ ...effect(), effect: 'eq' })
+    await setup()
+    expect(screen.getByLabelText(/^EQ curve/)).toBeTruthy()
+    expect(screen.queryAllByRole('region').map(r => r.getAttribute('aria-label'))).not.toContain('Band 1')
   })
 
   it('says so when its parameters can’t be had', async () => {

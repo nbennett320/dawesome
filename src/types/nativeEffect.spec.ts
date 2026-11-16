@@ -1,21 +1,5 @@
-import { choiceNormalized, groupParams, normalizedOf, paramKind, ParamWire, plainOf } from './nativeEffect'
-
-export const param = (id: number, change: Partial<ParamWire> = {}): ParamWire => ({
-  id,
-  key: `p${id}`,
-  name: `P${id}`,
-  group: 'Main',
-  unit: '',
-  min: 0,
-  max: 1,
-  default: 0,
-  defaultNormalized: 0,
-  taper: 'linear',
-  stepCount: 0,
-  labels: [],
-  value: { id, value: 0, normalized: 0, text: '0.00' },
-  ...change,
-})
+import { choiceNormalized, groupParams, normalizedOf, paramKind, plainOf } from './nativeEffect'
+import { param } from './nativeEffect.fixture'
 
 const freq = param(0, { unit: 'Hz', min: 20, max: 20000, taper: 'log' })
 const gain = param(1, { unit: 'dB', min: -24, max: 24 })
