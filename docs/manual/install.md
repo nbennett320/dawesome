@@ -1,14 +1,19 @@
 ---
-title: Installing and first launch
+title: Installing and Getting Set Up
 ---
 
-# 2 Installing and first launch
+# 2 Installing and Getting Set Up
 
 ## 2-1 Installing
 
-There are no Dawesome installers yet. To use Dawesome today you build it from
-its source code, as described under "Development environment" in the
-project's `README.md`.
+You can download and install Dawesome from [the GitHub's release page](https://github.com/nbennett320/dawesome/releases).
+It should just like any other application. 
+
+MacOS will flag Dawesome as unsigned. Get around this by entering the following in your terminal:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Dawesome.app
+```
 
 <!-- VERIFY: no release builds or installers exist on GitHub Releases at c2295cb. Replace this section with download and install steps per platform once they do. -->
 
@@ -20,45 +25,46 @@ browser. The window's title bar shows **Untitled — Dawesome** until you save
 the project. See [Names and functions of parts](./parts.md).
 
 Dawesome plays through your system's default output device at that device's
-own sample rate. If you hear sound, you don't need to change anything. To
-choose another device, or to record, set up the audio first ([2-3](#_2-3-audio-settings)).
+own sample rate. 
+If you don't hear anything at first, you might need to
+choose another audio device.
+<!-- , or to record, set up the audio first ([2-3](#_2-3-audio-settings)). -->
 
 <!-- VERIFY: whether the sidebar's samples browser has anything in it in a built app; it lists an `assets` folder relative to the app's working directory. -->
 
 ## 2-3 Audio settings
 
-To open the audio settings, choose **Preferences ▸ Audio Settings…**. They
+To open the audio settings, choose **Preferences ▸ Audio Settings**. They
 open in a tab named **Audio**.
 
 ![The Audio tab](./img/audio-settings.png)
-<!-- SCREENSHOT: Audio tab with an interface connected, the input meter showing, numbered 1–7 -->
 
-1. **Output** — The device Dawesome plays through. **System default** follows
+1. **Output** - The device Dawesome plays through. **System default** follows
    your system's choice. A device you chose that is unplugged stays in the
    list as "*name* (not connected)".
-2. **Buffer size** — How much audio the output works on at a time: **Device
+2. **Buffer size** - How much audio the output works on at a time: **Device
    default**, or 64, 128, 256, 512 or 1024 frames (the time each takes is
    shown next to it). Only sizes your device accepts are listed. Smaller
    buffers mean less delay but more work for the computer. If playback
    crackles, choose a bigger one.
-3. **Input** — The device Dawesome records from. **System default** follows
+3. **Input** - The device Dawesome records from. **System default** follows
    your system's choice.
-4. Input meter — A level bar for each input channel, while the tab is
+4. Input meter - A level bar for each input channel, while the tab is
    showing. Use it to check that your input is arriving.
-5. Input details — The input's latency and sample rate. When the input can't
+5. Input details - The input's latency and sample rate. When the input can't
    run at the output's rate, a note says that takes are converted.
-6. **Recording offset (ms)** — Moves recordings earlier by this many
+6. **Recording offset (ms)** - Moves recordings earlier by this many
    milliseconds, from −1000 to 1000. If recordings land late, raise it by how
    much. Bluetooth headphones often need 150 to 250. A negative value moves
    them later.
-7. **Playback Status** — The output device in use, its sample rate, its
+7. **Playback Status** - The output device in use, its sample rate, its
    buffer and its output latency. If the device refused the buffer size you
    chose, a note says what it used instead.
 
 Press the key beside **Refresh devices** to list the devices again, for
 example after you plug in an interface.
 
-Changes apply as soon as you make them. **Switching…** shows while the audio
+Changes apply as soon as you make them. **Switching...** shows while the audio
 restarts.
 
 ::: warning CAUTION
@@ -77,48 +83,42 @@ Setup**), then restart Dawesome.
 
 ### 2-3-2 To set up an audio interface
 
-1. Connect the interface and turn its outputs down.
-2. Choose **Preferences ▸ Audio Settings…**.
-3. Choose the interface under **Output**, and again under **Input**.
-4. Watch the input meter while you make a sound into the input.
-5. If playback crackles, choose a bigger **Buffer size**.
-
-::: warning CAUTION
-Turn your monitors or headphones down before changing the output device.
-The new device may play at a different level.
-:::
+1. Connect the interface and turn its outputs down (just in case - so you don't hurt your ears)
+2. Choose **Preferences ▸ Audio Settings**
+3. Choose the interface under **Output**, and again under **Input**
+4. Watch the input meter while you make a sound into the input
+5. If playback crackles, choose a bigger **Buffer size**
 
 ## 2-4 Preferences
 
-To open the preferences, choose **Dawesome ▸ Preferences…** (**⌘, (Ctrl+,)**)
-or **Preferences ▸ Appearance…**. Both open the **Preferences** tab. Changes
+To open the preferences, choose **Dawesome ▸ Preferences** (**⌘, (Ctrl+,)**)
+or **Preferences ▸ Appearance**. Both open the **Preferences** tab. Changes
 apply as you make them.
 
 ![The Preferences tab](./img/preferences.png)
-<!-- SCREENSHOT: Preferences tab, numbered 1–3 -->
 
-1. **Appearance** — **System** follows your system's light or dark mode.
+1. **Appearance** - **System** follows your system's light or dark mode.
    **Light** and **Dark** keep Dawesome in one mode.
-2. **Light theme** — The colours used in light mode. Stock themes: **Slate
-   Light** (default) and **Charcoal Light**.
-3. **Dark theme** — The colours used in dark mode. Stock themes: **Charcoal**
-   (default) and **Slate Dark**. You can choose both themes ahead of time,
-   whichever mode is in use.
+2. **Light theme** - The colors used in light mode. A few themes come stock (just take a look at the gallery).
+**Slate Light** is the default.
+3. **Dark theme** - The colors used in dark mode. **Charcoal** is the default.
+4. **Step key style** - The drum sequencer is modeled after Roland analog drum machine step sequencers.
+The [TR-909](https://en.wikipedia.org/wiki/Roland_TR-909) is the default style, but a few others come stock.
 
 For more about themes, see [Themes](./themes.md).
 
 ### Controls
 
-Choose **Preferences ▸ Controls…** to open the **Controls** tab.
+Choose **Preferences ▸ Controls** to open the **Controls** tab.
 
 <!-- PROVISIONAL -->
-1. **Plugins open** — Where a plugin's own interface opens: **In a window of
+1. **Plugins open** - Where a plugin's own interface opens: **In a window of
    their own** (default) or **In a tab**. See [Instruments and
    effects](./plugins.md).
-2. **Command bar** — Off by default. When it's on, type **:** (outside a
-   text field) to open a vim-style command line in the info bar along the
-   bottom of the window. See [Command bar](../shortcuts.md#command-bar) for
-   the commands.
+2. **Command bar** - Off by default. When it's on, type **:** (outside a
+   text field) to open a [Vim](https://en.wikipedia.org/wiki/Vim_(text_editor))-style command line in the info bar along the
+   bottom of the window. You can switch tabs and issue various commands this way. See [Command bar](../shortcuts.md#command-bar) for
+   what's available.
 
 ## 2-5 Where settings are kept
 

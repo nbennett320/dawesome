@@ -1,76 +1,66 @@
 ---
-title: Before you begin
+title: Intro & About Dawesome
 ---
 
-# 1 Before you begin
+# 1 Intro & About Dawesome
+
+Hi and welcome to Dawesome's user manual. 
+If you're reading this, that means maybe you have at least a mild curiousity in this project
+and it means a lot to me. 
 
 ## 1-1 About Dawesome
 
-Dawesome is a free, open-source digital audio workstation (DAW) for macOS,
-Windows and Linux. You arrange samples and recordings on a playlist, build
-patterns of samples and VST3 instruments in a pattern sequencer and piano
-roll, record from your audio interface, add VST3 effects, mix on a
-channel-strip mixer and export the result to a WAV or MP3 file.
+Dawesome is a free and open source digital audio workstation (DAW) for Linux,
+MacOS, and Windows. You can arrange samples and recordings on a playlist,
+record from your audio interface, program sequences of drum samples and VST3 instruments, 
+add effects, 
+adjust the mix of your songs using a virtual mixer board, 
+and export the result to a WAV or MP3 file.
 
-Its controls are modelled on a cassette four-track: latching transport keys,
-LEDs, rolling counters and a tape deck with a cassette that winds as the song
-plays.
+Dawesome's UI (and functionality, to some extent) is heavily inspired and modeled after four-track cassette recorders,
+like these Tascam Portastudios I got on Reverb.
 
-::: warning CAUTION
-Dawesome is at an early stage of development. Save your projects often, and
-keep copies of recordings you can't make again.
-:::
+![Tascam Portastudio](./img/tascam2.png)
 
-<!-- VERIFY: README says "cross-platform"; confirm Windows and Linux are supported targets before publishing. -->
+![Tascam Portastudio 2](./img/tascam3.png)
 
-## 1-2 How this manual is written
+Some of us youngsters out there don't remember these or even know about them; they're like electrical/mechnaical DAWs.
+While I found working with these very fun and inspiring, I also love the relatively lower barrier to entry DAWs provide.
+<!-- When I was but a wee lad I remember wanting to record music, but not knowing how. -->
 
-### 1-2-1 Keys
+Please keep in mind that Dawesome is at a very early work in progress. Save your projects often, and
+keep copies of recordings you can't make again. 
+There's no guarantee project files will work between release versions at all.
 
-Keys are written in **bold**. The Mac key comes first, with the Windows and
-Linux key in parentheses:
+# 1-1-1 What's in the box?
 
-- **⌘S (Ctrl+S)** — hold Command (Control) and press S.
-- **⇧⌘S (Ctrl+Shift+S)** — hold Shift and Command (Control) and press S.
-- **Space**, **S**, **Shift+J** — the same on every system.
+Dawesome is packaged with two drum machine sample packs that are (ostensibly) CC-0:
+- TR-707 drum machine recordings
+- TR-808 drum machine recordings
 
-### 1-2-2 Mouse actions
+Source: 
+[Open Drums by Fluid Music](https://github.com/fluid-music/open-drums), whose samples were sourced 
+from [machines.hyperreal.org](http://machines.hyperreal.org/).
+
+If by chance you see this and want them removed, please contact me and I will do so.
+
+## 1-2 Meta
+
+### 1-2-1 Documentation formatting
+
+In these documentation pages, key presses are written in **bold**:
+
+- **⌘S (Ctrl+S)** - hold Command (Control) and press S
+- **⇧⌘S (Ctrl+Shift+S)** - hold Shift and Command (Control) and press S
+- **Space**, **S**, **Shift+J** - the same on every system
 
 Mouse actions are written in *italics*: *click*, *double-click*,
-*right-click*, *drag*, *Shift-drag* (hold Shift while you drag).
+*right-click*, *drag*, *Shift-drag*.
 
-### 1-2-3 Controls and menus
+## 1-3 Contents
 
-Buttons, fields, tabs and menus are written in **bold**, with the label the
-app shows. A menu path is written with ▸: **File ▸ Save As…** means "open the
-**File** menu and choose **Save As…**". Many buttons have no printed label;
-the name used here is the tooltip you see when you hold the pointer over them.
-On-screen buttons are called *keys*, as on a tape deck: the **Play** key, the
-**R** key on a mixer strip. A key you press on the keyboard is always written
-with its keyboard name, as in 1-2-1.
-
-File and folder names are written in `code`.
-
-### 1-2-4 Notes and cautions
-
-::: tip NOTE
-Useful extra information.
-:::
-
-::: warning CAUTION
-Something that can lose work, or damage your hearing or equipment.
-:::
-
-## 1-3 How chapters are numbered
-
-Chapters and sections are numbered, as in a hardware owner's manual. "6-2"
-means chapter 6, section 2; "6-2-1" is the first part of that section. Other
-chapters refer to sections by these numbers.
-
-## 1-4 Contents
-
-1. [Before you begin](./index.md)
-2. [Installing and first launch](./install.md)
+1. [Intro & About Dawesome](./index.md)
+2. [Installing and getting set up](./install.md)
 3. [Names and functions of parts](./parts.md)
 4. [Projects](./projects.md)
 5. [Basic recording](./recording.md)
@@ -85,6 +75,3 @@ chapters refer to sections by these numbers.
 14. [Troubleshooting](./troubleshooting.md)
 15. [Specifications](./specs.md)
 16. [Glossary](./glossary.md)
-
-Every key and mouse shortcut is listed on the [Shortcuts](../shortcuts.md)
-page.
