@@ -36,6 +36,7 @@ const slot = (id: number, change: Partial<EffectSlot> = {}): EffectSlot => ({
   bypassed: false,
   missing: false,
   hasEditor: true,
+  native: false,
   ...change,
 })
 
@@ -127,6 +128,32 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+describe('a built-in effect’s tab', () => {
+  it('draws its controls, docks nothing, and has no pop-out', async () => {
+    racks = [{ track: 0, slots: [slot(5, { native: true, pluginId: 'dawesome:eq', name: 'EQ', vendor: 'Dawesome' })] }]
+    const base = mockInvoke.getMockImplementation()!
+    mockInvoke.mockImplementation(async (command: string, args: never) => {
+      if(command === 'get_effect_params') {
+        return { effect: 'eq', params: [{
+          id: 40, key: 'output', name: 'Output', group: 'Output', unit: 'dB', min: -24, max: 24, default: 0,
+          defaultNormalized: 0.5, taper: 'linear', stepCount: 0, labels: [],
+          value: { id: 40, value: 0, normalized: 0.5, text: '0.0 dB' },
+        }] }
+      }
+      return base(command, args)
+    })
+    setup(5)
+    await act(async () => {})
+
+    expect(screen.getByRole('slider', { name: 'Output' })).toBeTruthy()
+    expect(calls('get_effect_params')).toEqual([['get_effect_params', { slotId: 5 }]])
+    expect(sent()).not.toContain('dock_effect')
+    expect(screen.queryByRole('button', { name: /in a window/ })).toBeNull()
+    // its bar still has its On key and its channel
+    expect(screen.getByText('Track 1')).toBeTruthy()
+  })
 })
 
 describe('a plugin’s tab', () => {

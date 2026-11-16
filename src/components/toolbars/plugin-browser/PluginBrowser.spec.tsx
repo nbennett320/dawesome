@@ -83,6 +83,29 @@ describe('the Effects page', () => {
     expect(screen.getByText('No effects match.')).toBeTruthy()
   })
 
+  it('lists Dawesome’s own effects first, in a folder that starts open', async () => {
+    const eq = { ...plugin('EQ', 'EQ', 'Dawesome'), id: 'dawesome:eq', path: '' }
+    answers = [catalog({ plugins: [eq, ...catalog().plugins] })]
+    await setup()
+    // (folders opened by the tests before stay open: the browser keeps them
+    // for the session)
+    const rows = screen.getAllByRole('treeitem').map(row => row.textContent)
+    expect(rows.slice(0, 3)).toEqual(['Dawesome1', 'EQDawesome', 'Dynamics2'])
+    // and closes like any other
+    fireEvent.click(screen.getByRole('treeitem', { name: /^Dawesome/ }))
+    expect(screen.queryByText('EQ')).toBeNull()
+    // (open again, for the tests after)
+    fireEvent.click(screen.getByRole('treeitem', { name: /^Dawesome/ }))
+  })
+
+  it('still says no plugins were found when there are only Dawesome’s own', async () => {
+    const eq = { ...plugin('EQ', 'EQ', 'Dawesome'), id: 'dawesome:eq', path: '' }
+    answers = [catalog({ plugins: [eq] })]
+    await setup()
+    expect(screen.getByText('EQ')).toBeTruthy()
+    expect(screen.getByText('No VST3 effects found')).toBeTruthy()
+  })
+
   it('says where it looked when there are none', async () => {
     answers = [catalog({ plugins: [] })]
     await setup()

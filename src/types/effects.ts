@@ -52,6 +52,9 @@ export interface EffectSlot {
   missing: boolean
   // has an interface of its own to show
   hasEditor: boolean
+  // one of Dawesome's own effects: its tab draws its controls (see
+  // types/nativeEffect.ts) rather than docking a plugin's interface
+  native: boolean
 }
 
 // a channel's chain, in the order the sound goes through it
@@ -199,6 +202,13 @@ const byName = (a: string, b: string) =>
 
 // Other is where plugins without a known category go, so it comes last
 export const OTHER_CATEGORY = 'Other'
+// Dawesome's own effects have a folder of their own, first
+export const NATIVE_CATEGORY = 'Dawesome'
+
+// the start of a built-in effect's id ("dawesome:eq")
+export const NATIVE_PREFIX = 'dawesome:'
+
+export const isNativePlugin = (plugin: Pick<PluginInfo, 'id'>): boolean => plugin.id.startsWith(NATIVE_PREFIX)
 
 // whether a plugin matches what's typed in the browser's search: every word
 // is in its name, vendor or category
@@ -208,7 +218,8 @@ export const matchesSearch = (plugin: PluginInfo, query: string): boolean => {
   return words.every(word => text.includes(word))
 }
 
-// a kind's plugins in folders by category, alphabetical (with Other last),
+// a kind's plugins in folders by category, alphabetical (with Dawesome's own
+// first, and Other last),
 // keeping those that match the search
 export const groupPlugins = (plugins: PluginInfo[], kind: PluginKind, query = ''): PluginGroup[] => {
   const groups = new Map<string, PluginInfo[]>()
@@ -216,7 +227,7 @@ export const groupPlugins = (plugins: PluginInfo[], kind: PluginKind, query = ''
   plugins
     .filter(plugin => plugin.kind === kind && matchesSearch(plugin, query))
     .forEach(plugin => {
-      const category = plugin.category || OTHER_CATEGORY
+      const category = isNativePlugin(plugin) ? NATIVE_CATEGORY : plugin.category || OTHER_CATEGORY
       groups.set(category, [...(groups.get(category) ?? []), plugin])
     })
 
@@ -224,6 +235,8 @@ export const groupPlugins = (plugins: PluginInfo[], kind: PluginKind, query = ''
     category,
     plugins: [...list].sort((a, b) => byName(a.name, b.name) || byName(a.vendor, b.vendor)),
   })).sort((a, b) => {
+    if(a.category === NATIVE_CATEGORY) return -1
+    if(b.category === NATIVE_CATEGORY) return 1
     if(a.category === OTHER_CATEGORY) return 1
     if(b.category === OTHER_CATEGORY) return -1
     return byName(a.category, b.category)

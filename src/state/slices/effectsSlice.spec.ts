@@ -5,6 +5,7 @@ import playlistReducer, { reduceLoadedProject, reduceProjectView } from './playl
 import projectReducer from './projectSlice'
 import sequencerReducer, { setSequencer } from './sequencerSlice'
 import windowReducer, { openPluginTab, openTab, splitPane } from './windowSlice'
+import appearanceReducer from './appearanceSlice'
 import effectsReducer, {
   addEffect,
   dockEffect,
@@ -13,6 +14,7 @@ import effectsReducer, {
   highlightSlot,
   moveEffect,
   openEffectWindow,
+  openPlugin,
   removeEffect,
   resizeDockedEffect,
   scanPlugins,
@@ -43,6 +45,7 @@ const makeStore = () => configureStore({
     window: windowReducer,
     effects: effectsReducer,
     sequencer: sequencerReducer,
+    appearance: appearanceReducer,
   },
 })
 
@@ -62,6 +65,7 @@ const slot = (id: number, change: Partial<EffectSlot> = {}): EffectSlot => ({
   bypassed: false,
   missing: false,
   hasEditor: true,
+  native: false,
   ...change,
 })
 
@@ -214,6 +218,21 @@ describe('commands', () => {
     expect(mockInvoke).toHaveBeenCalledWith('open_effect_window', { slotId: 1 })
     const tabs = paneTree.leaves(state(store).window.windowPane.root).flatMap(p => p.tabs)
     expect(tabs.filter(t => t.component === View.Plugin)).toEqual([{ component: View.Plugin, slotId: 2 }])
+  })
+
+  it('opens Dawesome’s own effects in a tab, even where plugins open in windows', async () => {
+    const store = makeStore()
+    store.dispatch(setRacks([{ track: 0, slots: [slot(1), slot(2, { native: true, pluginId: 'dawesome:eq' })] }]))
+    expect(state(store).appearance.preferences.pluginView).toBe('window')
+
+    await dispatch(store)(openPlugin(2))
+    expect(mockInvoke).not.toHaveBeenCalledWith('open_effect_window', expect.anything())
+    const tabs = paneTree.leaves(state(store).window.windowPane.root).flatMap(p => p.tabs)
+    expect(tabs).toContainEqual({ component: View.Plugin, slotId: 2 })
+
+    // a plugin still opens in a window
+    await dispatch(store)(openPlugin(1))
+    expect(mockInvoke).toHaveBeenCalledWith('open_effect_window', { slotId: 1 })
   })
 
   it('sends the dock commands for a slot', async () => {

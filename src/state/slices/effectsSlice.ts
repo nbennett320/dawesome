@@ -245,10 +245,12 @@ export const showPluginTab = (slotId: number) => (dispatch: Dispatch, getState: 
 }
 
 // open an effect's (or a synth's) own interface where the preferences say plugins open: a
-// window of its own, or a tab
+// window of its own, or a tab. Dawesome's own effects always open in a tab
 export const openPlugin = (slotId: number) =>
   async (dispatch: Dispatch, getState: () => RootState): Promise<void> => {
-    if(getState().appearance.preferences.pluginView === 'tab') {
+    const state = getState()
+    const native = findSlot(state.effects.racks, slotId)?.slot.native ?? false
+    if(native || state.appearance.preferences.pluginView === 'tab') {
       showPluginTab(slotId)(dispatch, getState)
       return
     }

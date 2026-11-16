@@ -103,10 +103,12 @@ const RackRow = ({ slot, highlighted, dragging }: RowProps) => {
       {hasTab(slot) && (
         <SmallKey
           aria-label={`Open ${slot.name}`}
-          title={`Open its interface in a ${inTab ? 'tab' : 'window'} of its own (Preferences choose which)`}
+          title={slot.native
+            ? 'Open its controls in a tab of their own'
+            : `Open its interface in a ${inTab ? 'tab' : 'window'} of its own (Preferences choose which)`}
           onPress={() => { dispatch(openPlugin(slot.id)).catch(() => {}) }}
         >
-          {inTab ? <TabIcon /> : <PopOutIcon />}
+          {inTab || slot.native ? <TabIcon /> : <PopOutIcon />}
         </SmallKey>
       )}
       <SmallKey
