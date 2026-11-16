@@ -21,9 +21,19 @@ use std::time::{Duration, Instant};
 use crate::daw;
 use crate::actions::clip::clip_info;
 use crate::history;
-use crate::preferences::LoopRecording;
 use crate::project::LoadedClip;
 use crate::project_files;
+
+// what a recording does when the loop comes round: carry on, each pass
+// going on its track and playing on the next pass, or stop there (and
+// playback with it). the user's choice, kept in their preferences
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LoopRecording {
+  #[default]
+  Layer,
+  Stop,
+}
 
 // the input channels a track records: one, or a pair from `first`
 // (counted from 0)

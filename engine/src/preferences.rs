@@ -9,6 +9,7 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
+use crate::recording::LoopRecording;
 use crate::theme::{self, Appearance, ResolvedTheme};
 
 // follow the system, or always light or dark
@@ -42,17 +43,6 @@ pub enum StepKeys {
   Tr909,
   #[serde(rename = "tr8s")]
   Tr8s,
-}
-
-// what a recording does when the loop comes round: carry on, each pass
-// going on its track and playing on the next pass, or stop there (and
-// playback with it)
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum LoopRecording {
-  #[default]
-  Layer,
-  Stop,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
