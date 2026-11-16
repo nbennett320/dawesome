@@ -1,5 +1,9 @@
 import React from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { useAppDispatch, useAppSelector } from '../../hooks/redux'
+import { paramEdited, selectParamsChanged } from '../../state/slices/effectsSlice'
+import { currentGesture } from '../../state/gesture'
+import { trackParamSend } from '../../state/effectParamSends'
 import { EffectParams, ParamValue, ParamWire, plainOf } from '../../types/nativeEffect'
 
 export type ParamsStatus =
@@ -29,16 +33,28 @@ const logError = (what: string) => (e: unknown) =>
 // engine has the real values: each set hands back what the parameter
 // became. a knob dragged fast sends many sets, which may come back out of
 // order: only the answer to the latest set of each parameter is kept
+//
+// each set is undoable: those sent while the mouse is held (a drag) carry
+// its gesture, and are undone as one. after an undo (or a project opening)
+// they're fetched again
 export const useEffectParams = (slotId: number): EffectParamsApi => {
+  const dispatch = useAppDispatch()
+  const changed = useAppSelector(selectParamsChanged)
   const [status, setStatus] = React.useState<ParamsStatus>({ kind: 'loading' })
   const [params, setParams] = React.useState<ParamWire[]>([])
   // each parameter's latest set, by id
   const latest = React.useRef(new Map<number, number>())
+  // the slot last fetched: another one starts from "loading", the same one
+  // fetched again keeps showing what it had
+  const fetched = React.useRef<number | null>(null)
 
   React.useEffect(() => {
     let live = true
-    setStatus({ kind: 'loading' })
-    latest.current = new Map()
+    if(fetched.current !== slotId) {
+      setStatus({ kind: 'loading' })
+      latest.current = new Map()
+    }
+    fetched.current = slotId
     invoke<EffectParams>('get_effect_params', { slotId })
       .then(got => {
         if(!live) return
@@ -49,7 +65,7 @@ export const useEffectParams = (slotId: number): EffectParamsApi => {
         if(live) setStatus({ kind: 'error', message: message(e) })
       })
     return () => { live = false }
-  }, [slotId])
+  }, [slotId, changed])
 
   const apply = React.useCallback((value: ParamValue) => {
     setParams(prev => prev.map(p => (p.id === value.id ? { ...p, value } : p)))
@@ -60,17 +76,21 @@ export const useEffectParams = (slotId: number): EffectParamsApi => {
   const send = React.useCallback((id: number, request: () => Promise<ParamValue>) => {
     const seq = (latest.current.get(id) ?? 0) + 1
     latest.current.set(id, seq)
-    request()
-      .then(value => { if(latest.current.get(id) === seq) apply(value) })
+    trackParamSend(request())
+      .then(value => {
+        if(latest.current.get(id) === seq) apply(value)
+        dispatch(paramEdited())
+      })
       .catch(logError('set the effect’s parameter'))
-  }, [apply])
+  }, [apply, dispatch])
 
   const set = React.useCallback((id: number, normalized: number) => {
     // where it's going, before the engine says (its text follows the answer)
     setParams(prev => prev.map(p => (p.id === id
       ? { ...p, value: { ...p.value, normalized, value: plainOf(p, normalized) } }
       : p)))
-    send(id, () => invoke<ParamValue>('set_effect_param', { slotId, id, normalized }))
+    const gesture = currentGesture()
+    send(id, () => invoke<ParamValue>('set_effect_param', { slotId, id, normalized, gesture }))
   }, [slotId, send])
 
   const setText = React.useCallback((id: number, text: string) => {

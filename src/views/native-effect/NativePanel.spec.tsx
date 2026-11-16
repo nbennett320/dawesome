@@ -1,12 +1,20 @@
 import type { Mock } from 'vitest'
 import React from 'react'
+import { Provider } from 'react-redux'
+import { configureStore } from '@reduxjs/toolkit'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { invoke } from '@tauri-apps/api/core'
+import effectsReducer from '../../state/slices/effectsSlice'
+import playlistReducer, { reduceProjectView } from '../../state/slices/playlistSlice'
+import { ProjectView } from '../../types/project'
 import { EffectParams, ParamValue } from '../../types/nativeEffect'
 import { param } from '../../types/nativeEffect.spec'
 import NativePanel from './NativePanel'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
+// the mouse held down (a drag) or not
+let gesture: number | null = null
+vi.mock('../../state/gesture', () => ({ currentGesture: () => gesture }))
 
 const mockInvoke = invoke as Mock
 
@@ -43,13 +51,18 @@ const effect = (): EffectParams => ({
 // what each command answers (a function of its arguments)
 let answers: Record<string, (args: Record<string, unknown>) => unknown>
 
+const makeStore = () => configureStore({ reducer: { effects: effectsReducer, playlist: playlistReducer } })
+let store: ReturnType<typeof makeStore>
+
 const setup = async () => {
-  render(<NativePanel slotId={7} />)
+  store = makeStore()
+  render(<Provider store={store}><NativePanel slotId={7} /></Provider>)
   await act(async () => {})
 }
 
 beforeEach(() => {
   vi.resetAllMocks()
+  gesture = null
   answers = {
     get_effect_params: () => effect(),
     set_effect_param: args => value(args.id as number, 1, args.normalized as number, 'set'),
@@ -78,13 +91,13 @@ describe('a built-in effect’s generated panel', () => {
   it('switches a switch', async () => {
     await setup()
     fireEvent.click(screen.getByRole('button', { name: 'Band 1 On' }))
-    expect(mockInvoke).toHaveBeenCalledWith('set_effect_param', { slotId: 7, id: 0, normalized: 1 })
+    expect(mockInvoke).toHaveBeenCalledWith('set_effect_param', { slotId: 7, id: 0, normalized: 1, gesture: null })
   })
 
   it('picks from a list', async () => {
     await setup()
     fireEvent.change(screen.getByRole('combobox', { name: 'Band 1 Shape' }), { target: { value: '2' } })
-    expect(mockInvoke).toHaveBeenCalledWith('set_effect_param', { slotId: 7, id: 1, normalized: 1 })
+    expect(mockInvoke).toHaveBeenCalledWith('set_effect_param', { slotId: 7, id: 1, normalized: 1, gesture: null })
   })
 
   it('turns a knob, showing where it went and then what the engine says', async () => {
@@ -92,7 +105,7 @@ describe('a built-in effect’s generated panel', () => {
     const knob = screen.getByRole('slider', { name: 'Output' })
     act(() => { fireEvent.keyDown(knob, { key: 'End' }) })
     expect(knob.getAttribute('aria-valuenow')).toBe('1')
-    expect(mockInvoke).toHaveBeenCalledWith('set_effect_param', { slotId: 7, id: 3, normalized: 1 })
+    expect(mockInvoke).toHaveBeenCalledWith('set_effect_param', { slotId: 7, id: 3, normalized: 1, gesture: null })
     await act(async () => {})
     expect((screen.getByRole('textbox', { name: 'Output value' }) as HTMLInputElement).value).toBe('set')
   })
@@ -104,10 +117,10 @@ describe('a built-in effect’s generated panel', () => {
     answers.get_effect_params = () => params
     await setup()
     fireEvent.doubleClick(screen.getByRole('slider', { name: 'Band 1 Freq' }))
-    expect(mockInvoke).toHaveBeenCalledWith('set_effect_param', { slotId: 7, id: 2, normalized: 0.13265 })
+    expect(mockInvoke).toHaveBeenCalledWith('set_effect_param', { slotId: 7, id: 2, normalized: 0.13265, gesture: null })
     expect(mockInvoke).toHaveBeenCalledTimes(2)
     fireEvent.doubleClick(screen.getByText('Freq'))
-    expect(mockInvoke).toHaveBeenLastCalledWith('set_effect_param', { slotId: 7, id: 2, normalized: 0.13265 })
+    expect(mockInvoke).toHaveBeenLastCalledWith('set_effect_param', { slotId: 7, id: 2, normalized: 0.13265, gesture: null })
   })
 
   it('takes a typed value', async () => {
@@ -133,6 +146,35 @@ describe('a built-in effect’s generated panel', () => {
     await act(async () => { pending[0](value(3, -24, 0, '-24.0 dB')) })
     expect((screen.getByRole('textbox', { name: 'Output value' }) as HTMLInputElement).value).toBe('+24.0 dB')
     expect(knob.getAttribute('aria-valuenow')).toBe('1')
+  })
+
+  it('sends a drag’s gesture with each set, so the drag is undone as one', async () => {
+    await setup()
+    gesture = 12
+    act(() => { fireEvent.keyDown(screen.getByRole('slider', { name: 'Output' }), { key: 'End' }) })
+    expect(mockInvoke).toHaveBeenLastCalledWith('set_effect_param', { slotId: 7, id: 3, normalized: 1, gesture: 12 })
+  })
+
+  it('tells the unsaved watch each time a value is set', async () => {
+    await setup()
+    const before = store.getState().effects.paramEdits
+    act(() => { fireEvent.keyDown(screen.getByRole('slider', { name: 'Output' }), { key: 'End' }) })
+    await act(async () => {})
+    expect(store.getState().effects.paramEdits).toBe(before + 1)
+  })
+
+  it('fetches its values again after an undo, without going blank', async () => {
+    await setup()
+    const undone = effect()
+    undone.params[3] = { ...undone.params[3], value: value(3, -12, 0.25, '-12.0 dB') }
+    answers.get_effect_params = () => undone
+    const project = { tempo: 120, clips: [], patternClips: [], effects: [] } as unknown as ProjectView
+    act(() => { store.dispatch(reduceProjectView({ project, selected: null })) })
+    // still showing what it had while it asks
+    expect(screen.queryByText('Loading…')).toBeNull()
+    await act(async () => {})
+    expect((screen.getByRole('textbox', { name: 'Output value' }) as HTMLInputElement).value).toBe('-12.0 dB')
+    expect(mockInvoke.mock.calls.filter(([name]) => name === 'get_effect_params')).toHaveLength(2)
   })
 
   it('says so when its parameters can’t be had', async () => {

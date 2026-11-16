@@ -119,6 +119,16 @@ impl Native {
     }
   }
 
+  // every parameter's plain value, by id
+  pub fn values(&self) -> Vec<f32> {
+    self.store.plains()
+  }
+
+  // set every parameter's plain value (undo and redo)
+  pub fn set_all(&self, values: &[f32]) {
+    self.store.set_plains(values);
+  }
+
   // set a parameter, by its normalized value: what it became
   pub fn set(&self, id: u32, normalized: f64) -> Result<ParamValue, String> {
     self.store.set(id as usize, normalized as f32).ok_or_else(no_such_param)?;

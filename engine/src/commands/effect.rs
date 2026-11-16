@@ -11,7 +11,7 @@ use serde::Serialize;
 use crate::daw::{self, Channel};
 use crate::effects::Racks;
 use crate::history;
-use crate::native::{EffectParams, ParamValue};
+use crate::native::{EffectParams, Native, ParamValue};
 use crate::plugin_catalog::PluginCatalog;
 
 fn channel(track: Option<u32>) -> Channel {
@@ -111,17 +111,48 @@ pub fn get_effect_params(state: daw::TState<'_>, slot_id: u64) -> Result<EffectP
   state.playlist.effects.with_native(slot_id, |native| native.params())
 }
 
-// set one of a built-in effect's parameters, by its normalized value (0 to
-// 1): what it became. not yet undoable (stage 2 of the effects suite)
-#[tauri::command]
-pub fn set_effect_param(state: daw::TState<'_>, slot_id: u64, id: u32, normalized: f64) -> Result<ParamValue, String> {
-  state.playlist.effects.with_native(slot_id, |native| native.set(id, normalized))?
+// change a built-in effect's parameters, and record it so it can be undone
+// - gesture: the knob drag it's part of, if any. one drag is one step
+fn param_edit(
+  state: &daw::InnerState,
+  slot_id: u64,
+  gesture: Option<u64>,
+  change: impl FnOnce(&Native) -> Result<ParamValue, String>,
+) -> Result<ParamValue, String> {
+  let (before, value, after) = state.playlist.effects.with_native(slot_id, |native| {
+    let before = native.values();
+    let value = change(native)?;
+    Ok::<_, String>((before, value, native.values()))
+  })??;
+  history::record(state, history::Step::new().in_gesture(gesture).with_params(slot_id, before, after));
+  Ok(value)
 }
 
-// set one from what was typed ("2.5k", "-3 dB", "Notch")
+pub fn set_param(state: &daw::InnerState, slot_id: u64, id: u32, normalized: f64, gesture: Option<u64>) -> Result<ParamValue, String> {
+  param_edit(state, slot_id, gesture, |native| native.set(id, normalized))
+}
+
+pub fn set_param_text(state: &daw::InnerState, slot_id: u64, id: u32, text: &str) -> Result<ParamValue, String> {
+  param_edit(state, slot_id, None, |native| native.set_text(id, text))
+}
+
+// set one of a built-in effect's parameters, by its normalized value (0 to
+// 1): what it became. undoable, a knob drag (`gesture`) as one step
+#[tauri::command]
+pub fn set_effect_param(
+  state: daw::TState<'_>,
+  slot_id: u64,
+  id: u32,
+  normalized: f64,
+  gesture: Option<u64>,
+) -> Result<ParamValue, String> {
+  set_param(&state, slot_id, id, normalized, gesture)
+}
+
+// set one from what was typed ("2.5k", "-3 dB", "Notch"), as a step of its own
 #[tauri::command]
 pub fn set_effect_param_text(state: daw::TState<'_>, slot_id: u64, id: u32, text: String) -> Result<ParamValue, String> {
-  state.playlist.effects.with_native(slot_id, |native| native.set_text(id, &text))?
+  set_param_text(&state, slot_id, id, &text)
 }
 
 #[cfg(test)]
@@ -309,5 +340,104 @@ mod tests {
     redo(&state);
     assert_eq!(crate::commands::history::project_view(&state).effects, state.playlist.effects.racks());
     assert_eq!(crate::commands::history::project_view(&state).effects.len(), 1);
+  }
+
+  // ---- built-in effects' knobs
+
+  const EQ: &str = "dawesome:eq";
+  // the EQ's output gain, and band 1's frequency
+  const OUTPUT: u32 = 40;
+  const FREQ: u32 = 2;
+
+  fn value(state: &daw::InnerState, slot: u64, id: u32) -> f32 {
+    state.playlist.effects.with_native(slot, |n| n.values()[id as usize]).unwrap()
+  }
+
+  #[test]
+  fn test_a_knob_drag_is_one_step() {
+    let rig = rig();
+    let state = rig.state.clone();
+    let eq = add(&state, Some(0), EQ, None).unwrap().slot_id;
+    let before = steps(&state);
+    for n in [0.4, 0.3, 0.2, 0.1] {
+      set_param(&state, eq, OUTPUT, n, Some(7)).unwrap();
+    }
+    assert_eq!(steps(&state), before + 1);
+    assert_eq!(value(&state, eq, OUTPUT), -19.2);
+
+    undo(&state);
+    assert_eq!(value(&state, eq, OUTPUT), 0.);
+    redo(&state);
+    assert_eq!(value(&state, eq, OUTPUT), -19.2);
+  }
+
+  #[test]
+  fn test_turns_without_a_drag_are_a_step_each() {
+    let rig = rig();
+    let state = rig.state.clone();
+    let eq = add(&state, Some(0), EQ, None).unwrap().slot_id;
+    set_param(&state, eq, OUTPUT, 0.25, None).unwrap();
+    set_param(&state, eq, OUTPUT, 0.75, None).unwrap();
+    set_param_text(&state, eq, FREQ, "2.5k").unwrap();
+    assert_eq!(value(&state, eq, FREQ), 2500.);
+
+    undo(&state);
+    assert_eq!((value(&state, eq, OUTPUT), value(&state, eq, FREQ)), (12., 50.));
+    undo(&state);
+    assert_eq!(value(&state, eq, OUTPUT), -12.);
+    undo(&state);
+    assert_eq!(value(&state, eq, OUTPUT), 0.);
+    // and then the add
+    undo(&state);
+    assert!(state.playlist.effects.racks().is_empty());
+  }
+
+  #[test]
+  fn test_a_drag_that_ends_where_it_began_changes_nothing() {
+    let rig = rig();
+    let state = rig.state.clone();
+    let eq = add(&state, Some(0), EQ, None).unwrap().slot_id;
+    let before = steps(&state);
+    set_param(&state, eq, OUTPUT, 0.9, Some(3)).unwrap();
+    set_param(&state, eq, OUTPUT, 0.5, Some(3)).unwrap();
+    assert_eq!(steps(&state), before);
+    // a set to where it is already is no step either
+    set_param(&state, eq, OUTPUT, 0.5, None).unwrap();
+    assert_eq!(steps(&state), before);
+    // nor one that fails
+    assert!(set_param_text(&state, eq, FREQ, "loud").is_err());
+    assert_eq!(steps(&state), before);
+  }
+
+  #[test]
+  fn test_a_turn_is_undone_after_its_effect_moved_and_came_back() {
+    let rig = rig();
+    let state = rig.state.clone();
+    let eq = add(&state, Some(0), EQ, None).unwrap().slot_id;
+    set_param(&state, eq, OUTPUT, 0.25, None).unwrap();
+    move_to(&state, eq, Some(2), 0).unwrap();
+    remove(&state, eq).unwrap();
+
+    // the remove: it's back with its knob as it was
+    undo(&state);
+    assert_eq!(value(&state, eq, OUTPUT), -12.);
+    // the move, then the turn
+    undo(&state);
+    undo(&state);
+    assert_eq!(value(&state, eq, OUTPUT), 0.);
+    assert_eq!(state.playlist.effects.racks()[0].track, Some(0));
+  }
+
+  #[test]
+  fn test_a_turn_is_heard_undone() {
+    let mut rig = rig();
+    let state = rig.state.clone();
+    let eq = add(&state, Some(0), EQ, None).unwrap().slot_id;
+    set_param(&state, eq, OUTPUT, 0., Some(1)).unwrap();
+    for _ in 0..100 { rig.level(Some(0)); }
+    assert!(close(rig.level(Some(0)), 0.2 * 10f32.powf(-24. / 20.)));
+    undo(&state);
+    for _ in 0..100 { rig.level(Some(0)); }
+    assert!(close(rig.level(Some(0)), 0.2));
   }
 }

@@ -34,6 +34,12 @@ export interface EffectsState {
   rackChannel: ChannelId
   // a slot to point out in the stack for a moment, e.g. one just dropped in
   highlightSlotId: number | null
+  // goes up when built-in effects' parameters may have changed under their
+  // panels (an undo, a project opened): open panels fetch them again
+  paramsChanged: number
+  // goes up with each of their knobs turned, so the unsaved watch looks
+  // (see unsaved.ts)
+  paramEdits: number
 }
 
 const initialState: EffectsState = {
@@ -41,6 +47,8 @@ const initialState: EffectsState = {
   racks: [],
   rackChannel: 0,
   highlightSlotId: null,
+  paramsChanged: 0,
+  paramEdits: 0,
 }
 
 // after the racks change: a highlight goes with its slot (and a plugin's
@@ -71,27 +79,33 @@ export const effectsSlice = createSlice({
     highlightSlot: (state, action: PayloadAction<number | null>) => {
       state.highlightSlotId = action.payload
     },
+    paramEdited: state => {
+      state.paramEdits += 1
+    },
   },
   extraReducers: builder => {
     // a project brings its own effects (an older engine sends none)
     builder.addCase(reduceLoadedProject, (state, action: PayloadAction<LoadedProject>) => {
       state.racks = action.payload.effects ?? []
+      state.paramsChanged += 1
       tidy(state)
     })
     // and an undo or redo may have changed them
     builder.addCase(reduceProjectView, (state, action) => {
       state.racks = action.payload.project.effects ?? []
+      state.paramsChanged += 1
       tidy(state)
     })
   },
 })
 
-export const { setCatalog, setRacks, showRackChannel, highlightSlot } = effectsSlice.actions
+export const { setCatalog, setRacks, showRackChannel, highlightSlot, paramEdited } = effectsSlice.actions
 
 export const selectCatalog = (state: RootState) => state.effects.catalog
 export const selectRacks = (state: RootState) => state.effects.racks
 export const selectRackChannel = (state: RootState) => state.effects.rackChannel
 export const selectHighlightSlotId = (state: RootState) => state.effects.highlightSlotId
+export const selectParamsChanged = (state: RootState) => state.effects.paramsChanged
 
 // a channel's chain, in the order the sound goes through it
 export const selectChannelSlots = (channel: ChannelId) => (state: RootState): EffectSlot[] =>

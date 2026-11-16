@@ -30,6 +30,9 @@ export const projectParts = (state: RootState): unknown[] => {
     state.mixer,
     sequencer.rows, sequencer.patterns, sequencer.folders,
     state.effects.racks,
+    // a built-in effect's knob (a plugin's are found when the window gets
+    // the focus back)
+    state.effects.paramEdits,
     // a take lands in the playlist when recording stops
     recording.armed, recording.countIn, recording.recording,
     state.project.path, state.project.settled,

@@ -11,6 +11,7 @@ import {
 import { clearPendingMixerSends, flushMixerSends } from './slices/mixerSlice'
 import { clearPendingNoteSends, flushNoteSends, syncRun } from './slices/sequencerSlice'
 import { dropHeldTrim } from './pendingTrim'
+import { flushEffectParamSends } from './effectParamSends'
 
 export type Way = 'undo' | 'redo'
 // where the command came from: the Edit menu (or its shortcut), or the key
@@ -54,7 +55,7 @@ export const travel = (way: Way, source: Source = 'menu') => (
     try {
       // a setting changed a moment ago may not have reached the engine yet:
       // it has to be there to be undone
-      await Promise.all([flushClipSettings(getState), flushMixerSends(), flushNoteSends()])
+      await Promise.all([flushClipSettings(getState), flushMixerSends(), flushNoteSends(), flushEffectParamSends()])
       const travelled = await invoke<Travelled>(way, {})
       if(!travelled.changed) return false
 
