@@ -10,7 +10,7 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use dsp::effects::eq;
+use dsp::effects::{delay, eq};
 use dsp::{Runner, Store, Transport, REGISTRY};
 
 const RATE: u32 = 48_000;
@@ -107,6 +107,24 @@ fn main() {
   let mut runner = Runner::new(store.clone(), RATE as f32);
   let one = time(&mut runner, |n| { store.set(eq::id(0, eq::GAIN), (n % 100) as f32 / 100.); });
   report("one band's gain gliding, all the time", one);
+
+  // the Delay in the situations that cost it most
+  println!("\nDelay");
+  let store = Store::new(&delay::ENTRY);
+  store.set_plain(delay::MODE, delay::PING_PONG as f32);
+  store.set_plain(delay::FEEDBACK, 90.);
+  report("ping-pong, 90% feedback, still", time(&mut Runner::new(store.clone(), RATE as f32), |_| {}));
+
+  // its time turned all the time: both sides gliding, and the time's own
+  // smoothing running the Delay 4 frames at a time
+  let mut runner = Runner::new(store.clone(), RATE as f32);
+  let gliding = time(&mut runner, |n| { store.set(delay::OFFSET, (n % 100) as f32 / 100.); });
+  report("offset turned all the time (both gliding)", gliding);
+
+  // a cut moving: its filters remade every 4 frames
+  let mut runner = Runner::new(store.clone(), RATE as f32);
+  let cut = time(&mut runner, |n| { store.set(delay::HIGH_CUT, (n % 100) as f32 / 100.); });
+  report("high cut turned all the time", cut);
 
   // an analyzer frame, as the app asks for one ~30 times a second
   println!("\nAnalyzer");

@@ -72,6 +72,11 @@ pub struct ParamDesc {
   pub default: f32,
   pub taper: Taper,
   pub kind: Kind,
+  // moving it bends the pitch of what the effect holds, on purpose (a
+  // delay's time, gliding like tape). the conformance suite checks it
+  // stays clean as it moves, not that it's free of sudden steps: a pitch
+  // sweep is all steps. set with .bending_pitch()
+  pub bends_pitch: bool,
 }
 
 impl ParamDesc {
@@ -84,7 +89,7 @@ impl ParamDesc {
     default: f32,
     taper: Taper,
   ) -> ParamDesc {
-    ParamDesc { key, name, group, unit, min, max, default, taper, kind: Kind::Continuous }
+    ParamDesc { key, name, group, unit, min, max, default, taper, kind: Kind::Continuous, bends_pitch: false }
   }
 
   pub const fn toggle(key: &'static str, name: &'static str, group: &'static str, on: bool) -> ParamDesc {
@@ -98,6 +103,7 @@ impl ParamDesc {
       default: if on { 1. } else { 0. },
       taper: Taper::Linear,
       kind: Kind::Toggle,
+      bends_pitch: false,
     }
   }
 
@@ -118,7 +124,13 @@ impl ParamDesc {
       default: default as f32,
       taper: Taper::Linear,
       kind: Kind::Choice(labels),
+      bends_pitch: false,
     }
+  }
+
+  // the same, marked as bending pitch when it moves (see bends_pitch)
+  pub const fn bending_pitch(self) -> ParamDesc {
+    ParamDesc { bends_pitch: true, ..self }
   }
 
   // whether it glides to a new value (continuous ones) or jumps (switches

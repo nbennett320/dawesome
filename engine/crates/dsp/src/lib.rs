@@ -16,6 +16,7 @@
 // it holds their values, smooths them, and calls the effect with values
 // that hold still for each call
 
+pub mod delay_line;
 pub mod effect;
 pub mod effects;
 pub mod fft;

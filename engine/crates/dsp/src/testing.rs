@@ -222,9 +222,17 @@ fn test_silence_comes_within_the_tail_it_says() {
       let input = noise(RATE as usize / 4, i as u64 + 1);
       run(&mut runner, &input, 512, RATE);
       let tail = runner.tail_frames().expect("every effect so far stops") as usize;
-      // the tail, then a stretch after it that must be silent
-      let out = run(&mut runner, &vec![0.; tail + 4096], 512, RATE);
-      let after = peak(&out[0][tail..]).max(peak(&out[1][tail..]));
+      // the tail (thrown away as it goes: a delay's can be minutes), then a
+      // stretch after it that must be silent
+      let silence = vec![0.; 1 << 16];
+      let mut left = tail;
+      while left > 0 {
+        let chunk = left.min(silence.len());
+        run(&mut runner, &silence[..chunk], 512, RATE);
+        left -= chunk;
+      }
+      let out = run(&mut runner, &silence[..4096], 512, RATE);
+      let after = peak(&out[0]).max(peak(&out[1]));
       assert!(after < 1e-4, "{}: settings #{} still sounds ({}) {} frames after its input stopped", entry.info.name, i, after, tail);
     }
   }
@@ -265,7 +273,8 @@ fn test_turning_a_knob_doesnt_click() {
   // jump far bigger than that
   for entry in effects() {
     let name = entry.info.name;
-    for (id, p) in entry.params.iter().enumerate().filter(|(_, p)| p.smoothed()) {
+    // (not one that bends pitch: see the next test)
+    for (id, p) in entry.params.iter().enumerate().filter(|(_, p)| p.smoothed() && !p.bends_pitch) {
       for base in settings(entry).iter().take(6) {
         let store = store_with(entry, base);
         let mut runner = Runner::new(store.clone(), RATE as f32);
@@ -286,6 +295,37 @@ fn test_turning_a_knob_doesnt_click() {
           moving <= usual * 2. + 1e-3,
           "{}: turning {} with {:?} clicks (a jump of {} where the sound moves at most {})", name, p.key, base, moving, usual
         );
+      }
+    }
+  }
+}
+
+#[test]
+fn test_turning_a_knob_that_bends_pitch_keeps_it_clean() {
+  // a delay's time glides like tape, bending its echoes' pitch, and each
+  // echo bends again on its next pass: a sweep the test above would take
+  // for clicks. so these are checked for staying clean and in bounds (the
+  // effect's own tests check how they glide)
+  for entry in effects() {
+    let name = entry.info.name;
+    for (id, p) in entry.params.iter().enumerate().filter(|(_, p)| p.bends_pitch) {
+      for base in settings(entry).iter().take(6) {
+        let store = store_with(entry, base);
+        let mut runner = Runner::new(store.clone(), RATE as f32);
+        let input = sine(RATE as usize, 110.);
+        let (before, after) = input.split_at(RATE as usize / 2);
+        store.set_plain(id, p.min);
+        run(&mut runner, before, 256, RATE);
+        store.set_plain(id, p.max);
+        let turned = run(&mut runner, after, 256, RATE);
+        let tail = run(&mut runner, after, 256, RATE);
+        for out in [&turned, &tail] {
+          assert_clean(name, out, &format!("turning {} with {:?}", p.key, base));
+          // (a half-scale sine fed back at 95% builds to 10 at most, in step
+          // with itself: past +30 dB, something's running away)
+          let most = peak(&out[0]).max(peak(&out[1]));
+          assert!(most < 16., "{}: turning {} with {:?} built up to {}", name, p.key, base, most);
+        }
       }
     }
   }

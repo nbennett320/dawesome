@@ -27,7 +27,7 @@ pub enum Shape {
 pub const MAX_SHARE: f32 = 0.49;
 // what's left in a filter's memory below this is cleared (it would only
 // decay into denormals, which are slow on some CPUs)
-const TINY: f32 = 1e-20;
+pub(crate) const TINY: f32 = 1e-20;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Coefs {
