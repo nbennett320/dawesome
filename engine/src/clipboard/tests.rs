@@ -257,7 +257,7 @@ fn test_a_clip_of_a_pattern_thats_gone_is_left_out() {
   let a = sample(&state, 0, 2.);
   let (pattern, c) = pattern_clip(&state, 1, 3.);
   copy(&state, &[a, c]);
-  crate::commands::sequencer::remove_pattern_for_tests(&state, pattern);
+  crate::actions::sequencer::remove_pattern_for_tests(&state, pattern);
 
   // (left out even where it would have landed past the end: the paste
   // isn't refused for a clip that isn't pasted)

@@ -654,7 +654,7 @@ pub fn apply(
   drop(audiograph);
   // each track gets a copy of the synths it plays
   drop(pause);
-  crate::commands::synth::follow(state);
+  crate::actions::synth::follow(state);
   // in bars of the project's time signature, and as long as its clips
   daw::fit_playlist(state);
 

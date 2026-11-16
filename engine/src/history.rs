@@ -445,7 +445,7 @@ fn apply(state: &Arc<daw::InnerState>, step: &mut Step, way: Way) -> Applied {
     }
   }
   // the synths' plugins follow the list and the clips put back
-  crate::commands::synth::follow(state);
+  crate::actions::synth::follow(state);
 
   Applied { clips: if step.clips.is_empty() { None } else { Some(clips) } }
 }
@@ -469,7 +469,7 @@ pub fn clip_edit<T>(
   record(state, Step::new().in_gesture(gesture).with_clips(before, after));
   // a clip of a pattern with synth rows' notes, on a track that hasn't
   // their copies yet
-  crate::commands::synth::follow(state);
+  crate::actions::synth::follow(state);
 
   Ok(result)
 }
@@ -499,7 +499,7 @@ pub fn record_between(state: &daw::InnerState, gesture: Option<u64>, before: Pic
     .with_clips(before.clips, after.clips)
     .with_sequencer(before.sequencer, after.sequencer)
     .with_mixer(before.mixer, after.mixer));
-  crate::commands::synth::follow(state);
+  crate::actions::synth::follow(state);
 }
 
 // run something that changes the sequencer, and record it as a step

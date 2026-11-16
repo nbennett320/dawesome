@@ -281,7 +281,7 @@ fn test_edits_are_quick_with_five_hundred_clips() {
   timed("delete fifty clips", &mut || { crate::actions::clip::remove_clips(&state, &ids[150..200]).unwrap(); });
   let state_arc = state.clone();
   timed("undo", &mut || { history::undo(&state_arc).unwrap(); });
-  timed("the project after an undo", &mut || { crate::commands::history::project_view(&state); });
+  timed("the project after an undo", &mut || { crate::actions::history::project_view(&state); });
   timed("redo", &mut || { history::redo(&state_arc).unwrap(); });
   println!("{:>28}: {:?}", "slowest", slowest);
 }

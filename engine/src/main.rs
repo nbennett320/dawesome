@@ -86,7 +86,7 @@ fn init_tauri() {
       effects::keep_idling(racks.clone());
       effects::follow_output(&racks);
       effect_windows::init(&racks);
-      commands::synth::keep_following(following.clone());
+      actions::synth::keep_following(following.clone());
       // the empty project the app starts with is unchanged (see
       // project::has_unsaved_changes)
       project::mark_unchanged(&following);

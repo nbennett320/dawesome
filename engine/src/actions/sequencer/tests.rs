@@ -336,7 +336,7 @@ fn drums() -> (Arc<daw::InnerState>, u64, u64, u64, u64, u64) {
 
 // a synth row (the fake one) and a one bar pattern, in `state`
 fn synth_and_pattern(state: &daw::InnerState) -> (u64, u64) {
-  let synth = crate::commands::synth::add(state, &crate::effects::testing::synth().id).unwrap().row_id;
+  let synth = crate::actions::synth::add(state, &crate::effects::testing::synth().id).unwrap().row_id;
   let pattern = add_pattern_of(state, 1).unwrap().id;
   (synth, pattern)
 }
@@ -368,7 +368,7 @@ fn test_every_sequencer_edit_can_be_undone_and_redone() {
     ("a long pattern", Box::new(|| edit(s, None, |seq| seq.set_pattern_bars(notes, 128, 4)).map(|_| ()))),
     ("grow with notes past the end", Box::new(|| set_pattern_notes_in(s, notes, synth, vec![note(60, 1.), note(64, 40.)], None, false).map(|_| ()))),
     ("synth volume", Box::new(|| edit(s, None, |seq| seq.set_row_volume(synth, 0.5)).map(|_| ()))),
-    ("replace a synth's plugin", Box::new(|| crate::commands::synth::replace(s, synth, &crate::effects::testing::synth().id).map(|_| ()))),
+    ("replace a synth's plugin", Box::new(|| crate::actions::synth::replace(s, synth, &crate::effects::testing::synth().id).map(|_| ()))),
     ("mute a synth", Box::new(|| edit(s, None, |seq| seq.set_row_muted(synth, true)).map(|_| ()))),
     ("pattern length", Box::new(|| edit(s, None, |seq| seq.set_pattern_bars(pattern, 2, 4)).map(|_| ()))),
     ("add a pattern", Box::new(|| add_pattern_of(s, 4).map(|_| ()))),

@@ -323,7 +323,7 @@ fn sounding(samples: &[f32]) -> Vec<(usize, usize)> {
 fn synth_and_notes() -> (crate::effects::testing::Rig, u64, u64) {
   use crate::effects::testing::*;
   let rig = rig();
-  let synth = crate::commands::synth::add(&rig.state, &synth().id).unwrap().row_id;
+  let synth = crate::actions::synth::add(&rig.state, &synth().id).unwrap().row_id;
   rig.turn(rig.slot_of(synth), 0.25);
   let pattern = {
     let mut sequencer = rig.state.playlist.sequencer.lock().unwrap();
@@ -339,7 +339,7 @@ fn synth_and_notes() -> (crate::effects::testing::Rig, u64, u64) {
 fn note_clip(state: &daw::InnerState, pattern: u64, track: u32, at: Duration) -> u64 {
   let clip = state.playlist.audiograph.lock().unwrap()
     .add_pattern_node::<daw::timing::Note>(pattern, at, track, None).unwrap();
-  crate::commands::synth::follow(state);
+  crate::actions::synth::follow(state);
   clip
 }
 
@@ -438,7 +438,7 @@ fn test_a_synth_on_two_tracks_is_mixed_down_through_each_tracks_fader() {
   assert_eq!(rig.loader.alive.load(std::sync::atomic::Ordering::SeqCst), 3);
 
   // muted, it isn't heard on either; quieter, on both
-  use crate::commands::sequencer::edit;
+  use crate::actions::sequencer::edit;
   edit(&state, None, |seq| seq.set_row_muted(synth, true)).unwrap();
   assert!(sounding(&mixdown(&state, 48_000)).is_empty());
   edit(&state, None, |seq| seq.set_row_muted(synth, false)).unwrap();
@@ -453,7 +453,7 @@ fn test_a_synth_rows_pan_is_mixed_down() {
   let (rig, synth, pattern) = synth_and_notes();
   let state = rig.state.clone();
   note_clip(&state, pattern, 1, Duration::ZERO);
-  crate::commands::sequencer::edit(&state, None, |seq| seq.set_row_pan(synth, -1.)).unwrap();
+  crate::actions::sequencer::edit(&state, None, |seq| seq.set_row_pan(synth, -1.)).unwrap();
 
   // hard left: the right side silent, the left as it was
   let mixed = mixdown(&state, 48_000);
@@ -477,16 +477,16 @@ fn test_a_synth_added_just_now_is_mixed_down_once_it_has_set_itself_up() {
   note_clip(&state, pattern, 2, Duration::ZERO);
 
   // mixed down as soon as it's added, without waiting for it: silent
-  let first = crate::commands::synth::add(&state, &synth().id).unwrap().row_id;
-  crate::commands::sequencer::set_pattern_notes_in(&state, pattern, first, vec![note(60, 3., 3.), note(62, 14., 2.)], None, false).unwrap();
+  let first = crate::actions::synth::add(&state, &synth().id).unwrap().row_id;
+  crate::actions::sequencer::set_pattern_notes_in(&state, pattern, first, vec![note(60, 3., 3.), note(62, 14., 2.)], None, false).unwrap();
   assert!(sounding(&mixdown(&state, 48_000)).is_empty());
 
   // with the wait, the same, straight after another is added in its place:
   // the notes are there, from the song's start
   rig.effects().use_settle(settle);
-  crate::commands::sequencer::edit(&state, None, |seq| seq.remove_row_and_trim(first, 4)).unwrap();
-  let second = crate::commands::synth::add(&state, &synth().id).unwrap().row_id;
-  crate::commands::sequencer::set_pattern_notes_in(&state, pattern, second, vec![note(60, 3., 3.), note(62, 14., 2.)], None, false).unwrap();
+  crate::actions::sequencer::edit(&state, None, |seq| seq.remove_row_and_trim(first, 4)).unwrap();
+  let second = crate::actions::synth::add(&state, &synth().id).unwrap().row_id;
+  crate::actions::sequencer::set_pattern_notes_in(&state, pattern, second, vec![note(60, 3., 3.), note(62, 14., 2.)], None, false).unwrap();
   let mixed = mixdown(&state, 48_000);
   assert_eq!(sounding(&mixed), vec![(18_000, 36_000), (84_000, 96_000)]);
   assert_eq!(mixed[20_000 * 2], START_GAIN);

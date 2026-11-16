@@ -266,7 +266,7 @@ fn test_pattern_clips_become_one_clip_of_a_new_pattern() {
   // a bar of "a" on bar 2, a bar's gap, then the other on bar 4
   let (first, second) = (pattern_clip(&state, a, 4.), pattern_clip(&state, b, 12.));
   let original = play(&state, rate, total);
-  let patterns_before = crate::commands::synth::sequencer_state(&state);
+  let patterns_before = crate::actions::synth::sequencer_state(&state);
   state.history.lock().unwrap().clear();
   let before = saved(&state);
 
@@ -300,7 +300,7 @@ fn test_pattern_clips_become_one_clip_of_a_new_pattern() {
   let undone = history::undo(&state).unwrap().unwrap();
   assert_eq!(undone.clips, Some(vec![first, second]));
   assert_eq!(saved(&state), before);
-  assert_eq!(crate::commands::synth::sequencer_state(&state), patterns_before);
+  assert_eq!(crate::actions::synth::sequencer_state(&state), patterns_before);
   assert!(play(&state, rate, total) == original);
   history::redo(&state).unwrap();
   assert!(play(&state, rate, total) == original);
@@ -499,7 +499,7 @@ fn test_the_halves_of_a_cut_pattern_clip_are_one_clip_of_its_pattern_again() {
   let (_, _, a, _) = two_patterns(&state);
   let clip = pattern_clip(&state, a, 4.);
   let before = saved(&state);
-  let patterns = crate::commands::synth::sequencer_state(&state);
+  let patterns = crate::actions::synth::sequencer_state(&state);
   // cut between steps, and again
   let right = crate::actions::clip::split(&state, &[clip], 5.375).unwrap().pattern_clips[1].id;
   let last = crate::actions::clip::split(&state, &[right], 7.).unwrap().pattern_clips[1].id;
@@ -510,7 +510,7 @@ fn test_the_halves_of_a_cut_pattern_clip_are_one_clip_of_its_pattern_again() {
   assert_eq!(joined.clips.pattern_clips[0].window, ClipWindow { start: 0., end: Some(16.) });
   assert_eq!(joined.clips.pattern_clips[0].pattern_id, a);
   // no new pattern
-  assert_eq!(crate::commands::synth::sequencer_state(&state), patterns);
+  assert_eq!(crate::actions::synth::sequencer_state(&state), patterns);
   assert_eq!(saved(&state), before);
 }
 

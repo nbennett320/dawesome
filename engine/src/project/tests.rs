@@ -923,15 +923,15 @@ fn test_new_project_clears_the_effects() {
 #[test]
 fn test_synth_rows_saved_and_loaded() {
   use crate::effects::testing::*;
-  use crate::commands::sequencer::edit;
+  use crate::actions::sequencer::edit;
   use std::sync::atomic::Ordering::SeqCst;
   let dir = test_dir("synths");
   let file = dir.join("keys.dawesome");
 
   let rig = rig();
   let state = rig.state.clone();
-  let synth = crate::commands::synth::add(&state, &synth().id).unwrap().row_id;
-  let quiet = crate::commands::synth::add(&state, &crate::effects::testing::synth().id).unwrap().row_id;
+  let synth = crate::actions::synth::add(&state, &synth().id).unwrap().row_id;
+  let quiet = crate::actions::synth::add(&state, &crate::effects::testing::synth().id).unwrap().row_id;
   let slot = rig.slot_of(synth);
   rig.turn(slot, 0.3);
   edit(&state, None, |seq| seq.set_row_volume(synth, 0.5)).unwrap();
@@ -939,10 +939,10 @@ fn test_synth_rows_saved_and_loaded() {
   state.playlist.effects.keep_window_position(slot, crate::effects::WindowPosition { x: 5., y: 6. });
   let pattern = state.playlist.sequencer.lock().unwrap().add_pattern(8, 4).unwrap();
   let note = daw::PatternNote { pitch: 64, start: 2., length: 3., velocity: 0.5 };
-  crate::commands::sequencer::set_pattern_notes_in(&state, pattern, synth, vec![note], None, false).unwrap();
+  crate::actions::sequencer::set_pattern_notes_in(&state, pattern, synth, vec![note], None, false).unwrap();
   let folder = state.playlist.sequencer.lock().unwrap().add_folder("Keys", None).unwrap();
   state.playlist.sequencer.lock().unwrap().move_pattern(pattern, Some(folder)).unwrap();
-  crate::commands::sequencer::add_pattern_clip_for_tests(&state, pattern, 3, Some(0.));
+  crate::actions::sequencer::add_pattern_clip_for_tests(&state, pattern, 3, Some(0.));
   save_to(&state, &file).unwrap();
 
   let json: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();

@@ -291,7 +291,7 @@ fn join_patterns(state: &daw::InnerState, clips: Vec<daw::PatternNode>) -> Resul
   // (recorded whatever happened: on a refusal nothing changed, and that's
   // no step)
   history::record_between(state, None, before, history::picture(state, &ids));
-  let sequencer = joined?.map(|_| crate::commands::synth::sequencer_state(state));
+  let sequencer = joined?.map(|_| crate::actions::synth::sequencer_state(state));
   Ok(Joined { clips: changed_clips(state, &[first]), removed: rest, sequencer })
 }
 

@@ -344,10 +344,10 @@ mod tests {
     let state = rig.state.clone();
     add(&state, None, &gain().id, None).unwrap();
     undo(&state);
-    assert!(crate::commands::history::project_view(&state).effects.is_empty());
+    assert!(crate::actions::history::project_view(&state).effects.is_empty());
     redo(&state);
-    assert_eq!(crate::commands::history::project_view(&state).effects, state.playlist.effects.racks());
-    assert_eq!(crate::commands::history::project_view(&state).effects.len(), 1);
+    assert_eq!(crate::actions::history::project_view(&state).effects, state.playlist.effects.racks());
+    assert_eq!(crate::actions::history::project_view(&state).effects.len(), 1);
   }
 
   // ---- built-in effects' knobs

@@ -1,7 +1,7 @@
 use super::super::testing::*;
 use super::*;
-use crate::commands::sequencer::edit;
-use crate::commands::synth as synths;
+use crate::actions::sequencer::edit;
+use crate::actions::synth as synths;
 use std::sync::atomic::Ordering::SeqCst;
 
 fn close(a: f32, b: f32) -> bool {
@@ -20,7 +20,7 @@ fn synth_with_notes(rig: &Rig, gain: f32) -> (u64, u64) {
   let slot = rig.slot_of(row);
   rig.turn(slot, gain);
   let pattern = rig.state.playlist.sequencer.lock().unwrap().add_pattern(1, 4).unwrap();
-  crate::commands::sequencer::set_pattern_notes_in(&rig.state, pattern, row, vec![note(60, 0., 4.)], None, false).unwrap();
+  crate::actions::sequencer::set_pattern_notes_in(&rig.state, pattern, row, vec![note(60, 0., 4.)], None, false).unwrap();
   (slot, pattern)
 }
 
@@ -31,7 +31,7 @@ fn row_of(rig: &Rig, slot: u64) -> u64 {
 }
 
 fn clip(rig: &Rig, pattern: u64, track: u32) -> u64 {
-  crate::commands::sequencer::add_pattern_clip_for_tests(&rig.state, pattern, track, Some(0.))
+  crate::actions::sequencer::add_pattern_clip_for_tests(&rig.state, pattern, track, Some(0.))
 }
 
 fn steps(rig: &Rig) -> usize {
@@ -388,7 +388,7 @@ fn test_adding_a_synth_on_a_track_is_one_step() {
 
   // its first note makes the track's copy
   let slot = rig.slot_of(added.row_id);
-  crate::commands::sequencer::set_pattern_notes_in(&rig.state, added.pattern_id, added.row_id, vec![note(60, 0., 1.)], None, false).unwrap();
+  crate::actions::sequencer::set_pattern_notes_in(&rig.state, added.pattern_id, added.row_id, vec![note(60, 0., 1.)], None, false).unwrap();
   assert!(rig.effects().copy_ids().contains_key(&(slot, Some(4))));
   crate::history::undo(&rig.state).unwrap();
 
