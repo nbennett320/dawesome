@@ -13,20 +13,15 @@ pub fn tape_settings(state: &daw::Session) -> TapeSettings {
 
 // tell the engine the tape's settings changed: after an edit, an undo or
 // redo, and a project being opened or started
-pub fn to_engine(_state: &daw::Session) {
-  // TODO(tape): engine. the tape's settings (state.tape) reach the audio
-  // engine here: the switch (off must play exactly as today, T14), the
-  // machine's controls, and each track's place on the tape and drive. the
-  // print/live mode is a preference (Preferences::tape_mode)
+pub fn to_engine(state: &daw::Session) {
+  daw::tape::apply(&state.tape.lock().unwrap().clone());
 }
 
-// tell the engine tracks on tape are now worked out another way (Settings
-// → Controls). a preference, not part of the project: not undone or saved
-// with it
-pub fn mode_to_engine(_mode: crate::preferences::TapeMode) {
-  // TODO(tape): engine. switch tracks on tape between printing in the
-  // background and running live (T23, see 08-mode-removal.md). the engine
-  // may need the session here too (commands/appearance.rs calls this)
+// tell the engine tracks on tape are now worked out another way, or the
+// tape sits elsewhere on them (Settings → Controls → Tape). preferences,
+// not part of the project: not undone or saved with it
+pub fn mode_to_engine(mode: crate::preferences::TapeMode, tap: crate::preferences::TapeTap) {
+  daw::tape::set_preferences(mode, tap);
 }
 
 // change the tape, and record the change so it can be undone

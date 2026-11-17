@@ -1099,3 +1099,105 @@ fn test_outputs_open_with_settings() {
   let odd = open_output(&AudioSettings { buffer_frames: Some(100), ..Default::default() });
   assert!(odd.err().unwrap().contains("100 frames"));
 }
+
+// ---- the tape (always-live mode)
+
+mod tape_tests {
+  use super::*;
+  use ::tape::{MachineSettings, PlaybackSettings, RecordSide, SimpleCore, SimpleCoreSettings, TapeMachine, TransportSettings};
+
+  const TAPE_RATE: u32 = 48_000;
+
+  // a tape with nothing random on it: no wobble, hiss, dropouts or dbx
+  fn still() -> MachineSettings {
+    let mut playback = PlaybackSettings::default();
+    playback.dropouts_per_minute = 0.0;
+    MachineSettings { transport: TransportSettings::still(), playback, wow_flutter: 0.0, hiss: 0.0, dbx: false, output_db: 0.0 }
+  }
+
+  fn live_tape(settings: MachineSettings, before_effects: bool, tracks: &[u32]) -> Box<tape::LiveTape> {
+    let rate = TAPE_RATE as f32;
+    let mut machine = TapeMachine::new(settings, rate, 1, processor::MAX_BLOCK);
+    let mut sides = Vec::new();
+    for &number in tracks {
+      let mut side = || {
+        let core = Box::new(SimpleCore::new(SimpleCoreSettings::default(), rate, processor::MAX_BLOCK));
+        machine.add_track(Some(RecordSide::new(core, rate, processor::MAX_BLOCK)), 0.0)
+      };
+      sides.push((number, [side(), side()]));
+    }
+    tape::LiveTape::new(machine, before_effects, sides)
+  }
+
+  // a sine on a track, at 48 khz, `level` of full scale
+  fn tone(frames: usize, level: f32) -> SamplesBuffer<f32> {
+    let samples: Vec<f32> = (0..frames).flat_map(|i| {
+      let s = level * (i as f32 * 2.0 * std::f32::consts::PI * 440.0 / TAPE_RATE as f32).sin();
+      [s, s]
+    }).collect();
+    SamplesBuffer::new(2, TAPE_RATE, samples)
+  }
+
+  fn play(tape: Option<Box<tape::LiveTape>>, chain: Vec<Arc<Slot>>, level: f32) -> Vec<f32> {
+    let mixer = mixer::Mixer::default();
+    let (engine, mut renderer) = Engine::new(TAPE_RATE);
+    engine.set_tape(tape).unwrap();
+    if !chain.is_empty() { engine.set_track_chain(&mixer.track_route(0), chain).unwrap(); }
+    engine.start_run(1, mixer.master(), vec![engine.voice(tone(9600, level), Some(1), 0, Route::Track(mixer.track_route(0)))]).unwrap();
+    let mut out = render(&mut renderer, 4800);
+    out.extend(render(&mut renderer, 4800));
+    out
+  }
+
+  #[test]
+  fn test_tape_off_or_with_nothing_on_it_plays_as_before() {
+    // T14: no tape, and a tape with only another track on it, are the same
+    // to the last bit
+    let without = play(None, vec![], 0.1);
+    let other_track = play(Some(live_tape(still(), true, &[5])), vec![], 0.1);
+    assert_eq!(without, other_track);
+    assert!(without.iter().any(|&s| s != 0.));
+  }
+
+  #[test]
+  fn test_a_track_on_tape_is_the_core_and_late() {
+    let dry = play(None, vec![], 0.05);
+    let taped = play(Some(live_tape(still(), true, &[0])), vec![], 0.05);
+    // the playback head reads 8 ms back
+    let delay = (0.008 * TAPE_RATE as f32).round() as usize;
+    // (a sine starts at zero: its first sound is a frame in)
+    let start = first_sound(&dry).unwrap();
+    assert!(start <= 1);
+    let late = first_sound(&taped).unwrap() - start;
+    assert!(late >= delay - 20 && late <= delay + 20, "first sound {late} frames late");
+    // quiet, so near unity: the same tone, delayed, give or take the eq
+    let rms = |x: &[f32]| (x.iter().map(|s| s * s).sum::<f32>() / x.len() as f32).sqrt();
+    let ratio = rms(&taped[delay + 2000..]) / rms(&dry[2000..9600 - delay]);
+    assert!((ratio - 1.0).abs() < 0.1, "level {ratio}");
+  }
+
+  #[test]
+  fn test_the_output_knob_reaches_a_running_tape() {
+    let mixer = mixer::Mixer::default();
+    let (engine, mut renderer) = Engine::new(TAPE_RATE);
+    engine.set_tape(Some(live_tape(still(), true, &[0]))).unwrap();
+    engine.start_run(1, mixer.master(), vec![engine.voice(tone(19200, 0.05), Some(1), 0, Route::Track(mixer.track_route(0)))]).unwrap();
+    let before = render(&mut renderer, 9600);
+    engine.set_tape_settings(MachineSettings { output_db: -6.0, ..still() }).unwrap();
+    let after = render(&mut renderer, 9600);
+    let peak = |x: &[f32]| x.iter().fold(0f32, |m, s| m.max(s.abs()));
+    let ratio = peak(&after[2000..]) / peak(&before[2000..]);
+    assert!((ratio - 0.5012).abs() < 0.02, "{ratio}");
+  }
+
+  #[test]
+  fn test_before_or_after_the_track_s_effects() {
+    // loud enough to saturate: tape then half the level isn't half the
+    // level then tape
+    let half = || vec![Slot::new(1, Box::new(Gain(0.5)))];
+    let before = play(Some(live_tape(still(), true, &[0])), half(), 0.8);
+    let after = play(Some(live_tape(still(), false, &[0])), half(), 0.8);
+    let differ = before.iter().zip(&after).filter(|(a, b)| (*a - *b).abs() > 1e-3).count();
+    assert!(differ > 1000, "{differ} frames differ");
+  }
+}

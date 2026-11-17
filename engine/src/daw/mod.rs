@@ -25,6 +25,7 @@ pub(crate) mod plugin_catalog;
 pub(crate) mod project;
 pub(crate) mod project_files;
 pub(crate) mod recording;
+pub(crate) mod tape;
 pub(crate) mod tape_settings;
 #[cfg(test)]
 pub(crate) mod test_support;

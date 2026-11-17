@@ -89,6 +89,7 @@ dependencies = [
  "chrono",
  "core-foundation",
  "dawesome-dsp",
+ "dawesome-tape",
  "dirs",
  "hound",
  "lazy_static",

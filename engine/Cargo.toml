@@ -45,6 +45,8 @@ mp3lame-encoder = "0.3.0"
 vst3 = "0.3"
 # the built-in effects (crates/dsp)
 dawesome-dsp = { path = "crates/dsp" }
+# the tape: a cassette 4-track's record and playback sides (crates/tape)
+dawesome-tape = { path = "crates/tape" }
 
 # opening a plugin's bundle (macOS) or library (Linux, Windows)
 [target.'cfg(target_os = "macos")'.dependencies]

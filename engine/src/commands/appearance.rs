@@ -23,10 +23,10 @@ pub fn set_preferences(
   window: tauri::Window,
   preferences: Preferences,
 ) -> Result<Preferences, String> {
-  let was = app.current().tape_mode;
+  let was = app.current();
   let kept = app.set(preferences)?;
-  if kept.tape_mode != was {
-    crate::daw::actions::tape::mode_to_engine(kept.tape_mode);
+  if kept.tape_mode != was.tape_mode || kept.tape_tap != was.tape_tap {
+    crate::daw::actions::tape::mode_to_engine(kept.tape_mode, kept.tape_tap);
   }
   // the title bar follows: the system's, or pinned. the settings are saved
   // either way, so a failure here is only reported

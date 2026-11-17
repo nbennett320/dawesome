@@ -40,6 +40,9 @@ export interface Preferences {
   // how tracks on tape are worked out: printed in the background, or live
   // (see TapeMode in preferences.rs)
   tapeMode: 'print' | 'live'
+  // where on a track the tape sits: before its effects, as on a 4-track, or
+  // after them (see TapeTap in preferences.rs)
+  tapeTap: 'before' | 'after'
 }
 
 // coloured caps (TR-808), plain caps over a coloured strip (TR-909), or

@@ -56,6 +56,18 @@ pub enum TapeMode {
   Live,
 }
 
+// where on a track the tape sits (W1): before its first effect, as on a
+// Portastudio (the effects are on the mixer, after the tape), or after its
+// whole chain (the effects are recorded onto tape too)
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Default)]
+pub enum TapeTap {
+  #[default]
+  #[serde(rename = "before")]
+  BeforeEffects,
+  #[serde(rename = "after")]
+  AfterEffects,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Preferences {
@@ -74,6 +86,8 @@ pub struct Preferences {
   pub experimental_animations: bool,
   // how tracks on tape are worked out
   pub tape_mode: TapeMode,
+  // where on a track the tape sits
+  pub tape_tap: TapeTap,
 }
 
 impl Default for Preferences {
@@ -88,6 +102,7 @@ impl Default for Preferences {
       loop_recording: LoopRecording::default(),
       experimental_animations: true,
       tape_mode: TapeMode::default(),
+      tape_tap: TapeTap::default(),
     }
   }
 }
@@ -134,6 +149,7 @@ impl Preferences {
       loop_recording: self.loop_recording,
       experimental_animations: self.experimental_animations,
       tape_mode: self.tape_mode,
+      tape_tap: self.tape_tap,
     }
   }
 }
@@ -196,6 +212,7 @@ mod tests {
       loop_recording: LoopRecording::Stop,
       experimental_animations: true,
       tape_mode: TapeMode::Live,
+      tape_tap: TapeTap::default(),
     };
     prefs.save(&file).unwrap();
     assert_eq!(Preferences::load(&file), prefs);
@@ -240,6 +257,7 @@ mod tests {
     assert!(prefs.experimental_animations);
     // and tracks on tape are printed in the background
     assert_eq!(prefs.tape_mode, TapeMode::Print);
+    assert_eq!(prefs.tape_tap, TapeTap::BeforeEffects);
     fs::remove_dir_all(file.parent().unwrap()).ok();
   }
 
@@ -256,6 +274,7 @@ mod tests {
       loop_recording: LoopRecording::Layer,
       experimental_animations: true,
       tape_mode: TapeMode::Live,
+      tape_tap: TapeTap::default(),
     };
     assert_eq!(ok.sanitize(&themes), ok);
 
@@ -269,6 +288,7 @@ mod tests {
       loop_recording: LoopRecording::Layer,
       experimental_animations: false,
       tape_mode: TapeMode::Print,
+      tape_tap: TapeTap::default(),
     };
     let fixed = bad.sanitize(&themes);
     assert_eq!(fixed.light_theme, theme::DEFAULT_LIGHT);
