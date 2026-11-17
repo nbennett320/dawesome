@@ -8,3 +8,5 @@ Requires-Dist: scipy>=1.13
 Requires-Dist: soundfile>=0.12
 Provides-Extra: dev
 Requires-Dist: pytest>=8; extra == "dev"
+Provides-Extra: train
+Requires-Dist: torch>=2.4; extra == "train"

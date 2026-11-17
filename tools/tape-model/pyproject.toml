@@ -7,6 +7,8 @@ dependencies = ["numpy>=2", "scipy>=1.13", "soundfile>=0.12"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# training only: align and measure don't need it
+train = ["torch>=2.4"]
 
 [project.scripts]
 tape-model = "tape_model.cli:main"
@@ -14,3 +16,6 @@ tape-model = "tape_model.cli:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["slow: whole fake-deck passes, aligned and measured (minutes; skip with -m 'not slow')"]
+
+[tool.setuptools]
+packages = ["tape_model"]

@@ -4,3 +4,6 @@ soundfile>=0.12
 
 [dev]
 pytest>=8
+
+[train]
+torch>=2.4

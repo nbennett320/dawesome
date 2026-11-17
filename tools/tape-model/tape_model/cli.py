@@ -7,6 +7,13 @@
 # tape-model measure TEST.wav REC.wav DIR [--reference DIR0]
 #                                         aligned, then measured: and
 #                                         DIR/measure.json
+# tape-model train TEST.wav DIR... --out MODELDIR
+#                                         the tape core trained on measured
+#                                         passes: model.json, fixture.json,
+#                                         train.json (needs the train extra)
+# tape-model profile DIR... --machine NAME --out FILE
+#                                         a session's measurements as the
+#                                         effect's profile
 
 import argparse
 import hashlib
@@ -135,6 +142,61 @@ def make_measure(args):
   print(f"{args.out}/measure.json")
 
 
+def _held_out(args, test_map):
+  spans = []
+  for item in args.hold_out or []:
+    name, _, rest = item.partition(":")
+    s = test_map.section(name)
+    a, _, b = rest.partition("-")
+    spans.append((s.start + float(a or 0.0), s.start + float(b) if b else s.end))
+  if not args.hold_out:
+    # by default the last 20 s of the music: heard by no window
+    music = test_map.section("music")
+    spans.append((music.end - 20.0, music.end))
+  return spans
+
+
+def make_train(args):
+  from . import model as tape_model
+  from . import train
+  from .dataset import coverage, load_pass
+
+  test, test_map = _load_test(args.test)
+  passes = [load_pass(d, test, test_map) for d in args.passes]
+  held_drives = set(args.hold_out_drive or [])
+  training = [p for p in passes if round(p.drive_db) not in held_drives]
+  spans = _held_out(args, test_map)
+  report = {"passes": {}, "held_out_spans": spans, "held_out_drives": sorted(held_drives)}
+  for p in passes:
+    cov = coverage(p, test_map.rate)
+    report["passes"][p.name] = {"drive_db": p.drive_db, "training": p in training, "usable_seconds": cov}
+    print(f"  {p.name}: drive {p.drive_db:+.2f} dB, usable {sum(cov.values()):.0f} s (music {cov.get('music', 0):.0f} s){'' if p in training else ', held out'}")
+  net, log = train.train(training, test_map.rate, spans, args.minutes, args.hidden, args.seed)
+  report.update(log)
+  drives = [p.drive_db for p in training]
+  spec = tape_model.export(net, test_map.rate, (min(drives), max(drives)), [p.name for p in training], args.machine)
+  out = Path(args.out)
+  out.mkdir(parents=True, exist_ok=True)
+  tape_model.save(spec, out / "model.json")
+  # the fixture: half a second of the held-out music, at a trained drive
+  # and one between trained drives
+  music = test_map.section("music")
+  a = int((music.end - 10.0) * test_map.rate)
+  clip = test[a:a + test_map.rate // 2, 0]
+  between = (sorted(drives)[0] + sorted(drives)[1]) / 2 if len(drives) > 1 else drives[0] + 1.0
+  (out / "fixture.json").write_text(json.dumps(tape_model.fixture(net, spec, clip, [0.0, between])))
+  (out / "train.json").write_text(json.dumps(report, indent=1, default=_json))
+  print(f"{out}: model.json, fixture.json, train.json ({log['steps']} steps, {log['minutes']:.1f} min)")
+
+
+def make_profile(args):
+  from . import profile
+  spec = profile.build(args.passes, args.machine)
+  Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+  Path(args.out).write_text(json.dumps(spec, indent=1, default=_json))
+  print(f"{args.out}: {args.machine}, from {len(args.passes)} passes")
+
+
 def main(argv=None):
   parser = argparse.ArgumentParser(prog="tape-model")
   commands = parser.add_subparsers(required=True)
@@ -165,6 +227,24 @@ def main(argv=None):
   p.add_argument("out")
   p.add_argument("--reference", help="the session's 0 dB pass's output folder, for drive and 0 VU")
   p.set_defaults(run=make_measure)
+
+  p = commands.add_parser("train", help="train the tape core on measured passes")
+  p.add_argument("test")
+  p.add_argument("passes", nargs="+", help="output folders of `measure`")
+  p.add_argument("--out", required=True)
+  p.add_argument("--machine", default="fake")
+  p.add_argument("--minutes", type=float, default=30.0)
+  p.add_argument("--hidden", type=int, default=32)
+  p.add_argument("--seed", type=int, default=1)
+  p.add_argument("--hold-out-drive", type=float, action="append", help="leave a pass at this drive out of training")
+  p.add_argument("--hold-out", action="append", help="SECTION:START-END seconds into it, kept from training (default: the music's last 20 s)")
+  p.set_defaults(run=make_train)
+
+  p = commands.add_parser("profile", help="gather a session's measurements into the effect's profile")
+  p.add_argument("passes", nargs="+", help="output folders of `measure`; the 0 dB pass first")
+  p.add_argument("--machine", required=True)
+  p.add_argument("--out", required=True)
+  p.set_defaults(run=make_profile)
 
   args = parser.parse_args(argv)
   args.run(args)
