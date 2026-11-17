@@ -46,6 +46,7 @@ import { Pattern, SequencerState, patternSeconds } from '../../../types/sequence
 import { decodeLevels } from '../../../util/waveform'
 import { gridSteps, maxScale, openingScale, panForWidth, panToShow, scrollToShow, visibleBeats } from './grid'
 import { LandmarkName, Move, landmarks, moveTarget } from '../navigation'
+import { TimeSelection, blockOf, isEmptySpan, shiftTracks, startAt, withEdgeBeat, withEdgeTrack } from '../timeSelection'
 import { lineLevel, tileStep } from '../../../editing/beatGrid'
 import {
   Edge, MAX_PITCH, Snapping, Span, StretchClip, TrimClip, edgeAt, patternTrimClip, pitchOf, sampleTrimClip,
@@ -488,7 +489,19 @@ export class Renderer extends RendererBase {
   sequencer: SequencerState = { rows: [], patterns: [], folders: [] }
 
   // the clips picked with shift+click or a shift+drag box, by id
-  selectedIds: Set<number> = new Set()
+  // the selected clips. selecting any clears the time selection: there's
+  // one selection at a time
+  #selectedIds: Set<number> = new Set()
+  get selectedIds(): Set<number> {
+    return this.#selectedIds
+  }
+  set selectedIds(ids: Set<number>) {
+    this.#selectedIds = ids
+    if(ids.size) this.timeSelection = null
+  }
+  // the time selection (see timeSelection.ts), made with ⇧ and the arrow
+  // keys. making one clears the clip selection
+  timeSelection: TimeSelection | null = null
   // the box being dragged out with shift held, if any
   lasso: Lasso | null = null
   // a press with shift held that hasn't moved far enough to be a box yet:
@@ -668,14 +681,20 @@ export class Renderer extends RendererBase {
   // once, and the timeline scrolls to keep it in view. returns where it went
   // and the landmark it's on, or null if it didn't move. while the ruler's
   // being dragged, the drag wins
-  navigate = (move: Move): { beat: number, landmark: LandmarkName | null } | null => {
+  navigate = (move: Move, select = false): { beat: number, landmark: LandmarkName | null } | null => {
     const t = this.transport
     const playhead = this.playheadBeat()
     if(!t || playhead === null || this.seekDragging) return null
+    // ⇧ selects with the Select tool, and does nothing with the others
+    if(select && this.tool !== 'select') return null
+    // a plain move leaves the time selection, as a text cursor's does
+    if(!select) this.clearTimeSelection()
 
+    // a selection moves its edge. a new one starts at the playhead
+    const sel = select ? this.timeSelection ?? this.#newTimeSelection(playhead) : null
     const { enabled, beats } = this.snap
     const target = moveTarget(move, {
-      playhead,
+      playhead: sel ? sel.edgeBeat : playhead,
       length: this.beatsDisplayed,
       // with snap off, a step is one line of the grid at this zoom
       step: enabled && beats > 0 ? beats : this.#gridStep || 1,
@@ -684,14 +703,50 @@ export class Renderer extends RendererBase {
     })
     if(!target) return null
 
-    this.seekBeat = target.beat
+    if(sel) this.#setTimeSelection(withEdgeBeat(sel, target.beat))
+    // the playhead goes there, but while playing, a selection's edge moves
+    // on its own and playback carries on
+    if(!sel || !this.playing) this.#seekFromKeys(target.beat)
+    this.revealBeat(target.beat)
+    return target
+  }
+
+  // the playhead moved by the keys: shown there at once, and kept there
+  // until every key's seek has reached the engine
+  #seekFromKeys = (beat: number) => {
+    this.seekBeat = beat
     this.#keySeeks += 1
-    Promise.resolve(this.onSeek?.(target.beat)).finally(() => {
+    Promise.resolve(this.onSeek?.(beat)).finally(() => {
       this.#keySeeks -= 1
       this.#holdSeekBeat()
     })
-    this.revealBeat(target.beat)
-    return target
+  }
+
+  // a time selection starting at the playhead, on the current track: on the
+  // snap grid while playing, as the playhead's between lines
+  #newTimeSelection = (playhead: number): TimeSelection =>
+    startAt(this.playing ? this.snapBeat(playhead) : playhead, this.shownTrack())
+
+  // a time selection made or changed by the keys: the clips leave the
+  // selection
+  #setTimeSelection = (sel: TimeSelection) => {
+    this.clearSelection()
+    this.timeSelection = sel
+    this.wake()
+  }
+
+  clearTimeSelection = () => {
+    if(!this.timeSelection) return
+    this.timeSelection = null
+    this.wake()
+  }
+
+  // what ⇧L loops: the time selection's span, if it covers any time
+  selectedSpan = (): { start: number, end: number } | null => {
+    const sel = this.timeSelection
+    if(!sel || isEmptySpan(sel)) return null
+    const { start, end } = blockOf(sel)
+    return { start, end }
   }
 
   // scroll along the timeline, if need be, to bring `beat` into view
@@ -908,6 +963,13 @@ export class Renderer extends RendererBase {
   // once. the track just past the last counts (a clip landing there makes it)
   touchTrack = (track: number) => {
     if(!Number.isInteger(track) || track < 0 || track > this.trackCount) return
+    // the time selection's edge is on the current track: another track
+    // leaves it
+    if(this.timeSelection && track !== this.timeSelection.edgeTrack) this.clearTimeSelection()
+    this.#makeCurrent(track)
+  }
+
+  #makeCurrent = (track: number) => {
     this.setCurrentTrack(track)
     this.onCurrentTrack?.(track)
   }
@@ -916,11 +978,32 @@ export class Renderer extends RendererBase {
   shownTrack = (): number => Math.max(0, Math.min(this.currentTrack, this.trackCount - 1))
 
   // ↑ or ↓: the track above or below becomes the current one, stopping at
-  // the first and last, and scrolls into view
-  stepTrack = (dir: -1 | 1) => {
+  // the first and last, and scrolls into view. a time selection moves with
+  // it, whole. with ⇧ (and the Select tool), the selection grows over that
+  // track instead, or starts there from the playhead
+  stepTrack = (dir: -1 | 1, select = false) => {
     if(this.trackCount <= 0) return
-    const to = clamp(this.shownTrack() + dir, 0, this.trackCount - 1)
-    if(to !== this.currentTrack) this.touchTrack(to)
+    if(select && this.tool !== 'select') return
+
+    const sel = this.timeSelection
+    let to: number
+    if(select) {
+      const playhead = this.playheadBeat()
+      if(!sel && playhead === null) return
+      const grown = withEdgeTrack(sel ?? this.#newTimeSelection(playhead ?? 0), dir, this.trackCount)
+      this.#setTimeSelection(grown)
+      to = grown.edgeTrack
+    } else if(sel) {
+      // (against the first or last track, it stays)
+      const moved = shiftTracks(sel, dir, this.trackCount)
+      if(!moved) return
+      this.timeSelection = moved
+      to = moved.edgeTrack
+    } else {
+      to = clamp(this.shownTrack() + dir, 0, this.trackCount - 1)
+    }
+
+    if(to !== this.currentTrack) this.#makeCurrent(to)
     this.revealTrack(to)
   }
 
@@ -1993,6 +2076,28 @@ export class Renderer extends RendererBase {
     })
   }
 
+  // the time selection over its lanes: a wash, with a line at each end
+  // (one line, while it covers no time). called inside the zoom/pan
+  // transform, with the x of a beat
+  #drawTimeSelection = (p: P5CanvasInstance<CanvasProps>, beatX: (beat: number) => number) => {
+    const sel = this.timeSelection
+    if(!sel) return
+    const { start, end, top, bottom } = blockOf(sel)
+    const y = trackTop(top)
+    const h = trackTop(bottom) + staticDefaults.trackHeight - y
+
+    p.push()
+    p.noStroke()
+    paint.fill(p, 'timeSelection')
+    p.rect(beatX(start), y, beatX(end) - beatX(start), h)
+    // 1px whatever the zoom
+    paint.stroke(p, 'timeSelectionEdge')
+    p.strokeWeight(1 / this.currentScale)
+    p.line(beatX(start), y, beatX(start), y + h)
+    p.line(beatX(end), y, beatX(end), y + h)
+    p.pop()
+  }
+
   // a thin bar down the left edge of the current track's lane, pinned there
   // as the timeline scrolls. under the ruler, which covers it as the lane
   // scrolls up
@@ -2176,7 +2281,11 @@ export class Renderer extends RendererBase {
           // where a track is only made once something lands
           // (from the event: p5 hasn't caught its own mouse position up)
           const lane = this.trackAt(this.screenToPlaylistY(ev.offsetY))
-          if(lane < this.trackCount) this.touchTrack(lane)
+          if(lane < this.trackCount) {
+            // and leaves the time selection, as a click in text does
+            this.clearTimeSelection()
+            this.touchTrack(lane)
+          }
 
           // a lane's lip is its own control: the press doesn't reach the
           // clips or the lane under it. its LED mutes the track, or with
@@ -2394,6 +2503,7 @@ export class Renderer extends RendererBase {
         this.#shiftPress = null
         this.lasso = null
         this.clearSelection()
+        this.clearTimeSelection()
         this.wake()
       }
 
@@ -2740,6 +2850,7 @@ export class Renderer extends RendererBase {
       })
       // outside a loop region, a little dimmed while it loops
       this.#drawOutsideLoop(p, beatX)
+      this.#drawTimeSelection(p, beatX)
 
       // what's being recorded, over the clips it records over
       this.#drawLiveTake(p)

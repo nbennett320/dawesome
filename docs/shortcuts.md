@@ -92,6 +92,8 @@ These work while the **Playlist** is the selected tab in the focused pane.
 | **⌘→** | **Ctrl+→** | Playhead to the loop's end; again for the end of the last clip |
 | **Home** / **End** | **Home** / **End** | Playhead to the song's start / the end of the last clip (**Fn+←** / **Fn+→** on a Mac laptop) |
 | **↑** / **↓** | **↑** / **↓** | Make the track above or below the [current track](./manual/playlist.md#_6-1-2-the-current-track) |
+| **Shift** + any of the above | **Shift** + any of the above | Select tool: [select time](./manual/playlist.md#_6-1-3-selecting-time) the same way; **Shift+↑** / **Shift+↓** stretch the selection over more tracks |
+| **Shift+L** | **Shift+L** | Make the time selection's span the loop region |
 
 The playhead and track keys work with any tool, and the playlist scrolls to follow.
 A knob or fader you've clicked keeps the arrow keys. See

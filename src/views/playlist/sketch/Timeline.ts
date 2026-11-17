@@ -4,6 +4,10 @@ import { P5BoundingBox } from '../../../render/P5Component'
 import { paint, theme } from './theme'
 import { MIN_LABEL_GAP, gridSteps, rulerLabel, visibleBeats } from './grid'
 import { lineLevel } from '../../../editing/beatGrid'
+import { blockOf } from '../timeSelection'
+
+// how tall the time selection's bar in the ruler is, in pixels
+const SELECTION_MARK_PX = 3
 
 class Timeline extends PlaylistComponent {
   boundingBox = (): P5BoundingBox => {
@@ -42,6 +46,7 @@ class Timeline extends PlaylistComponent {
     p.scale(1 / this.currentScale, 1)
     // (under the numbers, so they stay readable)
     this.drawLoopBand(beatWidth)
+    this.drawSelectionMark(beatWidth)
     // (counted in steps, so a fine step doesn't drift)
     for(let n = Math.ceil(first / lineEvery); n * lineEvery < last; n++) {
       const i = n * lineEvery
@@ -82,6 +87,20 @@ class Timeline extends PlaylistComponent {
     p.noStroke()
     paint.fill(p, 'loopRegion', this.#loopAlpha())
     p.rect(region.start * beatWidth, 0, (region.end - region.start) * beatWidth, this.timelineHeight)
+  }
+
+  // the time selection's span, if there is one: a thin bar along the
+  // ruler's foot (a line, while it covers no time). called unscaled, with a
+  // beat's width in pixels
+  drawSelectionMark(beatWidth: number) {
+    const { p } = this
+    const sel = (this.renderer as Renderer).timeSelection
+    if(!sel) return
+    const { start, end } = blockOf(sel)
+
+    p.noStroke()
+    paint.fill(p, 'timeSelectionEdge')
+    p.rect(start * beatWidth, this.timelineHeight - SELECTION_MARK_PX, Math.max((end - start) * beatWidth, 1), SELECTION_MARK_PX)
   }
 
   // where the playlist goes round, while it loops: a small flag at the

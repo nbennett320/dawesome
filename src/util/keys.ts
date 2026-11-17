@@ -43,6 +43,12 @@ export const isJoinKey = (
 ): boolean =>
   ev.key.toLowerCase() === 'j' && ev.shiftKey && !ev.metaKey && !ev.ctrlKey && !ev.altKey
 
+// Shift+L (loop the time selection), with no other modifier
+export const isLoopSelectionKey = (
+  ev: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'metaKey' | 'ctrlKey' | 'altKey'>,
+): boolean =>
+  ev.key.toLowerCase() === 'l' && ev.shiftKey && !ev.metaKey && !ev.ctrlKey && !ev.altKey
+
 // Space with no modifier: the transport's key (⌘ and ⌃ Space belong to the
 // system)
 export const isTransportKey = (

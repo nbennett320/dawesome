@@ -1,4 +1,4 @@
-import { Renderer, trackTop } from './index'
+import { Renderer, staticDefaults, trackTop } from './index'
 import { paint } from './theme'
 import { applyTheme } from '../../../theme/apply'
 import { slateLightTheme } from '../../../theme/fixture'
@@ -162,5 +162,54 @@ describe('the current track', () => {
   it('shows the last track while one past it is being made', () => {
     // (4 tracks: one landing on the fifth makes it)
     expect(draw(4).lane).toEqual([{ y: trackTop(3), w: 960 }])
+  })
+})
+
+describe('the time selection', () => {
+  beforeEach(() => applyTheme(slateLightTheme))
+
+  // a beat 10px wide, as in the loop region's tests
+  const draw = (sel: Renderer['timeSelection']) => {
+    const renderer = new Renderer()
+    renderer.width = 960
+    renderer.height = 400
+    const { p, rects, lines } = recordingP5(960, 400)
+    renderer.sketch(p)
+    p.setup()
+    renderer.transport = stopped
+    renderer.beatsDisplayed = 384
+    renderer.currentScale = 4
+    renderer.timeSelection = sel
+    p.draw()
+    const beatX = 960 / 384
+    return {
+      // the wash over the lanes, in beats and track tops
+      wash: rects.filter(r => r.color === paint.rgba('timeSelection').join())
+        .map(r => ({ from: r.x / beatX, to: (r.x + r.w) / beatX, y: r.y, h: r.h })),
+      edges: lines.filter(l => l.color === paint.rgba('timeSelectionEdge').join()).map(l => l.x / beatX),
+      // the bar in the ruler (drawn unzoomed, a beat 10px)
+      // (above the lanes: the current track's bar is in the accent too)
+      mark: rects.filter(r => r.color === paint.rgba('timeSelectionEdge').join() && r.y < trackTop(0))
+        .map(r => [r.x / 10, (r.x + r.w) / 10]),
+    }
+  }
+
+  it('washes its lanes between its ends, and marks its span in the ruler', () => {
+    const { wash, edges, mark } = draw({ anchorBeat: 12, edgeBeat: 8, anchorTrack: 1, edgeTrack: 2 })
+    // from the top of track 1 to the bottom of track 2
+    expect(wash).toEqual([{ from: 8, to: 12, y: trackTop(1), h: trackTop(2) + staticDefaults.trackHeight - trackTop(1) }])
+    expect(edges).toEqual([8, 12])
+    expect(mark).toEqual([[8, 12]])
+  })
+
+  it('is a line while it covers no time', () => {
+    const { edges, mark } = draw({ anchorBeat: 8, edgeBeat: 8, anchorTrack: 0, edgeTrack: 1 })
+    expect(edges).toEqual([8, 8])
+    expect(mark).toEqual([[8, 8.1]])
+  })
+
+  it('draws nothing without one', () => {
+    const { wash, edges, mark } = draw(null)
+    expect([wash, edges, mark]).toEqual([[], [], []])
   })
 })

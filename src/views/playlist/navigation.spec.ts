@@ -21,8 +21,9 @@ describe('moveForKey', () => {
     expect(moveForKey(key('ArrowLeft', { ctrlKey: true }), true)).toBeNull()
   })
 
-  it('leaves Shift (a selection), other keys and other mixes alone', () => {
-    expect(moveForKey(key('ArrowLeft', { shiftKey: true }), true)).toBeNull()
+  it('reads them the same with Shift held (a selection), and leaves other keys and mixes alone', () => {
+    expect(moveForKey(key('ArrowLeft', { shiftKey: true }), true)).toEqual({ kind: 'step', dir: -1 })
+    expect(moveForKey(key('ArrowRight', { shiftKey: true, metaKey: true }), true)).toEqual({ kind: 'landmark', dir: 1 })
     expect(moveForKey(key('ArrowUp'), true)).toBeNull()
     expect(moveForKey(key('ArrowLeft', { metaKey: true, altKey: true }), true)).toBeNull()
     expect(moveForKey(key('Home', { metaKey: true }), true)).toBeNull()
@@ -140,12 +141,12 @@ describe('moveTarget', () => {
 })
 
 describe('trackStepForKey', () => {
-  it('is ↑ or ↓ with nothing held', () => {
+  it('is ↑ or ↓ with nothing but Shift held', () => {
     expect(trackStepForKey(key('ArrowUp'))).toBe(-1)
     expect(trackStepForKey(key('ArrowDown'))).toBe(1)
     expect(trackStepForKey(key('ArrowLeft'))).toBeNull()
-    // ⇧ selects; ⌘, ⌃ and ⌥ aren't track moves
-    expect(trackStepForKey(key('ArrowUp', { shiftKey: true }))).toBeNull()
+    // (⇧ selects); ⌘, ⌃ and ⌥ aren't track moves
+    expect(trackStepForKey(key('ArrowUp', { shiftKey: true }))).toBe(-1)
     expect(trackStepForKey(key('ArrowUp', { metaKey: true }))).toBeNull()
     expect(trackStepForKey(key('ArrowDown', { altKey: true }))).toBeNull()
   })

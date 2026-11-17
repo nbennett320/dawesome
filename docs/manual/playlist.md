@@ -84,6 +84,30 @@ A track becomes current when you:
 need be. They work with any tool, and you can hold them down. A new or
 opened project starts with the top track current.
 
+### 6-1-3 Selecting time
+
+With the **Select tool**, hold **Shift** with any of the keys above to
+select time, the way you select text: **Shift+→** selects a snap step to the
+right, **Shift+⌘→** selects to the loop's end, and so on. The selection
+starts at the playhead on the current track. It shows as a tinted block
+over its lanes, with a bar along the bottom of the ruler.
+
+- **Shift+↑** / **Shift+↓** stretch the selection over the track above or
+  below, so it covers the same span on several tracks.
+- **↑** / **↓** move the whole selection a track up or down, keeping its
+  span and how many tracks it covers.
+- **Shift+L** makes the selection's span the [loop region](#_6-7-2-loop-region),
+  and turns looping on. The selection stays.
+- **←**, **→** or another move without Shift, **Esc**, or clicking a lane
+  clears it. So does selecting clips: there's either a time selection or a
+  clip selection, never both.
+
+While stopped, the playhead follows the selection's moving end. While
+playing, the moving end goes on its own, from where the playhead was, and
+playback carries on undisturbed.
+
+With the Draw or Cut tool, Shift and the arrow keys do nothing.
+
 ## 6-2 Tools
 
 The tray above the ruler has three mouse tools. Only one is active at a

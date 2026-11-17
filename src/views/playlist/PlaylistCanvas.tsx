@@ -54,7 +54,9 @@ import {
 } from '../../state/slices/recordingSlice'
 import { defaultInput } from '../../types/audio'
 import { View } from '../../types/ui'
-import { isDeleteKey, isExplodeKey, isJoinKey, isSliderTarget, isTextTarget, isTypingTarget } from '../../util/keys'
+import {
+  isDeleteKey, isExplodeKey, isJoinKey, isLoopSelectionKey, isSliderTarget, isTextTarget, isTypingTarget,
+} from '../../util/keys'
 import { moveForKey, trackStepForKey } from './navigation'
 import { editShortcutHandler } from '../../util/shortcuts'
 import {
@@ -373,6 +375,8 @@ const PlaylistCanvas = () => {
 
       if(opened) {
         playlistRenderer.resetView()
+        // (its tracks may not be there in this one)
+        playlistRenderer.clearTimeSelection()
         // and its time signature, which the grid counts bars in
         playlistRenderer.syncTransport()
       }
@@ -448,9 +452,10 @@ const PlaylistCanvas = () => {
 
   // the arrow keys, Home and End move the playhead (see navigation.ts), and
   // ↑/↓ the current track, in any tool, while the playlist is the focused
-  // pane's tab. a text field, or a knob or fader with the keyboard, keeps
-  // them. held, a step, a bar or a track repeats, but a jump to a landmark
-  // doesn't run on to the next one
+  // pane's tab. with ⇧ and the Select tool, they make a time selection. a
+  // text field, or a knob or fader with the keyboard, keeps them. held, a
+  // step, a bar or a track repeats, but a jump to a landmark doesn't run on
+  // to the next one
   React.useEffect(() => {
     const onKeyDown = (ev: KeyboardEvent) => {
       const move = moveForKey(ev)
@@ -464,13 +469,29 @@ const PlaylistCanvas = () => {
       if(ev.repeat && move && move.kind !== 'step' && move.kind !== 'bar') return
       // not in the middle of a drag, which follows the mouse on the screen
       if(playlistRenderer.isDragging()) return
-      if(move) playlistRenderer.navigate(move)
-      if(track) playlistRenderer.stepTrack(track)
+      // with ⇧, they select (see timeSelection.ts)
+      if(move) playlistRenderer.navigate(move, ev.shiftKey)
+      if(track) playlistRenderer.stepTrack(track, ev.shiftKey)
+    }
+
+    // Shift+L makes the time selection's span the loop region (which turns
+    // looping on). not while recording, when the loop stays as it is
+    const onLoopKey = (ev: KeyboardEvent) => {
+      if(!isLoopSelectionKey(ev) || ev.repeat || isTypingTarget(ev.target)) return
+      if(selectFocusedView(store.getState()) !== View.Playlist) return
+      const span = playlistRenderer.selectedSpan()
+      if(!span || selectRecording(store.getState())) return
+      ev.preventDefault()
+      dispatch(setLoopRegion(span.start, span.end))
     }
 
     window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [store])
+    window.addEventListener('keydown', onLoopKey)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keydown', onLoopKey)
+    }
+  }, [store, dispatch])
 
   // the clip clipboard's commands, from the keys, the system's copy, cut and
   // paste events, and the Edit menu. a shortcut can arrive by more than one

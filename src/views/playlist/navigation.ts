@@ -19,10 +19,8 @@ export type Move =
 type KeyPress = Pick<KeyboardEvent, 'key' | 'shiftKey' | 'metaKey' | 'ctrlKey' | 'altKey'>
 
 // the move a key press asks for, if any. ⌘ is ⌃ on other systems, and ⌥ is
-// Alt. with Shift held it's a selection, not a move
+// Alt. Shift is left to the caller: with it held, the move selects
 export const moveForKey = (ev: KeyPress, mac: boolean = isMac()): Move | null => {
-  if(ev.shiftKey) return null
-
   const dir = ({ ArrowLeft: -1, ArrowRight: 1 } as Record<string, Direction | undefined>)[ev.key]
   if(dir) {
     if(commandHeld(ev, mac)) return { kind: 'landmark', dir }
@@ -36,9 +34,10 @@ export const moveForKey = (ev: KeyPress, mac: boolean = isMac()): Move | null =>
   return null
 }
 
-// ↑ or ↓, with nothing held: the track above (-1) or below (1)
+// ↑ or ↓, with nothing but Shift held: the track above (-1) or below (1).
+// Shift is left to the caller: with it held, the move selects
 export const trackStepForKey = (ev: KeyPress): Direction | null => {
-  if(ev.shiftKey || ev.metaKey || ev.ctrlKey || ev.altKey) return null
+  if(ev.metaKey || ev.ctrlKey || ev.altKey) return null
   return ({ ArrowUp: -1, ArrowDown: 1 } as Record<string, Direction | undefined>)[ev.key] ?? null
 }
 

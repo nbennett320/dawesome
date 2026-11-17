@@ -49,6 +49,8 @@
     "loopOutside": "alpha(surface, 0.25)",
     "currentLane": "alpha(accent, 0.06)",
     "currentTrackEdge": "accent",
+    "timeSelection": "alpha(accent, 0.16)",
+    "timeSelectionEdge": "accent",
     "clip": "raised",
     "clipBorder": "lineStrong",
     "clipLabel": "panel",
