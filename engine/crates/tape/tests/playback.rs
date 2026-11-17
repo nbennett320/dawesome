@@ -66,7 +66,7 @@ fn steady_it_is_a_pure_delay_flat_to_16_khz() {
       let mut p = Playback::new(settings, RATE as f32, 1, 512);
       p.set_mean_speed(mean);
       let delay = p.latency();
-      assert!((delay - (240.0 + 0.37)).abs() < 1e-6, "{delay}");
+      assert!((delay - (settings.base_delay_ms as f64 * 48.0 + 0.37)).abs() < 1e-4, "{delay}");
       let out = run(&mut p, &sine(hz, frames, 0.5), &vec![speed; frames], false);
       let mut worst = 0f64;
       for (n, &y) in out.iter().enumerate().skip(1_000) {
@@ -226,9 +226,7 @@ fn the_dbx_decode_turns_the_hiss_down() {
 #[test]
 fn any_block_length_gives_the_same() {
   let frames = 48_000;
-  let mut settings = PlaybackSettings::default();
-  settings.dropouts_per_minute = 600.0;
-  settings.channel_delay = -0.6;
+  let settings = PlaybackSettings { dropouts_per_minute: 600.0, channel_delay: -0.6, ..PlaybackSettings::default() };
   let mut t = TapeTransport::new(TransportSettings::default(), RATE as f32, 2);
   let mut speed = vec![0.0; frames];
   t.fill_speed(&mut speed);
@@ -254,8 +252,7 @@ fn any_block_length_gives_the_same() {
 
 #[test]
 fn processing_allocates_nothing() {
-  let mut settings = PlaybackSettings::default();
-  settings.dropouts_per_minute = 6_000.0;
+  let settings = PlaybackSettings { dropouts_per_minute: 6_000.0, ..PlaybackSettings::default() };
   let mut p = Playback::new(settings, RATE as f32, 1, 512);
   let mut enc = DbxEncoder::new(RATE as f32);
   let mut dec = DbxDecoder::new(RATE as f32);

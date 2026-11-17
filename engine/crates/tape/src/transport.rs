@@ -325,6 +325,7 @@ impl TapeTransport {
   // shapes change
   pub fn set_settings(&mut self, settings: TransportSettings) {
     let old = self.settings;
+    let old_drag = self.shapes.drag;
     self.settings = settings;
     let reshaped = old.drift_hz != settings.drift_hz
       || old.friction_hz != settings.friction_hz
@@ -341,10 +342,9 @@ impl TapeTransport {
     self.retune(reshaped);
     let st = &mut self.state;
     st.position = st.position.min(settings.side_seconds.max(1.0) as f64);
-    if st.motor_on && st.omega > 0.0 {
-      // the servo's integral holds the drag; the drag may have changed
-      st.integral = self.shapes.drag;
-    }
+    // the servo's integral holds the drag (and the load's slow part): move
+    // it by as much as the drag changed, so the speed doesn't jump
+    st.integral += self.shapes.drag - old_drag;
   }
 
   pub fn settings(&self) -> &TransportSettings {
@@ -382,7 +382,9 @@ impl TapeTransport {
     self.state.position
   }
 
-  // back to how new() left it: the same seed, so the same wobble again
+  // back to how new() left it (running, at speed): the same seed, so the
+  // same wobble again. it runs WARM_UP_SECONDS of the slow parts, about
+  // half a millisecond
   pub fn reset(&mut self) {
     self.state = State::new(self.seed);
     let st = &mut self.state;
@@ -990,15 +992,28 @@ mod tests {
 
   #[test]
   fn at_amount_0_it_holds_its_speed() {
-    let mut s = TransportSettings::default();
-    s.speed_error = 0.003;
-    s.stick_slips_per_minute = 60.0;
+    let s = TransportSettings { speed_error: 0.003, stick_slips_per_minute: 60.0, ..TransportSettings::default() };
     let mut t = TapeTransport::new(s, 48_000.0, 9);
     t.set_amount(0.0);
     t.reset();
     let mut v = vec![0.0; 48_000];
     t.fill_speed(&mut v);
     assert!(v.iter().all(|&x| x == 1.003f32), "{:?}", v.iter().find(|&&x| x != 1.003f32));
+  }
+
+  #[test]
+  fn new_settings_dont_jolt_the_speed() {
+    // a longer coast changes the drag the servo holds: against a twin left
+    // alone, the speed mustn't move
+    let (mut t, mut twin) = (TapeTransport::new(TransportSettings::default(), 8_000.0, 2), TapeTransport::new(TransportSettings::default(), 8_000.0, 2));
+    let (mut v, mut w) = (vec![0.0; 8_000], vec![0.0; 8_000]);
+    t.fill_speed(&mut v);
+    twin.fill_speed(&mut w);
+    t.set_settings(TransportSettings { stop_seconds: 2.0, ..TransportSettings::default() });
+    t.fill_speed(&mut v);
+    twin.fill_speed(&mut w);
+    let worst = v.iter().zip(&w).map(|(a, b)| (a - b).abs()).fold(0.0, f32::max);
+    assert!(worst < 1e-6, "{worst}");
   }
 
   #[test]

@@ -8,11 +8,12 @@
 //
 // what each does, per sample:
 //
-//   encoder  x ─► pre-emphasis ─► × g ─► y        g = ref / rms(w(y))
+//   encoder  x ─► pre-emphasis ─► × g ─► y        g = ref / level(y)
 //   decoder  y ─► × 1/g ─► de-emphasis ─► x       the same g, from its input
 //
-// w() is the detector's weighting (it listens mostly to the highs, where
-// hiss is heard), rms() a smoothed rms. the encoder listens to its own
+// level() is the detector's: a smoothed rms of the weighted signal (it
+// listens mostly to the highs, where hiss is heard), or, on a sudden
+// onset, the sample itself (see INSTANT). the encoder listens to its own
 // output (feedback: in steady state its output's level in db is half its
 // input's, about ref) and the decoder to its input, so both detectors hear
 // the same signal, the tape's, and with nothing in between the decoder
@@ -31,6 +32,11 @@
 //   and the gain range (+30 db to -24 db)
 // - the real chip's topology isn't copied: this pair is the one that makes
 //   the two exact inverses, which the real one is designed to be too
+// - the instant level on onsets isn't the real one's: without it, the
+//   first samples after silence went onto the tape 30 db up (+20 to +33
+//   dbfs for a 0 to +12 vu hit), the record side clipped them, and the
+//   decoder, having heard less, came back 4 to 20 db low for 50 ms and
+//   more
 //
 // nothing allocates
 
@@ -45,6 +51,10 @@ const WEIGHT_HZ: (f32, f32) = (1_500.0, 6_000.0);
 // how fast the detector rises and falls (one-pole on the power)
 const ATTACK_SECONDS: f32 = 0.003;
 const RELEASE_SECONDS: f32 = 0.030;
+// on an onset, the level follows the sample itself once it's this many
+// times past the smoothed level (1 / 0.25: 12 db, past a sine's crest, so
+// steady sounds never reach it): an instant 2:1 until the rms catches up
+const INSTANT: f32 = 0.25;
 // the gain range: most boost (quiet passages) and most cut (loud)
 const MOST_BOOST_DB: f32 = 30.0;
 const MOST_CUT_DB: f32 = 24.0;
@@ -126,10 +136,32 @@ impl Detector {
     self.power = self.least * self.least;
   }
 
-  // the level the gain follows, now (before this sample)
+  // the smoothed level, now (before this sample), in the gain's range
   #[inline]
   fn rms(&self) -> f32 {
     self.power.sqrt().clamp(self.least, self.most)
+  }
+
+  // the level the gain follows for a sample of size `y` (the decoder's
+  // side: it has the sample)
+  #[inline]
+  fn level(&self, y: f32) -> f32 {
+    self.rms().max((INSTANT * y.abs()).min(self.most))
+  }
+
+  // the size of the sample y with y * level(y) = t (the encoder's side:
+  // it has only t, its input's size times ref). y * level(y) only grows
+  // with y, so there's one: on the smoothed level, on the instant one, or
+  // at the most cut
+  #[inline]
+  fn solve(&self, t: f32) -> f32 {
+    let r = self.rms();
+    let y = t / r;
+    if INSTANT * y <= r {
+      return y;
+    }
+    let y = (t / INSTANT).sqrt();
+    if INSTANT * y <= self.most { y } else { t / self.most }
   }
 
   // hear the tape's signal
@@ -169,7 +201,7 @@ impl DbxEncoder {
   #[inline]
   pub fn step(&mut self, x: f32) -> f32 {
     let x = self.emphasis.run(&mut self.state, x);
-    let y = x * (VU0 / self.detector.rms());
+    let y = self.detector.solve(x.abs() * VU0).copysign(x);
     self.detector.listen(y);
     y
   }
@@ -205,7 +237,7 @@ impl DbxDecoder {
 
   #[inline]
   pub fn step(&mut self, y: f32) -> f32 {
-    let x = y * (self.detector.rms() / VU0);
+    let x = y * (self.detector.level(y) / VU0);
     self.detector.listen(y);
     self.de_emphasis.run(&mut self.state, x)
   }
@@ -318,6 +350,29 @@ mod tests {
     let (median, worst) = (off[off.len() / 2], off[off.len() - 1]);
     println!("through a dull tape, 50 ms levels are off by {median:.2} db (median), {worst:.2} db at worst");
     assert!(median < 0.5 && worst < 6.0, "{median} {worst}");
+  }
+
+  // a hit after silence: the encoder mustn't send a spike onto the tape,
+  // and with the tape clipping at full scale between, the decode comes
+  // back close
+  #[test]
+  fn a_hit_after_silence_stays_on_the_tape() {
+    for (level, phase) in [(0.0, 0.0), (0.0, 1.570_796_4), (12.0, 0.0), (12.0, 1.570_796_4)] {
+      let n = 24_000;
+      let x: Vec<f32> = (0..2 * n).map(|i| if i < n { 0.0 } else { db(level) * (TAU * 1_000.0 * (i - n) as f32 / RATE + phase).sin() }).collect();
+      let (mut enc, mut dec) = (DbxEncoder::new(RATE), DbxDecoder::new(RATE));
+      let mut y = vec![0.0; 2 * n];
+      enc.process(&x, &mut y);
+      let peak = y.iter().fold(0f32, |m, v| m.max(v.abs()));
+      y.iter_mut().for_each(|v| *v = v.clamp(-1.0, 1.0));
+      let mut back = vec![0.0; 2 * n];
+      dec.process(&y, &mut back);
+      // 5 ms at a time over the first 50
+      let w = (0.005 * RATE) as usize;
+      let off = (0..10).map(|k| level_db(&back[n + k * w..n + (k + 1) * w]) - level_db(&x[n + k * w..n + (k + 1) * w])).fold(0f32, |m, v| m.max(v.abs()));
+      println!("{level:+} vu hit at phase {phase:.2}: the tape's peak {:+.1} dbfs, decoded within {off:.2} db over the first 50 ms", 20.0 * peak.log10());
+      assert!(peak < 1.0 && off < 0.5, "{peak} {off}");
+    }
   }
 
   // a level error on the tape comes back doubled

@@ -73,11 +73,13 @@ pub struct PlaybackSettings {
   pub dropout_dulling: f32,
 }
 
-// a fresh cassette: the fake deck's measured hiss, no dropouts
+// a fresh cassette: the fake deck's measured hiss, no dropouts. 8 ms of
+// base delay: a fresh tape's wobble never needs easing off at 100 % (at
+// 5 ms it's eased 3 % of the time; examples/playback_bench.rs)
 impl Default for PlaybackSettings {
   fn default() -> PlaybackSettings {
     PlaybackSettings {
-      base_delay_ms: 5.0,
+      base_delay_ms: 8.0,
       channel_delay: 0.0,
       hiss_db: -48.6,
       hiss_tilt: 1.0,

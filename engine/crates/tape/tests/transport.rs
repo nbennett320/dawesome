@@ -287,9 +287,7 @@ fn the_speed_stays_positive_and_near_one() {
 fn filling_the_speed_allocates_nothing() {
   let mut t = TapeTransport::new(profile(), 48_000.0, 1);
   let mut out = vec![0f32; 4096];
-  let mut other = TransportSettings::default();
-  other.stretch_hz = 50.0;
-  other.stick_slips_per_minute = 600.0;
+  let other = TransportSettings { stretch_hz: 50.0, stick_slips_per_minute: 600.0, ..TransportSettings::default() };
   let before = counting::made();
   for n in [4096, 1, 7, 64, 512, 4096] {
     t.fill_speed(&mut out[..n]);

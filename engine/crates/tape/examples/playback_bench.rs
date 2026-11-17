@@ -15,8 +15,8 @@ const BLOCK: usize = 256;
 
 // the fake deck's ancient reel, as from_measured would get it (wow from
 // its 0.45 hz, 6e-3 sine; flutter and drift as set), sticky
-fn ancient() -> TransportSettings {
-  let mut s = TransportSettings::from_measured(-0.012, 3.0e-3, 4.2e-3, 1.2e-3, &[(5.1, 1.5e-3), (13.0, 8.0e-4)]);
+fn ancient(drift: f32, wow: f32) -> TransportSettings {
+  let mut s = TransportSettings::from_measured(-0.012, drift, wow, 1.2e-3, &[(5.1, 1.5e-3), (13.0, 8.0e-4)]);
   s.scrape = 6.0e-4;
   s.stick_slips_per_minute = 8.0;
   s
@@ -41,9 +41,18 @@ fn main() {
   }
   println!("transport reset (5 s warm-up): {:6.0} us", start.elapsed().as_secs_f64() * 1e6 / 10.0);
   let start = Instant::now();
-  let fresh = TapeTransport::new(TransportSettings::default(), RATE, 2);
+  let _fresh = TapeTransport::new(TransportSettings::default(), RATE, 2);
   println!("transport new: {:6.0} us", start.elapsed().as_secs_f64() * 1e6);
-  drop(fresh);
+  // new settings: the strengths only (an age blend), and a new shape too
+  let mut other = TransportSettings::default();
+  other.friction *= 1.5;
+  let start = Instant::now();
+  t.set_settings(other);
+  println!("transport set_settings, strengths: {:6.1} us", start.elapsed().as_secs_f64() * 1e6);
+  other.stretch_hz = 40.0;
+  let start = Instant::now();
+  t.set_settings(other);
+  println!("transport set_settings, a new shape: {:6.1} us", start.elapsed().as_secs_f64() * 1e6);
 
   // the playback, worn and decoded: everything on
   let mut enc = DbxEncoder::new(RATE);
@@ -54,11 +63,17 @@ fn main() {
   let mut enc2 = DbxEncoder::new(RATE);
   enc2.process(&input, &mut printed);
   let enc_ns = start.elapsed().as_secs_f64() * 1e9 / frames as f64;
-  let mut settings = PlaybackSettings::default();
-  settings.dropouts_per_minute = 20.0;
+  let settings = PlaybackSettings { dropouts_per_minute: 20.0, ..PlaybackSettings::default() };
   let start = Instant::now();
   let mut p = Playback::new(settings, RATE, 1, BLOCK);
   println!("playback new: {:6.0} us (the first makes the shared sinc table)", start.elapsed().as_secs_f64() * 1e6);
+  let start = Instant::now();
+  p.set_settings(PlaybackSettings { hiss_db: -40.0, ..settings });
+  println!("playback set_settings, levels: {:6.1} us", start.elapsed().as_secs_f64() * 1e6);
+  let start = Instant::now();
+  p.set_settings(PlaybackSettings { hiss_tilt: 0.5, ..settings });
+  println!("playback set_settings, hiss colour: {:6.1} us", start.elapsed().as_secs_f64() * 1e6);
+  p.set_settings(settings);
   let mut out = vec![0f32; frames];
   for dbx in [false, true] {
     p.reset();
@@ -77,16 +92,20 @@ fn main() {
   // room: ten minutes of each tape at each base delay, the share of frames
   // eased off near the end of the read point's room
   let ten = 48_000 * 600;
-  for (name, transport) in [("fresh (default)", TransportSettings::default()), ("ancient-like", ancient())] {
+  let tapes = [
+    ("fresh (default)", TransportSettings::default()),
+    ("ancient-like", ancient(3.0e-3, 4.2e-3)),
+    ("ancient, no drift", ancient(0.0, 4.2e-3)),
+    ("ancient, no wow", ancient(3.0e-3, 0.0)),
+  ];
+  for (name, transport) in tapes {
     for amount in [1.0, 2.0] {
-      let mut line = format!("{name:>16}, wow & flutter {:3.0} %:", amount * 100.0);
+      let mut line = format!("{name:>17}, wow & flutter {:3.0} %:", amount * 100.0);
       for base in [3.0, 5.0, 8.0, 12.0, 20.0] {
         let mut t = TapeTransport::new(transport, RATE, 7);
         t.set_amount(amount);
         t.reset();
-        let mut s = PlaybackSettings::default();
-        s.base_delay_ms = base;
-        s.hiss_db = -200.0;
+        let s = PlaybackSettings { base_delay_ms: base, hiss_db: -200.0, ..PlaybackSettings::default() };
         let mut p = Playback::new(s, RATE, 7, 4096);
         p.set_mean_speed(t.mean_speed());
         let (mut v, mut x, mut o) = (vec![0f32; 4096], vec![0f32; 4096], vec![0f32; 4096]);
