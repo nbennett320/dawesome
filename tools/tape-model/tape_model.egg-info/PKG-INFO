@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: tape-model
+Version: 0.1.0
+Summary: test signals, measurement and training for dawesome's tape effect
+Requires-Python: >=3.11
+Requires-Dist: numpy>=2
+Requires-Dist: scipy>=1.13
+Requires-Dist: soundfile>=0.12
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"
+Provides-Extra: train
+Requires-Dist: torch>=2.4; extra == "train"

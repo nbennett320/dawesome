@@ -1,0 +1,2 @@
+[console_scripts]
+tape-model = tape_model.cli:main
