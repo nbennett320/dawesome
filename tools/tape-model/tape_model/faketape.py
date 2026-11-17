@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass, replace
 import numpy as np
 from scipy import signal
 
-from .dsp import RATE, apply, bandpass, biquad, from_db, pink, read_at
+from .dsp import RATE, apply, bandpass, biquad, from_db, pink, sinc_read
 from .testfile import REF_DBFS
 
 
@@ -39,6 +39,9 @@ class Deck:
   crosstalk_db: float = -42.0
   # one track on the tape, played to both sides
   mono: bool = False
+  # the right channel's head gap sits this many frames behind the left's
+  # (azimuth): the tracks reach the heads a hair apart
+  channel_delay: float = 0.0
   # ghost echoes from the layers either side on the reel
   print_through_db: float = -200.0
   print_through_s: float = 1.6
@@ -171,15 +174,18 @@ def speed(frames, deck, rng, rate=RATE):
   return v
 
 
-# dips in level: where the oxide is gone or the tape lifts off the head
-def dropouts(frames, deck, rng, rate=RATE):
+# dips in level: where the oxide is gone or the tape lifts off the head.
+# each one is noted in `events` as (first frame, frames, depth in db)
+def dropouts(frames, deck, rng, rate=RATE, events=None):
   gain = np.ones(frames)
   count = rng.poisson(deck.dropouts_per_minute * frames / rate / 60.0)
   for _ in range(count):
     length = int(rng.uniform(*deck.dropout_seconds) * rate)
     at = rng.integers(0, max(1, frames - length))
-    depth = 1.0 - from_db(-rng.uniform(*deck.dropout_depth_db))
-    gain[at:at + length] -= depth * np.hanning(length)
+    depth_db = rng.uniform(*deck.dropout_depth_db)
+    gain[at:at + length] -= (1.0 - from_db(-depth_db)) * np.hanning(length)
+    if events is not None:
+      events.append((int(at), length, float(depth_db)))
   return gain
 
 
@@ -200,6 +206,8 @@ def wear(y, deck, rng, rate=RATE):
 
 # one pass of `audio` through the fake deck: what comes back, and the truth.
 # truth["pos"][k] is where in `audio` the output's frame offset + k came from
+# (on the left channel; the right reads channel_delay frames earlier).
+# truth["dropouts"] lists them as (output frame, frames, depth in db)
 def run(audio, deck=None, rate=RATE):
   deck = deck or Deck()
   rng = np.random.default_rng(deck.seed)
@@ -209,8 +217,12 @@ def run(audio, deck=None, rate=RATE):
   v = speed(frames, deck, rng, rate)
   pos = np.concatenate([[0.0], np.cumsum(v)[:-1]])
   pos = pos[pos < len(audio) - 1]
-  wobbled = read_at(played, pos)
-  wobbled *= dropouts(len(wobbled), deck, rng, rate)[:, None]
+  if deck.channel_delay and not deck.mono and played.shape[1] > 1:
+    wobbled = np.stack([sinc_read(played[:, 0], pos), sinc_read(played[:, 1], pos - deck.channel_delay)], axis=1)
+  else:
+    wobbled = sinc_read(played, pos)
+  events = []
+  wobbled *= dropouts(len(wobbled), deck, rng, rate, events)[:, None]
   wobbled = wear(wobbled, deck, rng, rate)
 
   offset = int(deck.start_offset_s * rate)
@@ -220,5 +232,6 @@ def run(audio, deck=None, rate=RATE):
   out += hiss * from_db(deck.hiss_dbfs)
   out *= from_db(deck.out_gain_db)
 
-  truth = {"deck": asdict(deck), "rate": rate, "offset": offset, "pos": pos}
+  drops = np.array([(at + offset, length, depth) for at, length, depth in events]).reshape(-1, 3)
+  truth = {"deck": asdict(deck), "rate": rate, "offset": offset, "pos": pos, "dropouts": drops}
   return np.clip(out, -1.0, 1.0), truth

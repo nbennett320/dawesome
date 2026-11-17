@@ -65,11 +65,21 @@ def test_the_pilot_is_off_in_the_preroll(built):
   assert np.max(np.abs(cut(audio, test_map.section("preroll")))) == 0.0
 
 
-def test_sweep_gaps_cover_the_pilot(built):
+def test_sweep_gaps_cover_the_pilot_and_harmonics(built):
   _, test_map = built
-  for gap, level in zip(test_map.pilot["gaps"], testfile.SWEEP_DBFS):
+  gaps = test_map.pilot["gaps"]
+  assert len(gaps) == len(testfile.SWEEP_DBFS) * testfile.PILOT_GAP_HARMONICS
+  for level in testfile.SWEEP_DBFS:
     sweep = test_map.section(f"sweep_{int(level)}")
-    assert sweep.start < gap[0] < gap[1] <= sweep.end
+    mine = [g for g in gaps if sweep.start <= g[0] < sweep.end]
+    assert len(mine) == testfile.PILOT_GAP_HARMONICS
+    for a, b in mine:
+      assert sweep.start < a < b <= sweep.end
+    # the fundamental's gap is where the sweep is between 13 and 17 khz
+    k = testfile.SWEEP_SECONDS / np.log(1000.0)
+    a, b = max(mine)
+    assert abs(a - (sweep.start + k * np.log(13_000 / 20))) < 1e-9
+    assert abs(b - (sweep.start + k * np.log(17_000 / 20))) < 1e-9
 
 
 def test_left_and_right_only_are_one_sided(built):

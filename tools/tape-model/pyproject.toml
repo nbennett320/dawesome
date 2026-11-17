@@ -13,3 +13,4 @@ tape-model = "tape_model.cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["slow: whole fake-deck passes, aligned and measured (minutes; skip with -m 'not slow')"]

@@ -3,7 +3,7 @@ from dataclasses import replace
 import numpy as np
 
 from tape_model import faketape
-from tape_model.dsp import RATE, from_db, read_at, rms, to_db
+from tape_model.dsp import RATE, from_db, read_at, rms, sinc_read, to_db
 from tape_model.testfile import REF_DBFS, tone
 
 # a deck that only moves time: no saturation, eq, noise or wobble
@@ -67,9 +67,45 @@ def test_the_truth_lines_the_output_up_with_the_input():
   out, truth = faketape.run(x, deck)
   k = truth["offset"]
   # undo the wobble with the truth: the input comes back
-  expected = read_at(x, truth["pos"])
+  expected = sinc_read(x, truth["pos"])
   n = len(truth["pos"])
   assert np.max(np.abs(out[k + 1000:k + n - 1000] - expected[1000:-1000])) < 2e-3
+
+
+def test_sinc_reads_whole_positions_exactly():
+  x = np.random.default_rng(0).standard_normal((1000, 2))
+  assert np.allclose(sinc_read(x, np.arange(1000.0)), x, atol=1e-12)
+
+
+def test_sinc_reading_keeps_the_highs_between_samples():
+  t = np.arange(RATE) / RATE
+  for hz in (10_000.0, 15_000.0, 20_000.0):
+    x = np.sin(2 * np.pi * hz * t)
+    pos = np.arange(2000, RATE - 2000) + 0.5
+    error = sinc_read(x, pos) - np.sin(2 * np.pi * hz * pos / RATE)
+    assert to_db(rms(error)) < -80.0
+
+
+def test_the_right_channel_can_lag():
+  x = sine(1000.0, 1.0)
+  out, truth = faketape.run(x, replace(STILL, channel_delay=0.7))
+  k = truth["offset"]
+  # right is left, 0.7 frames later
+  expected = sinc_read(out[k:k + RATE - 2000, 0], np.arange(RATE - 2000) - 0.7)
+  assert np.max(np.abs(out[k + 1000:k + RATE - 3000, 1] - expected[1000:-1000])) < 1e-6
+
+
+def test_dropouts_are_in_the_truth():
+  x = sine(1000.0, 30.0)
+  deck = replace(STILL, dropouts_per_minute=30.0, dropout_depth_db=(20.0, 20.0))
+  out, truth = faketape.run(x, deck)
+  drops = truth["dropouts"]
+  assert len(drops) > 5
+  for at, length, depth in drops:
+    mid = int(at + length // 2)
+    assert depth == 20.0
+    # the middle of a dropout is 20 db down on the sine around it
+    assert np.max(np.abs(out[mid - 24:mid + 24, 0])) < from_db(REF_DBFS - 15.0)
 
 
 def test_drive_saturates():

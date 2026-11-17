@@ -1,6 +1,12 @@
-# tape-model testfile OUT.wav          the test file, and OUT.map.json
-# tape-model fake IN.wav OUT.wav ...   a pass through the fake deck, and
-#                                      OUT.truth.npz
+# tape-model testfile OUT.wav             the test file, and OUT.map.json
+# tape-model fake IN.wav OUT.wav ...      a pass through the fake deck, and
+#                                         OUT.truth.npz
+# tape-model align TEST.wav REC.wav DIR   a recording lined up with the test
+#                                         file: DIR/aligned.wav, align.npz,
+#                                         align.json
+# tape-model measure TEST.wav REC.wav DIR [--reference DIR0]
+#                                         aligned, then measured: and
+#                                         DIR/measure.json
 
 import argparse
 import hashlib
@@ -11,7 +17,8 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-from . import faketape, testfile
+from . import align as aligner
+from . import faketape, measure, testfile
 
 
 def _sibling(path, suffix):
@@ -48,10 +55,84 @@ def make_fake(args):
     pos=truth["pos"],
     offset=truth["offset"],
     rate=truth["rate"],
+    dropouts=truth["dropouts"],
     deck=json.dumps(truth["deck"]),
   )
   print(f"{args.out}: {len(out) / rate:.1f} s, drive {deck.drive_db:+.1f} dB, {tape} tape")
   print(f"{truth_path}: the true wobble and offset")
+
+
+def _load_test(path):
+  path = Path(path)
+  map_path = _sibling(path, ".map.json")
+  if not map_path.exists():
+    raise SystemExit(f"no {map_path}: the test file's map goes next to it")
+  test_map = testfile.Map.from_json(json.loads(map_path.read_text()))
+  if test_map.sha256 and hashlib.sha256(path.read_bytes()).hexdigest() != test_map.sha256:
+    raise SystemExit(f"{path} isn't the file its map describes (sha256 differs)")
+  test, rate = sf.read(path, dtype="float64", always_2d=True)
+  return test, test_map
+
+
+def _json(value):
+  if isinstance(value, (np.floating, np.integer)):
+    return value.item()
+  if isinstance(value, np.ndarray):
+    return value.tolist()
+  raise TypeError(type(value))
+
+
+def _align(args):
+  test, test_map = _load_test(args.test)
+  rec, rate = sf.read(args.recording, dtype="float64", always_2d=True)
+  try:
+    result = aligner.align(rec, rate, test, test_map)
+  except aligner.AlignError as error:
+    raise SystemExit(f"{args.recording}: {error}")
+  out = Path(args.out)
+  out.mkdir(parents=True, exist_ok=True)
+  sf.write(out / "aligned.wav", result.aligned.astype(np.float32), test_map.rate, subtype="FLOAT")
+  np.savez_compressed(
+    out / "align.npz",
+    quality=result.quality,
+    grid_every=aligner.GRID,
+    **{f"grid_{c}": t.grid for c, t in enumerate(result.tracks)},
+    **{f"pos_{c}": t.pos for c, t in enumerate(result.tracks)},
+    **{f"track_quality_{c}": t.quality for c, t in enumerate(result.tracks)},
+  )
+  summary = result.summary()
+  summary["recording"] = str(args.recording)
+  summary["test_sha256"] = test_map.sha256
+  summary["bridges"] = [t.bridges for t in result.tracks]
+  (out / "align.json").write_text(json.dumps(summary, indent=2, default=_json))
+  for c, ch in enumerate(summary["channels"]):
+    tracked = f"pilot tracked {ch['pilot_tracked']:.0%}" if ch["pilot"] else f"no pilot (snr {ch['pilot_snr_db']:.0f} dB): content tracking only"
+    usable = float((result.quality[:, c] >= 1).mean())
+    print(f"  channel {c + 1}: {tracked}, {usable:.0%} usable, delay {ch['delay_frames']:+.3f} frames")
+  print(f"{out}: speed {summary['speed']:.5f}, aligned.wav, align.npz, align.json")
+  return result, test, test_map
+
+
+def make_align(args):
+  _align(args)
+
+
+def make_measure(args):
+  result, test, test_map = _align(args)
+  reference = None
+  if args.reference:
+    reference = json.loads((Path(args.reference) / "measure.json").read_text())
+  m = measure.measure(result, result.recording, test, test_map, reference)
+  (Path(args.out) / "measure.json").write_text(json.dumps(m, indent=2, default=_json))
+  for c, ch in enumerate(m["channels"]):
+    lv, wf, h = ch["levels"], ch["wow_flutter"], ch["hiss"]
+    drive = f"drive {lv['drive_db']:+.2f} dB, " if lv["drive_db"] is not None else ""
+    print(
+      f"  channel {c + 1}: {drive}hiss {h['db_re_0vu']:.1f} dB re 0 VU, "
+      f"wow {wf['wow_rms'] * 100:.3f} %, flutter {wf['flutter_rms'] * 100:.3f} % rms, "
+      f"3 % THD at {ch['harmonics'][0]['thd_3pct_db']} dB"
+    )
+  print(f"{args.out}/measure.json")
 
 
 def main(argv=None):
@@ -71,6 +152,19 @@ def main(argv=None):
   p.add_argument("--worn", action="store_true", help="short for --tape worn")
   p.add_argument("--seed", type=int, default=7)
   p.set_defaults(run=make_fake)
+
+  p = commands.add_parser("align", help="line a recording of the test file up with it")
+  p.add_argument("test")
+  p.add_argument("recording")
+  p.add_argument("out")
+  p.set_defaults(run=make_align)
+
+  p = commands.add_parser("measure", help="align, then measure what the tape did")
+  p.add_argument("test")
+  p.add_argument("recording")
+  p.add_argument("out")
+  p.add_argument("--reference", help="the session's 0 dB pass's output folder, for drive and 0 VU")
+  p.set_defaults(run=make_measure)
 
   args = parser.parse_args(argv)
   args.run(args)

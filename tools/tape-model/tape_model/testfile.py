@@ -14,7 +14,10 @@ from . import music
 from .dsp import RATE, brickwall, fade, from_db, pink, stereo
 
 # raised whenever the file's content changes, so a map says which one it is
-VERSION = 1
+# 2: the map lists where sweep harmonics pass the pilot too (same audio)
+# 3: anchor noise bursts between the tonal sections
+# 4: the drive marker 30 db under 0 vu (at -20 a squashy deck bent it 0.1 db)
+VERSION = 4
 
 # the calibration tone's peak: 0 vu on the deck, i.e. 0 db drive
 REF_DBFS = -18.0
@@ -24,6 +27,10 @@ PILOT_DBFS = -40.0
 CONTENT_HZ = 12_000.0
 # a sweep passing within this of the pilot hides it for a moment
 PILOT_GUARD_HZ = 2_000.0
+# and so do its harmonics, once tape distorts it: up to this one, while
+# within this of the pilot (about its tracking band)
+PILOT_GAP_HARMONICS = 5
+PILOT_HARMONIC_GUARD_HZ = 600.0
 
 SWEEP_DBFS = (-30.0, -18.0, -10.0)
 SWEEP_SECONDS = 10.0
@@ -33,7 +40,13 @@ STEP_LEVELS = tuple(range(-30, 13, 2))
 STEP_SECONDS = 0.5
 BURST_LEVELS = (-24.0, -12.0, -6.0, 0.0, 6.0)
 CLICK_LEVELS = (-24.0, -12.0, -6.0, 0.0)
-DRIVE_MARKER_DB = -20.0
+# quiet enough to stay straight even at +18 db drive
+DRIVE_MARKER_DB = -30.0
+# short noise bursts between tonal sections: tones and sweeps can't be
+# placed by their content (a tone looks the same a cycle later), so each
+# stretch of them gets one of these nearby to pin it down
+ANCHOR_SECONDS = 0.6
+ANCHOR_DB = -12.0
 FLUTTER_HZ = 3150.0
 
 
@@ -110,13 +123,23 @@ def sweep(peak_dbfs, rate=RATE):
   return fade(np.sin(phase) * from_db(peak_dbfs), 0.05, rate)
 
 
-# when a sweep starting at `start` is near the pilot
-def sweep_pilot_gap(start):
+# when a sweep starting at `start`, or one of its harmonics, is near the
+# pilot: [[start, end], ...] in seconds
+def sweep_pilot_gaps(start):
   f1, f2 = SWEEP_HZ
   k = SWEEP_SECONDS / np.log(f2 / f1)
-  low = np.log((PILOT_HZ - PILOT_GUARD_HZ) / f1) * k
-  high = np.log(min(f2, PILOT_HZ + PILOT_GUARD_HZ) / f1) * k
-  return [start + low, start + (SWEEP_SECONDS if PILOT_HZ + PILOT_GUARD_HZ >= f2 else high)]
+  gaps = []
+  for h in range(1, PILOT_GAP_HARMONICS + 1):
+    # the harmonic is near the pilot while the sweep is within guard/h of pilot/h
+    guard = PILOT_GUARD_HZ if h == 1 else PILOT_HARMONIC_GUARD_HZ
+    low = (PILOT_HZ - guard) / h
+    high = (PILOT_HZ + guard) / h
+    if high <= f1 or low >= f2:
+      continue
+    a = np.log(max(low, f1) / f1) * k
+    b = np.log(min(high, f2) / f1) * k
+    gaps.append([start + a, start + b])
+  return sorted(gaps)
 
 
 # one tone stepping up in level, without clicks between steps
@@ -140,6 +163,14 @@ def bursts(rng, rate=RATE):
   return np.concatenate(out)
 
 
+# a short pink-noise burst under the pilot, `ANCHOR_DB` under 0 vu (rms
+# against a reference sine's rms)
+def anchor(rng, rate=RATE):
+  x = brickwall(pink(rng, int(ANCHOR_SECONDS * rate)), CONTENT_HZ, rate)
+  x *= from_db(REF_DBFS + ANCHOR_DB) / np.sqrt(2) / np.sqrt(np.mean(x * x))
+  return fade(x, 0.01, rate)
+
+
 # single clicks, four at each level, low-passed under the pilot
 def clicks(rate=RATE):
   x = np.zeros(int(len(CLICK_LEVELS) * 4 * 0.25 * rate))
@@ -156,23 +187,30 @@ def build(seed=1, rate=RATE):
   rng = np.random.default_rng(seed)
   b = _Builder(rate)
   b.silence(2.0, "preroll")
+  anchors = iter(range(1, 100))
+
+  def add_anchor():
+    b.silence(0.5)
+    b.add(f"anchor_{next(anchors)}", anchor(rng, rate), relative_db=ANCHOR_DB)
+    b.silence(0.3)
+
   b.add("sync_start", chirp(rate))
-  b.silence(1.0)
+  add_anchor()
   b.add("calibration", tone(1000.0, 20.0, REF_DBFS, rate), hz=1000.0, peak_dbfs=REF_DBFS)
-  b.silence(1.0)
+  add_anchor()
   b.add("drive_marker", tone(1000.0, 4.0, REF_DBFS + DRIVE_MARKER_DB, rate), hz=1000.0, relative_db=DRIVE_MARKER_DB)
-  b.silence(2.0)
+  add_anchor()
 
   gaps = []
   for level in SWEEP_DBFS:
     start = b.frames / rate
     b.add(f"sweep_{int(level)}", sweep(level, rate), peak_dbfs=level, hz=list(SWEEP_HZ), seconds=SWEEP_SECONDS)
-    gaps.append(sweep_pilot_gap(start))
-    b.silence(1.0)
+    gaps += sweep_pilot_gaps(start)
+    add_anchor()
 
   for freq in (1000.0, 100.0):
     b.add(f"steps_{int(freq)}", steps(freq, rate), hz=freq, relative_db=list(STEP_LEVELS), step_seconds=STEP_SECONDS)
-    b.silence(1.0)
+    add_anchor()
 
   b.add("bursts", bursts(rng, rate), relative_db=list(BURST_LEVELS), burst_seconds=1.0, gap_seconds=0.5)
   b.silence(1.0)
@@ -187,9 +225,10 @@ def build(seed=1, rate=RATE):
   b.add("left_only", np.stack([one, np.zeros_like(one)], axis=1), hz=1000.0)
   b.silence(0.5)
   b.add("right_only", np.stack([np.zeros_like(one), one], axis=1), hz=1000.0)
-  b.silence(1.0)
+  add_anchor()
   b.add("flutter_tone", tone(FLUTTER_HZ, 30.0, REF_DBFS, rate), hz=FLUTTER_HZ)
   b.silence(20.0, "hiss")
+  add_anchor()
   b.add("sync_end", chirp(rate))
   b.silence(2.0, "postroll")
 

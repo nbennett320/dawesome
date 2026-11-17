@@ -139,3 +139,45 @@ def read_at(x, pos, chunk=1 << 20):
     c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2)
     out[start:start + chunk] = np.where(valid, ((c3 * t + c2) * t + c1) * t + y1, 0.0)
   return out
+
+
+# windowed-sinc reading: 64 taps, kaiser (beta 8), flat to about 20 khz at
+# 48 khz at any fractional position. hermite (above) dulls the highs by an
+# amount that changes with the position (-2.5 db at 15 khz half-way
+# between samples), which a wobbling read would turn into a wobbling tone.
+# the weights come from a table of 4096 positions between samples
+SINC_HALF = 32
+SINC_PHASES = 4096
+
+
+def _sinc_table():
+  t = np.arange(-SINC_HALF + 1, SINC_HALF + 1)[None, :] - (np.arange(SINC_PHASES) / SINC_PHASES)[:, None]
+  window = np.i0(8.0 * np.sqrt(np.clip(1.0 - (t / SINC_HALF) ** 2, 0.0, None))) / np.i0(8.0)
+  table = np.sinc(t) * window
+  return table / table.sum(axis=1, keepdims=True)
+
+
+_SINC = _sinc_table()
+
+
+# x read at fractional frame positions with the windowed sinc. positions
+# outside x read 0. in chunks, so a minutes-long file doesn't need gigabytes
+def sinc_read(x, pos, chunk=1 << 16):
+  pad = np.concatenate([np.zeros((SINC_HALF,) + x.shape[1:]), x, np.zeros((SINC_HALF + 1,) + x.shape[1:])])
+  taps = np.arange(-SINC_HALF + 1, SINC_HALF + 1)
+  out = np.empty((len(pos),) + x.shape[1:])
+  for start in range(0, len(pos), chunk):
+    p = pos[start:start + chunk]
+    i = np.floor(p).astype(np.int64)
+    phase = np.rint((p - i) * SINC_PHASES).astype(np.int64)
+    i += phase // SINC_PHASES
+    phase %= SINC_PHASES
+    valid = (i >= -SINC_HALF) & (i < len(x) + SINC_HALF)
+    idx = np.clip(i[:, None] + SINC_HALF + taps[None, :], 0, len(pad) - 1)
+    weights = _SINC[phase]
+    if x.ndim == 2:
+      got = np.einsum("ck,ckn->cn", weights, pad[idx])
+      out[start:start + chunk] = np.where(valid[:, None], got, 0.0)
+    else:
+      out[start:start + chunk] = np.where(valid, np.einsum("ck,ck->c", weights, pad[idx]), 0.0)
+  return out
