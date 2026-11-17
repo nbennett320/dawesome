@@ -18,7 +18,7 @@ import {
   windowedDuration,
 } from '../../types/clip'
 import {
-  ChangedClips, LoadedClip, LoadedPatternClip, LoadedProject, Joined, MissingEffect, MissingSample, MovedClip, Placed, ProjectView, SavedProject, splitMissing,
+  ChangedClips, LoadedClip, LoadedPatternClip, LoadedProject, Joined, MissingEffect, MissingSample, MovedClip, Placed, ProjectView, SavedProject, Span, SpanEdit, splitMissing,
   TimeSignature,
 } from '../../types/project'
 import { currentGesture } from '../gesture'
@@ -58,6 +58,11 @@ export interface PlaylistState {
   snapNote: SnapNote,
   // the playlist's mouse tool. not saved with the project
   tool: Tool
+  // the track the keyboard edits: the one last pressed on, dropped or
+  // pasted onto, or moved to with ↑/↓. it may be the track just past the
+  // last one, while a clip landing there makes it. not saved, and not part
+  // of undo
+  currentTrack: number
   // the playlist grid's step at its zoom, in beats (see adaptiveStep). not
   // saved with the project
   gridStep: number
@@ -70,6 +75,9 @@ export interface PlaylistState {
   travelled: { count: number, ids: number[] }
   // how many clips the engine's clipboard holds: whether there's anything to paste
   clipboardCount: number
+  // whether the clipboard holds a span of time (copied from a time
+  // selection) rather than clips: a paste then replaces a span
+  clipboardSpan: boolean
   // the clip shown in the Sample tab
   inspectedClipId: number | null
   // how each clip is played back, by clip id, as last loaded from or sent to
@@ -103,11 +111,13 @@ const initialState = {
   snapNote: 'QuarterNote',
   // not saved with the project
   tool: 'select',
+  currentTrack: 0,
   gridStep: 1,
   playlistItems: [],
   viewRevision: 0,
   travelled: { count: 0, ids: [] },
   clipboardCount: 0,
+  clipboardSpan: false,
   inspectedClipId: null,
   clipSettings: {},
   clipSampleDurations: {},
@@ -252,6 +262,9 @@ export const playlistSlice = createSlice({
     setClipboardCount: (state, action: PayloadAction<number>) => {
       state.clipboardCount = action.payload
     },
+    setClipboardSpan: (state, action: PayloadAction<boolean>) => {
+      state.clipboardSpan = action.payload
+    },
     // the playlist selects these clips, as it does the ones an undo changed
     selectClips: (state, action: PayloadAction<number[]>) => {
       state.travelled = { count: state.travelled.count + 1, ids: action.payload }
@@ -374,6 +387,9 @@ export const playlistSlice = createSlice({
     setTrackCount: (state, action: PayloadAction<number>) => {
       state.ui.trackCount = action.payload
     },
+    setCurrentTrack: (state, action: PayloadAction<number>) => {
+      if(Number.isInteger(action.payload) && action.payload >= 0) state.currentTrack = action.payload
+    },
     setSnapEnabled: (state, action) => {
       state.snapEnabled = action.payload
     },
@@ -402,9 +418,12 @@ export const playlistSlice = createSlice({
       state.snapNote = project.snapNote
       // the tool isn't saved: a project opens with Select
       state.tool = 'select'
+      // and back to the top track
+      state.currentTrack = 0
       state.inspectedClipId = null
       // the engine empties its clipboard on New and Open
       state.clipboardCount = 0
+      state.clipboardSpan = false
       state.viewRevision += 1
 
       state.playlistItems = project.clips.map(clip => ({
@@ -492,6 +511,13 @@ export const selectTransportRevision = (state: RootState) =>
   state.playlist.transportRevision
 
 export const { setWind } = playlistSlice.actions
+
+export const { setCurrentTrack } = playlistSlice.actions
+
+// the current track, kept to the tracks there are (one past the last may
+// be asked for while a clip lands there, before the track count says so)
+export const selectCurrentTrack = (state: RootState) =>
+  Math.min(state.playlist.currentTrack, Math.max(state.playlist.ui.trackCount - 1, 0))
 
 export const selectWind = (state: RootState) => state.playlist.wind
 // end play/pause methods
@@ -960,6 +986,102 @@ export const splitClips = (ids: number[], beat: number) => async (
   }
 }
 
+// ---- the time selection's commands (see clipboard/span.rs) ----
+
+// what a span edit did, in the playlist: changed and new clips, the ones
+// taken out, and a word about clips of gone patterns left out
+const reduceSpanEdit = async (dispatch: Dispatch, edit: SpanEdit) => {
+  dispatch(playlistSlice.actions.reduceChangedClips(edit))
+  edit.removed.forEach(id => dispatch(playlistSlice.actions.removePlaylistItem({ id })))
+  await refreshTrackCount()(dispatch)
+  if(edit.leftOut > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-use-before-define
+    await notify(dispatch, edit.leftOut === 1
+      ? '1 clip was left out: its pattern no longer exists.'
+      : `${edit.leftOut} clips were left out: their patterns no longer exist.`)
+  }
+}
+
+// run a span edit, saying why if the engine refuses. null then
+const spanEdit = (what: string, run: () => Promise<SpanEdit>) => async (dispatch: Dispatch): Promise<SpanEdit | null> => {
+  try {
+    const edit = await run()
+    await reduceSpanEdit(dispatch, edit)
+    return edit
+  } catch(e) {
+    // eslint-disable-next-line @typescript-eslint/no-use-before-define
+    await notifyError(dispatch, `${what}: ${e}`)
+    return null
+  }
+}
+
+// copy what's in a span, as a span (a paste replaces as much)
+export const copySpan = (span: Span) => async (dispatch: Dispatch): Promise<void> => {
+  try {
+    const count = await invoke<number>('copy_span_clips', { span })
+    dispatch(playlistSlice.actions.setClipboardCount(count))
+    dispatch(playlistSlice.actions.setClipboardSpan(true))
+  } catch(e) {
+    // eslint-disable-next-line no-console
+    console.error('could not copy the span:', e)
+  }
+}
+
+// copy what's in a span, then take it out, leaving the gap
+export const cutSpan = (span: Span) => async (dispatch: Dispatch): Promise<SpanEdit | null> => {
+  const edit = await spanEdit("The span couldn't be cut", () => invoke<SpanEdit>('cut_span_clips', { span }))(dispatch)
+  if(edit) {
+    dispatch(playlistSlice.actions.setClipboardCount(edit.copied))
+    dispatch(playlistSlice.actions.setClipboardSpan(true))
+  }
+  return edit
+}
+
+// take what's in a span out, leaving the gap
+export const clearSpan = (span: Span) =>
+  spanEdit("The span couldn't be deleted", () => invoke<SpanEdit>('clear_span_clips', { span }))
+
+// paste the copied span at a beat, its top track on `track`, replacing
+// what's there
+export const pasteSpan = (beat: number, track: number) =>
+  spanEdit("The span couldn't be pasted", () => invoke<SpanEdit>('paste_span_clips', { beat, track }))
+
+// put a copy of what's in a span straight after it, replacing what's there
+export const repeatSpan = (span: Span) =>
+  spanEdit("The span couldn't be repeated", () => invoke<SpanEdit>('repeat_span_clips', { span }))
+
+// paste whatever the clipboard holds at a beat. a span goes with its top
+// track on `track` (or the current track), and `onSpan` hears where it
+// went. clips go with the topmost on `track`, or on the tracks they came
+// from
+export const pasteAt = (beat: number, track: number | null, onSpan: (span: Span) => void = () => {}) => async (
+  dispatch: Dispatch,
+  getState: () => RootState,
+): Promise<unknown> => {
+  if(!getState().playlist.clipboardSpan) return pasteClips(beat, track)(dispatch)
+  const edit = await pasteSpan(beat, track ?? selectCurrentTrack(getState()))(dispatch)
+  if(edit?.span) onSpan(edit.span)
+  return edit
+}
+
+// cut clips at each of several beats (⌘B: the playhead, or both ends of a
+// time selection), as one step to undo. clips a beat isn't inside are left
+// alone. null if the engine refused
+export const splitClipsAt = (ids: number[], beats: number[]) => async (
+  dispatch: Dispatch,
+): Promise<ChangedClips | null> => {
+  try {
+    const changed = await invoke<ChangedClips>('split_clips_at', { ids, beats })
+    dispatch(playlistSlice.actions.reduceChangedClips(changed))
+    await refreshTrackCount()(dispatch)
+    return changed
+  } catch(e) {
+    // eslint-disable-next-line no-console
+    console.error(`could not split the clips at beats ${beats.join(', ')}:`, e)
+    return null
+  }
+}
+
 export const { setClipboardCount, selectClips, reducePainted } = playlistSlice.actions
 
 // paint clips of a pattern along a track with the Draw tool, from startBeat
@@ -992,6 +1114,7 @@ export const copyClips = (ids: number[]) => async (dispatch: Dispatch): Promise<
   try {
     const count = await invoke<number>('copy_clips', { ids })
     dispatch(playlistSlice.actions.setClipboardCount(count))
+    dispatch(playlistSlice.actions.setClipboardSpan(false))
   } catch(e) {
     // eslint-disable-next-line no-console
     console.error('could not copy the clips:', e)
@@ -1005,6 +1128,7 @@ export const cutClips = (ids: number[]) => async (dispatch: Dispatch): Promise<v
     const count = await invoke<number>('cut_clips', { ids })
     ids.forEach(id => dispatch(playlistSlice.actions.removePlaylistItem({ id })))
     dispatch(playlistSlice.actions.setClipboardCount(count))
+    dispatch(playlistSlice.actions.setClipboardSpan(false))
     await refreshTrackCount()(dispatch)
   } catch(e) {
     // eslint-disable-next-line @typescript-eslint/no-use-before-define
@@ -1163,6 +1287,9 @@ export const pasteClips = (beat: number, track: number | null = null) => async (
   try {
     const placed = await invoke<Placed>('paste_clips', { beat, track })
     await reducePlaced(dispatch, placed)
+    // the topmost track pasted onto becomes the current one
+    const tracks = [...placed.clips, ...placed.patternClips].map(clip => clip.trackNumber)
+    if(tracks.length) dispatch(setCurrentTrack(Math.min(...tracks)))
     return placed
   } catch(e) {
     await notify(dispatch, String(e))

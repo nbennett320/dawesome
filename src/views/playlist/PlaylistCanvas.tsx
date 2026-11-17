@@ -14,11 +14,14 @@ import {
   MovedNode,
   moveNodesInPlaylist,
   paintPatternClips,
-  pasteClips,
+  pasteAt,
+  clearSpan,
   removeManyFromPlaylist,
   repeatClips,
   seekPlaylist,
   setLoopRegion,
+  setSnapSubdivision,
+  toggleSnap,
   clearLoopRegion,
   setLoopEnd,
   clearLoopEnd,
@@ -31,6 +34,7 @@ import {
   selectPlaylistUI,
   selectTransportRevision,
   setClipWindows,
+  setCurrentTrack,
   setGridStep,
   splitClips,
   stretchClips,
@@ -53,7 +57,12 @@ import {
 } from '../../state/slices/recordingSlice'
 import { defaultInput } from '../../types/audio'
 import { View } from '../../types/ui'
-import { isDeleteKey, isExplodeKey, isJoinKey, isTextTarget, isTypingTarget } from '../../util/keys'
+import {
+  isDeleteKey, isExplodeKey, isJoinKey, isLoopSelectionKey, isSliderTarget, isTextTarget, isTypingTarget,
+} from '../../util/keys'
+import { landmarkNote, moveForKey, trackStepForKey, viewKeyFor } from './navigation'
+import { snapLabel, stepSnapNote } from '../../editing/snap'
+import { postInfoNote } from '../../events/infoNote'
 import { editShortcutHandler } from '../../util/shortcuts'
 import {
   ClipCommand, ClipSource, clipCommand, sameCommand, setClipCommandRunner,
@@ -161,7 +170,11 @@ const ClipMenuHost = ({ opener }: { opener: React.MutableRefObject<((m: OpenMenu
       <ClipMenu
         x={menu.x}
         y={menu.y}
-        items={[{ label: 'Paste', shortcut: '⌘V', onSelect: () => { dispatch(pasteClips(beat, track)) } }]}
+        items={[{
+          label: 'Paste',
+          shortcut: '⌘V',
+          onSelect: () => { dispatch(pasteAt(beat, track, playlistRenderer.selectSpan)) },
+        }]}
         onClose={close}
       />
     )
@@ -214,7 +227,7 @@ const ClipMenuHost = ({ opener }: { opener: React.MutableRefObject<((m: OpenMenu
       shortcut: '⌘V',
       onSelect: () => {
         const beat = playlistRenderer.pasteBeat()
-        if(beat !== null) dispatch(pasteClips(beat, null))
+        if(beat !== null) dispatch(pasteAt(beat, null, playlistRenderer.selectSpan))
       },
     }]),
     {
@@ -261,7 +274,8 @@ const PlaylistCanvas = () => {
   const playing = useAppSelector(selectPlaylistPlaying)
   const transportRevision = useAppSelector(selectTransportRevision)
   const loopEnabled = useAppSelector(selectLoopEnabled)
-  const handleSeek = React.useCallback((beat: number) => { dispatch(seekPlaylist(beat)) }, [dispatch])
+  const handleSeek = React.useCallback((beat: number) => dispatch(seekPlaylist(beat)), [dispatch])
+  const handleCurrentTrack = React.useCallback((track: number) => { dispatch(setCurrentTrack(track)) }, [dispatch])
   // the loop's region and end flag, dragged in the ruler
   const handleLoopRegion = React.useCallback((start: number, end: number) => {
     dispatch(setLoopRegion(start, end))
@@ -325,6 +339,8 @@ const PlaylistCanvas = () => {
 
     if(type === 'drop' && over) {
       const { beat, trackNumber } = playlistRenderer.dropTarget(x, y)
+      // the track dropped onto becomes the current one
+      playlistRenderer.touchTrack(trackNumber)
 
       if(item.kind === 'pattern') {
         dispatch(addPatternToPlaylist(item.patternId, trackNumber, beat))
@@ -368,6 +384,8 @@ const PlaylistCanvas = () => {
 
       if(opened) {
         playlistRenderer.resetView()
+        // (its tracks may not be there in this one)
+        playlistRenderer.clearTimeSelection()
         // and its time signature, which the grid counts bars in
         playlistRenderer.syncTransport()
       }
@@ -377,6 +395,7 @@ const PlaylistCanvas = () => {
       // trimmed clips show the part of their sample or pattern they play
       playlistRenderer.setClipWindows(playlist.clipWindows)
       playlistRenderer.setTool(playlist.tool)
+      playlistRenderer.setCurrentTrack(playlist.currentTrack)
       // pattern clips draw their pattern as it's edited
       playlistRenderer.setSequencer(store.getState().sequencer)
       // and the Draw tool paints the pattern last selected in a sequencer
@@ -393,6 +412,15 @@ const PlaylistCanvas = () => {
     const onKeyDown = (ev: KeyboardEvent) => {
       if(!isDeleteKey(ev) || ev.repeat || isTypingTarget(ev.target)) return
       if(selectFocusedView(store.getState()) !== View.Playlist) return
+
+      // a time selection: what's in it goes, leaving the gap
+      const span = playlistRenderer.selectedBlock()
+      if(span) {
+        if(playlistRenderer.isDragging()) return
+        ev.preventDefault()
+        dispatch(clearSpan(span))
+        return
+      }
 
       const ids = playlistRenderer.takeSelection()
       if(!ids.length) return
@@ -440,6 +468,90 @@ const PlaylistCanvas = () => {
     }
   }, [store, dispatch])
 
+  // the arrow keys, Home and End move the playhead (see navigation.ts), and
+  // ↑/↓ the current track, in any tool, while the playlist is the focused
+  // pane's tab. with ⇧ and the Select tool, they make a time selection. a
+  // text field, or a knob or fader with the keyboard, keeps them. held, a
+  // step, a bar or a track repeats, but a jump to a landmark doesn't run on
+  // to the next one
+  React.useEffect(() => {
+    const onKeyDown = (ev: KeyboardEvent) => {
+      const move = moveForKey(ev)
+      const track = trackStepForKey(ev)
+      if((!move && !track) || ev.defaultPrevented) return
+      if(isTypingTarget(ev.target) || isSliderTarget(ev.target)) return
+      if(selectFocusedView(store.getState()) !== View.Playlist) return
+
+      // (no pane scrolls with them either)
+      ev.preventDefault()
+      if(ev.repeat && move && move.kind !== 'step' && move.kind !== 'bar') return
+      // not in the middle of a drag, which follows the mouse on the screen
+      if(playlistRenderer.isDragging()) return
+      // with ⇧, they select (see timeSelection.ts)
+      const landed = move ? playlistRenderer.navigate(move, ev.shiftKey) : null
+      // the info bar says which landmark it landed on
+      if(landed?.landmark) {
+        postInfoNote(landmarkNote(landed.landmark, landed.beat, playlistRenderer.transport?.beatsPerBar ?? 4))
+      }
+      if(track) playlistRenderer.stepTrack(track, ev.shiftKey)
+    }
+
+    // Shift+L makes the time selection's span the loop region (which turns
+    // looping on). not while recording, when the loop stays as it is
+    const onLoopKey = (ev: KeyboardEvent) => {
+      if(!isLoopSelectionKey(ev) || ev.repeat || isTypingTarget(ev.target)) return
+      if(selectFocusedView(store.getState()) !== View.Playlist) return
+      const span = playlistRenderer.selectedSpan()
+      if(!span || selectRecording(store.getState())) return
+      ev.preventDefault()
+      dispatch(setLoopRegion(span.start, span.end))
+    }
+
+    // G, [ and ] change the snap, saying so in the info bar. ⌘= and ⌘−
+    // zoom, and ⇧Z fits the time selection (or the loop) to the view
+    const onViewKey = (ev: KeyboardEvent) => {
+      const key = viewKeyFor(ev)
+      if(!key || ev.defaultPrevented || isTypingTarget(ev.target)) return
+      if(selectFocusedView(store.getState()) !== View.Playlist) return
+      ev.preventDefault()
+      // (zooming would move the view under a drag)
+      if(playlistRenderer.isDragging()) return
+
+      const { snapEnabled, snapNote } = store.getState().playlist
+      switch(key) {
+        case 'snap-toggle':
+          if(ev.repeat) return
+          dispatch(toggleSnap()).then(() => {
+            const { playlist } = store.getState()
+            postInfoNote(playlist.snapEnabled ? `Snap on · ${snapLabel(playlist.snapNote)}` : 'Snap off')
+          })
+          return
+        case 'snap-finer':
+        case 'snap-coarser': {
+          const next = stepSnapNote(snapNote, key === 'snap-finer' ? 1 : -1)
+          if(next !== snapNote) dispatch(setSnapSubdivision(next))
+          postInfoNote(`Snap · ${snapLabel(next)}${snapEnabled ? '' : ' (snap is off)'}`)
+          return
+        }
+        case 'zoom-in': playlistRenderer.zoomStep(1); return
+        case 'zoom-out': playlistRenderer.zoomStep(-1); return
+        case 'zoom-fit':
+          if(!ev.repeat) playlistRenderer.zoomToFit()
+          return
+        default:
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keydown', onLoopKey)
+    window.addEventListener('keydown', onViewKey)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keydown', onLoopKey)
+      window.removeEventListener('keydown', onViewKey)
+    }
+  }, [store, dispatch])
+
   // the clip clipboard's commands, from the keys, the system's copy, cut and
   // paste events, and the Edit menu. a shortcut can arrive by more than one
   // of those, and is acted on once
@@ -465,7 +577,9 @@ const PlaylistCanvas = () => {
         all: playlistRenderer.playlistObjects.map(o => o.playlistItem.id),
         pasteBeat,
         focused: selectFocusedView(store.getState()) === View.Playlist,
-      }, ids => playlistRenderer.select(ids), setBusy)(dispatch, store.getState))
+        blade: playlistRenderer.bladeTarget(),
+        span: playlistRenderer.selectedBlock(),
+      }, ids => playlistRenderer.select(ids), setBusy, playlistRenderer.selectSpan)(dispatch, store.getState))
         // eslint-disable-next-line no-console
         .catch(e => console.error(`could not ${command}:`, e))
     }
@@ -673,6 +787,7 @@ const PlaylistCanvas = () => {
           transportRevision={transportRevision}
           loopEnabled={loopEnabled}
           onSeek={handleSeek}
+          onCurrentTrack={handleCurrentTrack}
           onLoopRegion={handleLoopRegion}
           onClearLoopRegion={handleClearLoopRegion}
           onLoopEnd={handleLoopEnd}

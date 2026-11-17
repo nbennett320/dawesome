@@ -45,6 +45,8 @@ pub struct PlaylistTransport {
   start_offset_ms: f64,
   // where the playhead is now, in ms
   position_ms: f64,
+  // where the last play started, in beats (None before anything's played)
+  last_play_start_beats: Option<f64>,
   // length of one beat tick in the engine loop
   beat_interval_ms: f64,
   // where the loop starts and ends, in beats (whether or not looping is
@@ -99,6 +101,7 @@ pub(crate) fn playlist_transport(state: &daw::Session) -> PlaylistTransport {
     start_time_ms: started.and_then(|started| wall_clock_ms(started).ok()).map(|ms| ms - counted_from_ms),
     start_offset_ms: start_offset.as_secs_f64() * 1000.,
     position_ms: playback::playhead(state).as_secs_f64() * 1000.,
+    last_play_start_beats: *state.playlist.last_play_start.lock().unwrap(),
     beat_interval_ms: beat_interval.as_secs_f64() * 1000.,
     loop_start_beats: playback::offset_beats(span.start, beat_interval),
     loop_end_beats: playback::offset_beats(span.end, beat_interval),

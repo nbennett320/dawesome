@@ -18,6 +18,14 @@ export const isTypingTarget = (target: EventTarget | null): boolean => {
 export const isTextTarget = (target: EventTarget | null): boolean =>
   isTypingTarget(target) && (target as HTMLElement).tagName !== 'SELECT'
 
+// whether a key press is going into a slider (a knob, a fader, a range
+// input), which moves with the arrow keys, Home and End
+export const isSliderTarget = (target: EventTarget | null): boolean => {
+  if(!(target instanceof HTMLElement)) return false
+  return target.getAttribute('role') === 'slider'
+    || (target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'range')
+}
+
 // Delete, or Backspace (the delete key on a Mac keyboard), with no modifier
 export const isDeleteKey = (ev: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey'>): boolean =>
   (ev.key === 'Delete' || ev.key === 'Backspace') && !ev.metaKey && !ev.ctrlKey && !ev.altKey
@@ -34,6 +42,12 @@ export const isJoinKey = (
   ev: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'metaKey' | 'ctrlKey' | 'altKey'>,
 ): boolean =>
   ev.key.toLowerCase() === 'j' && ev.shiftKey && !ev.metaKey && !ev.ctrlKey && !ev.altKey
+
+// Shift+L (loop the time selection), with no other modifier
+export const isLoopSelectionKey = (
+  ev: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'metaKey' | 'ctrlKey' | 'altKey'>,
+): boolean =>
+  ev.key.toLowerCase() === 'l' && ev.shiftKey && !ev.metaKey && !ev.ctrlKey && !ev.altKey
 
 // Space with no modifier: the transport's key (⌘ and ⌃ Space belong to the
 // system)

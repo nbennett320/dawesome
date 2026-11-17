@@ -1,15 +1,6 @@
 import React from 'react'
-import { SnapNote } from '../../editing/snap'
+import { SNAP_OPTIONS, SnapNote } from '../../editing/snap'
 import styles from '../topbar/styles.module.scss'
-
-// snap lengths, labelled in bars and beats (one beat is a quarter note)
-const SNAP_OPTIONS: Array<{ note: SnapNote, label: string }> = [
-  { note: 'WholeNote', label: '1 bar' },
-  { note: 'HalfNote', label: '1/2 bar' },
-  { note: 'QuarterNote', label: '1 beat' },
-  { note: 'EighthNote', label: '1/2 beat' },
-  { note: 'SixteenthNote', label: '1/4 beat' },
-]
 
 interface Props {
   note: SnapNote

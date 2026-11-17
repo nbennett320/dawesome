@@ -39,9 +39,107 @@ Open it with **Window ▸ Playlist**.
   the tracks; left and right (or **Shift** with the wheel) scrolls along the
   timeline.
 - **Zoom:** **⌘ (Ctrl)** with the wheel, or pinch on a trackpad. Zooming in
-  stops once the grid is down to 1/16 notes.
-- **Pan:** drag on empty track space.
-- **Move the playhead:** click or drag in the ruler.
+  stops once the grid is down to 1/16 notes. From the keyboard, **⌘=** and
+  **⌘−** (**Ctrl+=** and **Ctrl+−**) zoom in and out around the playhead
+  (around the middle of the view if the playhead is off screen), and
+  **Shift+Z** zooms to fit the [time selection](#_6-1-3-selecting-time). With
+  no time selection, **Shift+Z** fits the loop, or else the whole song.
+- **Pan:** drag on empty track space. The pointer shows a closed hand while
+  you do.
+- **Move the playhead:** click or drag in the ruler, or use the keys below.
+  With the **Select tool**, a click on a lane (on a clip or on empty space,
+  without dragging) also moves the playhead there, on the snap grid. While
+  playing, playback jumps there, as with a click in the ruler.
+
+### 6-1-1 Moving the playhead with the keys
+
+The arrow keys move the playhead the way they move a text cursor. They
+work with any tool, while the Playlist is the selected tab in the focused
+pane. If the playhead goes off screen, the playlist scrolls to it. While
+playing, playback carries on from where the playhead lands.
+
+| Mac | Windows/Linux | Moves the playhead |
+| --- | --- | --- |
+| **←** / **→** | **←** / **→** | One snap step. With snap off, one line of the grid. Hold to keep going. |
+| **⌥←** / **⌥→** | **Alt+←** / **Alt+→** | One bar. Hold to keep going. |
+| **⌘←** | **Ctrl+←** | Back to where you last pressed play. Press again for the loop's start, then the song's start. |
+| **⌘→** | **Ctrl+→** | To the loop's end. Press again for the end of the last clip. |
+| **Home** / **End** | **Home** / **End** | To the song's start, or the end of the last clip. On a Mac laptop, **Fn+←** / **Fn+→**. |
+
+From between two grid lines, **←** goes to the line before and **→** to the
+line after.
+
+**⌘←** and **⌘→** only ever move the playhead in their own direction. A
+place that's the other way, or isn't there, is skipped. For example, before
+you've played anything, **⌘←** goes straight to the loop's start, or to the
+song's start if there's no loop start before the playhead. The loop's
+start and end are the [loop region](#_6-7-2-loop-region)'s edges, or with no
+region, the [end flag](#_6-7-1-loop-end) while looping is on. While looping,
+going to the loop's end goes round to its start at once, as playback would.
+
+When **⌘←**, **⌘→**, **Home** or **End** lands on a place, the info bar along
+the bottom names it, for example *Loop start · bar 9*. With **Experimental
+animations** on (in **Preferences**), the playhead also glides there, and
+the ruler glows briefly where it lands. If your system is set to reduce
+motion, the playhead goes straight there instead.
+
+### 6-1-2 The current track
+
+One track is the *current track*: the one the keyboard works on. Its lane
+is lightly tinted, with a thin bar in the accent color down its left edge.
+A track becomes current when you:
+
+- click or right-click anything on its lane: a clip, empty space, or its
+  name tab
+- draw on it, or drop or drag clips onto it
+- paste onto it (with clips on several tracks, the topmost)
+
+**↑** and **↓** make the track above or below current, scrolling to it if
+need be. They work with any tool, and you can hold them down. A new or
+opened project starts with the top track current.
+
+### 6-1-3 Selecting time
+
+With the **Select tool**, hold **Shift** with any of the keys above to
+select time, the way you select text: **Shift+→** selects a snap step to the
+right, **Shift+⌘→** selects to the loop's end, and so on. The selection
+starts at the playhead on the current track. It shows as a tinted block
+over its lanes, with a bar along the bottom of the ruler.
+
+- **Shift+↑** / **Shift+↓** stretch the selection over the track above or
+  below, so it covers the same span on several tracks.
+- **↑** / **↓** move the whole selection a track up or down, keeping its
+  span and how many tracks it covers.
+- **Shift+L** makes the selection's span the [loop region](#_6-7-2-loop-region),
+  and turns looping on. The selection stays.
+- **←**, **→** or another move without Shift, **Esc**, or clicking a lane
+  clears it. So does selecting clips: there's either a time selection or a
+  clip selection, never both.
+
+While stopped, the playhead follows the selection's moving end. While
+playing, the moving end goes on its own, from where the playhead was, and
+playback carries on undisturbed.
+
+With the Draw or Cut tool, Shift and the arrow keys do nothing.
+
+#### Editing a time selection
+
+While there's a time selection that covers some time, the edit commands act
+on it instead of on clips. A clip that runs across either end of the
+selection is cut there, so only the part inside is affected.
+
+| Command | Keys | What it does |
+| --- | --- | --- |
+| Copy | **⌘C (Ctrl+C)** | Copies what's inside the selection. The clipboard then holds a span of time, gaps included. |
+| Cut | **⌘X (Ctrl+X)** | Copies what's inside, then takes it out. Clips after it stay where they are, leaving a gap. |
+| Delete | **Delete** (or **Backspace**) | Takes out what's inside, leaving a gap. |
+| Repeat | **⌘R (Ctrl+R)** | Puts a copy straight after the selection, replacing what was there, and selects the copy. Press it again to keep going. |
+| Paste | **⌘V (Ctrl+V)** | With a copied span on the clipboard: pastes it at the playhead, with its top track on the [current track](#_6-1-2-the-current-track). It replaces what was there, and the pasted span is selected. |
+
+A pasted span always replaces exactly the time it covers, on the tracks it
+covers, even where the copy had gaps. **Paste** on the right-click menu of
+an empty lane puts a copied span there, with its top track on that lane.
+Each of these is one step to undo.
 
 ## 6-2 Tools
 
@@ -155,8 +253,8 @@ semitones either way.
 ## 6-5 Editing commands
 
 The commands act on the selected clips while the playlist is the focused
-tab. Undo, Redo, Cut, Copy, Paste, Repeat, Select All and Join are also on
-the **Edit** menu. Most are on the clip right-click menu (see
+tab. Undo, Redo, Cut, Copy, Paste, Repeat, Select All, Join and Blade are
+also on the **Edit** menu. Most are on the clip right-click menu (see
 [6-8](#_6-8-clip-menu)).
 
 | Command | Keys | What it does |
@@ -171,6 +269,7 @@ the **Edit** menu. Most are on the clip right-click menu (see
 | Join | **Shift+J** | Makes one clip of the selected clips. |
 | Explode | **Shift+E** | Splits pattern clips into a track per row. |
 | Delete | **Delete** (or **Backspace**) | Removes the clips. |
+| Blade | **⌘B (Ctrl+B)** | Cuts the current track's clip at the playhead, or the time selection's clips at both its ends (see [6-5-6](#_6-5-6-blade)). |
 
 See also the [Shortcuts](../shortcuts.md) page.
 
@@ -179,7 +278,9 @@ See also the [Shortcuts](../shortcuts.md) page.
 The clipboard belongs to Dawesome; the system clipboard is left alone.
 
 **Paste** (⌘V) places the clips so the earliest starts at the playhead, on
-the snap grid, on the tracks they came from. To paste somewhere else,
+the snap grid, on the tracks they came from. (A span copied from a time
+selection pastes differently: see
+[Editing a time selection](#editing-a-time-selection).) To paste somewhere else,
 *right-click* empty track space and choose **Paste**: the clips go at that
 point, with the topmost on that track. Nothing is pasted if a clip would
 start past the end of the playlist.
@@ -249,6 +350,21 @@ page of the sidebar.
 the project has never been saved, the Save dialog opens first.
 :::
 
+### 6-5-6 Blade
+
+**Blade** (⌘B) cuts clips without the Cut tool. It doesn't act on the
+selected clips:
+
+- With no [time selection](#_6-1-3-selecting-time), it cuts the clip on the
+  [current track](#_6-1-2-the-current-track) at the playhead, exactly where
+  the playhead is (as **Split at playhead** on the clip menu does). Nothing
+  happens if there's no clip there.
+- With a time selection, it cuts every clip on the selection's tracks at
+  both ends of the selection, so the part inside comes out as clips of its
+  own. A selection that covers no time cuts at its one beat.
+
+Either way it's one step to undo.
+
 ## 6-6 Snap
 
 The tray's snap controls set the grid that clips, edges and cuts land on.
@@ -256,6 +372,11 @@ The tray's snap controls set the grid that clips, edges and cuts land on.
 - **Snap to grid** — Turns snap on or off. Its LED is lit when on.
 - **Snap** menu — The grid size: **1 bar**, **1/2 bar**, **1 beat**,
   **1/2 beat** or **1/4 beat**. The menu is dimmed while snap is off.
+
+From the keyboard, while the Playlist is the focused tab, **G** turns snap on
+or off, **[** makes the grid finer and **]** makes it coarser. The info bar
+says what it's set to. The grid size is also how far **←** and **→** move
+the playhead (see [6-1-1](#_6-1-1-moving-the-playhead-with-the-keys)).
 
 When you drag an edge or use the cut tool with playback stopped, the edge
 or cut also snaps to the playhead when it's nearer than the grid. Hold

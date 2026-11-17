@@ -1,4 +1,4 @@
-import { LIP, armTint, fitName, inBox, ledCenter, lipBox, lipWidth, onLed } from './lip'
+import { LIP, armTint, fitName, inBox, ledCenter, lipBox, lipWidth, onLed, over } from './lip'
 
 describe('a lane’s lip', () => {
   it('is pinned to the top right, inside its own lane', () => {
@@ -54,5 +54,17 @@ describe('a lane’s lip', () => {
     expect(high).toBeGreaterThan(low)
     expect(armTint(true, 1000)).toBeCloseTo(low)
     expect(low).toBeGreaterThan(0)
+  })
+})
+
+describe('over', () => {
+  it('lays a color over another, as the canvas draws it', () => {
+    // see-through accent over white: a little tinted
+    expect(over([0, 0, 255, 51], [255, 255, 255, 255])).toEqual([204, 204, 255, 255])
+    // solid on top: just the top
+    expect(over([10, 20, 30, 255], [255, 255, 255, 255])).toEqual([10, 20, 30, 255])
+    // nothing on top: just the bottom
+    expect(over([10, 20, 30, 0], [40, 50, 60, 255])).toEqual([40, 50, 60, 255])
+    expect(over([0, 0, 0, 0], [0, 0, 0, 0])).toEqual([0, 0, 0, 0])
   })
 })

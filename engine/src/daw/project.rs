@@ -562,6 +562,8 @@ pub fn apply(
   state.playlist.count_in.store(settings.count_in, Ordering::SeqCst);
   *state.playlist.loop_region.lock().unwrap() = settings.loop_region;
   *state.playlist.loop_end_pin.lock().unwrap() = settings.loop_end_pin;
+  // nothing has played in this project yet
+  *state.playlist.last_play_start.lock().unwrap() = None;
   *state.playlist.time_signature.lock().unwrap() = settings.time_signature;
   {
     let mut ui = state.playlist.ui.lock().unwrap();

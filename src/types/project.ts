@@ -68,6 +68,25 @@ export interface Placed extends ChangedClips {
   leftOut: number
 }
 
+// a time selection's span: beats `start` to `end`, on tracks `top` to
+// `bottom` (both included). mirrors Span in engine/src/daw/clipboard/span.rs
+export interface Span {
+  start: number
+  end: number
+  top: number
+  bottom: number
+}
+
+// what a span edit did (SpanEdit in span.rs): the clips it changed or made,
+// the ones it took away, clips of gone patterns it left out, how many a cut
+// copied, and the span a paste or a repeat filled
+export interface SpanEdit extends ChangedClips {
+  removed: number[]
+  leftOut: number
+  copied: number
+  span: Span | null
+}
+
 // what a join made: the joined clip is the one in `clips` or `patternClips`,
 // `removed` are the other clips, which are gone, and `sequencer` is set when
 // joining pattern clips made a new pattern

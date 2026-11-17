@@ -226,7 +226,7 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     &item("view-mixdown", "Mixdown…", None)?,
   ])?;
 
-  // define edit menu. undo, redo, repeat, select all and join are done by
+  // define edit menu. undo, redo, repeat, select all, join and blade are done by
   // the frontend, which knows whether the keyboard is in a text field (see
   // src/events/window.ts). cut, copy and paste are the system's own, so they
   // work on text as they do anywhere; the frontend hears of them too, and
@@ -244,6 +244,9 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     // (shift+J, handled in the window: as a menu shortcut it would take
     // capital Js out of text fields)
     &item("edit-join", "Join", None)?,
+    // cuts the current track's clip at the playhead, or the time
+    // selection's clips at its ends (see the playlist's bladeTarget)
+    &item("edit-blade", "Blade", Some("CmdOrCtrl+B"))?,
   ])?;
 
   // define window menu: opens (or selects) a tab. the frontend knows the

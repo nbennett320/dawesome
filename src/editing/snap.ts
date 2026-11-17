@@ -10,6 +10,27 @@ export type SnapNote =
   | 'EighthNote'
   | 'SixteenthNote'
 
+// the snap lengths, coarsest first, labelled in bars and beats (one beat is
+// a quarter note), as the snap control offers them
+export const SNAP_OPTIONS: Array<{ note: SnapNote, label: string }> = [
+  { note: 'WholeNote', label: '1 bar' },
+  { note: 'HalfNote', label: '1/2 bar' },
+  { note: 'QuarterNote', label: '1 beat' },
+  { note: 'EighthNote', label: '1/2 beat' },
+  { note: 'SixteenthNote', label: '1/4 beat' },
+]
+
+export const snapLabel = (note: SnapNote): string =>
+  SNAP_OPTIONS.find(option => option.note === note)?.label ?? note
+
+// the next snap length finer (1) or coarser (-1) than `note`, staying at
+// the finest and coarsest there are
+export const stepSnapNote = (note: SnapNote, dir: 1 | -1): SnapNote => {
+  const at = SNAP_OPTIONS.findIndex(option => option.note === note)
+  const next = Math.max(0, Math.min((at < 0 ? 2 : at) + dir, SNAP_OPTIONS.length - 1))
+  return SNAP_OPTIONS[next].note
+}
+
 // a snap length in beats, a beat being a quarter note (Note::beats in
 // engine/src/daw/timing.rs)
 export const snapNoteBeats = (note: SnapNote): number => ({

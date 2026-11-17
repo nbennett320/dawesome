@@ -3,9 +3,12 @@
 // menu
 import type { Dispatch } from '@reduxjs/toolkit'
 import type { RootState } from './store'
-import { copyClips, cutClips, deepCopyClips, joinClips, pasteClips, repeatClips } from './slices/playlistSlice'
+import {
+  copyClips, copySpan, cutClips, cutSpan, deepCopyClips, joinClips, pasteAt, repeatClips, repeatSpan, splitClipsAt,
+} from './slices/playlistSlice'
+import type { Span } from '../types/project'
 
-export type ClipCommand = 'copy' | 'cut' | 'paste' | 'repeat' | 'select-all' | 'join' | 'deep-copy'
+export type ClipCommand = 'copy' | 'cut' | 'paste' | 'repeat' | 'select-all' | 'join' | 'deep-copy' | 'blade'
 
 export interface ClipTarget {
   // the selected clips
@@ -16,28 +19,47 @@ export interface ClipTarget {
   pasteBeat: number | null
   // whether the Playlist is the focused view
   focused: boolean
+  // what Blade (⌘B) cuts: these clips, at these beats. null for nothing
+  blade: { ids: number[], beats: number[] } | null
+  // the time selection's span, if it covers any time: copy, cut and repeat
+  // act on it rather than on the selected clips
+  span: Span | null
 }
 
 // run a command on the clips in `target`. nothing happens unless the
 // Playlist is focused, nor to copy, cut or repeat with nothing selected.
-// `select` makes the playlist select clips, and `setBusy` shows the wait
-// cursor while a slow command writes files
+// `select` makes the playlist select clips, `setBusy` shows the wait cursor
+// while a slow command writes files, and `selectSpan` makes the playlist
+// select the span a paste or a repeat of a span filled
 export const clipCommand = (
   command: ClipCommand,
   target: ClipTarget,
   select: (ids: number[]) => void,
   setBusy: (busy: boolean) => void = () => {},
+  selectSpan: (span: Span) => void = () => {},
 ) => async (dispatch: Dispatch, getState: () => RootState): Promise<unknown> => {
   if(!target.focused) return undefined
-  const { selected, all, pasteBeat } = target
+  const { selected, all, pasteBeat, span } = target
 
   switch(command) {
-    case 'copy': return selected.length ? copyClips(selected)(dispatch) : undefined
-    case 'cut': return selected.length ? cutClips(selected)(dispatch) : undefined
-    case 'paste': return pasteBeat === null ? undefined : pasteClips(pasteBeat, null)(dispatch)
-    case 'repeat': return selected.length ? repeatClips(selected)(dispatch) : undefined
+    case 'copy':
+      if(span) return copySpan(span)(dispatch)
+      return selected.length ? copyClips(selected)(dispatch) : undefined
+    case 'cut':
+      if(span) return cutSpan(span)(dispatch)
+      return selected.length ? cutClips(selected)(dispatch) : undefined
+    // (a span on the clipboard goes on the current track)
+    case 'paste': return pasteBeat === null ? undefined : pasteAt(pasteBeat, null, selectSpan)(dispatch, getState)
+    case 'repeat':
+      if(span) {
+        const edit = await repeatSpan(span)(dispatch)
+        if(edit?.span) selectSpan(edit.span)
+        return edit
+      }
+      return selected.length ? repeatClips(selected)(dispatch) : undefined
     case 'join': return selected.length >= 2 ? joinClips(selected, setBusy)(dispatch, getState) : undefined
     case 'deep-copy': return selected.length ? deepCopyClips(selected, setBusy)(dispatch, getState) : undefined
+    case 'blade': return target.blade ? splitClipsAt(target.blade.ids, target.blade.beats)(dispatch) : undefined
     case 'select-all':
       select(all)
       return undefined

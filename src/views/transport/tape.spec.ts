@@ -20,6 +20,7 @@ const transport = (t: Partial<PlaylistTransport> = {}): PlaylistTransport => ({
   startTimeMs: null,
   startOffsetMs: 0,
   positionMs: 0,
+  lastPlayStartBeats: null,
   beatIntervalMs: 500,
   loopStartBeats: 0, loopEndBeats: 16, loopRegion: false, loopEndPinned: false,
   beatsDisplayed: 16,

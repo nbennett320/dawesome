@@ -12,7 +12,7 @@ const mockInvoke = invoke as Mock
 // get_playlist_data's answer: a new project's length in beats, and 4 tracks
 const playlistData = { beats: DEFAULT_PLAYLIST_BEATS, trackCount: 4 }
 const target = (over: Partial<ClipTarget> = {}): ClipTarget => ({
-  selected: [3, 4], all: [3, 4, 5], pasteBeat: 8, focused: true, ...over,
+  selected: [3, 4], all: [3, 4, 5], pasteBeat: 8, focused: true, blade: null, span: null, ...over,
 })
 
 describe('clipCommand', () => {
@@ -27,8 +27,14 @@ describe('clipCommand', () => {
     mockInvoke.mockImplementation(async (command: string) => answers[command] ?? 2)
   })
 
-  const run = (command: Parameters<typeof clipCommand>[0], t: ClipTarget, select = vi.fn()) =>
-    clipCommand(command, t, select)(vi.fn(), vi.fn()).then(() => select)
+  // the store as far as a paste reads it: what the clipboard holds, and the
+  // current track
+  let clipboardSpan = false
+  const getState = () => ({ playlist: { clipboardSpan, currentTrack: 2, ui: { trackCount: 4 } } }) as never
+  beforeEach(() => { clipboardSpan = false })
+
+  const run = (command: Parameters<typeof clipCommand>[0], t: ClipTarget, select = vi.fn(), selectSpan = vi.fn()) =>
+    clipCommand(command, t, select, vi.fn(), selectSpan)(vi.fn(), getState).then(() => select)
 
   it('copies the selection', async () => {
     await run('copy', target())
@@ -60,6 +66,55 @@ describe('clipCommand', () => {
       (command === 'join_clips' ? { clips: [], patternClips: [], removed: [], sequencer: null } : playlistData))
     await run('join', target())
     expect(mockInvoke).toHaveBeenCalledWith('join_clips', { ids: [3, 4] })
+  })
+
+  it('blades the clips the playlist names, at its beats', async () => {
+    mockInvoke.mockImplementation(async (command: string) =>
+      (command === 'split_clips_at' ? { clips: [], patternClips: [] } : playlistData))
+    await run('blade', target({ blade: { ids: [3, 5], beats: [4, 8] } }))
+    expect(mockInvoke).toHaveBeenCalledWith('split_clips_at', { ids: [3, 5], beats: [4, 8] })
+  })
+
+  it('blades nothing when nothing is under it', async () => {
+    await run('blade', target())
+    expect(mockInvoke).not.toHaveBeenCalled()
+  })
+
+  describe('with a time selection', () => {
+    const span = { start: 4, end: 8, top: 1, bottom: 2 }
+    const edit = (over = {}) => ({ clips: [], patternClips: [], removed: [], leftOut: 0, copied: 0, span: null, ...over })
+
+    it('copies, cuts and repeats the span rather than the clips', async () => {
+      mockInvoke.mockImplementation(async (command: string) =>
+        (command === 'get_playlist_data' ? playlistData : command === 'copy_span_clips' ? 3 : edit()))
+      await run('copy', target({ span }))
+      await run('cut', target({ span }))
+      await run('repeat', target({ span }))
+      expect(mockInvoke).toHaveBeenCalledWith('copy_span_clips', { span })
+      expect(mockInvoke).toHaveBeenCalledWith('cut_span_clips', { span })
+      expect(mockInvoke).toHaveBeenCalledWith('repeat_span_clips', { span })
+      expect(mockInvoke).not.toHaveBeenCalledWith('copy_clips', expect.anything())
+    })
+
+    it('selects the span a repeat filled', async () => {
+      const filled = { start: 8, end: 12, top: 1, bottom: 2 }
+      mockInvoke.mockImplementation(async (command: string) =>
+        (command === 'get_playlist_data' ? playlistData : edit({ span: filled })))
+      const selectSpan = vi.fn()
+      await run('repeat', target({ span }), vi.fn(), selectSpan)
+      expect(selectSpan).toHaveBeenCalledWith(filled)
+    })
+
+    it('pastes a copied span on the current track, and selects it', async () => {
+      clipboardSpan = true
+      const filled = { start: 8, end: 12, top: 2, bottom: 3 }
+      mockInvoke.mockImplementation(async (command: string) =>
+        (command === 'get_playlist_data' ? playlistData : edit({ span: filled })))
+      const selectSpan = vi.fn()
+      await run('paste', target(), vi.fn(), selectSpan)
+      expect(mockInvoke).toHaveBeenCalledWith('paste_span_clips', { beat: 8, track: 2 })
+      expect(selectSpan).toHaveBeenCalledWith(filled)
+    })
   })
 
   it('does not join fewer than two clips', async () => {

@@ -33,7 +33,14 @@ export const useEditCommands = () => {
           }
           break
         case 'join':
-          if(!typing) runClipCommandFromMenu('join')
+          if(!typing) runClipCommandFromMenu(command)
+          break
+        case 'blade':
+          // whichever of the Playlist and the Piano Roll is focused
+          if(!typing) {
+            runClipCommandFromMenu('blade')
+            runNoteCommandFromMenu('blade')
+          }
           break
         case 'select-all':
           if(typing) document.execCommand('selectAll')

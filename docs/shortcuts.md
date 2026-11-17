@@ -67,6 +67,12 @@ doesn't matter; an unknown command is named in the info bar.
 | **⌘V** | **Ctrl+V** | Paste clips at the playhead, snapped (Playlist), or notes at the mouse (Piano Roll) |
 | **⌘R** | **Ctrl+R** | Repeat: place a copy of the selected clips (Playlist) or notes (Piano Roll) straight after them |
 | **⌘A** | **Ctrl+A** | Select all clips (Playlist) or all notes (Piano Roll) |
+| **⌘B** | **Ctrl+B** | Playlist: **Blade**. Cut the current track's clip at the playhead, or the time selection's clips at both its ends (**Edit ▸ Blade**) |
+
+With a [time selection](./manual/playlist.md#editing-a-time-selection) in
+the Playlist, **⌘C**, **⌘X**, **⌘R** and **Delete** act on what's inside it
+instead of on clips, and a copied span pastes with **⌘V** at the playhead on
+the current track, replacing what's there.
 
 In a text field, these act on the text. Dawesome's clipboards are its own:
 copying clips or notes doesn't change your system clipboard.
@@ -86,6 +92,22 @@ These work while the **Playlist** is the selected tab in the focused pane.
 | **Shift+J** | **Shift+J** | Join the selected clips (**Edit ▸ Join**) |
 | **Shift+E** | **Shift+E** | Explode the selected pattern clips into tracks |
 | **Esc** | **Esc** | Clear the selection. While dragging a clip edge, cancel the drag. |
+| **←** / **→** | **←** / **→** | Move the playhead one snap step (one grid line with snap off) |
+| **⌥←** / **⌥→** | **Alt+←** / **Alt+→** | Move the playhead one bar |
+| **⌘←** | **Ctrl+←** | Playhead to where you last pressed play; again for the loop's start, then the song's start |
+| **⌘→** | **Ctrl+→** | Playhead to the loop's end; again for the end of the last clip |
+| **Home** / **End** | **Home** / **End** | Playhead to the song's start / the end of the last clip (**Fn+←** / **Fn+→** on a Mac laptop) |
+| **↑** / **↓** | **↑** / **↓** | Make the track above or below the [current track](./manual/playlist.md#_6-1-2-the-current-track) |
+| **Shift** + any of the above | **Shift** + any of the above | Select tool: [select time](./manual/playlist.md#_6-1-3-selecting-time) the same way; **Shift+↑** / **Shift+↓** stretch the selection over more tracks |
+| **Shift+L** | **Shift+L** | Make the time selection's span the loop region |
+| **G** | **G** | Turn snap on or off |
+| **[** / **]** | **[** / **]** | Make the snap finer / coarser |
+| **⌘=** / **⌘−** | **Ctrl+=** / **Ctrl+−** | Zoom in / out, around the playhead |
+| **Shift+Z** | **Shift+Z** | Zoom to fit the time selection (or the loop, or the song) |
+
+The playhead and track keys work with any tool, and the playlist scrolls to follow.
+A knob or fader you've clicked keeps the arrow keys. See
+[Moving the playhead with the keys](./manual/playlist.md#_6-1-1-moving-the-playhead-with-the-keys).
 
 Don't confuse **Shift+E** (explode) with **⇧⌘E (Ctrl+Shift+E)** (open the
 Pattern Sequencer), or the **cut tool** (**C**) with **Cut (⌘X)**.
@@ -106,8 +128,12 @@ These work while the **Piano Roll** is the selected tab in the focused pane.
 | **⌘A** | **Ctrl+A** | Select all notes |
 | **⌘X**, **⌘C**, **⌘V**, **⌘R** | **Ctrl+X**, **Ctrl+C**, **Ctrl+V**, **Ctrl+R** | Cut, copy, paste and repeat notes (see Edit) |
 | **Space** | **Space** | Loop the pattern from the playhead, or stop |
+| **←** **→** **⌥** **⌘** **Home** **End** | **←** **→** **Alt** **Ctrl** **Home** **End** | Move the playhead, as in the Playlist; with **Shift** (Select tool), select time |
+| **↑** / **↓** | **↑** / **↓** | Move the selected notes a semitone (**Shift**: an octave) |
+| **⌘B** | **Ctrl+B** | Cut the notes under the playhead |
 
-See [Piano roll](./manual/piano-roll.md).
+See [Piano roll](./manual/piano-roll.md) and its
+[keys](./manual/piano-roll.md#_8-9-1-the-keys).
 
 ## Browsers, menus and text fields
 
@@ -154,6 +180,7 @@ Click a knob or fader first to give it the keyboard.
 | **Option** while dragging an edge | **Alt** while dragging an edge | Playlist | Ignore snap. Also with the cut tool. |
 | *Drag* empty space | *Drag* empty space | Playlist | Scroll |
 | *Click* or *drag* | *Click* or *drag* | Playlist ruler | Move the playhead |
+| *Click* (no drag) | *Click* (no drag) | Playlist lane, Select tool | Move the playhead there, on the snap grid |
 | *Double-click* | *Double-click* | Playlist clip | Open a sample clip in the **Sample** tab, or a pattern clip's pattern in the **Pattern Sequencer** (not with the cut tool) |
 | *Drag* empty space | *Drag* empty space | Playlist track, Draw tool | Paint clips of the last selected pattern |
 | *Right-click* | *Right-click* | Playlist clip | Clip menu |

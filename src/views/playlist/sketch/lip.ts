@@ -86,6 +86,16 @@ export const onLed = (box: Box, x: number, y: number): boolean => {
 
 type RGBA = readonly [number, number, number, number]
 
+// `top` laid over `bottom`, as the canvas would draw it (0–255 channels)
+export const over = (top: RGBA, bottom: RGBA): [number, number, number, number] => {
+  const a = top[3] / 255
+  const b = bottom[3] / 255
+  const out = a + b * (1 - a)
+  if(out <= 0) return [0, 0, 0, 0]
+  const channel = (i: number) => Math.round((top[i] * a + bottom[i] * b * (1 - a)) / out)
+  return [channel(0), channel(1), channel(2), Math.round(out * 255)]
+}
+
 const css = ([r, g, b, a]: RGBA, alpha = 1) => `rgba(${r}, ${g}, ${b}, ${+((a / 255) * alpha).toFixed(3)})`
 
 

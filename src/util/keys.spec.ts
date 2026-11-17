@@ -1,5 +1,5 @@
 import {
-  isDeleteKey, isExplodeKey, isJoinKey, isTextTarget, isTransportKey, isTypingTarget, transportKeyHandler,
+  isDeleteKey, isExplodeKey, isJoinKey, isLoopSelectionKey, isSliderTarget, isTextTarget, isTransportKey, isTypingTarget, transportKeyHandler,
 } from './keys'
 
 const el = (html: string) => {
@@ -39,6 +39,17 @@ describe('isTextTarget', () => {
     expect(isTextTarget(el('<input type="range">'))).toBe(false)
     expect(isTextTarget(document.body)).toBe(false)
     expect(isTextTarget(null)).toBe(false)
+  })
+})
+
+describe('isSliderTarget', () => {
+  it('is a knob, a fader or a range input', () => {
+    expect(isSliderTarget(el('<div role="slider" tabindex="0"></div>'))).toBe(true)
+    expect(isSliderTarget(el('<input type="range">'))).toBe(true)
+    expect(isSliderTarget(el('<input type="text">'))).toBe(false)
+    expect(isSliderTarget(el('<button></button>'))).toBe(false)
+    expect(isSliderTarget(document.body)).toBe(false)
+    expect(isSliderTarget(null)).toBe(false)
   })
 })
 
@@ -89,6 +100,17 @@ describe('isJoinKey', () => {
     expect(isJoinKey(key('J', { ctrlKey: true }))).toBe(false)
     expect(isJoinKey(key('J', { altKey: true }))).toBe(false)
     expect(isJoinKey(key('E'))).toBe(false)
+  })
+})
+
+describe('isLoopSelectionKey', () => {
+  it('is Shift+L and nothing else held', () => {
+    const key = (k: string, mods = {}) => ({ key: k, shiftKey: true, metaKey: false, ctrlKey: false, altKey: false, ...mods })
+    expect(isLoopSelectionKey(key('L'))).toBe(true)
+    expect(isLoopSelectionKey(key('l'))).toBe(true)
+    expect(isLoopSelectionKey(key('l', { shiftKey: false }))).toBe(false)
+    expect(isLoopSelectionKey(key('L', { metaKey: true }))).toBe(false)
+    expect(isLoopSelectionKey(key('J'))).toBe(false)
   })
 })
 

@@ -20,7 +20,11 @@ import { DRAG_THRESHOLD_PX, wheelIntent } from '../../editing/view'
 import { useThemeChange } from '../../theme/canvas'
 import { Note, Pattern, STEPS_PER_BEAT, rowNotes } from '../../types/sequencer'
 import { View } from '../../types/ui'
-import { isDeleteKey, isTextTarget, isTypingTarget } from '../../util/keys'
+import { isDeleteKey, isSliderTarget, isTextTarget, isTypingTarget } from '../../util/keys'
+import {
+  LANDMARK_NAMES, LandmarkName, Move, landmarkNote, moveForKey, moveTarget, stepFrom, trackStepForKey,
+} from '../playlist/navigation'
+import { postInfoNote } from '../../events/infoNote'
 import { editShortcutHandler } from '../../util/shortcuts'
 import { createAuditioner } from './audition'
 import {
@@ -30,8 +34,8 @@ import {
 import { frameDrawer } from './frames'
 import {
   DEFAULT_LENGTH, carriedNotes, centerPitch, clampPitch, cutNotes, drawnLength, fitSelection, followPlaces, markerStep, moveNotes,
-  newNote, noteBoxes, noteCut, pasteStep, pressKind, rollSnapping, sameNotes, shortestNote, snapStep, sortedWithPlaces,
-  timelineEnd, trimNotes,
+  newNote, noteBoxes, noteCut, pasteStep, pressKind, rollSnapping, sameNotes, shortestNote, snapStep, snaps,
+  sortedWithPlaces, timelineEnd, trimNotes,
 } from './notes'
 import { clamp } from '../../util/helpers'
 
@@ -86,6 +90,29 @@ const NO_OVERLAY: Overlay = { lasso: null, cut: null, edgeBar: null }
 const sameOverlay = (a: Overlay, b: Overlay) => a === b || JSON.stringify(a) === JSON.stringify(b)
 
 const NO_SELECTION: ReadonlySet<number> = new Set()
+
+// the time selection, in steps: where it was started (the anchor) and the
+// end that moves (the edge), as the playlist's (see timeSelection.ts)
+interface TimeSel {
+  anchor: number
+  edge: number
+}
+
+const spanOf = (sel: TimeSel | null) =>
+  (sel ? { start: Math.min(sel.anchor, sel.edge), end: Math.max(sel.anchor, sel.edge) } : null)
+
+// how far in from the grid's edges the keys keep the playhead, in pixels
+const REVEAL_MARGIN_PX = 80
+
+// the Piano Roll's landmarks, as the info bar names them: the ladders are
+// the playlist's, with the pattern for the song and its last note for the
+// loop's end (see navigate)
+const ROLL_LANDMARKS: Record<LandmarkName, string> = {
+  ...LANDMARK_NAMES,
+  'song-start': 'Pattern start',
+  'loop-end': 'Last note end',
+  'song-end': 'Pattern end',
+}
 
 // the canvases, each drawn at most once a frame (see frameDrawer): the grid
 // with the ruler over it, the keyboard, and the notes being carried
@@ -147,6 +174,7 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
   // the notes as they're being dragged, shown ahead of the engine's answers
   const [draft, setDraft] = React.useState<Note[] | null>(null)
   const [selection, setSelection] = React.useState<ReadonlySet<number>>(NO_SELECTION)
+  const [timeSel, setTimeSel] = React.useState<TimeSel | null>(null)
   const [overlay, setOverlayState] = React.useState<Overlay>(NO_OVERLAY)
   const [pressedKey, setPressedKey] = React.useState<number | null>(null)
   // the notes being carried by the mouse, shown as ghosts where they'll land
@@ -191,8 +219,8 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
   // selection are brought up to date as soon as a command changes them, so
   // commands that arrive faster than the page draws act on each other's
   // results (⌘R pressed three times lays three copies end to end)
-  const latest = React.useRef({ notes, selected, patternId: pattern.id, rowId, limit, stepsPerBar })
-  latest.current = { notes, selected, patternId: pattern.id, rowId, limit, stepsPerBar }
+  const latest = React.useRef({ notes, selected, patternId: pattern.id, rowId, limit, stepsPerBar, timeSel })
+  latest.current = { notes, selected, patternId: pattern.id, rowId, limit, stepsPerBar, timeSel }
 
   // the canvases drawn as this render has them, at the next frame
   const drawNow = React.useRef<(layers: ReadonlySet<Layer>) => void>(() => {})
@@ -201,14 +229,25 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
 
   const setOverlay = (next: Overlay) => setOverlayState(prev => (sameOverlay(prev, next) ? prev : next))
 
+  // selecting notes leaves the time selection, and making a time selection
+  // leaves the notes: one selection at a time
   const select = (next: ReadonlySet<number>) => {
     latest.current.selected = next
     setSelection(next)
+    if(next.size) selectTime(null)
+  }
+
+  function selectTime(next: TimeSel | null) {
+    latest.current.timeSel = next
+    setTimeSel(next)
+    if(next) select(NO_SELECTION)
   }
 
   // nothing selected in another pattern or row, and nothing left sounding
   React.useEffect(() => {
     setSelection(NO_SELECTION)
+    setTimeSel(null)
+    playedFrom.current = null
     setDraft(null)
     setOverlayState(NO_OVERLAY)
     press.current = null
@@ -271,7 +310,9 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
     const view = { width, height, scrollX: scroll.x, scrollY: scroll.y, stepWidth }
     if(layers.has('grid')) {
       // (a draft is a drag's, in the order the drag started with)
-      const scene = { length, limit, stepsPerBar, notes: shown, inOrder: !draft, ghosts, selected, landing, ...overlay }
+      const scene = {
+        length, limit, stepsPerBar, notes: shown, inOrder: !draft, ghosts, selected, landing, ...overlay, span: spanOf(timeSel),
+      }
       const grid = fitCanvas(gridRef.current, width, height)
       if(grid) drawGrid(grid, view, scene)
       const ruler = fitCanvas(rulerRef.current, width, RULER_HEIGHT)
@@ -293,7 +334,7 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
   // drawn again whenever something shown changes, once a frame at most
   React.useEffect(() => {
     frames.redraw('grid')
-  }, [frames, size, scroll, stepWidth, length, limit, stepsPerBar, shown, draft, ghosts, selected, landing, overlay, themeChange])
+  }, [frames, size, scroll, stepWidth, length, limit, stepsPerBar, shown, draft, ghosts, selected, landing, overlay, timeSel, themeChange])
   React.useEffect(() => {
     frames.redraw('keys')
   }, [frames, size.height, scroll.y, pressedKey, themeChange])
@@ -314,21 +355,29 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
   transportNow.current = { run: playing ? run : null, startStep, length }
   const lastColour = React.useRef('')
 
-  const placePlayhead = React.useCallback(() => {
-    const line = playheadRef.current
-    if(!line) return
+  // where the playhead is, in steps, and whether it's live (playing, or
+  // being moved): where the run's got to, the ruler's being dragged to (or
+  // was just let go at), or else the start marker
+  const playheadNow = React.useCallback((): { step: number, held: boolean } => {
     const { run: now, startStep: from, length: steps } = transportNow.current
     const s = scrub.current
     const held = !!s && (s.dragging || (s.run === now && Date.now() - s.at < SEEK_HOLD_MS))
 
-    let step = from
-    if(s && held) step = s.step
-    else if(now) {
+    if(s && held) return { step: s.step, held }
+    if(now) {
       // (the run's start time is when its step 0 was heard, even when it
       // started part way in)
       const at = (Date.now() - now.startTimeMs) / (now.beatIntervalMs / STEPS_PER_BEAT)
-      step = ((at % steps) + steps) % steps
+      return { step: ((at % steps) + steps) % steps, held }
     }
+    return { step: from, held }
+  }, [])
+
+  const placePlayhead = React.useCallback(() => {
+    const line = playheadRef.current
+    if(!line) return
+    const { run: now } = transportNow.current
+    const { step, held } = playheadNow()
     line.style.transform = `translateX(${Math.round(step * stepWidthNow.current - scrollX.current)}px)`
 
     const colour = playheadColour(held || !!now)
@@ -336,7 +385,73 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
       lastColour.current = colour
       line.style.color = colour
     }
-  }, [])
+  }, [playheadNow])
+
+  // the step the last run of this pattern started from, for ⌘←
+  const playedFrom = React.useRef<number | null>(null)
+  React.useEffect(() => {
+    if(playing) playedFrom.current = startStep
+  // (only as it starts: a seek while it plays isn't a new start)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing])
+
+  // the start marker moved by the keys: Play starts there, and a run of the
+  // pattern carries on from there (as the ruler moves it)
+  const setMarker = (step: number) => {
+    const now = transportNow.current.run
+    scrub.current = { step, dragging: false, run: now, at: Date.now() }
+    dispatch(setPianoRollStart({ patternId: pattern.id, step }))
+    // eslint-disable-next-line no-console
+    if(now) dispatch(seekPattern(pattern.id, step)).catch(e => console.error('could not move the playhead:', e))
+    placePlayhead()
+  }
+
+  // scroll along, if need be, to show `step` clear of the grid's edges
+  const reveal = (step: number) => {
+    const scroller = scrollerRef.current
+    if(!scroller) return
+    const x = step * stepWidthNow.current
+    const margin = Math.min(REVEAL_MARGIN_PX, scroller.clientWidth / 4)
+    if(x - scroller.scrollLeft < margin) scroller.scrollLeft = Math.max(0, x - margin)
+    else if(x - scroller.scrollLeft > scroller.clientWidth - margin) scroller.scrollLeft = x - scroller.clientWidth + margin
+  }
+
+  // the arrows, Home and End (see navigation.ts): the playhead moves, or
+  // with ⇧ (and the Select tool) the time selection's edge does, as in the
+  // playlist. ⌘← goes to where the pattern last played from, then its
+  // start; ⌘→ to the end of its last note, then its end. the marker can't be
+  // on the pattern's end (Play would start from its start), so it stops on
+  // the last snap line before it
+  const navigate = (move: Move, selecting: boolean) => {
+    if(length <= 0 || (selecting && tool !== 'select')) return
+    if(!selecting) selectTime(null)
+
+    const snap = snapping(false)
+    const step = snaps(snap) ? snap.every : 1
+    const playingNow = !!transportNow.current.run
+    const here = playheadNow().step
+    // a new selection starts at the playhead, on the snap grid while playing
+    const sel = selecting
+      ? latest.current.timeSel ?? { anchor: playingNow ? snapStep(here, snap) : here, edge: playingNow ? snapStep(here, snap) : here }
+      : null
+    const lastNoteEnd = latest.current.notes.reduce((end, note) => Math.max(end, note.start + note.length), 0)
+    const target = moveTarget(move, {
+      playhead: sel ? sel.edge : here,
+      length,
+      step,
+      beatsPerBar: stepsPerBar,
+      landmarks: { lastPlayStart: playedFrom.current, loopStart: null, loopEnd: lastNoteEnd || null, songEnd: length },
+    })
+    if(!target) return
+
+    if(sel) selectTime({ ...sel, edge: target.beat })
+    // (while playing, a selection's edge moves on its own)
+    if(!sel || !playingNow) setMarker(Math.min(target.beat, stepFrom(length, step, -1)))
+    reveal(target.beat)
+    if(target.landmark) {
+      postInfoNote(landmarkNote(target.landmark, target.beat / STEPS_PER_BEAT, stepsPerBar / STEPS_PER_BEAT, ROLL_LANDMARKS))
+    }
+  }
 
   React.useEffect(() => {
     placePlayhead()
@@ -613,8 +728,8 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
   }
 
   // the latest of these, for the listeners on the window
-  const live = React.useRef({ refresh, dropPress, pointAt, snapping })
-  live.current = { refresh, dropPress, pointAt, snapping }
+  const live = React.useRef({ refresh, dropPress, pointAt, snapping, navigate, playheadNow, selectTime })
+  live.current = { refresh, dropPress, pointAt, snapping, navigate, playheadNow, selectTime }
 
   // a press was let go: what's under the mouse is shown again once the
   // notes it changed are drawn (a cut line on the half just cut, not on the
@@ -652,8 +767,21 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
         live.current.snapping(false),
       )
 
+      const snapNow = live.current.snapping(false)
+      const playhead = live.current.playheadNow().step
       const outcome = noteCommand(command, {
-        notes: current, selected: chosen, limit: limitNow, pasteAt, focused: focused(),
+        notes: current,
+        selected: chosen,
+        limit: limitNow,
+        pasteAt,
+        focused: focused(),
+        span: (() => {
+          const span = spanOf(latest.current.timeSel)
+          return span && span.end > span.start ? span : null
+        })(),
+        // (a copied span goes on the snap grid, as the playlist's does)
+        playhead: command === 'paste' ? snapStep(playhead, snapNow) : playhead,
+        shortest: shortestNote(snapNow),
       })
       if(!outcome) return
       if(outcome.notes) {
@@ -664,6 +792,12 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
       if(outcome.selected) {
         latest.current.selected = outcome.selected
         setSelection(outcome.selected)
+      }
+      // a paste or a repeat of a span selects where it went (see TimeSel)
+      if(outcome.span !== undefined) {
+        live.current.selectTime(outcome.span && { anchor: outcome.span.start, edge: outcome.span.end })
+      } else if(outcome.selected?.size) {
+        live.current.selectTime(null)
       }
     }
 
@@ -689,10 +823,33 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
         apply('escape')
         return
       }
+
+      // the arrows, Home and End move the playhead, and with ⇧ select time
+      // (see navigate). ↑/↓ move the selected notes, and with ⇧ an octave.
+      // a knob or slider with the keyboard keeps them. held, steps, bars and
+      // notes repeat, but a jump to a landmark doesn't run on
+      const move = moveForKey(ev)
+      const pitch = trackStepForKey(ev)
+      if((move || pitch) && !ev.defaultPrevented && !isSliderTarget(ev.target)) {
+        ev.preventDefault()
+        if(press.current) return
+        if(move) {
+          if(ev.repeat && move.kind !== 'step' && move.kind !== 'bar') return
+          live.current.navigate(move, ev.shiftKey)
+        } else if(pitch) {
+          // (↑ is a step up the piano)
+          if(pitch < 0) apply(ev.shiftKey ? 'octave-up' : 'up')
+          else apply(ev.shiftKey ? 'octave-down' : 'down')
+        }
+        return
+      }
+
       if(ev.repeat || press.current) return
 
       if(isDeleteKey(ev)) {
-        if(!latest.current.selected.size) return
+        // (the selected notes, or what's in the time selection)
+        const span = spanOf(latest.current.timeSel)
+        if(!latest.current.selected.size && !(span && span.end > span.start)) return
         // Backspace would otherwise navigate back in some webviews
         ev.preventDefault()
         apply('delete')
@@ -820,6 +977,8 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
     const point = pointAt(clientOf(ev))
     if(!point.inside) return
     ev.currentTarget.focus()
+    // a press on the grid leaves the time selection, as a click in text does
+    selectTime(null)
 
     const hit = noteAt(notes, point)
     const edge = hit === null ? null : edgeOf(notes[hit], point)

@@ -393,3 +393,144 @@ fn test_a_new_project_empties_the_clipboard() {
   assert_eq!(state.clipboard.lock().unwrap().len(), 0);
   assert_eq!(paste(&state, 4., None).unwrap(), Placed::default());
 }
+
+// ---- spans (see span.rs) ----
+
+// the pattern clips on a track, as (start, end) in beats, in order
+fn pattern_spans(state: &daw::Session, track: u32) -> Vec<(f64, f64)> {
+  let audiograph = state.playlist.audiograph.lock().unwrap();
+  let interval = audiograph.beat_interval();
+  let beats = |time: Duration| (time.as_secs_f64() / interval.as_secs_f64() * 1e6).round() / 1e6;
+  let mut spans: Vec<(f64, f64)> = audiograph.pattern_nodes.iter()
+    .filter(|node| node.track_number == track)
+    .map(|node| (beats(node.start_offset), beats(node.start_offset + node.duration(interval))))
+    .collect();
+  spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+  spans
+}
+
+fn span(start: f64, end: f64, top: u32, bottom: u32) -> Span {
+  Span { start, end, top, bottom }
+}
+
+#[test]
+fn test_copying_a_span_copies_what_is_inside_and_changes_nothing() {
+  let state = state();
+  // a bar long pattern clip from beat 8 to 12 on track 0, and a sample clip
+  // on track 1, which the span doesn't cover
+  pattern_clip(&state, 0, 8.);
+  sample(&state, 1, 9.);
+  state.history.lock().unwrap().clear();
+  let before = saved(&state);
+
+  assert_eq!(copy_span(&state, span(9., 11., 0, 0)).unwrap(), 1);
+  assert_eq!(saved(&state), before);
+  assert_eq!(steps(&state), 0);
+
+  // pasted on an empty track, it's just the part inside: two beats, as far
+  // from the paste's start as it was from the span's
+  let pasted = paste_span(&state, 20., 2).unwrap();
+  assert_eq!(pattern_spans(&state, 2), vec![(20., 22.)]);
+  assert_eq!(pasted.span, Some(span(20., 22., 2, 2)));
+  assert_eq!(steps(&state), 1);
+}
+
+#[test]
+fn test_clearing_a_span_leaves_a_gap_and_the_rest_where_it_was() {
+  let state = state();
+  let (_, whole) = pattern_clip(&state, 0, 8.);
+  pattern_clip(&state, 0, 16.);
+  state.history.lock().unwrap().clear();
+
+  let cleared = clear_span(&state, span(9., 11., 0, 0)).unwrap();
+  // the clip across it is cut there and its middle taken out. the next clip
+  // (beats 16 to 20) stays where it was
+  assert_eq!(pattern_spans(&state, 0), vec![(8., 9.), (11., 12.), (16., 20.)]);
+  assert_eq!(steps(&state), 1);
+  assert!(!cleared.removed.is_empty());
+  assert!(cleared.clips.pattern_clips.iter().any(|clip| clip.id == whole));
+
+  // one step back puts it all back
+  history::undo(&state).unwrap();
+  assert_eq!(pattern_spans(&state, 0), vec![(8., 12.), (16., 20.)]);
+}
+
+#[test]
+fn test_a_pasted_span_replaces_what_is_there() {
+  let state = state();
+  pattern_clip(&state, 0, 0.);
+  // what the paste lands on: beats 20 to 24 on track 1
+  pattern_clip(&state, 1, 20.);
+  copy_span(&state, span(0., 2., 0, 0)).unwrap();
+  state.history.lock().unwrap().clear();
+
+  paste_span(&state, 21., 1).unwrap();
+  // 21 to 23 replaced, the rest of the clip there either side of it
+  assert_eq!(pattern_spans(&state, 1), vec![(20., 21.), (21., 23.), (23., 24.)]);
+  assert_eq!(steps(&state), 1);
+}
+
+#[test]
+fn test_repeating_a_span_puts_a_copy_straight_after_it() {
+  let state = state();
+  pattern_clip(&state, 0, 8.);
+  state.history.lock().unwrap().clear();
+
+  let repeated = repeat_span(&state, span(8., 10., 0, 0)).unwrap();
+  // beats 10 to 12 of the clip are replaced by a copy of 8 to 10
+  assert_eq!(pattern_spans(&state, 0), vec![(8., 10.), (10., 12.)]);
+  assert_eq!(repeated.span, Some(span(10., 12., 0, 0)));
+  assert_eq!(steps(&state), 1);
+  // and again, from the new span
+  repeat_span(&state, span(10., 12., 0, 0)).unwrap();
+  assert_eq!(pattern_spans(&state, 0), vec![(8., 10.), (10., 12.), (12., 14.)]);
+}
+
+#[test]
+fn test_cutting_a_span_copies_then_clears_it() {
+  let state = state();
+  pattern_clip(&state, 0, 8.);
+  pattern_clip(&state, 1, 8.);
+  state.history.lock().unwrap().clear();
+
+  let cut = cut_span(&state, span(10., 12., 0, 1)).unwrap();
+  assert_eq!(cut.copied, 2);
+  assert_eq!(pattern_spans(&state, 0), vec![(8., 10.)]);
+  assert_eq!(pattern_spans(&state, 1), vec![(8., 10.)]);
+  // the clear is the one step (copying isn't one)
+  assert_eq!(steps(&state), 1);
+
+  // pasted on track 2, the two tracks keep their order
+  paste_span(&state, 0., 2).unwrap();
+  assert_eq!(pattern_spans(&state, 2), vec![(0., 2.)]);
+  assert_eq!(pattern_spans(&state, 3), vec![(0., 2.)]);
+}
+
+#[test]
+fn test_span_edits_refuse_what_isnt_a_span() {
+  let state = state();
+  assert!(copy_span(&state, span(4., 4., 0, 0)).is_err());
+  assert!(clear_span(&state, span(-1., 4., 0, 0)).is_err());
+  assert!(repeat_span(&state, span(0., 4., 2, 1)).is_err());
+  // nothing copied as a span yet
+  assert!(paste_span(&state, 0., 0).is_err());
+}
+
+#[test]
+fn test_a_span_across_a_sample_clip_copies_its_end_and_leaves_it_whole() {
+  let state = state();
+  // a short sample clip on beat 4: the span starts 50ms into it
+  let kick = sample(&state, 0, 4.);
+  state.history.lock().unwrap().clear();
+  let before = saved(&state);
+
+  assert_eq!(copy_span(&state, span(4.1, 6., 0, 0)).unwrap(), 1);
+  assert_eq!(saved(&state), before);
+
+  // the copy is the clip from 50ms in, at the paste's start
+  let pasted = paste_span(&state, 8., 0).unwrap();
+  let copy = &pasted.clips.clips[0];
+  assert!(copy.id != kick);
+  assert!((copy.start_beat - 8.).abs() < 1e-5);
+  assert!((copy.info.window.unwrap().start - 0.05).abs() < 1e-6);
+}

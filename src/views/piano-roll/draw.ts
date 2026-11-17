@@ -27,6 +27,8 @@ export const ROW_HEIGHT = 16
 // the keyboard's width, and the ruler's height
 export const KEYS_WIDTH = 56
 export const RULER_HEIGHT = 20
+// how tall the time selection's bar in the ruler is
+const SPAN_MARK_PX = 3
 // narrower steps than this have no line between them, only beats and bars
 const STEP_LINES_FROM = 8
 // how far the grid runs on, in bars: past the pattern's end, and past the
@@ -196,6 +198,8 @@ export interface GridScene {
   // an edge with a bar on it: of the note a press would trim, or of those
   // being trimmed
   edgeBar: { ids: ReadonlyArray<number>, edge: Edge } | null
+  // the time selection, in steps (start first), over every pitch
+  span: { start: number, end: number } | null
 }
 
 // a drawing of the grid: where on the canvas, and what's in view of it,
@@ -381,7 +385,25 @@ export const drawGrid = (ctx: CanvasRenderingContext2D, view: Viewport, scene: G
   drawPastEnd(frame, scene.length)
   drawGhosts(frame, scene.ghosts)
   drawNotes(frame, scene)
+  drawSpan(frame, scene.span)
   drawMarks(frame, scene)
+}
+
+// the time selection over every pitch: a wash, with a line at each end, in
+// the playlist's colours for its own
+const drawSpan = ({ ctx, view }: GridFrame, span: GridScene['span']) => {
+  if(!span) return
+  const { height, scrollX, stepWidth } = view
+  const left = span.start * stepWidth - scrollX
+  const right = span.end * stepWidth - scrollX
+  ctx.fillStyle = lanes.css('timeSelection')
+  ctx.fillRect(left, 0, right - left, height)
+  ctx.beginPath()
+  ctx.lineWidth = 1
+  ctx.strokeStyle = lanes.css('timeSelectionEdge')
+  vline(ctx, left, 0, height)
+  vline(ctx, right, 0, height)
+  ctx.stroke()
 }
 
 // the notes being carried by the mouse, on their own canvas over the grid,
@@ -418,7 +440,7 @@ export const playheadColour = (active: boolean): string => {
 export const drawRuler = (
   ctx: CanvasRenderingContext2D,
   { width, scrollX, stepWidth }: Pick<Viewport, 'width' | 'scrollX' | 'stepWidth'>,
-  { length, limit, stepsPerBar }: Pick<GridScene, 'length' | 'limit' | 'stepsPerBar'>,
+  { length, limit, stepsPerBar, span = null }: Pick<GridScene, 'length' | 'limit' | 'stepsPerBar'> & Partial<Pick<GridScene, 'span'>>,
 ) => {
   const height = RULER_HEIGHT
   const end = length * stepWidth - scrollX
@@ -448,6 +470,14 @@ export const drawRuler = (
     const x = step * stepWidth - scrollX
     if(x > width) break
     if(x >= -40) ctx.fillText(String(step / stepsPerBar + 1), x + 4, height / 2)
+  }
+
+  // the time selection's span: a bar along the foot (a line, while it
+  // covers no time), over the ticks
+  if(span) {
+    const left = span.start * stepWidth - scrollX
+    ctx.fillStyle = lanes.css('timeSelectionEdge')
+    ctx.fillRect(left, height - SPAN_MARK_PX, Math.max((span.end - span.start) * stepWidth, 1), SPAN_MARK_PX)
   }
 
   if(end >= 0 && end <= width) {

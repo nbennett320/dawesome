@@ -30,6 +30,9 @@ pub struct Clipboard {
   // the tempo they were copied at. pasted at another, they keep their
   // beats rather than their times
   tempo: f32,
+  // when what was copied was a span of time (see span.rs), rather than
+  // clips: its clips are then as far from the span's start as they were
+  span: Option<span::CopiedSpan>,
 }
 
 impl Clipboard {
@@ -39,6 +42,7 @@ impl Clipboard {
 
   pub fn clear(&mut self) {
     self.clips.clear();
+    self.span = None;
   }
 }
 
@@ -141,6 +145,7 @@ pub(crate) fn copy(state: &daw::Session, ids: &[u64]) -> usize {
   let first = start_of(&clips[0]);
   let interval = audiograph.beat_interval().as_secs_f64();
   clipboard.tempo = audiograph.tempo();
+  clipboard.span = None;
   clipboard.clips = clips.into_iter().map(|clip| {
     let after = start_of(&clip) - first;
     Copied { beats_after: if interval > 0. { after.as_secs_f64() / interval } else { 0. }, after, clip }
@@ -232,6 +237,9 @@ pub(crate) fn repeat(state: &daw::Session, ids: &[u64]) -> Result<Placed, String
 
   Ok(Placed { clips: changed_clips(state, &made), left_out })
 }
+
+mod span;
+pub(crate) use span::{clear_span, copy_span, cut_span, paste_span, repeat_span, Span, SpanEdit};
 
 #[cfg(test)]
 mod tests;

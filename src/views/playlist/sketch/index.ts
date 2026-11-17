@@ -21,7 +21,7 @@ import { CutItem, canCut, cutPoint, cutTargets } from '../../../editing/cut'
 import { onThemeChange } from '../../../theme/apply'
 import { paint, patternColors, theme, trackPaint } from './theme'
 import { painter } from '../../../theme/canvas'
-import { LIP, LipLook, drawLip, fitName, inBox, lipBox, lipWidth, onLed } from './lip'
+import { LIP, LipLook, drawLip, fitName, inBox, lipBox, lipWidth, onLed, over } from './lip'
 import { LiveTake, liveTakeSpan } from './liveTake'
 import {
   LOOP_GRAB_PX, LoopDrag, LoopMarks, doubleClickClears, draggedMarks, handleAt, loopChange, loopMarks, moveLoopDrag,
@@ -41,10 +41,18 @@ import { drawCutLine, drawLasso } from '../../../editing/look'
 import { Tool } from '../../../editing/tools'
 import { DRAG_THRESHOLD_PX, wheelIntent, zoomAround } from '../../../editing/view'
 import type { MovedNode as Landed } from '../../../state/slices/playlistSlice'
+import type { Span as TimeSpan } from '../../../types/project'
 import { PlaceableItem as DragItem, dragItemKey } from '../../../state/sampleDrag'
 import { Pattern, SequencerState, patternSeconds } from '../../../types/sequencer'
 import { decodeLevels } from '../../../util/waveform'
-import { gridSteps, maxScale, openingScale, panForWidth, visibleBeats } from './grid'
+import {
+  fitSpan, gridSteps, maxScale, openingScale, panForWidth, panToShow, scrollToShow, visibleBeats,
+} from './grid'
+import { LandmarkName, Move, landmarks, moveTarget } from '../navigation'
+import { LANDING, flashStrength, glideBeat } from './landing'
+import {
+  TimeSelection, blockOf, isEmptySpan, shiftTracks, bladePlan, startAt, withEdgeBeat, withEdgeTrack,
+} from '../timeSelection'
 import { lineLevel, tileStep } from '../../../editing/beatGrid'
 import {
   Edge, MAX_PITCH, Snapping, Span, StretchClip, TrimClip, edgeAt, patternTrimClip, pitchOf, sampleTrimClip,
@@ -98,8 +106,9 @@ export interface CanvasProps extends SketchProps {
   transportRevision: number
   // whether the playlist loops (the ruler marks where the loop ends)
   loopEnabled: boolean
-  // move the playhead to a beat (clicking or dragging in the ruler)
-  onSeek: (beat: number) => void
+  // move the playhead to a beat (clicking or dragging in the ruler, or the
+  // arrow keys). a promise, if any, settles once the engine has moved it
+  onSeek: (beat: number) => unknown
   // the loop's region was drawn (or an edge dragged) between two beats, in
   // either order (the same beat for none), or cleared with a double-click
   onLoopRegion: (start: number, end: number) => void
@@ -120,6 +129,9 @@ export interface CanvasProps extends SketchProps {
   onAddTrack: () => Promise<unknown>
   // the grid's step changed, in beats
   onGridStep?: (beats: number) => void
+  // a track was pressed on, landed on, or moved to with ↑/↓ (see
+  // Renderer.touchTrack)
+  onCurrentTrack?: (track: number) => void
 }
 
 // how the Cut tool's cursor is drawn: a razor blade, its middle on the
@@ -200,6 +212,19 @@ const AUTO_SCROLL = {
   // pixels per frame, at the very edge
   maxSpeed: 12,
 }
+
+// how wide the bar marking the current track is, in pixels
+const CURRENT_EDGE_PX = 2
+
+// how much ⌘= and ⌘− zoom by, each press
+const ZOOM_KEY_FACTOR = 1.5
+
+// how far in from the view's edges ⇧Z fits a span, in pixels
+const FIT_MARGIN_PX = 40
+
+// how far in from the timeline's edges the keys keep the playhead, in pixels
+// (on the right, clear of the tracks' name tabs)
+const REVEAL_MARGIN_PX = 160
 
 // a wheel event's delta in lines (a mouse wheel on some systems), in pixels
 // how long the playlist keeps drawing after something changes (see
@@ -401,7 +426,10 @@ export class Renderer extends RendererBase {
   seekBeat: number | null = null
   seekDragging = false
   #seekTimeout: ReturnType<typeof setTimeout> | null = null
-  onSeek!: (beat: number) => void
+  // seeks from the keys still on their way to the engine: until they've all
+  // arrived, a transport fetched in between is behind the playhead shown
+  #keySeeks = 0
+  onSeek!: (beat: number) => unknown
   // a loop edge (or the end flag) being dragged in the ruler, or a region
   // being drawn, or one just let go (shown until the engine confirms it)
   #loopDrag: LoopDrag | null = null
@@ -473,7 +501,19 @@ export class Renderer extends RendererBase {
   sequencer: SequencerState = { rows: [], patterns: [], folders: [] }
 
   // the clips picked with shift+click or a shift+drag box, by id
-  selectedIds: Set<number> = new Set()
+  // the selected clips. selecting any clears the time selection: there's
+  // one selection at a time
+  #selectedIds: Set<number> = new Set()
+  get selectedIds(): Set<number> {
+    return this.#selectedIds
+  }
+  set selectedIds(ids: Set<number>) {
+    this.#selectedIds = ids
+    if(ids.size) this.timeSelection = null
+  }
+  // the time selection (see timeSelection.ts), made with ⇧ and the arrow
+  // keys. making one clears the clip selection
+  timeSelection: TimeSelection | null = null
   // the box being dragged out with shift held, if any
   lasso: Lasso | null = null
   // a press with shift held that hasn't moved far enough to be a box yet:
@@ -601,7 +641,7 @@ export class Renderer extends RendererBase {
 
       this.transport = transport
       // a released seek has reached the engine, and so has a loop edge
-      if(!this.seekDragging) this.seekBeat = null
+      if(!this.seekDragging && this.#keySeeks === 0) this.seekBeat = null
       if(!this.#loopDragging) this.#loopDrag = null
     } catch(e) {
       console.error('could not sync the playback cursor:', e)
@@ -635,14 +675,159 @@ export class Renderer extends RendererBase {
     if(!this.seekDragging || this.seekBeat === null) return
     this.seekDragging = false
 
-    const beat = this.seekBeat
-    this.onSeek?.(beat)
+    this.onSeek?.(this.seekBeat)
+    this.#holdSeekBeat()
+  }
 
+  // in case the engine never confirms a seek: show the engine's playhead
+  // again after a moment
+  #holdSeekBeat = () => {
     if(this.#seekTimeout) clearTimeout(this.#seekTimeout)
     this.#seekTimeout = setTimeout(() => {
       if(!this.seekDragging) this.seekBeat = null
       this.wake()
     }, 1500)
+  }
+
+  // a move from the keyboard (see navigation.ts): the playhead goes there at
+  // once, and the timeline scrolls to keep it in view. returns where it went
+  // and the landmark it's on, or null if it didn't move. while the ruler's
+  // being dragged, the drag wins
+  navigate = (move: Move, select = false): { beat: number, landmark: LandmarkName | null } | null => {
+    const t = this.transport
+    const playhead = this.playheadBeat()
+    if(!t || playhead === null || this.seekDragging) return null
+    // ⇧ selects with the Select tool, and does nothing with the others
+    if(select && this.tool !== 'select') return null
+    // a plain move leaves the time selection, as a text cursor's does
+    if(!select) this.clearTimeSelection()
+
+    // a selection moves its edge. a new one starts at the playhead
+    const sel = select ? this.timeSelection ?? this.#newTimeSelection(playhead) : null
+    const { enabled, beats } = this.snap
+    const target = moveTarget(move, {
+      playhead: sel ? sel.edgeBeat : playhead,
+      length: this.beatsDisplayed,
+      // with snap off, a step is one line of the grid at this zoom
+      step: enabled && beats > 0 ? beats : this.#gridStep || 1,
+      beatsPerBar: t.beatsPerBar,
+      landmarks: landmarks(t),
+    })
+    if(!target) return null
+
+    if(sel) this.#setTimeSelection(withEdgeBeat(sel, target.beat))
+    // the playhead goes there, but while playing, a selection's edge moves
+    // on its own and playback carries on
+    const moves = !sel || !this.playing
+    const from = this.shownPlayheadBeat()
+    if(moves) this.#seekTo(target.beat)
+    if(target.landmark) this.#markLanding(target.beat, moves ? from : null)
+    // (a step is instant: one in the middle of a glide ends it)
+    else this.#glide = null
+    this.revealBeat(target.beat)
+    return target
+  }
+
+  // a jump to a landmark (see landing.ts): the playhead glides there from
+  // `from` (null: it didn't move), and the ruler flashes there. with
+  // experimental animations on, and no glide with reduced motion
+  #glide: { from: number, at: number } | null = null
+  #flash: { beat: number, at: number } | null = null
+
+  #markLanding = (beat: number, from: number | null) => {
+    if(!this.experimentalAnimations) return
+    const now = performance.now()
+    const still = !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    this.#glide = from !== null && !still ? { from, at: now } : null
+    this.#flash = { beat, at: now }
+    this.wake()
+  }
+
+  // the playhead as it's drawn: part way to a landmark while it glides (to
+  // where it is, which carries on while playing)
+  shownPlayheadBeat = (): number | null => {
+    const beat = this.playheadBeat()
+    const glide = this.#glide
+    if(beat === null || !glide) return beat
+    return glideBeat(glide.from, beat, performance.now() - glide.at)
+  }
+
+  // the flash where a jump landed, while it shows: the beat, and how strong
+  landmarkFlash = (): { beat: number, strength: number } | null => {
+    const flash = this.#flash
+    if(!flash) return null
+    return { beat: flash.beat, strength: flashStrength(performance.now() - flash.at) }
+  }
+
+  // whether a glide or a flash is still going, letting go of ones that are
+  // over
+  #landing = (): boolean => {
+    const now = performance.now()
+    if(this.#glide && now - this.#glide.at >= LANDING.glideMs) this.#glide = null
+    if(this.#flash && now - this.#flash.at >= LANDING.flashMs) this.#flash = null
+    return this.#glide !== null || this.#flash !== null
+  }
+
+  // the playhead moved by the keys or a click: shown there at once, and
+  // kept there until every such seek has reached the engine
+  #seekTo = (beat: number) => {
+    this.seekBeat = beat
+    this.#keySeeks += 1
+    Promise.resolve(this.onSeek?.(beat)).finally(() => {
+      this.#keySeeks -= 1
+      this.#holdSeekBeat()
+    })
+  }
+
+  // a time selection starting at the playhead, on the current track: on the
+  // snap grid while playing, as the playhead's between lines
+  #newTimeSelection = (playhead: number): TimeSelection =>
+    startAt(this.playing ? this.snapBeat(playhead) : playhead, this.shownTrack())
+
+  // a time selection made or changed by the keys: the clips leave the
+  // selection
+  #setTimeSelection = (sel: TimeSelection) => {
+    this.clearSelection()
+    this.timeSelection = sel
+    this.wake()
+  }
+
+  clearTimeSelection = () => {
+    if(!this.timeSelection) return
+    this.timeSelection = null
+    this.wake()
+  }
+
+  // what range edits act on (⌘C, ⌘X, ⌘R, Delete): the time selection's
+  // block, if it covers any time
+  selectedBlock = (): TimeSpan | null => {
+    const sel = this.timeSelection
+    return sel && !isEmptySpan(sel) ? blockOf(sel) : null
+  }
+
+  // select the span a paste or a repeat filled, as a time selection: its
+  // moving edge at its end, and on the current track if that's one of its
+  // tracks (otherwise its top, which becomes current)
+  selectSpan = (span: TimeSpan) => {
+    const current = this.shownTrack()
+    const edgeTrack = current >= span.top && current <= span.bottom ? current : span.top
+    const anchorTrack = edgeTrack === span.top ? span.bottom : span.top
+    this.#setTimeSelection({ anchorBeat: span.start, edgeBeat: span.end, anchorTrack, edgeTrack })
+    if(edgeTrack !== this.currentTrack) this.#makeCurrent(edgeTrack)
+  }
+
+  // what ⇧L loops: the time selection's span, if it covers any time
+  selectedSpan = (): { start: number, end: number } | null => {
+    const sel = this.timeSelection
+    if(!sel || isEmptySpan(sel)) return null
+    const { start, end } = blockOf(sel)
+    return { start, end }
+  }
+
+  // scroll along the timeline, if need be, to bring `beat` into view
+  revealBeat = (beat: number) => {
+    this.transformX = panToShow(this.transformX, this.beatToX(beat), this.currentScale, this.width, REVEAL_MARGIN_PX)
+    this.wake()
   }
 
   // back to how the playlist opens: its first bars, from the top (a project
@@ -838,6 +1023,73 @@ export class Renderer extends RendererBase {
   // ---- the Cut tool ----
 
   // (called on every store update, so only a change does anything)
+  // the track the keyboard edits (see PlaylistState.currentTrack), as the
+  // store has it
+  currentTrack = 0
+  onCurrentTrack?: (track: number) => void
+
+  setCurrentTrack = (track: number) => {
+    if(track === this.currentTrack) return
+    this.currentTrack = track
+    this.wake()
+  }
+
+  // a track was pressed on, or landed on: it's the current one now, shown at
+  // once. the track just past the last counts (a clip landing there makes it)
+  touchTrack = (track: number) => {
+    if(!Number.isInteger(track) || track < 0 || track > this.trackCount) return
+    // the time selection's edge is on the current track: another track
+    // leaves it
+    if(this.timeSelection && track !== this.timeSelection.edgeTrack) this.clearTimeSelection()
+    this.#makeCurrent(track)
+  }
+
+  #makeCurrent = (track: number) => {
+    this.setCurrentTrack(track)
+    this.onCurrentTrack?.(track)
+  }
+
+  // the current track as drawn: one of the tracks there are
+  shownTrack = (): number => Math.max(0, Math.min(this.currentTrack, this.trackCount - 1))
+
+  // ↑ or ↓: the track above or below becomes the current one, stopping at
+  // the first and last, and scrolls into view. a time selection moves with
+  // it, whole. with ⇧ (and the Select tool), the selection grows over that
+  // track instead, or starts there from the playhead
+  stepTrack = (dir: -1 | 1, select = false) => {
+    if(this.trackCount <= 0) return
+    if(select && this.tool !== 'select') return
+
+    const sel = this.timeSelection
+    let to: number
+    if(select) {
+      const playhead = this.playheadBeat()
+      if(!sel && playhead === null) return
+      const grown = withEdgeTrack(sel ?? this.#newTimeSelection(playhead ?? 0), dir, this.trackCount)
+      this.#setTimeSelection(grown)
+      to = grown.edgeTrack
+    } else if(sel) {
+      // (against the first or last track, it stays)
+      const moved = shiftTracks(sel, dir, this.trackCount)
+      if(!moved) return
+      this.timeSelection = moved
+      to = moved.edgeTrack
+    } else {
+      to = clamp(this.shownTrack() + dir, 0, this.trackCount - 1)
+    }
+
+    if(to !== this.currentTrack) this.#makeCurrent(to)
+    this.revealTrack(to)
+  }
+
+  // scroll the tracks, if need be, to show a whole lane below the ruler
+  revealTrack = (track: number) => {
+    const top = trackTop(track)
+    const bottom = top + staticDefaults.trackHeight
+    this.scrollTo(scrollToShow(this.scrollY, top, bottom, staticDefaults.timelineHeight, this.height))
+    this.wake()
+  }
+
   setTool = (tool: Tool) => {
     if(tool === this.tool) return
     this.tool = tool
@@ -899,6 +1151,7 @@ export class Renderer extends RendererBase {
     // a pattern that's gone paints a new one, as its phantom showed
     const pattern = this.paintPatternId !== null && this.patternOf(this.paintPatternId) ? this.paintPatternId : null
     this.onPaint(pattern, painting.track, painting.start, painting.end)
+    this.touchTrack(painting.track)
     this.wake()
   }
 
@@ -1026,6 +1279,16 @@ export class Renderer extends RendererBase {
     const clip = obj ? this.trimClipOf(obj) : null
     const beat = this.playheadBeat()
     return clip && beat !== null && canCut(clip, beat) ? beat : null
+  }
+
+  // what Blade (⌘B) cuts (see bladePlan): the playhead's unsnapped, as
+  // "Split at playhead"
+  bladeTarget = (): { ids: number[], beats: number[] } | null => {
+    const clips = this.playlistObjects.flatMap(obj => {
+      const clip = this.trimClipOf(obj)
+      return clip ? [{ track: obj.playlistItem.trackNumber, clip }] : []
+    })
+    return bladePlan(this.timeSelection, this.playheadBeat(), this.shownTrack(), clips)
   }
 
   // ---- trimming: dragging a clip's edge ----
@@ -1307,6 +1570,7 @@ export class Renderer extends RendererBase {
       || this.edgeDrag !== null
       || this.#paint !== null
       || this.seekDragging
+      || this.#landing()
       || this.#loopDragging
       || this.scrollbarGrab !== null
       // armed lips pulse
@@ -1881,11 +2145,14 @@ export class Renderer extends RendererBase {
       rec: fourtrackPaint.rgba('ledRedOn'),
     }
     // (lanes aren't shaded: the lines between them set them apart, so a
-    // lip sits on the plain background)
-    const lane = paint.rgba('background')
+    // lip sits on the plain background. but the current one's tinted)
+    const plain = paint.rgba('background')
+    const current = over(paint.rgba('currentLane'), plain)
+    const shown = this.shownTrack()
 
     this.#lipBoxes().forEach(({ track, box, text }) => {
       const led = this.trackRgba(track)
+      const lane = track === shown ? current : plain
       drawLip(ctx, box, text, { ...base, lane, led }, {
         lit: sounding.has(track),
         ring: this.#ring(track),
@@ -1893,6 +2160,40 @@ export class Renderer extends RendererBase {
         recording: this.recording,
       })
     })
+  }
+
+  // the time selection over its lanes: a wash, with a line at each end
+  // (one line, while it covers no time). called inside the zoom/pan
+  // transform, with the x of a beat
+  #drawTimeSelection = (p: P5CanvasInstance<CanvasProps>, beatX: (beat: number) => number) => {
+    const sel = this.timeSelection
+    if(!sel) return
+    const { start, end, top, bottom } = blockOf(sel)
+    const y = trackTop(top)
+    const h = trackTop(bottom) + staticDefaults.trackHeight - y
+
+    p.push()
+    p.noStroke()
+    paint.fill(p, 'timeSelection')
+    p.rect(beatX(start), y, beatX(end) - beatX(start), h)
+    // 1px whatever the zoom
+    paint.stroke(p, 'timeSelectionEdge')
+    p.strokeWeight(1 / this.currentScale)
+    p.line(beatX(start), y, beatX(start), y + h)
+    p.line(beatX(end), y, beatX(end), y + h)
+    p.pop()
+  }
+
+  // a thin bar down the left edge of the current track's lane, pinned there
+  // as the timeline scrolls. under the ruler, which covers it as the lane
+  // scrolls up
+  #drawCurrentEdge = (p: P5CanvasInstance<CanvasProps>) => {
+    if(this.trackCount <= 0) return
+    p.push()
+    p.noStroke()
+    paint.fill(p, 'currentTrackEdge')
+    p.rect(0, trackTop(this.shownTrack()) - this.scrollY + 1, CURRENT_EDGE_PX, staticDefaults.trackHeight)
+    p.pop()
   }
 
   #drawScrollbar = (p: P5CanvasInstance<CanvasProps>) => {
@@ -1923,6 +2224,45 @@ export class Renderer extends RendererBase {
     })
   }
 
+  // ⌘= / ⌘−: zoom in (1) or out (-1) a step, around the playhead, or the
+  // view's middle while the playhead's off screen
+  zoomStep = (dir: 1 | -1) => {
+    const beat = this.shownPlayheadBeat()
+    const x = beat === null ? null : this.transformX + this.beatToX(beat) * this.currentScale
+    const around = x !== null && x >= 0 && x <= this.width ? x : this.width / 2
+    this.#zoomBy(dir > 0 ? ZOOM_KEY_FACTOR : 1 / ZOOM_KEY_FACTOR, around)
+    this.wake()
+  }
+
+  // ⇧Z: fit the time selection across the view. with none, the loop (its
+  // region, or up to the end flag while looping), or else the song. false
+  // if there's nothing to fit
+  zoomToFit = (): boolean => {
+    const span = this.selectedSpan() ?? this.#loopSpan() ?? this.#songSpan()
+    if(!span || !(this.width > 0)) return false
+    const most = maxScale(this.width, this.beatsDisplayed)
+    const { scale, pan } = fitSpan(span.start, span.end, this.beatsDisplayed, this.width, FIT_MARGIN_PX, most)
+    this.currentScale = scale
+    this.transformX = pan
+    this.playlistObjects.forEach(obj => {
+      obj.currentScale = scale
+    })
+    this.wake()
+    return true
+  }
+
+  #loopSpan = (): { start: number, end: number } | null => {
+    const { region, flag } = this.loopMarks()
+    if(region) return region
+    return flag !== null && flag > 0 ? { start: 0, end: flag } : null
+  }
+
+  #songSpan = (): { start: number, end: number } | null => {
+    const t = this.transport
+    const end = t && t.beatIntervalMs > 0 ? t.songEndMs / t.beatIntervalMs : 0
+    return end > 0 ? { start: 0, end } : null
+  }
+
   // pull the zoom back within maxScale, keeping the beat at the left edge.
   // the limit depends on the canvas width and the playlist's length, so a
   // resize or a new project can leave the zoom past it without any zooming
@@ -1950,6 +2290,9 @@ export class Renderer extends RendererBase {
   secondsToWidth = (seconds: number): number =>
     this.beatToX(seconds * this.tempo / 60)
 
+  // whether empty space is being dragged, which pans the playlist
+  #panning = (): boolean => this.isMouseDown && this.isMouseDragged && !this.clipDrag
+
   // whether something on the playlist is being dragged, or pressed: keys
   // that change the clips wait until it's let go
   isDragging = (): boolean =>
@@ -1958,6 +2301,13 @@ export class Renderer extends RendererBase {
   #handleRightClick = (ev: MouseEvent, p: P5CanvasInstance<CanvasProps>) => {
     // not in the middle of dragging an edge, or painting
     if(this.edgeDrag || this.#paint) return
+
+    // a right-click on a lane (a clip, empty space, its lip) makes its track
+    // the current one, as a click does
+    if(!overRuler(p.mouseY) && !this.overScrollbar(p.mouseX, p.mouseY)) {
+      const lane = this.trackAt(this.screenToPlaylistY(p.mouseY))
+      if(lane < this.trackCount) this.touchTrack(lane)
+    }
 
     // the clip on top, as for clicks (not one hidden under the timeline)
     const item = this.clipUnderMouse()
@@ -2052,6 +2402,17 @@ export class Renderer extends RendererBase {
           if(overRuler(p.mouseY)) {
             if(!this.#startLoopDrag(p.mouseX, ev.shiftKey)) this.#startSeek(p.mouseX)
             return
+          }
+
+          // whatever's pressed on a lane (a clip, empty space, its lip) makes
+          // its track the current one. not the area below the last track,
+          // where a track is only made once something lands
+          // (from the event: p5 hasn't caught its own mouse position up)
+          const lane = this.trackAt(this.screenToPlaylistY(ev.offsetY))
+          if(lane < this.trackCount) {
+            // and leaves the time selection, as a click in text does
+            this.clearTimeSelection()
+            this.touchTrack(lane)
           }
 
           // a lane's lip is its own control: the press doesn't reach the
@@ -2215,10 +2576,18 @@ export class Renderer extends RendererBase {
           } else {
             this.onNodeMove(drag.item.playlistItem, target.beat, target.trackNumber, target.snappedBeat)
           }
+          // the track the clip that was held lands on
+          this.touchTrack(target.trackNumber)
         }
 
         // a click on empty space (not a pan) clears the selection
         if(this.#pressedOnEmpty && !this.isMouseDragged) this.clearSelection()
+        // and with the Select tool, a click (not a drag or a pan) on a clip
+        // or on empty space moves the playhead there, snapped, as a click
+        // in the ruler does
+        if(this.tool === 'select' && this.isMouseDown && !this.isMouseDragged && (!ev || ev.button === 0)) {
+          this.#seekTo(this.rulerBeat(p.mouseX))
+        }
         this.#pressedOnEmpty = false
         this.#endShiftPress(p)
         this.lasso = null
@@ -2268,6 +2637,7 @@ export class Renderer extends RendererBase {
         this.#shiftPress = null
         this.lasso = null
         this.clearSelection()
+        this.clearTimeSelection()
         this.wake()
       }
 
@@ -2370,6 +2740,7 @@ export class Renderer extends RendererBase {
       this.onNodesMove = props.onNodesMove
       this.onNodeDoubleClick = props.onNodeDoubleClick
       this.onSeek = props.onSeek
+      this.onCurrentTrack = props.onCurrentTrack
       this.onLoopRegion = props.onLoopRegion
       this.onClearLoopRegion = props.onClearLoopRegion
       this.onLoopEnd = props.onLoopEnd
@@ -2600,12 +2971,20 @@ export class Renderer extends RendererBase {
         p.line(x, 0, x, gridBottom)
       }
 
+      // the current track's lane, a shade apart: the one the keyboard edits
+      if(trackCount > 0) {
+        p.noStroke()
+        paint.fill(p, 'currentLane')
+        p.rect(0, trackTop(this.shownTrack()), width, staticDefaults.trackHeight)
+      }
+
       // render playlist tracks
       this.playlistTracks.forEach(track => {
         track.render()
       })
       // outside a loop region, a little dimmed while it loops
       this.#drawOutsideLoop(p, beatX)
+      this.#drawTimeSelection(p, beatX)
 
       // what's being recorded, over the clips it records over
       this.#drawLiveTake(p)
@@ -2617,6 +2996,7 @@ export class Renderer extends RendererBase {
       
       p.pop()
 
+      this.#drawCurrentEdge(p)
       this.#drawTrackLips(p)
       this.#drawNewTrackArea(p, canvas)
       // under the ruler, which covers it when it reaches past the top
@@ -2642,6 +3022,8 @@ export class Renderer extends RendererBase {
         p.cursor('ew-resize')
       } else if(this.lasso || this.#paint) {
         p.cursor(p.CROSS)
+      } else if(this.#panning()) {
+        p.cursor('grabbing')
       } else if(this.scrollbarGrab !== null || this.overScrollbar(p.mouseX, p.mouseY)) {
         p.cursor(p.ARROW)
       } else if(!this.clipDrag?.active && !this.sampleDrag && this.lipAt(p.mouseX, p.mouseY) !== null) {

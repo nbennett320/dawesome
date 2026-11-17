@@ -899,3 +899,56 @@ describe('the Piano Roll', () => {
     })
   })
 })
+
+describe('the Piano Roll keys', () => {
+  // where Play starts from in pattern 0
+  const marker = () => store.getState().pianoRoll.startSteps[0] ?? 0
+
+  it('move the start marker by a snap step, a bar, and to the landmarks', async () => {
+    await open([note(60, 0, 6)])
+    key('ArrowRight')
+    key('ArrowRight')
+    expect(marker()).toBe(2)
+    // ⌘→ (Ctrl here): the end of the last note, then the pattern's end,
+    // which the marker stops a snap step short of
+    key('ArrowRight', { ctrlKey: true })
+    expect(marker()).toBe(6)
+    key('ArrowRight', { ctrlKey: true })
+    expect(marker()).toBe(15)
+    key('Home')
+    expect(marker()).toBe(0)
+  })
+
+  it('move the selected notes a semitone, and with ⇧ an octave', async () => {
+    await open([note(60, 0)], 'select')
+    click(at(1, 60))
+    key('ArrowUp')
+    await waitFor(() => expect(lastNotes()).toEqual([note(61, 0)]))
+    key('ArrowDown', { shiftKey: true })
+    await waitFor(() => expect(lastNotes()).toEqual([note(49, 0)]))
+  })
+
+  it('select time with ⇧ and the Select tool, which Delete clears', async () => {
+    await open([note(60, 0, 8)], 'select')
+    key('ArrowRight', { shiftKey: true })
+    key('ArrowRight', { shiftKey: true })
+    key('Delete')
+    await waitFor(() => expect(lastNotes()).toEqual([note(60, 2, 6)]))
+  })
+
+  it("don't select with the Draw tool", async () => {
+    await open([note(60, 0, 8)], 'draw')
+    key('ArrowRight', { shiftKey: true })
+    key('Delete')
+    expect(calls('set_pattern_notes')).toEqual([])
+  })
+
+  it('cut the notes under the playhead with ⌘B', async () => {
+    await open([note(60, 0, 8)])
+    key('ArrowRight')
+    key('ArrowRight')
+    key('ArrowRight')
+    key('b', { ctrlKey: true })
+    await waitFor(() => expect(lastNotes()).toEqual([note(60, 0, 3), note(60, 3, 5)]))
+  })
+})

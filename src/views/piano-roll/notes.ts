@@ -92,7 +92,7 @@ export const rollSnapping = (enabled: boolean, note: SnapNote, bypass: boolean):
 export const MIN_NOTE_LENGTH = 1 / 32
 
 // whether anything snaps just now: snap is on, and Option isn't held
-const snaps = (snap: Snapping): boolean => snap.enabled && !snap.bypass && snap.every > 0
+export const snaps = (snap: Snapping): boolean => snap.enabled && !snap.bypass && snap.every > 0
 
 // the shortest a note drawn, trimmed or cut can be: a step while snapping,
 // and as short as a note can be while not

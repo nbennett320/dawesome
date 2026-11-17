@@ -66,7 +66,7 @@ const Preferences = () => {
                 size='xs'
                 latched={experimentalAnimations}
                 aria-label='Experimental animations'
-                data-hint='Animations still being tried out: for now, a dragged clip lifts off the playlist'
+                data-hint='Animations still being tried out: a dragged clip lifts off the playlist, and the playhead glides to where ⌘←, ⌘→, Home and End send it'
                 onPress={() => dispatch(changePreferences({ experimentalAnimations: !experimentalAnimations }))}
               />
               <Led color='blue' state={experimentalAnimations ? 'on' : 'off'} />

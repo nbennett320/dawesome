@@ -623,8 +623,18 @@ pub fn start_playlist(state: &Arc<daw::Session>) {
 }
 
 // play the playlist from the playhead, after a count-in this long (see
-// run_playlist)
+// run_playlist). where it starts is kept as the last play start
 pub fn start_playlist_after(state: &Arc<daw::Session>, count_in: Duration) {
+  run_from_playhead(state, count_in, true);
+}
+
+// carry on playing from the playhead after it was moved (a seek, or a tempo
+// change). not a new play, so the last play start stays where it was
+fn resume_playlist(state: &Arc<daw::Session>) {
+  run_from_playhead(state, Duration::ZERO, false);
+}
+
+fn run_from_playhead(state: &Arc<daw::Session>, count_in: Duration, new_play: bool) {
   println!("playing playlist");
 
   // a pattern playing on its own stops first
@@ -632,7 +642,16 @@ pub fn start_playlist_after(state: &Arc<daw::Session>, count_in: Duration) {
   *state.playlist.mode.lock().unwrap() = playlist::PlayMode::Playlist;
 
   play_inside_loop(state);
+  if new_play { mark_play_start(state); }
   start_run(state, count_in);
+}
+
+// keep where the playhead is as the last play start, in beats (so it stays
+// on its beat if the tempo changes)
+pub fn mark_play_start(state: &daw::Session) {
+  let interval = beat_interval(state);
+  let start = *state.playlist.start_offset.lock().unwrap();
+  *state.playlist.last_play_start.lock().unwrap() = Some(offset_beats(start, interval));
 }
 
 // a playhead past the loop's end goes back to the loop's start, so the run
@@ -795,7 +814,7 @@ pub fn seek_playlist(state: &Arc<daw::Session>, beat: f64) -> f64 {
   let playing = state.playlist.playing_playlist();
   if playing { end_run(state); }
   set_playhead(state, offset);
-  if playing { start_playlist(state); }
+  if playing { resume_playlist(state); }
 
   offset_beats(offset, interval)
 }
@@ -862,7 +881,7 @@ pub fn retime(state: &daw::Session, tempo: f32) -> Result<Retimed, String> {
 // short fade), and so does a pattern playing on its own. returns the tempo
 pub fn set_playlist_tempo(state: &Arc<daw::Session>, tempo: f32) -> Result<f32, String> {
   match retime(state, tempo)? {
-    Retimed::Playlist => start_playlist(state),
+    Retimed::Playlist => resume_playlist(state),
     // (the tempo's changed even if the pattern has gone meanwhile). from the
     // step it had got to (read first: an `if let` holds its lock until its
     // end, and start_pattern takes it again)
@@ -974,6 +993,26 @@ mod tests {
     // and without looping, from where it is (there's no song to have ended)
     state.playlist.loop_enabled.store(false, Ordering::SeqCst);
     assert_eq!(start(20), 20.);
+  }
+
+  #[test]
+  fn test_the_last_play_start_is_where_play_began() {
+    let state = daw::Session::default();
+    assert_eq!(*state.playlist.last_play_start.lock().unwrap(), None);
+
+    // from past a region: where the run really starts, the region's start
+    region(&state, 4., 8.);
+    *state.playlist.start_offset.lock().unwrap() = Duration::from_millis(6_000);
+    play_inside_loop(&state);
+    mark_play_start(&state);
+    assert_eq!(*state.playlist.last_play_start.lock().unwrap(), Some(4.));
+
+    // it stays on its beat when the tempo changes (a stopped seek and a
+    // tempo change don't play, so they leave it alone)
+    let state = Arc::new(state);
+    seek_playlist(&state, 2.);
+    set_playlist_tempo(&state, 90.).unwrap();
+    assert_eq!(*state.playlist.last_play_start.lock().unwrap(), Some(4.));
   }
 
   // plays through the real output: run with `cargo test -- --ignored`

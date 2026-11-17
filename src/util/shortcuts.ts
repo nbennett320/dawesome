@@ -15,7 +15,7 @@ type KeyPress = Pick<KeyboardEvent, 'key' | 'shiftKey' | 'metaKey' | 'ctrlKey' |
 export const commandHeld = (ev: KeyPress, mac: boolean = isMac()): boolean =>
   (mac ? ev.metaKey && !ev.ctrlKey : ev.ctrlKey && !ev.metaKey) && !ev.altKey
 
-export type EditShortcut = 'undo' | 'redo' | 'copy' | 'cut' | 'paste' | 'repeat' | 'select-all'
+export type EditShortcut = 'undo' | 'redo' | 'copy' | 'cut' | 'paste' | 'repeat' | 'select-all' | 'blade'
 
 // the edit command a key press is the shortcut for, if any. letters are
 // matched by the character the key types, whatever the layout
@@ -30,6 +30,7 @@ export const editShortcut = (ev: KeyPress, mac: boolean = isMac()): EditShortcut
     case 'v': return ev.shiftKey ? null : 'paste'
     case 'r': return ev.shiftKey ? null : 'repeat'
     case 'a': return ev.shiftKey ? null : 'select-all'
+    case 'b': return ev.shiftKey ? null : 'blade'
     default: return null
   }
 }

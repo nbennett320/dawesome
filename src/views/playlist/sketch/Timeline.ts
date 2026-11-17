@@ -4,6 +4,13 @@ import { P5BoundingBox } from '../../../render/P5Component'
 import { paint, theme } from './theme'
 import { MIN_LABEL_GAP, gridSteps, rulerLabel, visibleBeats } from './grid'
 import { lineLevel } from '../../../editing/beatGrid'
+import { blockOf } from '../timeSelection'
+
+// how tall the time selection's bar in the ruler is, in pixels
+const SELECTION_MARK_PX = 3
+
+// how wide the flash where a jump lands is, in pixels
+const FLASH_PX = 10
 
 class Timeline extends PlaylistComponent {
   boundingBox = (): P5BoundingBox => {
@@ -64,7 +71,10 @@ class Timeline extends PlaylistComponent {
     }
     p.textStyle(p.NORMAL)
 
+    // (over the ticks, which would notch it)
+    this.drawSelectionMark(beatWidth)
     this.drawLoopFlags(beatWidth)
+    this.drawLandmarkFlash(beatWidth)
     p.pop()
   }
 
@@ -82,6 +92,33 @@ class Timeline extends PlaylistComponent {
     p.noStroke()
     paint.fill(p, 'loopRegion', this.#loopAlpha())
     p.rect(region.start * beatWidth, 0, (region.end - region.start) * beatWidth, this.timelineHeight)
+  }
+
+  // the time selection's span, if there is one: a thin bar along the
+  // ruler's foot (a line, while it covers no time). called unscaled, with a
+  // beat's width in pixels
+  drawSelectionMark(beatWidth: number) {
+    const { p } = this
+    const sel = (this.renderer as Renderer).timeSelection
+    if(!sel) return
+    const { start, end } = blockOf(sel)
+
+    p.noStroke()
+    paint.fill(p, 'timeSelectionEdge')
+    p.rect(start * beatWidth, this.timelineHeight - SELECTION_MARK_PX, Math.max((end - start) * beatWidth, 1), SELECTION_MARK_PX)
+  }
+
+  // where a jump to a landmark landed (see landing.ts): a glow down the
+  // ruler there, fading. called unscaled, with a beat's width in pixels
+  drawLandmarkFlash(beatWidth: number) {
+    const { p } = this
+    const flash = (this.renderer as Renderer).landmarkFlash()
+    if(!flash || flash.strength <= 0) return
+
+    p.noStroke()
+    paint.fill(p, 'landmarkFlash', flash.strength)
+    const x = flash.beat * beatWidth
+    p.rect(x - FLASH_PX / 2, 0, FLASH_PX, this.timelineHeight, FLASH_PX / 2)
   }
 
   // where the playlist goes round, while it loops: a small flag at the
