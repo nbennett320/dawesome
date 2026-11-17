@@ -44,7 +44,9 @@ import type { MovedNode as Landed } from '../../../state/slices/playlistSlice'
 import { PlaceableItem as DragItem, dragItemKey } from '../../../state/sampleDrag'
 import { Pattern, SequencerState, patternSeconds } from '../../../types/sequencer'
 import { decodeLevels } from '../../../util/waveform'
-import { gridSteps, maxScale, openingScale, panForWidth, panToShow, scrollToShow, visibleBeats } from './grid'
+import {
+  fitSpan, gridSteps, maxScale, openingScale, panForWidth, panToShow, scrollToShow, visibleBeats,
+} from './grid'
 import { LandmarkName, Move, landmarks, moveTarget } from '../navigation'
 import { LANDING, flashStrength, glideBeat } from './landing'
 import {
@@ -212,6 +214,12 @@ const AUTO_SCROLL = {
 
 // how wide the bar marking the current track is, in pixels
 const CURRENT_EDGE_PX = 2
+
+// how much ⌘= and ⌘− zoom by, each press
+const ZOOM_KEY_FACTOR = 1.5
+
+// how far in from the view's edges ⇧Z fits a span, in pixels
+const FIT_MARGIN_PX = 40
 
 // how far in from the timeline's edges the keys keep the playhead, in pixels
 // (on the right, clear of the tracks' name tabs)
@@ -2195,6 +2203,45 @@ export class Renderer extends RendererBase {
     this.playlistObjects.forEach(obj => {
       obj.currentScale = this.currentScale
     })
+  }
+
+  // ⌘= / ⌘−: zoom in (1) or out (-1) a step, around the playhead, or the
+  // view's middle while the playhead's off screen
+  zoomStep = (dir: 1 | -1) => {
+    const beat = this.shownPlayheadBeat()
+    const x = beat === null ? null : this.transformX + this.beatToX(beat) * this.currentScale
+    const around = x !== null && x >= 0 && x <= this.width ? x : this.width / 2
+    this.#zoomBy(dir > 0 ? ZOOM_KEY_FACTOR : 1 / ZOOM_KEY_FACTOR, around)
+    this.wake()
+  }
+
+  // ⇧Z: fit the time selection across the view. with none, the loop (its
+  // region, or up to the end flag while looping), or else the song. false
+  // if there's nothing to fit
+  zoomToFit = (): boolean => {
+    const span = this.selectedSpan() ?? this.#loopSpan() ?? this.#songSpan()
+    if(!span || !(this.width > 0)) return false
+    const most = maxScale(this.width, this.beatsDisplayed)
+    const { scale, pan } = fitSpan(span.start, span.end, this.beatsDisplayed, this.width, FIT_MARGIN_PX, most)
+    this.currentScale = scale
+    this.transformX = pan
+    this.playlistObjects.forEach(obj => {
+      obj.currentScale = scale
+    })
+    this.wake()
+    return true
+  }
+
+  #loopSpan = (): { start: number, end: number } | null => {
+    const { region, flag } = this.loopMarks()
+    if(region) return region
+    return flag !== null && flag > 0 ? { start: 0, end: flag } : null
+  }
+
+  #songSpan = (): { start: number, end: number } | null => {
+    const t = this.transport
+    const end = t && t.beatIntervalMs > 0 ? t.songEndMs / t.beatIntervalMs : 0
+    return end > 0 ? { start: 0, end } : null
   }
 
   // pull the zoom back within maxScale, keeping the beat at the left edge.

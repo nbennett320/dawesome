@@ -107,6 +107,21 @@ export const scrollToShow = (
   return scroll
 }
 
+// the zoom and pan that fit beats `start` to `end` across a canvas `width`
+// wide, `margin` pixels in from either side (or a tenth of the width, if
+// that's less), centred. the zoom stays from 1 (the whole playlist) to
+// `most`, and the pan within the playlist
+export const fitSpan = (
+  start: number, end: number, totalBeats: number, width: number, margin: number, most: number,
+): { scale: number, pan: number } => {
+  const inset = Math.min(margin, width / 10)
+  // the span's width at a zoom of 1
+  const across = Math.max(end - start, 1e-6) / totalBeats * width
+  const scale = Math.max(1, Math.min((width - 2 * inset) / across, most))
+  const middle = (start + end) / 2 / totalBeats * width * scale
+  return { scale, pan: Math.min(0, Math.max(width * (1 - scale), width / 2 - middle)) }
+}
+
 // the most the playlist can zoom in: until a beat is MAX_PIXELS_PER_BEAT
 // wide, so the grid never gets finer than a 1/16 note. zoom is relative to
 // the width, so a wider canvas reaches it sooner. never under 1, the whole

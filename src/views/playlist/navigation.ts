@@ -37,6 +37,28 @@ export const moveForKey = (ev: KeyPress, mac: boolean = isMac()): Move | null =>
   return null
 }
 
+// the keys that change how the playlist is viewed: G turns snap on or
+// off, [ and ] make it finer or coarser, ⌘= and ⌘− zoom in and out, and ⇧Z
+// zooms to fit the time selection (or the loop)
+export type ViewKey = 'snap-toggle' | 'snap-finer' | 'snap-coarser' | 'zoom-in' | 'zoom-out' | 'zoom-fit'
+
+export const viewKeyFor = (ev: KeyPress, mac: boolean = isMac()): ViewKey | null => {
+  if(commandHeld(ev, mac)) {
+    // (⌘+ too: ⇧⌘= on most layouts)
+    if(ev.key === '=' || ev.key === '+') return 'zoom-in'
+    if(ev.key === '-' || ev.key === '_') return 'zoom-out'
+    return null
+  }
+  if(ev.metaKey || ev.ctrlKey || ev.altKey) return null
+  // (brackets by the character they type, whatever it takes to type them)
+  if(ev.key === '[') return 'snap-finer'
+  if(ev.key === ']') return 'snap-coarser'
+  const letter = ev.key.toLowerCase()
+  if(letter === 'g' && !ev.shiftKey) return 'snap-toggle'
+  if(letter === 'z' && ev.shiftKey) return 'zoom-fit'
+  return null
+}
+
 // ↑ or ↓, with nothing but Shift held: the track above (-1) or below (1).
 // Shift is left to the caller: with it held, the move selects
 export const trackStepForKey = (ev: KeyPress): Direction | null => {

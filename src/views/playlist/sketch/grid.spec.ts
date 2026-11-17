@@ -1,5 +1,5 @@
 import {
-  BEATS_IN_VIEW, MIN_LABEL_GAP, gridSteps, maxScale, openingScale, panForWidth, panToShow, rulerLabel, scrollToShow, visibleBeats,
+  BEATS_IN_VIEW, fitSpan, MIN_LABEL_GAP, gridSteps, maxScale, openingScale, panForWidth, panToShow, rulerLabel, scrollToShow, visibleBeats,
 } from './grid'
 import { MAX_PIXELS_PER_BEAT, MIN_LINE_GAP } from '../../../editing/beatGrid'
 
@@ -192,5 +192,28 @@ describe('scrollToShow', () => {
 
   it('shows a lane taller than the view from its top', () => {
     expect(scrollToShow(0, 400, 900, 30, 330)).toBe(370)
+  })
+})
+
+describe('fitSpan', () => {
+  // a 1000px canvas, a 400 beat playlist (2.5px a beat unzoomed), 40px in
+  const fit = (start: number, end: number, most = 100) => fitSpan(start, end, 400, 1000, 40, most)
+
+  it('fits the span across the view, centred', () => {
+    const { scale, pan } = fit(100, 200)
+    // 100 beats into 920px
+    expect(scale).toBeCloseTo(3.68)
+    // its middle (beat 150) in the view's middle
+    expect(pan + 150 / 400 * 1000 * scale).toBeCloseTo(500)
+  })
+
+  it('stops at the most it can zoom in, and at the whole playlist', () => {
+    expect(fit(100, 101, 20).scale).toBe(20)
+    expect(fit(0, 400).scale).toBe(1)
+    expect(fit(0, 400).pan).toBe(0)
+  })
+
+  it("doesn't pan past the playlist's start", () => {
+    expect(fit(0, 20).pan).toBe(0)
   })
 })

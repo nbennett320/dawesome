@@ -95,6 +95,10 @@ These work while the **Playlist** is the selected tab in the focused pane.
 | **↑** / **↓** | **↑** / **↓** | Make the track above or below the [current track](./manual/playlist.md#_6-1-2-the-current-track) |
 | **Shift** + any of the above | **Shift** + any of the above | Select tool: [select time](./manual/playlist.md#_6-1-3-selecting-time) the same way; **Shift+↑** / **Shift+↓** stretch the selection over more tracks |
 | **Shift+L** | **Shift+L** | Make the time selection's span the loop region |
+| **G** | **G** | Turn snap on or off |
+| **[** / **]** | **[** / **]** | Make the snap finer / coarser |
+| **⌘=** / **⌘−** | **Ctrl+=** / **Ctrl+−** | Zoom in / out, around the playhead |
+| **Shift+Z** | **Shift+Z** | Zoom to fit the time selection (or the loop, or the song) |
 
 The playhead and track keys work with any tool, and the playlist scrolls to follow.
 A knob or fader you've clicked keeps the arrow keys. See

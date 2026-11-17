@@ -19,6 +19,8 @@ import {
   repeatClips,
   seekPlaylist,
   setLoopRegion,
+  setSnapSubdivision,
+  toggleSnap,
   clearLoopRegion,
   setLoopEnd,
   clearLoopEnd,
@@ -57,7 +59,8 @@ import { View } from '../../types/ui'
 import {
   isDeleteKey, isExplodeKey, isJoinKey, isLoopSelectionKey, isSliderTarget, isTextTarget, isTypingTarget,
 } from '../../util/keys'
-import { landmarkNote, moveForKey, trackStepForKey } from './navigation'
+import { landmarkNote, moveForKey, trackStepForKey, viewKeyFor } from './navigation'
+import { snapLabel, stepSnapNote } from '../../editing/snap'
 import { postInfoNote } from '../../events/infoNote'
 import { editShortcutHandler } from '../../util/shortcuts'
 import {
@@ -490,11 +493,48 @@ const PlaylistCanvas = () => {
       dispatch(setLoopRegion(span.start, span.end))
     }
 
+    // G, [ and ] change the snap, saying so in the info bar. ⌘= and ⌘−
+    // zoom, and ⇧Z fits the time selection (or the loop) to the view
+    const onViewKey = (ev: KeyboardEvent) => {
+      const key = viewKeyFor(ev)
+      if(!key || ev.defaultPrevented || isTypingTarget(ev.target)) return
+      if(selectFocusedView(store.getState()) !== View.Playlist) return
+      ev.preventDefault()
+      // (zooming would move the view under a drag)
+      if(playlistRenderer.isDragging()) return
+
+      const { snapEnabled, snapNote } = store.getState().playlist
+      switch(key) {
+        case 'snap-toggle':
+          if(ev.repeat) return
+          dispatch(toggleSnap()).then(() => {
+            const { playlist } = store.getState()
+            postInfoNote(playlist.snapEnabled ? `Snap on · ${snapLabel(playlist.snapNote)}` : 'Snap off')
+          })
+          return
+        case 'snap-finer':
+        case 'snap-coarser': {
+          const next = stepSnapNote(snapNote, key === 'snap-finer' ? 1 : -1)
+          if(next !== snapNote) dispatch(setSnapSubdivision(next))
+          postInfoNote(`Snap · ${snapLabel(next)}${snapEnabled ? '' : ' (snap is off)'}`)
+          return
+        }
+        case 'zoom-in': playlistRenderer.zoomStep(1); return
+        case 'zoom-out': playlistRenderer.zoomStep(-1); return
+        case 'zoom-fit':
+          if(!ev.repeat) playlistRenderer.zoomToFit()
+          return
+        default:
+      }
+    }
+
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keydown', onLoopKey)
+    window.addEventListener('keydown', onViewKey)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keydown', onLoopKey)
+      window.removeEventListener('keydown', onViewKey)
     }
   }, [store, dispatch])
 

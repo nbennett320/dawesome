@@ -1,5 +1,5 @@
 import {
-  Landmarks, Move, Place, landmarkNote, landmarks, moveForKey, positionLabel, moveTarget, nextLandmark, stepFrom, trackStepForKey,
+  Landmarks, Move, Place, landmarkNote, landmarks, moveForKey, positionLabel, moveTarget, nextLandmark, stepFrom, trackStepForKey, viewKeyFor,
 } from './navigation'
 
 const key = (k: string, mods: Partial<Record<'shiftKey' | 'metaKey' | 'ctrlKey' | 'altKey', boolean>> = {}) => ({
@@ -169,5 +169,27 @@ describe('the info bar note', () => {
     expect(landmarkNote('loop-start', 32, 4)).toBe('Loop start · bar 9')
     expect(landmarkNote('last-play-start', 33.5, 4)).toBe('Last play start · bar 9, beat 2.5')
     expect(landmarkNote('song-end', 64, 4)).toBe('Song end · bar 17')
+  })
+})
+
+describe('viewKeyFor', () => {
+  it('is G for snap, [ and ] for finer and coarser, ⇧Z to fit, ⌘= and ⌘− to zoom', () => {
+    expect(viewKeyFor(key('g'), true)).toBe('snap-toggle')
+    expect(viewKeyFor(key('['), true)).toBe('snap-finer')
+    expect(viewKeyFor(key(']'), true)).toBe('snap-coarser')
+    expect(viewKeyFor(key('Z', { shiftKey: true }), true)).toBe('zoom-fit')
+    expect(viewKeyFor(key('=', { metaKey: true }), true)).toBe('zoom-in')
+    expect(viewKeyFor(key('+', { metaKey: true, shiftKey: true }), true)).toBe('zoom-in')
+    expect(viewKeyFor(key('-', { metaKey: true }), true)).toBe('zoom-out')
+    expect(viewKeyFor(key('-', { ctrlKey: true }), false)).toBe('zoom-out')
+  })
+
+  it('leaves other mixes alone', () => {
+    // ⇧G, plain Z (free), ⌘G, and = or − alone
+    expect(viewKeyFor(key('G', { shiftKey: true }), true)).toBeNull()
+    expect(viewKeyFor(key('z'), true)).toBeNull()
+    expect(viewKeyFor(key('g', { metaKey: true }), true)).toBeNull()
+    expect(viewKeyFor(key('='), true)).toBeNull()
+    expect(viewKeyFor(key('[', { metaKey: true }), true)).toBeNull()
   })
 })

@@ -39,7 +39,11 @@ Open it with **Window ▸ Playlist**.
   the tracks; left and right (or **Shift** with the wheel) scrolls along the
   timeline.
 - **Zoom:** **⌘ (Ctrl)** with the wheel, or pinch on a trackpad. Zooming in
-  stops once the grid is down to 1/16 notes.
+  stops once the grid is down to 1/16 notes. From the keyboard, **⌘=** and
+  **⌘−** (**Ctrl+=** and **Ctrl+−**) zoom in and out around the playhead
+  (around the middle of the view if the playhead is off screen), and
+  **Shift+Z** zooms to fit the [time selection](#_6-1-3-selecting-time). With
+  no time selection, **Shift+Z** fits the loop, or else the whole song.
 - **Pan:** drag on empty track space. The pointer shows a closed hand while
   you do.
 - **Move the playhead:** click or drag in the ruler, or use the keys below.
@@ -347,6 +351,11 @@ The tray's snap controls set the grid that clips, edges and cuts land on.
 - **Snap to grid** — Turns snap on or off. Its LED is lit when on.
 - **Snap** menu — The grid size: **1 bar**, **1/2 bar**, **1 beat**,
   **1/2 beat** or **1/4 beat**. The menu is dimmed while snap is off.
+
+From the keyboard, while the Playlist is the focused tab, **G** turns snap on
+or off, **[** makes the grid finer and **]** makes it coarser. The info bar
+says what it's set to. The grid size is also how far **←** and **→** move
+the playhead (see [6-1-1](#_6-1-1-moving-the-playhead-with-the-keys)).
 
 When you drag an edge or use the cut tool with playback stopped, the edge
 or cut also snaps to the playhead when it's nearer than the grid. Hold

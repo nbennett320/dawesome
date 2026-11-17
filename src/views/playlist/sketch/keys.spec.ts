@@ -202,3 +202,41 @@ describe('a jump to a landmark', () => {
     expect(r.landmarkFlash()).toMatchObject({ beat: 16 })
   })
 })
+
+describe('zooming', () => {
+  it('⌘= and ⌘− zoom around the playhead', () => {
+    const { r } = renderer(96)
+    r.currentScale = 4
+    const at = () => r.transformX + r.beatToX(96) * r.currentScale
+    const before = at()
+    r.zoomStep(1)
+    expect(r.currentScale).toBeCloseTo(6)
+    expect(at()).toBeCloseTo(before)
+    r.zoomStep(-1)
+    expect(r.currentScale).toBeCloseTo(4)
+  })
+
+  it('⇧Z fits the time selection, or the loop, or the song', () => {
+    const { r } = renderer(4)
+    const shown = () => [-r.transformX, r.width - r.transformX].map(x => x / r.currentScale / r.width * 384)
+    // the end flag, following the last clip at beat 16
+    expect(r.zoomToFit()).toBe(true)
+    const [from, to] = shown()
+    expect(from).toBeLessThanOrEqual(0)
+    expect(to).toBeGreaterThan(16)
+
+    r.navigate({ kind: 'bar', dir: 1 }, true)
+    r.navigate({ kind: 'bar', dir: 1 }, true)
+    r.zoomToFit()
+    const [a, b] = shown()
+    expect(a).toBeLessThan(4)
+    expect(b).toBeGreaterThan(12)
+    expect(b - a).toBeLessThan(10)
+  })
+
+  it('⇧Z does nothing with nothing to fit', () => {
+    const { r } = renderer(0)
+    r.transport = { ...r.transport!, loopEnabled: false, songEndMs: 0 }
+    expect(r.zoomToFit()).toBe(false)
+  })
+})
