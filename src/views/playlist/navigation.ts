@@ -94,7 +94,7 @@ export const landmarks = (t: LandmarkTransport): Landmarks => {
 }
 
 // what a landmark is called, in the info bar
-const LANDMARK_NAMES: Record<LandmarkName, string> = {
+export const LANDMARK_NAMES: Record<LandmarkName, string> = {
   'last-play-start': 'Last play start',
   'loop-start': 'Loop start',
   'song-start': 'Song start',
@@ -112,9 +112,12 @@ export const positionLabel = (beat: number, beatsPerBar: number): string => {
   return `bar ${bar + 1}, beat ${+(inBar + 1).toFixed(2)}`
 }
 
-// the info bar's note for landing on a landmark: "Loop start · bar 9"
-export const landmarkNote = (name: LandmarkName, beat: number, beatsPerBar: number): string =>
-  `${LANDMARK_NAMES[name]} · ${positionLabel(beat, beatsPerBar)}`
+// the info bar's note for landing on a landmark: "Loop start · bar 9".
+// `names` are another view's for its landmarks (the Piano Roll's)
+export const landmarkNote = (
+  name: LandmarkName, beat: number, beatsPerBar: number, names: Record<LandmarkName, string> = LANDMARK_NAMES,
+): string =>
+  `${names[name]} · ${positionLabel(beat, beatsPerBar)}`
 
 // the order ⌘← and ⌘→ try them in
 const LADDERS: Record<Direction, LandmarkName[]> = {

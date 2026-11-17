@@ -32,6 +32,7 @@ const scene = (more: Partial<GridScene>): GridScene => ({
   lasso: null,
   cut: null,
   edgeBar: null,
+  span: null,
   ...more,
 })
 

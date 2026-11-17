@@ -128,8 +128,12 @@ These work while the **Piano Roll** is the selected tab in the focused pane.
 | **⌘A** | **Ctrl+A** | Select all notes |
 | **⌘X**, **⌘C**, **⌘V**, **⌘R** | **Ctrl+X**, **Ctrl+C**, **Ctrl+V**, **Ctrl+R** | Cut, copy, paste and repeat notes (see Edit) |
 | **Space** | **Space** | Loop the pattern from the playhead, or stop |
+| **←** **→** **⌥** **⌘** **Home** **End** | **←** **→** **Alt** **Ctrl** **Home** **End** | Move the playhead, as in the Playlist; with **Shift** (Select tool), select time |
+| **↑** / **↓** | **↑** / **↓** | Move the selected notes a semitone (**Shift**: an octave) |
+| **⌘B** | **Ctrl+B** | Cut the notes under the playhead |
 
-See [Piano roll](./manual/piano-roll.md).
+See [Piano roll](./manual/piano-roll.md) and its
+[keys](./manual/piano-roll.md#_8-9-1-the-keys).
 
 ## Browsers, menus and text fields
 

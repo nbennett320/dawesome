@@ -186,6 +186,35 @@ A line shows where it is.
 Playback stops when you leave the Piano Roll and the Pattern Sequencer (see
 [7-5 Playing a pattern](./patterns.md#_7-5-playing-a-pattern)).
 
+### 8-9-1 The keys
+
+The keys work as they do in the Playlist (see
+[6-1-1](./playlist.md#_6-1-1-moving-the-playhead-with-the-keys)), with the
+pattern in place of the song:
+
+| Mac | Windows/Linux | What it does |
+| --- | --- | --- |
+| **←** / **→** | **←** / **→** | Moves the playhead a snap step (a step with snap off). Hold to keep going. |
+| **⌥←** / **⌥→** | **Alt+←** / **Alt+→** | Moves it a bar. |
+| **⌘←** | **Ctrl+←** | Back to where the pattern last played from. Press again for the pattern's start. |
+| **⌘→** | **Ctrl+→** | To the end of the last note. Press again for the pattern's end. |
+| **Home** / **End** | **Home** / **End** | To the pattern's start or end. |
+| **↑** / **↓** | **↑** / **↓** | Moves the selected notes a semitone up or down. |
+| **Shift+↑** / **Shift+↓** | **Shift+↑** / **Shift+↓** | Moves them an octave. |
+| **⌘B** | **Ctrl+B** | Cuts the notes under the playhead in two: the selected ones, if any notes are selected, otherwise all of them there. |
+
+The playhead can't sit on the pattern's very end (Play would start from the
+start), so moving it there stops on the last snap line before the end.
+Notes moved with **↑** and **↓** keep their shape at the top and bottom of
+the piano: they go as far as all of them can.
+
+With the **Select** tool, hold **Shift** with **←**, **→**, **⌥**, **⌘**,
+**Home** or **End** to select time across every pitch, as in the Playlist
+(see [6-1-3](./playlist.md#_6-1-3-selecting-time)). While there's a time
+selection, **⌘C**, **⌘X**, **⌘R** and **Delete** act on the notes in it, cut
+at its ends, and **⌘V** pastes a copied span at the playhead, replacing
+what's there. Clicking the grid, **Esc**, or a move without Shift clears it.
+
 ## 8-10 Scrolling and zooming
 
 - **Scroll:** mouse wheel or two-finger swipe. Up and down scrolls through

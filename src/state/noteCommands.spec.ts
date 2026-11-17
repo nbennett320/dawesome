@@ -8,7 +8,7 @@ const note = (pitch: number, start: number, length = 2): Note => ({ pitch, start
 const notes = [note(60, 4), note(64, 6), note(67, 12)]
 
 const target = (over: Partial<NoteTarget> = {}): NoteTarget => ({
-  notes, selected: new Set([0, 1]), limit: 16, pasteAt: 0, focused: true, ...over,
+  notes, selected: new Set([0, 1]), limit: 16, pasteAt: 0, focused: true, span: null, playhead: 0, shortest: 1, ...over,
 })
 
 beforeEach(() => clearNoteClipboard())
@@ -68,7 +68,8 @@ describe('the note commands', () => {
   it('select all, delete the selection, and clear it with Escape', () => {
     expect([...noteCommand('select-all', target())?.selected ?? []]).toEqual([0, 1, 2])
     expect(noteCommand('delete', target())).toEqual({ notes: [notes[2]], selected: new Set() })
-    expect(noteCommand('escape', target())).toEqual({ selected: new Set() })
+    // (and the time selection)
+    expect(noteCommand('escape', target())).toEqual({ selected: new Set(), span: null })
   })
 
   it('reach the Piano Roll from the menu through its runner', () => {
@@ -79,5 +80,49 @@ describe('the note commands', () => {
     setNoteCommandRunner(null)
     runNoteCommandFromMenu('repeat')
     expect(run).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('the note commands with a time selection', () => {
+  // the notes at 4–6, 6–8 and 12–14; the span 5 to 13
+  const span = { start: 5, end: 13 }
+  const laid = (list: Note[] | undefined) => list?.map(n => [n.pitch, n.start, n.start + n.length])
+
+  it('copy, cut and delete what is inside the span, cutting at its ends', () => {
+    expect(noteCommand('copy', target({ span, selected: new Set() }))).toEqual({})
+    expect(laid(noteClipboard())).toEqual([[60, 0, 1], [64, 1, 3], [67, 7, 8]])
+
+    const cut = noteCommand('cut', target({ span, selected: new Set() }))
+    expect(laid(cut?.notes)).toEqual([[60, 4, 5], [67, 13, 14]])
+    expect(laid(noteCommand('delete', target({ span, selected: new Set() }))?.notes)).toEqual(laid(cut?.notes))
+  })
+
+  it('paste a copied span at the playhead, replacing what is there, and select it', () => {
+    noteCommand('copy', target({ span: { start: 4, end: 8 }, selected: new Set() }))
+    const pasted = noteCommand('paste', target({ playhead: 11, selected: new Set() }))
+    // 11–15 replaced: the note at 12 goes
+    expect(laid(pasted?.notes)).toEqual([[60, 4, 6], [64, 6, 8], [60, 11, 13], [64, 13, 15]])
+    expect(pasted?.span).toEqual({ start: 11, end: 15 })
+  })
+
+  it('repeat the span straight after itself, and select the copy', () => {
+    const repeated = noteCommand('repeat', target({ span: { start: 4, end: 8 }, selected: new Set() }))
+    expect(laid(repeated?.notes)).toEqual([[60, 4, 6], [64, 6, 8], [60, 8, 10], [64, 10, 12], [67, 12, 14]])
+    expect(repeated?.span).toEqual({ start: 8, end: 12 })
+  })
+})
+
+describe('⌘B and the arrows in the Piano Roll', () => {
+  it('cut the notes under the playhead', () => {
+    const cut = noteCommand('blade', target({ playhead: 5, selected: new Set() }))
+    expect(cut?.notes?.map(n => [n.start, n.length])).toEqual([[4, 1], [5, 1], [6, 2], [12, 2]])
+  })
+
+  it('move the selected notes a semitone, or an octave, keeping them selected', () => {
+    const up = noteCommand('up', target())
+    expect(up?.notes?.map(n => n.pitch)).toEqual([61, 65, 67])
+    expect([...up?.selected ?? []]).toEqual([0, 1])
+    expect(noteCommand('octave-down', target())?.notes?.map(n => n.pitch)).toEqual([48, 52, 67])
+    expect(noteCommand('up', target({ selected: new Set() }))).toBeNull()
   })
 })
