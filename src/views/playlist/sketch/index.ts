@@ -44,7 +44,8 @@ import type { MovedNode as Landed } from '../../../state/slices/playlistSlice'
 import { PlaceableItem as DragItem, dragItemKey } from '../../../state/sampleDrag'
 import { Pattern, SequencerState, patternSeconds } from '../../../types/sequencer'
 import { decodeLevels } from '../../../util/waveform'
-import { gridSteps, maxScale, openingScale, panForWidth, visibleBeats } from './grid'
+import { gridSteps, maxScale, openingScale, panForWidth, panToShow, visibleBeats } from './grid'
+import { LandmarkName, Move, landmarks, moveTarget } from '../navigation'
 import { lineLevel, tileStep } from '../../../editing/beatGrid'
 import {
   Edge, MAX_PITCH, Snapping, Span, StretchClip, TrimClip, edgeAt, patternTrimClip, pitchOf, sampleTrimClip,
@@ -98,8 +99,9 @@ export interface CanvasProps extends SketchProps {
   transportRevision: number
   // whether the playlist loops (the ruler marks where the loop ends)
   loopEnabled: boolean
-  // move the playhead to a beat (clicking or dragging in the ruler)
-  onSeek: (beat: number) => void
+  // move the playhead to a beat (clicking or dragging in the ruler, or the
+  // arrow keys). a promise, if any, settles once the engine has moved it
+  onSeek: (beat: number) => unknown
   // the loop's region was drawn (or an edge dragged) between two beats, in
   // either order (the same beat for none), or cleared with a double-click
   onLoopRegion: (start: number, end: number) => void
@@ -200,6 +202,10 @@ const AUTO_SCROLL = {
   // pixels per frame, at the very edge
   maxSpeed: 12,
 }
+
+// how far in from the timeline's edges the keys keep the playhead, in pixels
+// (on the right, clear of the tracks' name tabs)
+const REVEAL_MARGIN_PX = 160
 
 // a wheel event's delta in lines (a mouse wheel on some systems), in pixels
 // how long the playlist keeps drawing after something changes (see
@@ -401,7 +407,10 @@ export class Renderer extends RendererBase {
   seekBeat: number | null = null
   seekDragging = false
   #seekTimeout: ReturnType<typeof setTimeout> | null = null
-  onSeek!: (beat: number) => void
+  // seeks from the keys still on their way to the engine: until they've all
+  // arrived, a transport fetched in between is behind the playhead shown
+  #keySeeks = 0
+  onSeek!: (beat: number) => unknown
   // a loop edge (or the end flag) being dragged in the ruler, or a region
   // being drawn, or one just let go (shown until the engine confirms it)
   #loopDrag: LoopDrag | null = null
@@ -601,7 +610,7 @@ export class Renderer extends RendererBase {
 
       this.transport = transport
       // a released seek has reached the engine, and so has a loop edge
-      if(!this.seekDragging) this.seekBeat = null
+      if(!this.seekDragging && this.#keySeeks === 0) this.seekBeat = null
       if(!this.#loopDragging) this.#loopDrag = null
     } catch(e) {
       console.error('could not sync the playback cursor:', e)
@@ -635,14 +644,54 @@ export class Renderer extends RendererBase {
     if(!this.seekDragging || this.seekBeat === null) return
     this.seekDragging = false
 
-    const beat = this.seekBeat
-    this.onSeek?.(beat)
+    this.onSeek?.(this.seekBeat)
+    this.#holdSeekBeat()
+  }
 
+  // in case the engine never confirms a seek: show the engine's playhead
+  // again after a moment
+  #holdSeekBeat = () => {
     if(this.#seekTimeout) clearTimeout(this.#seekTimeout)
     this.#seekTimeout = setTimeout(() => {
       if(!this.seekDragging) this.seekBeat = null
       this.wake()
     }, 1500)
+  }
+
+  // a move from the keyboard (see navigation.ts): the playhead goes there at
+  // once, and the timeline scrolls to keep it in view. returns where it went
+  // and the landmark it's on, or null if it didn't move. while the ruler's
+  // being dragged, the drag wins
+  navigate = (move: Move): { beat: number, landmark: LandmarkName | null } | null => {
+    const t = this.transport
+    const playhead = this.playheadBeat()
+    if(!t || playhead === null || this.seekDragging) return null
+
+    const { enabled, beats } = this.snap
+    const target = moveTarget(move, {
+      playhead,
+      length: this.beatsDisplayed,
+      // with snap off, a step is one line of the grid at this zoom
+      step: enabled && beats > 0 ? beats : this.#gridStep || 1,
+      beatsPerBar: t.beatsPerBar,
+      landmarks: landmarks(t),
+    })
+    if(!target) return null
+
+    this.seekBeat = target.beat
+    this.#keySeeks += 1
+    Promise.resolve(this.onSeek?.(target.beat)).finally(() => {
+      this.#keySeeks -= 1
+      this.#holdSeekBeat()
+    })
+    this.revealBeat(target.beat)
+    return target
+  }
+
+  // scroll along the timeline, if need be, to bring `beat` into view
+  revealBeat = (beat: number) => {
+    this.transformX = panToShow(this.transformX, this.beatToX(beat), this.currentScale, this.width, REVEAL_MARGIN_PX)
+    this.wake()
   }
 
   // back to how the playlist opens: its first bars, from the top (a project

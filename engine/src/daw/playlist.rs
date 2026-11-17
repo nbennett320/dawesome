@@ -50,6 +50,10 @@ pub struct Playlist {
   // where on the timeline the current run started, or where the next one
   // will start (the playhead while stopped or paused)
   pub start_offset: Mutex<Duration>,
+  // where the last play (not a seek or a tempo change) started from, in
+  // beats, so the keyboard can go back there. None until something plays,
+  // and for each project opened
+  pub last_play_start: Mutex<Option<f64>>,
   // bumped by every run and every stop, so a run's thread can tell it's been
   // replaced (see playback::run_playlist)
   pub run_id: AtomicU64,
@@ -102,6 +106,7 @@ impl Playlist {
       playing: AtomicBool::from(false),
       started_time: Arc::new(Mutex::from(None)),
       start_offset: Mutex::new(Duration::ZERO),
+      last_play_start: Mutex::new(None),
       run_id: AtomicU64::from(0),
       total_beats: AtomicU64::from(0),
       current_beat: AtomicU16::from(0),

@@ -82,6 +82,19 @@ export const visibleBeats = (
 export const panForWidth = (transformX: number, oldWidth: number, newWidth: number): number =>
   (oldWidth > 0 && newWidth > 0 ? transformX * (newWidth / oldWidth) : transformX)
 
+// the pan that brings playlist x `x` into view on a canvas `width` wide, at
+// least `margin` pixels in from either edge (or a quarter of the width, if
+// that's less). a pan that already shows it is kept. never pans past either
+// end of the playlist, as the draw loop doesn't
+export const panToShow = (pan: number, x: number, scale: number, width: number, margin: number): number => {
+  const at = pan + x * scale
+  const inset = Math.min(margin, width / 4)
+  let next = pan
+  if(at < inset) next = pan + inset - at
+  else if(at > width - inset) next = pan - (at - (width - inset))
+  return Math.min(0, Math.max(width * (1 - scale), next))
+}
+
 // the most the playlist can zoom in: until a beat is MAX_PIXELS_PER_BEAT
 // wide, so the grid never gets finer than a 1/16 note. zoom is relative to
 // the width, so a wider canvas reaches it sooner. never under 1, the whole

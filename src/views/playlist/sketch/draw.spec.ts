@@ -43,7 +43,7 @@ const recordingP5 = (width: number, height: number) => {
 }
 
 const stopped: PlaylistTransport = {
-  playing: false, startTimeMs: null, startOffsetMs: 0, positionMs: 0, beatIntervalMs: 500, loopStartBeats: 0, loopEndBeats: 12, loopRegion: false, loopEndPinned: false,
+  playing: false, startTimeMs: null, startOffsetMs: 0, positionMs: 0, lastPlayStartBeats: null, beatIntervalMs: 500, loopStartBeats: 0, loopEndBeats: 12, loopRegion: false, loopEndPinned: false,
   beatsDisplayed: 384, loopEnabled: false, songEndMs: 0, beatsPerBar: 4, patternId: null, patternLength: 0,
 }
 

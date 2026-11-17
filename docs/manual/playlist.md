@@ -41,7 +41,33 @@ Open it with **Window ▸ Playlist**.
 - **Zoom:** **⌘ (Ctrl)** with the wheel, or pinch on a trackpad. Zooming in
   stops once the grid is down to 1/16 notes.
 - **Pan:** drag on empty track space.
-- **Move the playhead:** click or drag in the ruler.
+- **Move the playhead:** click or drag in the ruler, or use the keys below.
+
+### 6-1-1 Moving the playhead with the keys
+
+The arrow keys move the playhead the way they move a text cursor. They
+work with any tool, while the Playlist is the selected tab in the focused
+pane. If the playhead goes off screen, the playlist scrolls to it. While
+playing, playback carries on from where the playhead lands.
+
+| Mac | Windows/Linux | Moves the playhead |
+| --- | --- | --- |
+| **←** / **→** | **←** / **→** | One snap step. With snap off, one line of the grid. Hold to keep going. |
+| **⌥←** / **⌥→** | **Alt+←** / **Alt+→** | One bar. Hold to keep going. |
+| **⌘←** | **Ctrl+←** | Back to where you last pressed play. Press again for the loop's start, then the song's start. |
+| **⌘→** | **Ctrl+→** | To the loop's end. Press again for the end of the last clip. |
+| **Home** / **End** | **Home** / **End** | To the song's start, or the end of the last clip. On a Mac laptop, **Fn+←** / **Fn+→**. |
+
+From between two grid lines, **←** goes to the line before and **→** to the
+line after.
+
+**⌘←** and **⌘→** only ever move the playhead in their own direction. A
+place that's the other way, or isn't there, is skipped. For example, before
+you've played anything, **⌘←** goes straight to the loop's start, or to the
+song's start if there's no loop start before the playhead. The loop's
+start and end are the [loop region](#_6-7-2-loop-region)'s edges, or with no
+region, the [end flag](#_6-7-1-loop-end) while looping is on. While looping,
+going to the loop's end goes round to its start at once, as playback would.
 
 ## 6-2 Tools
 

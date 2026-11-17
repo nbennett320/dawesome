@@ -1,5 +1,5 @@
 import {
-  BEATS_IN_VIEW, MIN_LABEL_GAP, gridSteps, maxScale, openingScale, panForWidth, rulerLabel, visibleBeats,
+  BEATS_IN_VIEW, MIN_LABEL_GAP, gridSteps, maxScale, openingScale, panForWidth, panToShow, rulerLabel, visibleBeats,
 } from './grid'
 import { MAX_PIXELS_PER_BEAT, MIN_LINE_GAP } from '../../../editing/beatGrid'
 
@@ -148,5 +148,30 @@ describe('panForWidth', () => {
 
   it('leaves an unpanned playlist unpanned', () => {
     expect(panForWidth(0, 600, 900)).toBe(0)
+  })
+})
+
+describe('panToShow', () => {
+  // a 1000px canvas zoomed in 4 times: the playlist is 4000px across
+  const show = (pan: number, x: number) => panToShow(pan, x, 4, 1000, 80)
+
+  it('keeps a pan that already shows it', () => {
+    expect(show(-400, 200)).toBe(-400)
+  })
+
+  it('pans just far enough to bring it in from either side', () => {
+    // at 2000 (screen 1600): 80px in from the right
+    expect(show(-400, 500)).toBe(-1080)
+    // at 400 (screen 0): 80px in from the left
+    expect(show(-1600, 400)).toBe(-1520)
+  })
+
+  it("doesn't pan past the playlist's ends", () => {
+    expect(show(-400, 0)).toBe(0)
+    expect(show(0, 1000)).toBe(-3000)
+  })
+
+  it('keeps the margin within a quarter of a narrow canvas', () => {
+    expect(panToShow(0, 100, 4, 200, 80)).toBe(-250)
   })
 })

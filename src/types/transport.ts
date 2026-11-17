@@ -17,6 +17,9 @@ export interface PlaylistTransport {
   startOffsetMs: number
   // where the playhead was when this was fetched
   positionMs: number
+  // where the last play started, in beats (null before anything's played).
+  // ⌘← goes back there
+  lastPlayStartBeats: number | null
   beatIntervalMs: number
   // where the loop starts and ends, in beats (whether or not looping is
   // on). playback plays in from before its start, and goes round to its

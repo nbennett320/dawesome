@@ -86,6 +86,15 @@ These work while the **Playlist** is the selected tab in the focused pane.
 | **Shift+J** | **Shift+J** | Join the selected clips (**Edit ▸ Join**) |
 | **Shift+E** | **Shift+E** | Explode the selected pattern clips into tracks |
 | **Esc** | **Esc** | Clear the selection. While dragging a clip edge, cancel the drag. |
+| **←** / **→** | **←** / **→** | Move the playhead one snap step (one grid line with snap off) |
+| **⌥←** / **⌥→** | **Alt+←** / **Alt+→** | Move the playhead one bar |
+| **⌘←** | **Ctrl+←** | Playhead to where you last pressed play; again for the loop's start, then the song's start |
+| **⌘→** | **Ctrl+→** | Playhead to the loop's end; again for the end of the last clip |
+| **Home** / **End** | **Home** / **End** | Playhead to the song's start / the end of the last clip (**Fn+←** / **Fn+→** on a Mac laptop) |
+
+The playhead keys work with any tool, and the playlist scrolls to follow.
+A knob or fader you've clicked keeps the arrow keys. See
+[Moving the playhead with the keys](./manual/playlist.md#_6-1-1-moving-the-playhead-with-the-keys).
 
 Don't confuse **Shift+E** (explode) with **⇧⌘E (Ctrl+Shift+E)** (open the
 Pattern Sequencer), or the **cut tool** (**C**) with **Cut (⌘X)**.

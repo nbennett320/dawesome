@@ -53,7 +53,8 @@ import {
 } from '../../state/slices/recordingSlice'
 import { defaultInput } from '../../types/audio'
 import { View } from '../../types/ui'
-import { isDeleteKey, isExplodeKey, isJoinKey, isTextTarget, isTypingTarget } from '../../util/keys'
+import { isDeleteKey, isExplodeKey, isJoinKey, isSliderTarget, isTextTarget, isTypingTarget } from '../../util/keys'
+import { moveForKey } from './navigation'
 import { editShortcutHandler } from '../../util/shortcuts'
 import {
   ClipCommand, ClipSource, clipCommand, sameCommand, setClipCommandRunner,
@@ -261,7 +262,7 @@ const PlaylistCanvas = () => {
   const playing = useAppSelector(selectPlaylistPlaying)
   const transportRevision = useAppSelector(selectTransportRevision)
   const loopEnabled = useAppSelector(selectLoopEnabled)
-  const handleSeek = React.useCallback((beat: number) => { dispatch(seekPlaylist(beat)) }, [dispatch])
+  const handleSeek = React.useCallback((beat: number) => dispatch(seekPlaylist(beat)), [dispatch])
   // the loop's region and end flag, dragged in the ruler
   const handleLoopRegion = React.useCallback((start: number, end: number) => {
     dispatch(setLoopRegion(start, end))
@@ -439,6 +440,29 @@ const PlaylistCanvas = () => {
       window.removeEventListener('keydown', onJoinKey)
     }
   }, [store, dispatch])
+
+  // the arrow keys, Home and End move the playhead (see navigation.ts), in
+  // any tool, while the playlist is the focused pane's tab. a text field, or
+  // a knob or fader with the keyboard, keeps them. held, a step or a bar
+  // repeats, but a jump to a landmark doesn't run on to the next one
+  React.useEffect(() => {
+    const onKeyDown = (ev: KeyboardEvent) => {
+      const move = moveForKey(ev)
+      if(!move || ev.defaultPrevented) return
+      if(isTypingTarget(ev.target) || isSliderTarget(ev.target)) return
+      if(selectFocusedView(store.getState()) !== View.Playlist) return
+
+      // (no pane scrolls with them either)
+      ev.preventDefault()
+      if(ev.repeat && move.kind !== 'step' && move.kind !== 'bar') return
+      // not in the middle of a drag, which follows the mouse on the screen
+      if(playlistRenderer.isDragging()) return
+      playlistRenderer.navigate(move)
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [store])
 
   // the clip clipboard's commands, from the keys, the system's copy, cut and
   // paste events, and the Edit menu. a shortcut can arrive by more than one
