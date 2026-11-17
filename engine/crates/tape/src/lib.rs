@@ -22,6 +22,8 @@ pub mod playback;
 pub mod transport;
 // a tape: one transport and the tracks on it
 pub mod machine;
+// how a tape wears: the Age knob
+pub mod wear;
 
 pub use core::{NeuralCore, SimpleCore, SimpleCoreSettings, TapeCore};
 pub use dbx::{DbxDecoder, DbxEncoder};
@@ -29,3 +31,4 @@ pub use gru::{Gru, GruError, GruWeights};
 pub use machine::{MachineSettings, RecordSide, TapeMachine};
 pub use playback::{Playback, PlaybackSettings};
 pub use transport::{TapeTransport, TransportSettings};
+pub use wear::Wear;

@@ -26,6 +26,8 @@
 use std::f64::consts::PI;
 use std::sync::OnceLock;
 
+use dsp::svf::{Coefs, Shape, State};
+
 use crate::dbx::{DbxDecoder, VU0};
 use crate::transport::{Rng, C};
 
@@ -71,7 +73,14 @@ pub struct PlaybackSettings {
   pub dropout_seconds: (f32, f32),
   // how much of the highs a dropout takes besides its level (0 to 1)
   pub dropout_dulling: f32,
+  // the tape's own loss of highs as it wears (oxide shed, a worn
+  // surface): a 12 db/octave high cut here, in hz; LOSS_OFF_HZ or above,
+  // none (Age sets it: wear.rs)
+  pub loss_hz: f32,
 }
+
+// at or above this the tape loses no highs
+pub const LOSS_OFF_HZ: f32 = 20_000.0;
 
 // a fresh cassette: the fake deck's measured hiss, no dropouts. 8 ms of
 // base delay: a fresh tape's wobble never needs easing off at 100 % (at
@@ -87,6 +96,7 @@ impl Default for PlaybackSettings {
       dropout_depth_db: (3.0, 15.0),
       dropout_seconds: (0.01, 0.08),
       dropout_dulling: 0.5,
+      loss_hz: LOSS_OFF_HZ,
     }
   }
 }
@@ -120,6 +130,9 @@ pub struct Playback {
   hiss: Hiss,
   dbx: DbxDecoder,
   dbx_on: bool,
+  // the tape's loss of highs (None: none)
+  loss: Option<Coefs>,
+  loss_state: State,
 }
 
 impl Playback {
@@ -151,6 +164,8 @@ impl Playback {
       hiss: Hiss::new(seed, rate),
       dbx: DbxDecoder::new(rate as f32),
       dbx_on: false,
+      loss: None,
+      loss_state: State::default(),
     };
     p.set_settings(settings);
     p.hiss.set(&settings, true);
@@ -164,6 +179,9 @@ impl Playback {
     self.base_target = (settings.base_delay_ms.max(0.0) as f64 * 1e-3 * self.rate).clamp(MIN_DELAY, self.longest() * 0.5);
     self.hiss.set(&settings, old.hiss_tilt != settings.hiss_tilt);
     self.dropouts.set(&settings, old.dropouts_per_minute != settings.dropouts_per_minute);
+    // (a butterworth q: no bump before it rolls off)
+    self.loss = (settings.loss_hz < LOSS_OFF_HZ && (settings.loss_hz as f64) < 0.45 * self.rate)
+      .then(|| Coefs::new(Shape::HighCut, settings.loss_hz.max(20.0), 0.0, std::f32::consts::FRAC_1_SQRT_2, self.rate as f32));
   }
 
   pub fn settings(&self) -> &PlaybackSettings {
@@ -198,6 +216,7 @@ impl Playback {
     self.hiss.reset(self.seed);
     self.dbx.reset();
     self.dbx_on = false;
+    self.loss_state.reset();
   }
 
   // `printed`: what the record side put on the tape; `speed`: the
@@ -213,6 +232,12 @@ impl Playback {
       let end = (at + self.max_block).min(n);
       self.write(&printed[at..end]);
       self.read(&speed[at..end], &mut out[at..end], self.written - (end - at) as u64);
+      if let Some(loss) = &self.loss {
+        for o in out[at..end].iter_mut() {
+          *o = self.loss_state.run(loss, *o);
+        }
+        self.loss_state.flush();
+      }
       self.dropouts.run(&mut out[at..end]);
       self.hiss.add(&mut out[at..end]);
       if dbx {

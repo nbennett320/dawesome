@@ -151,7 +151,9 @@ export interface TapeControl {
 
 // the tape isn't built yet: the switch and drive are kept with the project,
 // but don't change the sound
-const NOT_YET = " (the tape isn't connected to the sound yet)"
+// heard in Always live mode for now; print mode is direct until printing
+// is built (Settings → Controls → Tape)
+const NOT_YET = ' (heard with Settings → Controls → Tape → Always live, for now)'
 
 // on tape: a latching key with its light, like a deck's record-ready, and
 // the track's drive onto the tape, laid out as the pan control is. the

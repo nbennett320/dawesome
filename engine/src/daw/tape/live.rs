@@ -13,7 +13,7 @@
 use std::sync::{Arc, OnceLock};
 
 use serde_json::Value;
-use tape::{GruWeights, MachineSettings, NeuralCore, PlaybackSettings, RecordSide, SimpleCore, SimpleCoreSettings, TapeCore, TapeMachine, TransportSettings};
+use tape::{wear, GruWeights, MachineSettings, NeuralCore, RecordSide, SimpleCore, SimpleCoreSettings, TapeCore, TapeMachine};
 
 use crate::daw::tape_settings::TapeSettings;
 use crate::engine::processor::MAX_BLOCK;
@@ -44,13 +44,15 @@ pub fn shape(settings: &TapeSettings, mode: TapeMode, tap: TapeTap, method: Tape
   Some(Shape { rate, before_effects: tap == TapeTap::BeforeEffects, machine: settings.machine.machine, neural: method == TapeMethod::Neural, tracks })
 }
 
-// the Transport tab's knobs on the machine's profile
-// - Age isn't applied yet: it blends between measured profiles (D57)
+// the Transport tab's knobs on the machine's profile: Age wears the tape
+// from fresh to a 1950s reel (crates/tape's wear.rs, the fake deck's
+// presets for now)
 pub fn machine_settings(settings: &TapeSettings) -> MachineSettings {
   let m = &settings.machine;
+  let worn = wear::at(m.age / 100.0);
   MachineSettings {
-    transport: TransportSettings::default(),
-    playback: PlaybackSettings::default(),
+    transport: worn.transport,
+    playback: worn.playback,
     wow_flutter: m.wobble / 100.0,
     hiss: m.hiss / 100.0,
     dbx: m.dbx,
@@ -152,5 +154,16 @@ mod tests {
     // at another rate it can't run yet (no resampling): the caller falls back
     assert!(NeuralCore::new(Arc::new(weights), 44_100.0).is_err());
     assert!(read_model("{}").is_err());
+  }
+
+  #[test]
+  fn test_age_wears_the_tape() {
+    use crate::daw::tape_settings::TapeMachine as Knobs;
+    let at = |age: f32| machine_settings(&TapeSettings { machine: Knobs { age, ..Knobs::default() }, ..TapeSettings::default() });
+    let (fresh, old) = (at(0.0), at(100.0));
+    assert_eq!(fresh.playback, wear::fresh().playback);
+    assert_eq!(old.playback, wear::ancient().playback);
+    assert!(old.playback.hiss_db > fresh.playback.hiss_db);
+    assert!(old.transport.stick_slips_per_minute > 0.0);
   }
 }

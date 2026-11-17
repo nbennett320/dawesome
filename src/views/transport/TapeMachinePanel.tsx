@@ -8,7 +8,9 @@ import {
 
 // the tape isn't built yet: the controls are kept with the project, but
 // don't change the sound (as the Rec key says of recording)
-const NOT_YET = " (the tape isn't connected to the sound yet)"
+// heard in Always live mode for now; print mode is direct until printing
+// is built (Settings → Controls → Tape)
+const NOT_YET = ' (heard with Settings → Controls → Tape → Always live, for now)'
 
 const DRAG = 'Drag up or down (shift for fine moves)'
 
@@ -124,7 +126,7 @@ const TapeMachinePanel = () => {
         <MachineKnob
           name='Age'
           label='Tape age'
-          hint='Age: how worn the tape is, from fresh to wrecked'
+          hint='Age: how worn the tape is. Fresh at 0 %, a worn cassette at 50 %, a crumbling 1950s reel at 100 %: more wobble, a sticky tape catching, more hiss and dropouts, duller highs'
           value={machine.age}
           range={AGE}
           step={1}
