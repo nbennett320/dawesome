@@ -147,6 +147,31 @@ pub struct Recipe {
   pub neural: bool,
 }
 
+// what a track sounds like before the tape, into a hash: its clips, its
+// patterns (and the sequencer, if it has any), and the tempo and time
+// signature they're played at. when this changes, its print is out of date
+pub fn content(state: &daw::Session, track: u32) -> u64 {
+  use std::hash::{Hash, Hasher};
+  let mut hasher = std::collections::hash_map::DefaultHasher::new();
+  let signature = *state.playlist.time_signature.lock().unwrap();
+  format!("{:?}", signature).hash(&mut hasher);
+  // (the graph's lock, then the sequencer's: always in that order)
+  let graph = state.playlist.audiograph.lock().unwrap();
+  graph.tempo().to_bits().hash(&mut hasher);
+  for node in graph.nodes.iter().filter(|n| n.track_number == track) {
+    node.fingerprint(&mut hasher);
+  }
+  let mut patterns = false;
+  for node in graph.pattern_nodes.iter().filter(|n| n.track_number == track) {
+    format!("{:?}", node).hash(&mut hasher);
+    patterns = true;
+  }
+  if patterns {
+    format!("{:?}", graph.sequencer.lock().unwrap().saved()).hash(&mut hasher);
+  }
+  hasher.finish()
+}
+
 // 3. the stretches with sound through the record side: the print
 pub fn make_print(mix: &[f32], recipe: &Recipe, cancel: &AtomicBool) -> Result<Print, String> {
   let rate = recipe.rate as f32;
@@ -208,6 +233,27 @@ mod tests {
     let off = worst(&limited, &played);
     assert!(off < 1e-5, "off by {off}");
     assert!(rendered.iter().any(|&s| s.abs() > 1.0), "loud enough to show the limiter's left out");
+  }
+
+  #[test]
+  fn test_a_print_is_out_of_date_when_what_it_plays_changes_not_its_strip() {
+    let state = daw::Session::default();
+    add_clip(&state, KICK.into(), 1, Some(0.0)).unwrap();
+    let first = content(&state, 1);
+    assert_eq!(content(&state, 1), first);
+    // the strip comes after the tape: no new print
+    state.playlist.mixer.set_volume_db(1, -12.);
+    state.playlist.mixer.set_pan(1, -0.5);
+    assert_eq!(content(&state, 1), first);
+    // another track's clip: no new print either
+    add_clip(&state, KICK.into(), 2, Some(0.0)).unwrap();
+    assert_eq!(content(&state, 1), first);
+    // its own new clip, or the tempo: a new print
+    add_clip(&state, KICK.into(), 1, Some(2.0)).unwrap();
+    let second = content(&state, 1);
+    assert_ne!(second, first);
+    state.playlist.audiograph.lock().unwrap().set_tempo(97.0);
+    assert_ne!(content(&state, 1), second);
   }
 
   #[test]

@@ -74,6 +74,8 @@ fn init_tauri() {
       daw::tape::set_preferences(prefs.tape_mode, prefs.tape_tap, prefs.tape_method);
       effect_windows::init(&racks);
       daw::actions::synth::keep_following(following.clone());
+      // print mode's job: re-prints taped tracks when they change
+      daw::tape::keep_printing(following.clone());
       // the empty project the app starts with is unchanged (see
       // project::has_unsaved_changes)
       daw::project::mark_unchanged(&following);

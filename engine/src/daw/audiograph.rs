@@ -191,6 +191,21 @@ pub struct AudioNode {
   settings: clip::ClipSettings,
 }
 
+impl AudioNode {
+  // what a clip sounds like, into a hash: where it is, the sample it plays
+  // (its decoded audio, by which copy it is: shared by a clip's copies),
+  // the part of it, and how it's played. for working out when a taped
+  // track's print is out of date (daw/tape/print.rs)
+  pub fn fingerprint(&self, hasher: &mut impl std::hash::Hasher) {
+    use std::hash::Hash;
+    self.start_offset.hash(hasher);
+    self.track_number.hash(hasher);
+    self.sample_path.hash(hasher);
+    (Arc::as_ptr(&self.pcm) as usize).hash(hasher);
+    format!("{:?} {:?}", self.window, self.settings).hash(hasher);
+  }
+}
+
 // a sample's length and the waveform drawn for it
 // - samples: interleaved samples for all channels
 // - sample_rate: the sample file's own rate
