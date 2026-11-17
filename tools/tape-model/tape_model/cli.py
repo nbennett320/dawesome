@@ -41,7 +41,8 @@ def _write(path, audio, rate):
 
 
 def make_testfile(args):
-  audio, test_map = testfile.build(seed=args.seed)
+  pilot_track = args.pilot_track - 1 if args.pilot_track else None
+  audio, test_map = testfile.build(seed=args.seed, pilot_track=pilot_track)
   _write(args.out, audio, test_map.rate)
   test_map.sha256 = hashlib.sha256(Path(args.out).read_bytes()).hexdigest()
   map_path = _sibling(args.out, ".map.json")
@@ -54,6 +55,11 @@ def make_fake(args):
   audio, rate = sf.read(args.input, dtype="float64", always_2d=True)
   tape = "worn" if args.worn else args.tape
   deck = replace(faketape.preset(tape), drive_db=args.drive, seed=args.seed)
+  map_path = _sibling(args.input, ".map.json")
+  if map_path.exists():
+    # the pilot's own track is recorded at a fixed level, not driven
+    track = json.loads(map_path.read_text())["pilot"].get("track")
+    deck = replace(deck, undriven_track=track)
   out, truth = faketape.run(audio, deck, rate)
   sf.write(args.out, out, rate, subtype="PCM_24")
   truth_path = _sibling(args.out, ".truth.npz")
@@ -103,6 +109,7 @@ def _align(args):
     out / "align.npz",
     quality=result.quality,
     grid_every=aligner.GRID,
+    channels=np.array(result.channels if result.channels is not None else range(len(result.tracks))),
     **{f"grid_{c}": t.grid for c, t in enumerate(result.tracks)},
     **{f"pos_{c}": t.pos for c, t in enumerate(result.tracks)},
     **{f"track_quality_{c}": t.quality for c, t in enumerate(result.tracks)},
@@ -204,6 +211,7 @@ def main(argv=None):
   p = commands.add_parser("testfile", help="write the test file and its map")
   p.add_argument("out")
   p.add_argument("--seed", type=int, default=1)
+  p.add_argument("--pilot-track", type=int, help="a 4-track file with the pilot alone on this track (1-4); content on 1 and 2")
   p.set_defaults(run=make_testfile)
 
   p = commands.add_parser("fake", help="pass a file through the fake deck")

@@ -148,6 +148,8 @@ class Track:
   content: tuple = ()
   # the pilot mixed down, at the grid (for the delay between channels)
   pilot_z: np.ndarray = None
+  # the pilot came from a track of its own, the same for every channel
+  pilot_shared: bool = False
 
 
 @dataclass
@@ -164,7 +166,9 @@ class Alignment:
   # which channels came back upside down
   inverted: list
   # the recording at the test file's rate, each channel the right way up
+  # (only the channels that carry content: `channels` says which tracks)
   recording: np.ndarray = None
+  channels: list = None
 
   def summary(self):
     delays = channel_delays(self.tracks, self.period)
@@ -176,6 +180,7 @@ class Alignment:
       "start_frame": self.sync.frame(0.0).item(),
       "channels": [
         {
+          "track": (self.channels or list(range(len(self.tracks))))[i],
           "pilot": t.pilot,
           "pilot_snr_db": t.pilot_snr_db,
           "pilot_tracked": float(np.mean(t.quality == 2)),
@@ -183,7 +188,7 @@ class Alignment:
           "flagged_bridges": sum(1 for b in t.bridges if b["flagged"]),
           "delay_frames": d,
         }
-        for t, d in zip(self.tracks, delays)
+        for i, (t, d) in enumerate(zip(self.tracks, delays))
       ],
     }
 
@@ -665,7 +670,9 @@ def _sweep_bridge(grid, island, nxt, period, rate, tracks):
 
 
 # everything for one channel
-def track_channel(rec, test_band, sync, test_map):
+# everything for one channel. `pilot`: the track the pilot is on, if it
+# has one of its own (T15), else the channel's own audio
+def track_channel(rec, test_band, sync, test_map, pilot=None):
   rate = test_map.rate
   grid = np.arange(0, len(rec), GRID, dtype=np.int64)
   linear = sync.pos(grid)
@@ -673,7 +680,7 @@ def track_channel(rec, test_band, sync, test_map):
   content_n = centers[cok].astype(np.float64)
   content_pos = cpos[cok]
 
-  segments, snr_db, unsure, pilot_z = track_pilot(rec, sync, test_map, grid)
+  segments, snr_db, unsure, pilot_z = track_pilot(rec if pilot is None else pilot, sync, test_map, grid)
   sweeps = [
     t for t in (
       _sweep_track(rec, grid, sync, sec, rate)
@@ -796,7 +803,7 @@ def track_channel(rec, test_band, sync, test_map):
 
   # the tape only goes forwards
   pos = np.maximum.accumulate(pos)
-  return Track(grid, pos, quality, bool(segments), float(snr_db), bridges, (centers, cpos, cok), pilot_z)
+  return Track(grid, pos, quality, bool(segments), float(snr_db), bridges, (centers, cpos, cok), pilot_z, pilot is not None)
 
 
 # how far each channel runs behind the first, in frames. content gives it
@@ -814,7 +821,9 @@ def channel_delays(tracks, period):
       out.append(None)
       continue
     rough = float(np.median(base.pos[both] - t.pos[both]))
-    if base.pilot_z is not None and t.pilot_z is not None:
+    # (a pilot on its own track is the same for every channel: it can't
+    # tell them apart, so content's answer stands)
+    if base.pilot_z is not None and t.pilot_z is not None and not (base.pilot_shared or t.pilot_shared):
       turn = np.angle(base.pilot_z[both] * np.conj(t.pilot_z[both]))
       fine = float(np.angle(np.mean(np.exp(1j * turn)))) / (2 * np.pi) * period
       rough = fine + period * np.round((rough - fine) / period)
@@ -839,16 +848,35 @@ def dewobble(rec, tracks, sync, frames):
   return aligned, quality
 
 
+# the tracks of a recording that carry the test file's content: not the
+# pilot's own track, nor a track the test file leaves silent
+def content_channels(rec_channels, test, test_map):
+  pilot = test_map.pilot.get("track")
+  return [
+    c for c in range(rec_channels)
+    if c != pilot and (c >= test.shape[1] or np.any(test[:, c] != 0))
+  ]
+
+
 def align(rec, rec_rate, test, test_map):
   rate = test_map.rate
   rec = match_rate(np.asarray(rec, dtype=np.float64), rec_rate, rate)
   if rec.ndim == 1:
     rec = rec[:, None]
-  sync = find_sync(rec, test, test_map)
-  test_band = _band(_mono(test), rate)
+  channels = content_channels(rec.shape[1], test, test_map)
+  pilot_track = test_map.pilot.get("track")
+  pilot = None
+  if pilot_track is not None:
+    if pilot_track >= rec.shape[1]:
+      raise AlignError(f"the pilot is on track {pilot_track + 1}, but the recording has {rec.shape[1]} tracks")
+    pilot = rec[:, pilot_track]
+  test_content = test[:, [c for c in channels if c < test.shape[1]] or [0]]
+  content = rec[:, channels]
+  sync = find_sync(content, test_content, test_map)
+  test_band = _band(_mono(test_content), rate)
   # each channel the right way up on its own: a track can be wired backwards
-  signs = [polarity(rec[:, c], test_band, sync, rate) or (-1.0 if sync.inverted[c] else 1.0) for c in range(rec.shape[1])]
-  rec = rec * np.array(signs)[None, :]
-  tracks = [track_channel(rec[:, c], test_band, sync, test_map) for c in range(rec.shape[1])]
-  aligned, quality = dewobble(rec, tracks, sync, len(test))
-  return Alignment(sync, tracks, rate, aligned, quality, rate / test_map.pilot["hz"], [s < 0 for s in signs], rec)
+  signs = [polarity(content[:, c], test_band, sync, rate) or (-1.0 if sync.inverted[c] else 1.0) for c in range(content.shape[1])]
+  content = content * np.array(signs)[None, :]
+  tracks = [track_channel(content[:, c], test_band, sync, test_map, pilot) for c in range(content.shape[1])]
+  aligned, quality = dewobble(content, tracks, sync, len(test))
+  return Alignment(sync, tracks, rate, aligned, quality, rate / test_map.pilot["hz"], [s < 0 for s in signs], content, channels)

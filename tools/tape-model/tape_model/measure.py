@@ -343,8 +343,9 @@ def measure(alignment, rec, test, test_map, reference=None):
   rate = test_map.rate
   cuts = [_Cutter(rec[:, c], t, rate) for c, t in enumerate(alignment.tracks)]
   channels = []
+  tracks = alignment.channels or list(range(len(cuts)))
   for c, cut in enumerate(cuts):
-    tc = min(c, test.shape[1] - 1)
+    tc = min(tracks[c], test.shape[1] - 1)
     lv = levels(cut, test, test_map, rate, tc)
     ref = reference["channels"][c]["levels"]["marker_gain_db"] if reference else lv["marker_gain_db"]
     drive = lv["marker_gain_db"] - ref if reference else None
