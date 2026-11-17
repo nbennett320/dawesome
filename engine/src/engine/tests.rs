@@ -1115,7 +1115,7 @@ mod tape_tests {
     MachineSettings { transport: TransportSettings::still(), playback, wow_flutter: 0.0, hiss: 0.0, dbx: false, output_db: 0.0 }
   }
 
-  fn live_tape(settings: MachineSettings, before_effects: bool, tracks: &[u32]) -> Box<tape::LiveTape> {
+  fn live_tape(settings: MachineSettings, before_effects: bool, tracks: &[u32]) -> Box<tape::EngineTape> {
     let rate = TAPE_RATE as f32;
     let mut machine = TapeMachine::new(settings, rate, 1, processor::MAX_BLOCK);
     let mut sides = Vec::new();
@@ -1124,9 +1124,36 @@ mod tape_tests {
         let core = Box::new(SimpleCore::new(SimpleCoreSettings::default(), rate, processor::MAX_BLOCK));
         machine.add_track(Some(RecordSide::new(core, rate, processor::MAX_BLOCK)), 0.0)
       };
-      sides.push((number, [side(), side()]));
+      sides.push((number, [side(), side()], true));
     }
-    tape::LiveTape::new(machine, before_effects, sides)
+    tape::EngineTape::new(machine, before_effects, TAPE_RATE, sides)
+  }
+
+  // a tape whose tracks wait for prints
+  fn printed_tape(tracks: &[u32]) -> Box<tape::EngineTape> {
+    let mut machine = TapeMachine::new(still(), TAPE_RATE as f32, 1, processor::MAX_BLOCK);
+    let sides = tracks.iter().map(|&n| (n, [machine.add_track(None, 0.0), machine.add_track(None, 0.0)], false)).collect();
+    tape::EngineTape::new(machine, true, TAPE_RATE, sides)
+  }
+
+  // a print: a slow sine, in two stretches with silence between
+  fn print(frames: usize) -> Arc<tape::Print> {
+    let wave = |from: usize, n: usize| -> Vec<f32> { (from..from + n).map(|i| (i as f32 * 0.003).sin() * 0.1).collect() };
+    let half = frames / 2;
+    Arc::new(tape::Print {
+      rate: TAPE_RATE,
+      regions: vec![
+        tape::Region { start: 0, sides: [wave(0, half - 1000), wave(0, half - 1000)] },
+        tape::Region { start: half as i64, sides: [wave(half, half), wave(half, half)] },
+      ],
+    })
+  }
+
+  // what a print should sound like on a still, quiet tape: itself, on time
+  fn printed_at(p: &tape::Print, from: i64, frames: usize) -> Vec<f32> {
+    let mut out = vec![0.0; frames];
+    p.read(0, from, &mut out);
+    out
   }
 
   // a sine on a track, at 48 khz, `level` of full scale
@@ -1138,7 +1165,7 @@ mod tape_tests {
     SamplesBuffer::new(2, TAPE_RATE, samples)
   }
 
-  fn play(tape: Option<Box<tape::LiveTape>>, chain: Vec<Arc<Slot>>, level: f32) -> Vec<f32> {
+  fn play(tape: Option<Box<tape::EngineTape>>, chain: Vec<Arc<Slot>>, level: f32) -> Vec<f32> {
     let mixer = mixer::Mixer::default();
     let (engine, mut renderer) = Engine::new(TAPE_RATE);
     engine.set_tape(tape).unwrap();
@@ -1199,5 +1226,97 @@ mod tape_tests {
     let after = play(Some(live_tape(still(), false, &[0])), half(), 0.8);
     let differ = before.iter().zip(&after).filter(|(a, b)| (*a - *b).abs() > 1e-3).count();
     assert!(differ > 1000, "{differ} frames differ");
+  }
+
+  // ---- printed tracks
+
+  // a run from song frame `origin`. track 0 gets a silent clip: a track's
+  // bus is made when it has something to play (a printed track always has
+  // its clips), and the clip is what's direct, crossed out for the print
+  fn run_from(engine: &Engine, mixer: &mixer::Mixer, run: u64, origin: i64, _voices: Vec<Box<Voice>>) {
+    let start = RunStart { origin, ..RunStart::default() };
+    let silent = engine.voice(tone(96_000, 0.0), Some(run), 0, Route::Track(mixer.track_route(0)));
+    engine.start_run_at(run, mixer.master(), start, vec![silent]).unwrap();
+  }
+
+  #[test]
+  fn test_a_print_reads_as_silence_between_its_stretches() {
+    let p = print(20_000);
+    let mut out = vec![1.0; 3000];
+    p.read(0, 8_000, &mut out);
+    // 8000..9000 is sound, 9000..10000 the gap, 10000.. sound again
+    assert!(out[..900].iter().any(|&s| s != 0.0));
+    assert!(out[1000..2000].iter().all(|&s| s == 0.0));
+    assert!(out[2100..].iter().any(|&s| s != 0.0));
+    // past the end, and before the start
+    let mut out = vec![1.0; 100];
+    p.read(1, 30_000, &mut out);
+    assert!(out.iter().all(|&s| s == 0.0));
+    p.read(1, -50, &mut out);
+    assert!(out[..50].iter().all(|&s| s == 0.0) && out[51..].iter().any(|&s| s != 0.0));
+  }
+
+  #[test]
+  fn test_a_printed_track_plays_its_print_on_time() {
+    let mixer = mixer::Mixer::default();
+    let (engine, mut renderer) = Engine::new(TAPE_RATE);
+    engine.set_tape(Some(printed_tape(&[0]))).unwrap();
+    let p = print(40_000);
+    engine.set_tape_print(0, Some(p.clone())).unwrap();
+    run_from(&engine, &mixer, 1, 0, vec![]);
+    let out = render(&mut renderer, 12_000);
+    // after the 50 ms crossfade from direct (silence here), the print
+    let want = printed_at(&p, 0, 12_000);
+    let worst = out[3000..].iter().zip(&want[3000..]).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+    assert!(worst < 2e-3, "off by {worst}");
+  }
+
+  #[test]
+  fn test_a_seek_starts_the_print_from_there_with_nothing_stale() {
+    let mixer = mixer::Mixer::default();
+    let (engine, mut renderer) = Engine::new(TAPE_RATE);
+    engine.set_tape(Some(printed_tape(&[0]))).unwrap();
+    let p = print(40_000);
+    engine.set_tape_print(0, Some(p.clone())).unwrap();
+    run_from(&engine, &mixer, 1, 0, vec![]);
+    render(&mut renderer, 9_600);
+    // a jump to frame 25000: what comes out is the print from there at once
+    run_from(&engine, &mixer, 2, 25_000, vec![]);
+    let out = render(&mut renderer, 4_800);
+    let want = printed_at(&p, 25_000, 4_800);
+    let worst = out.iter().zip(&want).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+    assert!(worst < 2e-3, "off by {worst}");
+  }
+
+  #[test]
+  fn test_without_a_print_or_stopped_a_track_is_direct() {
+    // no print yet: exactly as with no tape (D64)
+    let with_tape = {
+      let mixer = mixer::Mixer::default();
+      let (engine, mut renderer) = Engine::new(TAPE_RATE);
+      engine.set_tape(Some(printed_tape(&[0]))).unwrap();
+      engine.start_run(1, mixer.master(), vec![engine.voice(tone(9600, 0.1), Some(1), 0, Route::Track(mixer.track_route(0)))]).unwrap();
+      render(&mut renderer, 9600)
+    };
+    assert_eq!(with_tape, play(None, vec![], 0.1));
+    // stopped: the tape has nothing to do with a printed track
+    let t = printed_tape(&[0]);
+    assert_eq!(t.uses(0, false), None);
+    assert_eq!(t.uses(0, true), None);
+  }
+
+  #[test]
+  fn test_an_out_of_date_print_crosses_back_to_direct() {
+    let mixer = mixer::Mixer::default();
+    let (engine, mut renderer) = Engine::new(TAPE_RATE);
+    engine.set_tape(Some(printed_tape(&[0]))).unwrap();
+    engine.set_tape_print(0, Some(print(96_000))).unwrap();
+    run_from(&engine, &mixer, 1, 0, vec![]);
+    render(&mut renderer, 9_600);
+    engine.set_tape_print(0, None).unwrap();
+    let out = render(&mut renderer, 9_600);
+    // still sounding as it crosses (50 ms), then silent: direct (nothing)
+    assert!(out[..1000].iter().any(|&s| s != 0.0));
+    assert!(out[3000..].iter().all(|&s| s == 0.0));
   }
 }

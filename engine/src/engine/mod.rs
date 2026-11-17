@@ -525,7 +525,7 @@ impl Bus {
   // the pair the result ended up in
   // - tape: the tape, and this bus's place on it, if it's on tape: the
   //   track goes through it before its first effect, or after its chain
-  fn run(&mut self, frames: usize, transport: &Transport, mut tape: Option<(&mut tape::LiveTape, [usize; 2])>) -> usize {
+  fn run(&mut self, frames: usize, transport: &Transport, mut tape: Option<(&mut tape::EngineTape, tape::Use)>) -> usize {
     let mut at = 0;
     for slot in self.chain.iter() {
       if slot.bypassed() { continue; }
@@ -533,9 +533,9 @@ impl Bus {
       // the first effect (not an instrument): the tape goes before it
       // (safe: this is the callback of the engine whose chain holds the slot)
       if tape.as_ref().is_some_and(|(t, _)| t.before_effects) && unsafe { slot.playing() }.is_none() {
-        let (t, sides) = tape.take().unwrap();
+        let (t, what) = tape.take().unwrap();
         let [l, r] = &mut self.buffers[at];
-        t.run(sides, &mut l[..frames], &mut r[..frames]);
+        t.run(what, transport.position, transport.playing, &mut l[..frames], &mut r[..frames]);
       }
 
       let (first, second) = self.buffers.split_at_mut(1);
@@ -574,9 +574,9 @@ impl Bus {
     }
 
     // after its chain (or, before its effects, when it has none)
-    if let Some((t, sides)) = tape {
+    if let Some((t, what)) = tape {
       let [l, r] = &mut self.buffers[at];
-      t.run(sides, &mut l[..frames], &mut r[..frames]);
+      t.run(what, transport.position, transport.playing, &mut l[..frames], &mut r[..frames]);
     }
 
     // (before the strip: a muted track's reverb is still sounding)
@@ -617,10 +617,12 @@ enum Command {
   Chain { channel: Channel, slots: Vec<Arc<Slot>> },
   // the tape (always-live mode), replacing the one there is; None: no tape,
   // and every track plays exactly as it did before there was one
-  Tape(Option<Box<tape::LiveTape>>),
+  Tape(Option<Box<tape::EngineTape>>),
   // the tape's knobs, and a track's drive (neither allocates)
   TapeSettings(Box<::tape::MachineSettings>),
   TapeDrive { track_number: u32, drive_db: f32 },
+  // a printed track's print (None: it's out of date, back to direct)
+  TapePrint { track_number: u32, print: Option<Arc<tape::Print>> },
 }
 
 // what the callback is done with, sent back to be freed off the audio thread
@@ -635,8 +637,9 @@ enum Garbage {
   Route(mixer::TrackRoute),
   Controls(Arc<mixer::ChannelControls>, Option<Arc<AtomicUsize>>),
   Chain(Vec<Arc<Slot>>),
-  Tape(Box<tape::LiveTape>),
+  Tape(Box<tape::EngineTape>),
   TapeSettings(Box<::tape::MachineSettings>),
+  Print(Arc<tape::Print>),
 }
 
 // how many voices can sound at once. more are dropped (and counted)
@@ -914,13 +917,18 @@ impl Engine {
   // the tape for always-live mode, replacing the one there is (None: no
   // tape: every track plays as it did before). build it off the audio
   // thread: see tape.rs
-  pub fn set_tape(&self, tape: Option<Box<tape::LiveTape>>) -> Result<(), String> {
+  pub fn set_tape(&self, tape: Option<Box<tape::EngineTape>>) -> Result<(), String> {
     self.send(Command::Tape(tape))
   }
 
   // the tape's knobs, without rebuilding it (its wobble carries on)
   pub fn set_tape_settings(&self, settings: ::tape::MachineSettings) -> Result<(), String> {
     self.send(Command::TapeSettings(Box::new(settings)))
+  }
+
+  // a printed track's print, or None when it's out of date
+  pub fn set_tape_print(&self, track_number: u32, print: Option<Arc<tape::Print>>) -> Result<(), String> {
+    self.send(Command::TapePrint { track_number, print })
   }
 
   // a taped track's drive
@@ -1064,7 +1072,7 @@ pub struct Renderer {
   // how long a chain is silent for before it rests (see Bus::rests)
   rest_frames: u64,
   // the tape, in always-live mode while it's on (see tape.rs)
-  tape: Option<Box<tape::LiveTape>>,
+  tape: Option<Box<tape::EngineTape>>,
 }
 
 impl Renderer {
@@ -1202,7 +1210,9 @@ impl Renderer {
       }
     }
 
-    // the tape moves on once a block, the same for every track on it
+    // the tape moves on once a block, the same for every track on it (and
+    // what it let go of last block goes to be freed)
+    self.free_prints();
     if let Some(tape) = self.tape.as_mut() {
       tape.machine.advance(frames);
     }
@@ -1217,7 +1227,7 @@ impl Renderer {
       // reads what's on the tape a few ms back, and hisses, whether or not
       // anything new is going on
       let taped = match (self.tape.as_ref(), bus.channel) {
-        (Some(tape), Channel::Track(number)) => tape.sides(number),
+        (Some(tape), Channel::Track(number)) => tape.uses(number, transport.playing),
         _ => None,
       };
       if !bus.sounding && bus.chain.is_empty() && taped.is_none() {
@@ -1362,6 +1372,26 @@ impl Renderer {
         if let Some(tape) = self.tape.as_mut() {
           tape.set_drive(track_number, drive_db);
         }
+      }
+      Command::TapePrint { track_number, print } => {
+        match self.tape.as_mut() {
+          Some(tape) => tape.set_print(track_number, print),
+          None => if let Some(print) = print { self.throw_away(Garbage::Print(print)) },
+        }
+        self.free_prints();
+      }
+    }
+  }
+
+  // prints the tape let go of, sent off to be freed (never here)
+  fn free_prints(&mut self) {
+    let Some(tape) = self.tape.as_mut() else { return };
+    while let Some(print) = tape.dropped.pop() {
+      // (garbage's queue is the way out; if it's full the print waits for
+      // the next block, rather than being freed here)
+      if let Err(rtrb::PushError::Full(Garbage::Print(print))) = self.garbage.push(Garbage::Print(print)) {
+        tape.dropped.push(print);
+        break;
       }
     }
   }

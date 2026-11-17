@@ -224,6 +224,13 @@ impl TapeMachine {
     self.frames = frames;
   }
 
+  // a printed track starting again from a new place on the print (a run
+  // starting, a seek, a loop): `ahead` is the print from there on, latency()
+  // frames of it, written in without being heard
+  pub fn prime(&mut self, track: usize, ahead: &[f32]) {
+    self.tracks[track].playback.prime(ahead);
+  }
+
   // a printed track's playback for the block `advance` set up: the print
   // (as the record side made it) in, the track's output out
   pub fn play(&mut self, track: usize, printed: &[f32], out: &mut [f32]) {
@@ -367,6 +374,29 @@ mod tests {
     s.hiss = 1.0;
     machine.set_settings(s);
     assert!(run_live(&mut machine, t, &silence).iter().any(|&x| x != 0.0));
+  }
+
+  #[test]
+  fn a_primed_print_plays_on_time_with_nothing_stale() {
+    // a print read latency() ahead, primed with that much first: what comes
+    // out is the print, from where it was primed, on time
+    let mut machine = TapeMachine::new(quiet(), RATE, 1, BLOCK);
+    let t = machine.add_track(None, 0.0);
+    let late = machine.latency().round() as usize;
+    let print: Vec<f32> = (0..20_000).map(|i| ((i as f32) * 0.01).sin() * 0.1).collect();
+    // something else on the line first, to show priming clears it
+    machine.advance(BLOCK);
+    machine.play(t, &vec![0.5; BLOCK], &mut vec![0.0; BLOCK]);
+    let from = 5_000;
+    machine.prime(t, &print[from..from + late]);
+    let mut out = vec![0.0; 4 * BLOCK];
+    for (k, o) in out.chunks_mut(BLOCK).enumerate() {
+      let at = from + late + k * BLOCK;
+      machine.advance(BLOCK);
+      machine.play(t, &print[at..at + BLOCK], o);
+    }
+    let worst = out.iter().zip(&print[from..]).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+    assert!(worst < 1e-3, "off by {worst}");
   }
 
   #[test]

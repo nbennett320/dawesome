@@ -17,23 +17,27 @@ use tape::{wear, GruWeights, MachineSettings, NeuralCore, RecordSide, SimpleCore
 
 use crate::daw::tape_settings::TapeSettings;
 use crate::engine::processor::MAX_BLOCK;
-use crate::engine::tape::LiveTape;
+use crate::engine::tape::EngineTape;
 use crate::preferences::{TapeMethod, TapeMode, TapeTap};
 
-// what a live tape is built for: when this changes, it's built again
+// what the engine's tape is built for: when this changes, it's built
+// again
 #[derive(Clone, Debug, PartialEq)]
 pub struct Shape {
   pub rate: u32,
   pub before_effects: bool,
   pub machine: u8,
   pub neural: bool,
+  // always-live mode: each track's record side runs in the engine; print
+  // mode: the tracks wait for their prints (print.rs)
+  pub live: bool,
   // the tracks on it, in order
   pub tracks: Vec<u32>,
 }
 
-// the live tape the engine should have, if any
+// the tape the engine should have, if any
 pub fn shape(settings: &TapeSettings, mode: TapeMode, tap: TapeTap, method: TapeMethod, rate: u32) -> Option<Shape> {
-  if !settings.machine.enabled || mode != TapeMode::Live {
+  if !settings.machine.enabled {
     return None;
   }
   let mut tracks: Vec<u32> = settings.tracks.iter().filter(|t| t.on_tape).map(|t| t.track_number).collect();
@@ -41,7 +45,7 @@ pub fn shape(settings: &TapeSettings, mode: TapeMode, tap: TapeTap, method: Tape
     return None;
   }
   tracks.sort_unstable();
-  Some(Shape { rate, before_effects: tap == TapeTap::BeforeEffects, machine: settings.machine.machine, neural: method == TapeMethod::Neural, tracks })
+  Some(Shape { rate, before_effects: tap == TapeTap::BeforeEffects, machine: settings.machine.machine, neural: method == TapeMethod::Neural, live: mode == TapeMode::Live, tracks })
 }
 
 // the Transport tab's knobs on the machine's profile: Age wears the tape
@@ -115,8 +119,8 @@ fn read_model(text: &str) -> Result<GruWeights, String> {
 }
 
 // a track side's core: the network when it's chosen and can run at this
-// rate, else the hand-built model
-fn core(neural: bool, rate: f32) -> Box<dyn TapeCore> {
+// rate, else the hand-built model (print.rs uses it too)
+pub fn core(neural: bool, rate: f32) -> Box<dyn TapeCore> {
   if neural {
     match network().map(|weights| NeuralCore::new(weights, rate)) {
       Some(Ok(core)) => return Box::new(core),
@@ -127,19 +131,23 @@ fn core(neural: bool, rate: f32) -> Box<dyn TapeCore> {
   Box::new(SimpleCore::new(SimpleCoreSettings::default(), rate, MAX_BLOCK))
 }
 
-pub fn build(shape: &Shape, settings: &TapeSettings) -> Box<LiveTape> {
+pub fn build(shape: &Shape, settings: &TapeSettings) -> Box<EngineTape> {
   let rate = shape.rate as f32;
   let mut machine = TapeMachine::new(machine_settings(settings), rate, SEED, MAX_BLOCK);
   let mut sides = Vec::with_capacity(shape.tracks.len());
   for &number in &shape.tracks {
-    let mut side = || machine.add_track(Some(RecordSide::new(core(shape.neural, rate), rate, MAX_BLOCK)), 0.0);
+    // live: the record side runs here; printed: it ran ahead (print.rs)
+    let mut side = || {
+      let record = shape.live.then(|| RecordSide::new(core(shape.neural, rate), rate, MAX_BLOCK));
+      machine.add_track(record, 0.0)
+    };
     let pair = [side(), side()];
     let drive = settings.track(number).drive_db;
     machine.set_drive(pair[0], drive);
     machine.set_drive(pair[1], drive);
-    sides.push((number, pair));
+    sides.push((number, pair, shape.live));
   }
-  LiveTape::new(machine, shape.before_effects, sides)
+  EngineTape::new(machine, shape.before_effects, shape.rate, sides)
 }
 
 #[cfg(test)]

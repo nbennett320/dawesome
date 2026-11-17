@@ -219,6 +219,21 @@ impl Playback {
     self.loss_state.reset();
   }
 
+  // start again from a new place on the tape: the line cleared and
+  // `printed` (what's on the tape just ahead of it, latency() frames of it)
+  // written in without reading, so the next process() reads from there
+  // straight away, with nothing stale from before. for a run starting, a
+  // seek, or a loop going round
+  pub fn prime(&mut self, printed: &[f32]) {
+    self.ring.fill(0.0);
+    self.written = 0;
+    self.ahead = 0.0;
+    self.base = self.base_target;
+    self.loss_state.reset();
+    self.dbx.reset();
+    self.write(printed);
+  }
+
   // `printed`: what the record side put on the tape; `speed`: the
   // transport's speed for each frame; `dbx`: decode
   pub fn process(&mut self, printed: &[f32], speed: &[f32], dbx: bool, out: &mut [f32]) {
