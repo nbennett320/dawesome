@@ -69,11 +69,11 @@ const Timeline = () => {
   const onPointerCancel = () => setDragMs(null)
 
   return (
-    <div className='flex h-full w-full flex-col gap-1 bg-surface p-3'>
+    <div className='flex h-full w-full flex-col gap-1 bg-surface p-3 select-none'>
       <div
         ref={strip}
         data-testid='timeline-strip'
-        className='relative min-h-0 flex-1 cursor-pointer touch-none select-none overflow-hidden rounded border border-line-strong bg-sunken'
+        className='relative min-h-0 flex-1 cursor-pointer touch-none overflow-hidden rounded border border-line-strong bg-sunken'
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
