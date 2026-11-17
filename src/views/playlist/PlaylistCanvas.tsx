@@ -14,7 +14,8 @@ import {
   MovedNode,
   moveNodesInPlaylist,
   paintPatternClips,
-  pasteClips,
+  pasteAt,
+  clearSpan,
   removeManyFromPlaylist,
   repeatClips,
   seekPlaylist,
@@ -169,7 +170,11 @@ const ClipMenuHost = ({ opener }: { opener: React.MutableRefObject<((m: OpenMenu
       <ClipMenu
         x={menu.x}
         y={menu.y}
-        items={[{ label: 'Paste', shortcut: '⌘V', onSelect: () => { dispatch(pasteClips(beat, track)) } }]}
+        items={[{
+          label: 'Paste',
+          shortcut: '⌘V',
+          onSelect: () => { dispatch(pasteAt(beat, track, playlistRenderer.selectSpan)) },
+        }]}
         onClose={close}
       />
     )
@@ -222,7 +227,7 @@ const ClipMenuHost = ({ opener }: { opener: React.MutableRefObject<((m: OpenMenu
       shortcut: '⌘V',
       onSelect: () => {
         const beat = playlistRenderer.pasteBeat()
-        if(beat !== null) dispatch(pasteClips(beat, null))
+        if(beat !== null) dispatch(pasteAt(beat, null, playlistRenderer.selectSpan))
       },
     }]),
     {
@@ -408,6 +413,15 @@ const PlaylistCanvas = () => {
       if(!isDeleteKey(ev) || ev.repeat || isTypingTarget(ev.target)) return
       if(selectFocusedView(store.getState()) !== View.Playlist) return
 
+      // a time selection: what's in it goes, leaving the gap
+      const span = playlistRenderer.selectedBlock()
+      if(span) {
+        if(playlistRenderer.isDragging()) return
+        ev.preventDefault()
+        dispatch(clearSpan(span))
+        return
+      }
+
       const ids = playlistRenderer.takeSelection()
       if(!ids.length) return
       // Backspace would otherwise navigate back in some webviews
@@ -564,7 +578,8 @@ const PlaylistCanvas = () => {
         pasteBeat,
         focused: selectFocusedView(store.getState()) === View.Playlist,
         blade: playlistRenderer.bladeTarget(),
-      }, ids => playlistRenderer.select(ids), setBusy)(dispatch, store.getState))
+        span: playlistRenderer.selectedBlock(),
+      }, ids => playlistRenderer.select(ids), setBusy, playlistRenderer.selectSpan)(dispatch, store.getState))
         // eslint-disable-next-line no-console
         .catch(e => console.error(`could not ${command}:`, e))
     }

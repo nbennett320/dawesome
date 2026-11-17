@@ -2,7 +2,7 @@ import type { Mock } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import reducer, {
   addPatternToPlaylist, addToPlaylist, copyClips, moveNodeInPlaylist, moveNodesInPlaylist, cutClips, deepCopyClips, joinClips, NEEDS_SAVING, pasteClips, repeatClips, reduceLoadedProject, playlistSlice, removeManyFromPlaylist, selectBarQuarters, selectClipOverrides, selectClipWindow, selectCurrentTrack, setClipWindows,
-  setCurrentTrack,
+  setCurrentTrack, copySpan, cutSpan, clearSpan, pasteAt,
   setPlaylistTempo, setLoopRegion, clearLoopEnd,
   splitClips, stretchClips, updateClipSettings, validTempo, withWaitCursor,
 } from './playlistSlice'
@@ -686,6 +686,63 @@ describe('the clip clipboard', () => {
     mockInvoke.mockReset()
     mockInvoke.mockImplementation(async (command: string) =>
       command === 'get_playlist_data' ? playlistData : 0)
+  })
+
+  describe('with a span', () => {
+    const span = { start: 4, end: 8, top: 1, bottom: 2 }
+    const edit = (over = {}) => ({ clips: [], patternClips: [], removed: [], leftOut: 0, copied: 0, span: null, ...over })
+
+    it('copies a span, and remembers the clipboard holds one until clips are copied', async () => {
+      mockInvoke.mockImplementation(async (command: string) =>
+        (command === 'copy_span_clips' ? 3 : command === 'copy_clips' ? 1 : playlistData))
+      const { state } = await run(dispatch => copySpan(span)(dispatch))
+      expect(mockInvoke).toHaveBeenCalledWith('copy_span_clips', { span })
+      expect(state.clipboardCount).toBe(3)
+      expect(state.clipboardSpan).toBe(true)
+
+      const dispatch = vi.fn()
+      await copyClips([7])(dispatch)
+      const after = dispatch.mock.calls.reduce((s, [action]) => reducer(s, action), state)
+      expect(after.clipboardSpan).toBe(false)
+    })
+
+    it('cuts a span: what was in it goes, and the clipboard holds it', async () => {
+      mockInvoke.mockImplementation(async (command: string) =>
+        (command === 'cut_span_clips' ? edit({ removed: [9], copied: 2 }) : playlistData))
+      const { state } = await run(dispatch => cutSpan(span)(dispatch))
+      expect(state.playlistItems.map((i: { id: number }) => i.id)).toEqual([7])
+      expect(state.clipboardCount).toBe(2)
+      expect(state.clipboardSpan).toBe(true)
+    })
+
+    it('clears a span, keeping a clip it trimmed', async () => {
+      mockInvoke.mockImplementation(async (command: string) =>
+        (command === 'clear_span_clips' ? edit({ clips: [clip({ id: 7, startBeat: 1 })], removed: [9] }) : playlistData))
+      const { state } = await run(dispatch => clearSpan(span)(dispatch))
+      expect(state.playlistItems.map((i: { id: number, startBeat: number }) => [i.id, i.startBeat])).toEqual([[7, 1]])
+    })
+
+    it('pastes a span on the current track, or clips the usual way', async () => {
+      const filled = { start: 12, end: 16, top: 3, bottom: 4 }
+      mockInvoke.mockImplementation(async (command: string) =>
+        (command === 'paste_span_clips' ? edit({ span: filled }) : command === 'paste_clips' ? placed() : playlistData))
+      const onSpan = vi.fn()
+      const holding = (clipboardSpan: boolean) => () => ({ playlist: { ...start(), clipboardSpan, currentTrack: 3 } }) as never
+
+      await pasteAt(12, null, onSpan)(vi.fn(), holding(true))
+      expect(mockInvoke).toHaveBeenCalledWith('paste_span_clips', { beat: 12, track: 3 })
+      expect(onSpan).toHaveBeenCalledWith(filled)
+
+      await pasteAt(12, null, onSpan)(vi.fn(), holding(false))
+      expect(mockInvoke).toHaveBeenCalledWith('paste_clips', { beat: 12, track: null })
+    })
+
+    it('says why a span edit was refused', async () => {
+      mockInvoke.mockRejectedValue('Nothing was pasted: a clip would start past the end of the playlist.')
+      const { result, dispatch } = await run(d => clearSpan(span)(d))
+      expect(result).toBeNull()
+      expect(noticeFrom(dispatch)).toHaveLength(1)
+    })
   })
 
   it('copies clips, and keeps the count the engine gives', async () => {

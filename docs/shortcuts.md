@@ -69,6 +69,11 @@ doesn't matter; an unknown command is named in the info bar.
 | **⌘A** | **Ctrl+A** | Select all clips (Playlist) or all notes (Piano Roll) |
 | **⌘B** | **Ctrl+B** | Playlist: **Blade**. Cut the current track's clip at the playhead, or the time selection's clips at both its ends (**Edit ▸ Blade**) |
 
+With a [time selection](./manual/playlist.md#editing-a-time-selection) in
+the Playlist, **⌘C**, **⌘X**, **⌘R** and **Delete** act on what's inside it
+instead of on clips, and a copied span pastes with **⌘V** at the playhead on
+the current track, replacing what's there.
+
 In a text field, these act on the text. Dawesome's clipboards are its own:
 copying clips or notes doesn't change your system clipboard.
 

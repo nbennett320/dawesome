@@ -122,6 +122,25 @@ playback carries on undisturbed.
 
 With the Draw or Cut tool, Shift and the arrow keys do nothing.
 
+#### Editing a time selection
+
+While there's a time selection that covers some time, the edit commands act
+on it instead of on clips. A clip that runs across either end of the
+selection is cut there, so only the part inside is affected.
+
+| Command | Keys | What it does |
+| --- | --- | --- |
+| Copy | **⌘C (Ctrl+C)** | Copies what's inside the selection. The clipboard then holds a span of time, gaps included. |
+| Cut | **⌘X (Ctrl+X)** | Copies what's inside, then takes it out. Clips after it stay where they are, leaving a gap. |
+| Delete | **Delete** (or **Backspace**) | Takes out what's inside, leaving a gap. |
+| Repeat | **⌘R (Ctrl+R)** | Puts a copy straight after the selection, replacing what was there, and selects the copy. Press it again to keep going. |
+| Paste | **⌘V (Ctrl+V)** | With a copied span on the clipboard: pastes it at the playhead, with its top track on the [current track](#_6-1-2-the-current-track). It replaces what was there, and the pasted span is selected. |
+
+A pasted span always replaces exactly the time it covers, on the tracks it
+covers, even where the copy had gaps. **Paste** on the right-click menu of
+an empty lane puts a copied span there, with its top track on that lane.
+Each of these is one step to undo.
+
 ## 6-2 Tools
 
 The tray above the ruler has three mouse tools. Only one is active at a
@@ -259,7 +278,9 @@ See also the [Shortcuts](../shortcuts.md) page.
 The clipboard belongs to Dawesome; the system clipboard is left alone.
 
 **Paste** (⌘V) places the clips so the earliest starts at the playhead, on
-the snap grid, on the tracks they came from. To paste somewhere else,
+the snap grid, on the tracks they came from. (A span copied from a time
+selection pastes differently: see
+[Editing a time selection](#editing-a-time-selection).) To paste somewhere else,
 *right-click* empty track space and choose **Paste**: the clips go at that
 point, with the topmost on that track. Nothing is pasted if a clip would
 start past the end of the playlist.

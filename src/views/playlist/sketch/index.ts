@@ -41,6 +41,7 @@ import { drawCutLine, drawLasso } from '../../../editing/look'
 import { Tool } from '../../../editing/tools'
 import { DRAG_THRESHOLD_PX, wheelIntent, zoomAround } from '../../../editing/view'
 import type { MovedNode as Landed } from '../../../state/slices/playlistSlice'
+import type { Span as TimeSpan } from '../../../types/project'
 import { PlaceableItem as DragItem, dragItemKey } from '../../../state/sampleDrag'
 import { Pattern, SequencerState, patternSeconds } from '../../../types/sequencer'
 import { decodeLevels } from '../../../util/waveform'
@@ -795,6 +796,24 @@ export class Renderer extends RendererBase {
     if(!this.timeSelection) return
     this.timeSelection = null
     this.wake()
+  }
+
+  // what range edits act on (⌘C, ⌘X, ⌘R, Delete): the time selection's
+  // block, if it covers any time
+  selectedBlock = (): TimeSpan | null => {
+    const sel = this.timeSelection
+    return sel && !isEmptySpan(sel) ? blockOf(sel) : null
+  }
+
+  // select the span a paste or a repeat filled, as a time selection: its
+  // moving edge at its end, and on the current track if that's one of its
+  // tracks (otherwise its top, which becomes current)
+  selectSpan = (span: TimeSpan) => {
+    const current = this.shownTrack()
+    const edgeTrack = current >= span.top && current <= span.bottom ? current : span.top
+    const anchorTrack = edgeTrack === span.top ? span.bottom : span.top
+    this.#setTimeSelection({ anchorBeat: span.start, edgeBeat: span.end, anchorTrack, edgeTrack })
+    if(edgeTrack !== this.currentTrack) this.#makeCurrent(edgeTrack)
   }
 
   // what ⇧L loops: the time selection's span, if it covers any time

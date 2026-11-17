@@ -240,3 +240,26 @@ describe('zooming', () => {
     expect(r.zoomToFit()).toBe(false)
   })
 })
+
+describe('the span range edits act on', () => {
+  it('is the time selection, once it covers any time', () => {
+    const { r } = renderer(4)
+    r.stepTrack(1, true)
+    expect(r.selectedBlock()).toBeNull()
+    r.navigate(right, true)
+    expect(r.selectedBlock()).toEqual({ start: 4, end: 5, top: 0, bottom: 1 })
+  })
+
+  it('a paste or a repeat filled becomes the time selection', () => {
+    const { r, tracks } = renderer(0)
+    r.setCurrentTrack(2)
+    r.select([1])
+    r.selectSpan({ start: 8, end: 12, top: 2, bottom: 3 })
+    expect(r.timeSelection).toEqual({ anchorBeat: 8, edgeBeat: 12, anchorTrack: 3, edgeTrack: 2 })
+    expect(r.selectedIds.size).toBe(0)
+    // one away from the current track: its top becomes current
+    r.selectSpan({ start: 0, end: 4, top: 0, bottom: 0 })
+    expect(r.currentTrack).toBe(0)
+    expect(tracks).toEqual([0])
+  })
+})
