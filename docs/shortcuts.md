@@ -41,7 +41,7 @@ doesn't matter; an unknown command is named in the info bar.
 
 | Command | Action |
 | --- | --- |
-| `:playlist`, `:sample`, `:mixer`, `:transport` | Open that tab, or select it where it's already open |
+| `:playlist`, `:sample`, `:mixer`, `:transport`, `:timeline` | Open that tab, or select it where it's already open |
 | `:sequencer` (`:seq`, `:notes`) | Open the Pattern Sequencer |
 | `:piano-roll` (`:piano`), `:effects-rack` (`:fx`) | Open the Piano Roll or Effects Rack |
 | `:audio`, `:mixdown` (`:export`), `:controls` | Open the Audio, Mixdown or Controls tab |

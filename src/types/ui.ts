@@ -24,6 +24,9 @@ export enum View {
   Plugin,
   // Preferences › Controls…: how the app is worked (plugins, command bar)
   Controls,
+  // the whole song along one strip, start to end: click or drag to move
+  // the playhead
+  Timeline,
 }
 
 // the label a view's tab gets when it's opened
@@ -41,6 +44,7 @@ export const viewLabels: Record<View, string> = {
   // (a plugin's tab is named after it, see pluginTabLabel)
   [View.Plugin]: 'Plugin',
   [View.Controls]: 'Controls',
+  [View.Timeline]: 'Timeline',
 }
 
 export const viewHints: Record<View, string> = {
@@ -56,6 +60,7 @@ export const viewHints: Record<View, string> = {
   [View.PianoRoll]: "A pattern's notes on a grid of steps, against a piano keyboard",
   [View.Plugin]: "A plugin's own interface",
   [View.Controls]: 'How the app is worked: where plugins open, and the command bar',
+  [View.Timeline]: 'The whole song, start to end: click or drag to move the playhead',
 }
 
 // how a split pane lays out its children:
