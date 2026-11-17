@@ -28,6 +28,7 @@ export const defaultPreferences: Preferences = {
   experimentalAnimations: true,
   tapeMode: 'print',
   tapeTap: 'before',
+  tapeMethod: 'modeled',
 }
 
 // settings an older engine doesn't know about (it leaves them out) are

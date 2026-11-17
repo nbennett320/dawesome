@@ -56,6 +56,16 @@ pub enum TapeMode {
   Live,
 }
 
+// how the tape's record side is worked out: the hand-built model of a
+// deck, or a network trained on recordings of one
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TapeMethod {
+  #[default]
+  Modeled,
+  Neural,
+}
+
 // where on a track the tape sits (W1): before its first effect, as on a
 // Portastudio (the effects are on the mixer, after the tape), or after its
 // whole chain (the effects are recorded onto tape too)
@@ -88,6 +98,8 @@ pub struct Preferences {
   pub tape_mode: TapeMode,
   // where on a track the tape sits
   pub tape_tap: TapeTap,
+  // how the tape's record side is worked out
+  pub tape_method: TapeMethod,
 }
 
 impl Default for Preferences {
@@ -103,6 +115,7 @@ impl Default for Preferences {
       experimental_animations: true,
       tape_mode: TapeMode::default(),
       tape_tap: TapeTap::default(),
+      tape_method: TapeMethod::default(),
     }
   }
 }
@@ -150,6 +163,7 @@ impl Preferences {
       experimental_animations: self.experimental_animations,
       tape_mode: self.tape_mode,
       tape_tap: self.tape_tap,
+      tape_method: self.tape_method,
     }
   }
 }
@@ -213,6 +227,7 @@ mod tests {
       experimental_animations: true,
       tape_mode: TapeMode::Live,
       tape_tap: TapeTap::default(),
+      tape_method: TapeMethod::default(),
     };
     prefs.save(&file).unwrap();
     assert_eq!(Preferences::load(&file), prefs);
@@ -258,6 +273,7 @@ mod tests {
     // and tracks on tape are printed in the background
     assert_eq!(prefs.tape_mode, TapeMode::Print);
     assert_eq!(prefs.tape_tap, TapeTap::BeforeEffects);
+    assert_eq!(prefs.tape_method, TapeMethod::Modeled);
     fs::remove_dir_all(file.parent().unwrap()).ok();
   }
 
@@ -275,6 +291,7 @@ mod tests {
       experimental_animations: true,
       tape_mode: TapeMode::Live,
       tape_tap: TapeTap::default(),
+      tape_method: TapeMethod::default(),
     };
     assert_eq!(ok.sanitize(&themes), ok);
 
@@ -289,6 +306,7 @@ mod tests {
       experimental_animations: false,
       tape_mode: TapeMode::Print,
       tape_tap: TapeTap::default(),
+      tape_method: TapeMethod::default(),
     };
     let fixed = bad.sanitize(&themes);
     assert_eq!(fixed.light_theme, theme::DEFAULT_LIGHT);

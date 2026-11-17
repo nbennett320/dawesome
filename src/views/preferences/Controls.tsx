@@ -25,6 +25,14 @@ const TAPE_MODE_HINT = 'Print works out the tape\'s saturation once, in the back
   + 'Until a track is printed it\'s heard direct, as a 4-track\'s input is before it\'s on tape. '
   + 'Always live works it out all the time, so changes are heard at once, but costs more CPU for each track on tape'
 
+const TAPE_METHODS = [
+  { value: 'modeled', label: 'Computer modeled' },
+  { value: 'neural', label: 'Neural' },
+]
+
+const TAPE_METHOD_HINT = 'Computer modeled: a hand-built model of a deck\'s saturation and tone, light on the CPU. '
+  + 'Neural: a network trained on recordings of a deck, heavier on the CPU (for now trained on a stand-in deck, and only at 48 kHz)'
+
 const TAPE_TAPS = [
   { value: 'before', label: 'Before its effects' },
   { value: 'after', label: 'After its effects' },
@@ -83,6 +91,15 @@ const Controls = () => {
               value={preferences.tapeMode}
               options={TAPE_MODES}
               onChange={tapeMode => dispatch(changePreferences({ tapeMode: tapeMode as Prefs['tapeMode'] }))}
+            />
+          </div>
+          <div data-hint={TAPE_METHOD_HINT}>
+            <Choice
+              id='preferences-tape-method'
+              label='Tape emulation'
+              value={preferences.tapeMethod}
+              options={TAPE_METHODS}
+              onChange={tapeMethod => dispatch(changePreferences({ tapeMethod: tapeMethod as Prefs['tapeMethod'] }))}
             />
           </div>
           <div data-hint={TAPE_TAP_HINT}>

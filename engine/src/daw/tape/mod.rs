@@ -18,20 +18,21 @@ use std::sync::Mutex;
 
 use crate::daw::tape_settings::TapeSettings;
 use crate::engine;
-use crate::preferences::{TapeMode, TapeTap};
+use crate::preferences::{TapeMethod, TapeMode, TapeTap};
 
 pub mod live;
 
 struct State {
   mode: TapeMode,
   tap: TapeTap,
+  method: TapeMethod,
   // the project's tape, as last applied
   settings: Option<TapeSettings>,
   // what the engine's live tape was built for, if it has one
   built: Option<live::Shape>,
 }
 
-static STATE: Mutex<State> = Mutex::new(State { mode: TapeMode::Print, tap: TapeTap::BeforeEffects, settings: None, built: None });
+static STATE: Mutex<State> = Mutex::new(State { mode: TapeMode::Print, tap: TapeTap::BeforeEffects, method: TapeMethod::Modeled, settings: None, built: None });
 
 // the project's tape changed (an edit, undo or redo, a project opened)
 pub fn apply(settings: &TapeSettings) {
@@ -41,10 +42,11 @@ pub fn apply(settings: &TapeSettings) {
 }
 
 // the preferences changed, or were read at startup
-pub fn set_preferences(mode: TapeMode, tap: TapeTap) {
+pub fn set_preferences(mode: TapeMode, tap: TapeTap, method: TapeMethod) {
   let mut state = STATE.lock().unwrap();
   state.mode = mode;
   state.tap = tap;
+  state.method = method;
   send(&mut state);
 }
 
@@ -62,7 +64,7 @@ fn send(state: &mut State) {
     return;
   };
   let Some(settings) = state.settings.as_ref() else { return };
-  let shape = live::shape(settings, state.mode, state.tap, engine.sample_rate());
+  let shape = live::shape(settings, state.mode, state.tap, state.method, engine.sample_rate());
 
   if shape == state.built {
     // the same tape: only its knobs and the drives

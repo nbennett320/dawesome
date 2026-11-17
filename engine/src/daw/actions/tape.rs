@@ -20,8 +20,8 @@ pub fn to_engine(state: &daw::Session) {
 // tell the engine tracks on tape are now worked out another way, or the
 // tape sits elsewhere on them (Settings → Controls → Tape). preferences,
 // not part of the project: not undone or saved with it
-pub fn mode_to_engine(mode: crate::preferences::TapeMode, tap: crate::preferences::TapeTap) {
-  daw::tape::set_preferences(mode, tap);
+pub fn mode_to_engine(mode: crate::preferences::TapeMode, tap: crate::preferences::TapeTap, method: crate::preferences::TapeMethod) {
+  daw::tape::set_preferences(mode, tap, method);
 }
 
 // change the tape, and record the change so it can be undone

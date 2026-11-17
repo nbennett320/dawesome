@@ -111,6 +111,7 @@ describe('tracks on tape', () => {
   it('are printed in the background unless chosen otherwise, and an older engine leaves that alone', () => {
     expect(defaultPreferences.tapeMode).toBe('print')
     expect(defaultPreferences.tapeTap).toBe('before')
+    expect(defaultPreferences.tapeMethod).toBe('modeled')
     setThemes(all)
     const store = configureStore({ reducer: { appearance: reducer } })
     const { tapeMode: _, ...older } = defaultPreferences

@@ -71,7 +71,7 @@ fn init_tauri() {
       daw::effects::follow_output(&racks);
       // the tape follows the preferences it's set by (Settings → Controls)
       let prefs = app.state::<preferences::AppPreferences>().current();
-      daw::tape::set_preferences(prefs.tape_mode, prefs.tape_tap);
+      daw::tape::set_preferences(prefs.tape_mode, prefs.tape_tap, prefs.tape_method);
       effect_windows::init(&racks);
       daw::actions::synth::keep_following(following.clone());
       // the empty project the app starts with is unchanged (see
