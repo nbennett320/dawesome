@@ -1,0 +1,15 @@
+[project]
+name = "tape-model"
+version = "0.1.0"
+description = "test signals, measurement and training for dawesome's tape effect"
+requires-python = ">=3.11"
+dependencies = ["numpy>=2", "scipy>=1.13", "soundfile>=0.12"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+tape-model = "tape_model.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
