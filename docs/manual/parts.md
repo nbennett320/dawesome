@@ -79,6 +79,7 @@ Each item opens its tab, or selects it if it is already open.
 | **Sample** | — |
 | **Mixer** | **⇧⌘M (Ctrl+Shift+M)** |
 | **Transport** | — |
+| **Timeline** | — |
 | **Pattern Sequencer** | **⇧⌘E (Ctrl+Shift+E)** |
 | **Piano Roll** <!-- PROVISIONAL --> | — |
 | **Effects Rack** <!-- PROVISIONAL --> | — |
@@ -192,6 +193,7 @@ The tabs are:
 | **Sample** | A clip's sample, and how it plays. | Window menu |
 | **Mixer** | Every track's channel strip, and the master. | Window menu |
 | **Transport** | The tape deck ([3-6](#_3-6-transport-tab)). | Window menu |
+| **Timeline** | The whole song along one strip ([3-7](#_3-7-timeline-tab)). | Window menu |
 | **Pattern Sequencer** | A row per sample or synth, and its steps or notes in the selected pattern. | Window menu |
 | **Piano Roll** <!-- PROVISIONAL --> | A pattern's notes against a keyboard. | Window menu |
 | **Effects Rack** <!-- PROVISIONAL --> | One channel's effects, in order. | Window menu |
@@ -238,3 +240,22 @@ plays and wind as you rewind or fast forward.
 
 The playhead's position is shown on the top bar's counter
 ([3-3](#_3-3-top-bar)).
+
+## 3-7 Timeline tab
+
+The **Timeline** tab is the whole song along one strip: its start on the
+left, and on the right the end of the bar the last clip ends in. It has no
+clips and doesn't zoom; when the song gets longer, the strip fits it again.
+
+- A faint tick marks each bar (every 2nd, 4th… bar when they are close
+  together).
+- The loop is highlighted while looping is on. A loop region drawn in the
+  playlist's ruler shows as a faint outline while looping is off.
+- Under the strip are the start (**0:00.0**), the song's length, and where
+  the playhead is, as a time and a bar and beat (**1:23.4 · bar 33.2**).
+
+*Click* the strip to move the playhead there, or *drag* along it to find a
+spot: the playhead follows the mouse, and the song moves there when you let
+go. While the song plays, it carries on from where it was until then. The
+playhead lands on the playlist's snap (see [6-6](./playlist.md#_6-6-snap)),
+as a *click* in the playlist's ruler does.
