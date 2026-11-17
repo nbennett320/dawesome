@@ -16,6 +16,8 @@ export default tseslint.config(
       '**/coverage/**',
       'engine/**',
       'context/**',
+      // the tape model's python tools (their venv carries torch's js)
+      'tools/**',
       'docs/.vitepress/**',
       'public/**',
       'eslint.config.mjs',
