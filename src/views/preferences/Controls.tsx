@@ -15,8 +15,18 @@ const LOOP_RECORDING = [
   { value: 'stop', label: 'Stop recording and playback' },
 ]
 
-// how the app is worked: where plugins open, the command bar, and what a
-// recording does at the loop's end. changes apply as they're made
+// how tracks on tape are worked out (T23 in context/tape-project)
+const TAPE_MODES = [
+  { value: 'print', label: 'Print in the background' },
+  { value: 'live', label: 'Always live' },
+]
+
+const TAPE_MODE_HINT = 'Print works out the tape\'s saturation once, in the background, whenever a track or the tape\'s settings change: light on the CPU. '
+  + 'Always live works it out all the time, so changes are heard at once, but costs more CPU for each track on tape'
+
+// how the app is worked: where plugins open, the command bar, what a
+// recording does at the loop's end, and how tracks on tape are worked out.
+// changes apply as they're made
 const Controls = () => {
   const dispatch = useAppDispatch()
   const { preferences } = useAppSelector(selectAppearance)
@@ -40,6 +50,15 @@ const Controls = () => {
             options={LOOP_RECORDING}
             onChange={loopRecording => dispatch(changePreferences({ loopRecording: loopRecording as Prefs['loopRecording'] }))}
           />
+          <div data-hint={TAPE_MODE_HINT}>
+            <Choice
+              id='preferences-tape-mode'
+              label='Tracks on tape'
+              value={preferences.tapeMode}
+              options={TAPE_MODES}
+              onChange={tapeMode => dispatch(changePreferences({ tapeMode: tapeMode as Prefs['tapeMode'] }))}
+            />
+          </div>
           <div className='flex flex-col gap-1'>
             <span className='ft-label'>Command bar</span>
             <div className='flex flex-row items-center gap-2'>

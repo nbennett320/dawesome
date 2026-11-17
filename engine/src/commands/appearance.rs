@@ -23,7 +23,11 @@ pub fn set_preferences(
   window: tauri::Window,
   preferences: Preferences,
 ) -> Result<Preferences, String> {
+  let was = app.current().tape_mode;
   let kept = app.set(preferences)?;
+  if kept.tape_mode != was {
+    crate::daw::actions::tape::mode_to_engine(kept.tape_mode);
+  }
   // the title bar follows: the system's, or pinned. the settings are saved
   // either way, so a failure here is only reported
   window.set_theme(pinned_theme(kept.appearance)).map_err(|e| e.to_string())?;

@@ -1,7 +1,7 @@
 // undo and redo
 //
 // every change to the project (clips, the tracks, the mixer, the sequencer,
-// the tempo, the effects racks) is kept as a step: what it changed, as it was before and as it was after.
+// the tempo, the effects racks, the tape) is kept as a step: what it changed, as it was before and as it was after.
 // undoing a step puts back the "before", redoing it the "after". steps hold
 // whole snapshots of what they touched, rather than how to reverse each
 // command, so a step can't drift from what it describes
@@ -29,6 +29,7 @@ use std::time::Duration;
 use crate::daw::{audiograph, playback, sequencer};
 use crate::engine::mixer;
 use crate::daw;
+use crate::daw::tape_settings::TapeSettings;
 
 // how many steps are kept
 pub const LIMIT: usize = 100;
@@ -115,6 +116,8 @@ pub struct Step {
   params: BTreeMap<u64, (Vec<f32>, Vec<f32>)>,
   // the playlist's fewest tracks (see AudioGraph::min_tracks)
   tracks: Option<(u32, u32)>,
+  // the tape's switch, machine and tracks (see tape_settings.rs)
+  tape: Option<(TapeSettings, TapeSettings)>,
 }
 
 impl Step {
@@ -173,6 +176,11 @@ impl Step {
     self
   }
 
+  pub fn with_tape(mut self, before: TapeSettings, after: TapeSettings) -> Self {
+    self.tape = Some((before, after));
+    self
+  }
+
   // drop the parts that didn't change anything
   fn tidy(&mut self) {
     self.clips.retain(|_, (before, after)| match (before, after) {
@@ -185,12 +193,13 @@ impl Step {
     if matches!(self.tempo, Some((before, after)) if before == after) { self.tempo = None; }
     if matches!(&self.effects, Some((before, after)) if before.same(after)) { self.effects = None; }
     if matches!(self.tracks, Some((before, after)) if before == after) { self.tracks = None; }
+    if matches!(&self.tape, Some((before, after)) if before == after) { self.tape = None; }
     self.params.retain(|_, (before, after)| before != after);
   }
 
   fn is_empty(&self) -> bool {
     self.clips.is_empty() && self.mixer.is_none() && self.sequencer.is_none() && self.tempo.is_none()
-      && self.effects.is_none() && self.tracks.is_none() && self.params.is_empty()
+      && self.effects.is_none() && self.tracks.is_none() && self.params.is_empty() && self.tape.is_none()
   }
 
   // fold a later change of the same gesture into this step: what was before
@@ -216,6 +225,9 @@ impl Step {
     }
     if let Some((before, after)) = later.tracks {
       self.tracks = Some((self.tracks.take().map_or(before, |mine| mine.0), after));
+    }
+    if let Some((before, after)) = later.tape {
+      self.tape = Some((self.tape.take().map_or(before, |mine| mine.0), after));
     }
     for (id, (before, after)) in later.params {
       match self.params.get_mut(&id) {
@@ -432,6 +444,11 @@ fn apply(state: &Arc<daw::Session>, step: &mut Step, way: Way) -> Applied {
 
   if let Some((before, after)) = &step.mixer {
     state.playlist.mixer.apply(if pick(true) { before } else { after });
+  }
+
+  if let Some((before, after)) = &step.tape {
+    *state.tape.lock().unwrap() = if pick(true) { before } else { after }.clone();
+    crate::daw::actions::tape::to_engine(state);
   }
 
   if let Some((before, after)) = &mut step.effects {

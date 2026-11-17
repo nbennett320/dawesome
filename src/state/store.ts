@@ -10,6 +10,7 @@ import mixdownReducer from './slices/mixdownSlice'
 import appearanceReducer from './slices/appearanceSlice'
 import effectsReducer from './slices/effectsSlice'
 import pianoRollReducer from './slices/pianoRollSlice'
+import tapeReducer from './slices/tapeSlice'
 
 export const store = configureStore({
   reducer: {
@@ -24,6 +25,7 @@ export const store = configureStore({
     appearance: appearanceReducer,
     effects: effectsReducer,
     pianoRoll: pianoRollReducer,
+    tape: tapeReducer,
   },
 })
 

@@ -144,6 +144,11 @@ pub struct Project {
   // each channel's effects, in order, left out when there are none
   #[serde(skip_serializing_if = "Vec::is_empty")]
   pub effects: Vec<crate::daw::effects::SavedRack>,
+  // the tape: its switch, the machine's controls and the tracks on it. left
+  // out while it's all at its defaults; older files, without it, load with
+  // tape off and no track on it (T14). older apps ignore it
+  #[serde(skip_serializing_if = "crate::daw::tape_settings::TapeSettings::is_default")]
+  pub tape: crate::daw::tape_settings::TapeSettings,
   // what was left out of the file as it was read, a sentence for each kind
   // of thing (never saved)
   #[serde(skip)]
@@ -170,6 +175,7 @@ impl Default for Project {
       pattern_clips: Vec::new(),
       armed: Vec::new(),
       effects: Vec::new(),
+      tape: Default::default(),
       dropped: Vec::new(),
     }
   }
@@ -339,6 +345,8 @@ pub struct LoadedProject {
   // what the file had that was left out, a sentence for each kind of thing
   // (for the project notice; empty when nothing was)
   pub dropped: Vec<String>,
+  // the tape's switch, machine and tracks, as kept
+  pub tape: crate::daw::tape_settings::TapeSettings,
 }
 
 // the folder a project file is in, which its relative sample paths start from
@@ -485,6 +493,7 @@ pub fn capture(state: &daw::Session, project_dir: Option<&Path>) -> Project {
     pattern_clips,
     armed: state.recorder.lock().unwrap().armed(),
     effects,
+    tape: state.tape.lock().unwrap().clone(),
     dropped: Vec::new(),
   }
 }
@@ -573,6 +582,9 @@ pub fn apply(
 
   state.playlist.mixer.apply(&project.mixer);
   state.recorder.lock().unwrap().set_armed(&project.armed);
+  let tape = project.tape.sanitized();
+  *state.tape.lock().unwrap() = tape.clone();
+  crate::daw::actions::tape::to_engine(state);
 
   let mut audiograph = state.playlist.audiograph.lock().unwrap();
   audiograph.clear();
@@ -673,6 +685,7 @@ pub fn apply(
     effects: state.playlist.effects.racks(),
     missing_effects,
     dropped: project.dropped.clone(),
+    tape,
   }
 }
 

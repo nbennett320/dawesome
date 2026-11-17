@@ -54,7 +54,7 @@ export const travel = (way: Way, source: Source = 'menu') => (
   const run = async (): Promise<boolean> => {
     try {
       // a setting changed a moment ago may not have reached the engine yet:
-      // it has to be there to be undone
+      // it has to be there to be undone (the mixer's sends include the tape's)
       await Promise.all([flushClipSettings(getState), flushMixerSends(), flushNoteSends(), flushEffectParamSends()])
       const travelled = await invoke<Travelled>(way, {})
       if(!travelled.changed) return false

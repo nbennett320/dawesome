@@ -1278,3 +1278,61 @@ fn test_an_older_project_file_rewritten_for_a_moved_take_is_kept_as_it_was() {
 
   let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn test_the_tape_is_saved_and_loaded() {
+  use crate::daw::tape_settings::{TapeMachine, TrackTape};
+  let dir = test_dir("tape");
+  let file = dir.join("song.dawesome");
+
+  // a project that doesn't use tape saves just as before
+  let state = daw::Session::default();
+  save_to(&state, &file).unwrap();
+  assert!(!fs::read_to_string(&file).unwrap().contains("\"tape\""));
+
+  let machine = TapeMachine { enabled: true, machine: 1, age: 30., wobble: 150., hiss: 0., dbx: false, output_db: -6. };
+  crate::daw::actions::tape::change_tape_machine(&state, machine, None);
+  crate::daw::actions::tape::change_track_tape(&state, TrackTape { track_number: 2, on_tape: true, drive_db: 4.5 }, None);
+  save_to(&state, &file).unwrap();
+  let json = fs::read_to_string(&file).unwrap();
+  assert!(json.contains("\"tape\"") && json.contains("\"onTape\": true"), "{}", json);
+
+  let other = daw::Session::default();
+  let loaded = load_from(&other, &file).unwrap();
+  assert_eq!(loaded.tape.machine, machine);
+  assert_eq!(loaded.tape.tracks, vec![TrackTape { track_number: 2, on_tape: true, drive_db: 4.5 }]);
+  assert_eq!(*other.tape.lock().unwrap(), loaded.tape);
+
+  // an older project, from before tape, loads with it off and no track on it
+  let old = Project::from_json(r#"{"version": 1, "tempo": 100}"#).unwrap();
+  let loaded = apply(&other, &old, None);
+  assert!(loaded.tape.is_default() && !loaded.tape.machine.enabled);
+  assert!(other.tape.lock().unwrap().is_default());
+
+  fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn test_a_saved_tape_out_of_range_is_kept_in_range() {
+  let project = Project::from_json(r#"{
+      "version": 4,
+      "tape": { "enabled": true, "machine": 7, "age": 250, "outputDb": -90,
+                "tracks": [{ "trackNumber": 1, "onTape": true, "driveDb": 99 }] }
+    }"#).unwrap();
+  let loaded = apply(&daw::Session::default(), &project, None);
+  assert!(loaded.tape.machine.enabled);
+  assert_eq!(loaded.tape.machine.machine, 0);
+  assert_eq!(loaded.tape.machine.age, 100.);
+  assert_eq!(loaded.tape.machine.output_db, -24.);
+  // fields it leaves out are their defaults
+  assert_eq!((loaded.tape.machine.wobble, loaded.tape.machine.hiss, loaded.tape.machine.dbx), (100., 100., true));
+  assert_eq!(loaded.tape.track(1).drive_db, 18.);
+}
+
+#[test]
+fn test_a_new_project_turns_the_tape_off() {
+  let state = daw::Session::default();
+  state.tape.lock().unwrap().machine.enabled = true;
+  apply(&state, &Project::default(), None);
+  assert!(state.tape.lock().unwrap().is_default());
+}

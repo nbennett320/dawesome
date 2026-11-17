@@ -37,6 +37,9 @@ export interface Preferences {
   // whether animations still being tried out are shown (see
   // experimental_animations in preferences.rs)
   experimentalAnimations: boolean
+  // how tracks on tape are worked out: printed in the background, or live
+  // (see TapeMode in preferences.rs)
+  tapeMode: 'print' | 'live'
 }
 
 // coloured caps (TR-808), plain caps over a coloured strip (TR-909), or

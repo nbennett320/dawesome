@@ -27,6 +27,9 @@ import {
 import {
   fetchEffects, selectChannelActive, selectChannelCount, showRack,
 } from '../../state/slices/effectsSlice'
+import {
+  changeTrackTape, fetchTape, selectTapeEnabled, selectTrackTape,
+} from '../../state/slices/tapeSlice'
 import { ChannelId, channelKey } from '../../types/effects'
 import ChannelStrip from './ChannelStrip'
 import { useChannelDrop } from './useChannelDrop'
@@ -60,6 +63,8 @@ const TrackStrip = ({ trackNumber, register, registerLed, dropping }: {
   const armed = useAppSelector(selectArmed(trackNumber))
   const channels = useAppSelector(selectInputChannels)
   const recording = useAppSelector(selectRecording)
+  const tape = useAppSelector(selectTrackTape(trackNumber))
+  const tapeOn = useAppSelector(selectTapeEnabled)
   const meterKey = trackMeterKey(trackNumber)
   const ledRef = React.useCallback((led: HTMLElement | null) => registerLed(meterKey, led), [registerLed, meterKey])
 
@@ -85,6 +90,12 @@ const TrackStrip = ({ trackNumber, register, registerLed, dropping }: {
             console.error('could not arm the track:', e)
           })
         },
+      }}
+      tape={{
+        ...tape,
+        tapeOn,
+        onTapeChange: onTape => dispatch(changeTrackTape(trackNumber, { onTape })),
+        onDrive: driveDb => dispatch(changeTrackTape(trackNumber, { driveDb })),
       }}
       silenced={anySolo && !mix.solo && !mix.mute}
       fx={fx}
@@ -158,6 +169,11 @@ const Mixer = () => {
       // eslint-disable-next-line no-console
       console.error('could not read the effects:', e)
     })
+    // and which tracks are on tape
+    dispatch(fetchTape()).catch(e => {
+      // eslint-disable-next-line no-console
+      console.error('could not read the tape:', e)
+    })
   }, [dispatch, trackCount])
 
   const tracks = Array.from({ length: trackCount }, (_, i) => i)
@@ -165,7 +181,7 @@ const Mixer = () => {
   return (
     <div ref={boxRef} className='ft-panel h-full w-full flex flex-row text-sm select-none overflow-y-auto'>
       <div className='flex-1 min-w-0 overflow-x-auto'>
-        <div className='ft-tray rounded-lg m-2 h-[calc(100%-1rem)] flex flex-row gap-0.5 p-0.5 w-max' style={{ minHeight: 348 }}>
+        <div className='ft-tray rounded-lg m-2 h-[calc(100%-1rem)] flex flex-row gap-0.5 p-0.5 w-max' style={{ minHeight: 404 }}>
           {tracks.map(trackNumber => (
             <TrackStrip
               key={trackNumber}
@@ -178,7 +194,7 @@ const Mixer = () => {
         </div>
       </div>
 
-      <div className='shrink-0 py-2 pr-2' style={{ minHeight: 364 }}>
+      <div className='shrink-0 py-2 pr-2' style={{ minHeight: 420 }}>
         <div className='ft-tray rounded-lg h-full p-0.5'>
         <ChannelStrip
           label='Master'

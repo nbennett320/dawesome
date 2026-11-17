@@ -19,6 +19,7 @@ import recordingReducer from './recordingSlice'
 import mixdownReducer from './mixdownSlice'
 import appearanceReducer from './appearanceSlice'
 import pianoRollReducer from './pianoRollSlice'
+import tapeReducer from './tapeSlice'
 import { LoadedProject, ProjectView } from '../../types/project'
 import { Note, PatternChange, RowChange, SequencerState, UNCONFIRMED } from '../../types/sequencer'
 import { freshRev, pattern, sampleRow, sequencerOf, step, steps, synthRow } from '../../types/sequencer.fixture'
@@ -316,6 +317,7 @@ describe('adding rows', () => {
       mixdown: mixdownReducer,
       appearance: appearanceReducer,
       pianoRoll: pianoRollReducer,
+      tape: tapeReducer,
     },
   })
 

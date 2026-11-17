@@ -3,6 +3,7 @@ import { ClipInfo, ClipWindow } from './clip'
 import { Racks } from './effects'
 import { MixerSettings } from './mixer'
 import { Row, SequencerState, SynthInstrument, isSynthRow } from './sequencer'
+import { TapeSettings } from './tape'
 import type { SnapNote } from '../state/slices/playlistSlice'
 import type { LoopRegion } from './transport'
 
@@ -149,6 +150,9 @@ export interface LoadedProject extends ProjectSettings {
   // (an instrument in a rack, notes in a drum pattern), as sentences to show
   // (left out by older engines: nothing)
   dropped?: string[]
+  // the tape's switch, machine and tracks (left out by older engines: tape
+  // off, no track on it)
+  tape?: TapeSettings
 }
 
 // the engine lists missing synths with the missing effects. the synth rows
@@ -190,6 +194,8 @@ export interface ProjectView {
   sequencer: SequencerState
   // each channel's effects (left out by older engines: none)
   effects?: Racks
+  // the tape's switch, machine and tracks (left out by older engines)
+  tape?: TapeSettings
 }
 
 // what the engine's undo and redo return

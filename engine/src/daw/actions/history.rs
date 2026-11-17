@@ -24,6 +24,8 @@ pub struct ProjectView {
   pub sequencer: sequencer::SequencerState,
   // each channel's effects
   pub effects: crate::daw::effects::Racks,
+  // the tape's switch, machine and tracks
+  pub tape: crate::daw::tape_settings::TapeSettings,
 }
 
 pub fn project_view(state: &daw::Session) -> ProjectView {
@@ -43,6 +45,7 @@ pub fn project_view(state: &daw::Session) -> ProjectView {
     mixer: mixer_settings(state),
     sequencer: crate::daw::actions::synth::sequencer_state(state),
     effects: state.playlist.effects.racks(),
+    tape: crate::daw::actions::tape::tape_settings(state),
   }
 }
 

@@ -35,6 +35,7 @@ fn init_tauri() {
   use commands::effect::*;
   use effect_windows::*;
   use commands::synth::*;
+  use commands::tape::{get_tape, set_tape_machine, set_track_tape};
 
   // read before the menu is built, which lists them
   let recent_projects = recent::RecentProjects::load();
@@ -152,6 +153,9 @@ fn init_tauri() {
       set_master_volume,
       reset_mixer,
       get_mixer_levels,
+      get_tape,
+      set_tape_machine,
+      set_track_tape,
       init_playlist_workspace,
       start_recording,
       stop_recording,
