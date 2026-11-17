@@ -1071,11 +1071,20 @@ pub struct Renderer {
   fade_frames: u32,
   // how long a chain is silent for before it rests (see Bus::rests)
   rest_frames: u64,
-  // the tape, in always-live mode while it's on (see tape.rs)
+  // the tape, while it's on (see tape.rs)
   tape: Option<Box<tape::EngineTape>>,
+  // whether the mix goes through the soft limiter at the end (a print's
+  // render leaves it out: it wants the track as it is)
+  limit: bool,
 }
 
 impl Renderer {
+  // leave the soft limiter off the end (a print's render: see
+  // daw/tape/print.rs)
+  pub fn without_limiter(&mut self) {
+    self.limit = false;
+  }
+
   fn new(
     sample_rate: u32,
     commands: Consumer<Command>,
@@ -1098,6 +1107,7 @@ impl Renderer {
       fade_frames: ((STOP_FADE.as_secs_f64() * sample_rate as f64) as u32).max(1),
       rest_frames: (REST_AFTER.as_secs_f64() * sample_rate as f64) as u64,
       tape: None,
+      limit: true,
     }
   }
 
@@ -1284,9 +1294,10 @@ impl Renderer {
 
     let at = self.master.run(frames, &transport, None);
     let [l, r] = &self.master.buffers[at];
+    let limit = |s: f32| if self.limit { mixer::soft_limit(s) } else { s };
     for (i, frame) in out.chunks_exact_mut(2).enumerate() {
-      frame[0] = mixer::soft_limit(l[i]) + direct_l[i];
-      frame[1] = mixer::soft_limit(r[i]) + direct_r[i];
+      frame[0] = limit(l[i]) + direct_l[i];
+      frame[1] = limit(r[i]) + direct_r[i];
     }
 
     self.frame = end;

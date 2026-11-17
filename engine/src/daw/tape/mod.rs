@@ -21,6 +21,7 @@ use crate::engine;
 use crate::preferences::{TapeMethod, TapeMode, TapeTap};
 
 pub mod live;
+pub mod print;
 
 struct State {
   mode: TapeMode,
