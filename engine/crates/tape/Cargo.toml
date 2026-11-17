@@ -6,8 +6,10 @@ license = "GPL-3.0-or-later"
 rust-version = "1.86"
 version = "0.1.0"
 
-# no dependencies, on purpose, like dsp: see the top of src/lib.rs
+# only dsp (its filters, delay line and smoothing), which has none: see
+# the top of src/lib.rs
 [dependencies]
+dawesome-dsp = { path = "../dsp" }
 
 # the parity tests read the model and fixture files the training tools
 # write (JSON); nothing that uses the crate needs this

@@ -728,6 +728,7 @@ version = "0.1.0"
 name = "dawesome-tape"
 version = "0.1.0"
 dependencies = [
+ "dawesome-dsp",
  "serde_json",
 ]
 
