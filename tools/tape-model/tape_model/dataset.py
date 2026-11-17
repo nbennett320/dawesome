@@ -38,10 +38,13 @@ def load_pass(folder, test, test_map, min_quality=2):
   aligned, rate = sf.read(folder / "aligned.wav", dtype="float64", always_2d=True)
   if rate != test_map.rate:
     raise ValueError(f"{folder}: {rate} Hz, the test file is {test_map.rate}")
-  quality = np.load(folder / "align.npz")["quality"]
+  z = np.load(folder / "align.npz")
+  quality = z["quality"]
   channels = aligned.shape[1]
+  # which test-file track each aligned channel carries
+  tracks = list(z["channels"]) if "channels" in z.files else list(range(channels))
   n = min(len(aligned), len(test))
-  inputs = np.stack([test[:n, min(c, test.shape[1] - 1)] for c in range(channels)], axis=1)
+  inputs = np.stack([test[:n, min(int(tracks[c]), test.shape[1] - 1)] for c in range(channels)], axis=1)
   targets = np.empty((n, channels))
   usable = np.empty((n, channels), dtype=bool)
   drives = []

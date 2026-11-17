@@ -1,6 +1,7 @@
 import React from 'react'
 import { formatDb, formatPan, MAX_DB, MAX_NAME_CHARS, MIN_DB } from '../../types/mixer'
-import { AnalogButton, Knob, Led, MuteSolo } from '../../components/fourtrack'
+import { AnalogButton, Knob, Led, LedState, MuteSolo } from '../../components/fourtrack'
+import { DRIVE_DB } from '../../types/tape'
 import {
   InputChoice, defaultInput, fitInput, inputChoices, inputKey, inputLabel, parseInputKey,
 } from '../../types/audio'
@@ -138,6 +139,73 @@ const RecordArm = ({ label, record }: { label: string, record: RecordControl }) 
   )
 }
 
+// a track's place on the tape, and its drive (T22 in context/tape-project)
+export interface TapeControl {
+  onTape: boolean
+  driveDb: number
+  // the project's Tape switch (the Transport tab)
+  tapeOn: boolean
+  onTapeChange: (onTape: boolean) => void
+  onDrive: (db: number) => void
+}
+
+// the tape isn't built yet: the switch and drive are kept with the project,
+// but don't change the sound
+// heard in Always live mode for now; print mode is direct until printing
+// is built (Settings → Controls → Tape)
+const NOT_YET = ' (heard with Settings → Controls → Tape → Always live, for now)'
+
+// on tape: a latching key with its light, like a deck's record-ready, and
+// the track's drive onto the tape, laid out as the pan control is. the
+// drive dims while it can't be heard: off tape, or with the tape off
+const TapeRow = ({ label, tape }: { label: string, tape: TapeControl }) => {
+  const { onTape, driveDb, tapeOn, onTapeChange, onDrive } = tape
+  let led: LedState = 'off'
+  if(onTape) led = tapeOn ? 'on' : 'dim'
+
+  return (
+    <>
+      <div className='w-full flex flex-row justify-between items-baseline'>
+        <span className='ft-label'>Drive</span>
+        <span className='ft-label tabular-nums tracking-normal'>{formatDb(driveDb)}</span>
+      </div>
+      <div className='w-full flex flex-row items-center justify-between mt-1'>
+        <div className='flex flex-row items-center gap-1'>
+          <Led color='amber' state={led} />
+          <AnalogButton
+            variant='text'
+            size='xs'
+            latched={onTape}
+            aria-label={`Put ${label} on tape`}
+            data-hint={`On tape: ${label}'s audio goes through the tape before this channel${
+              tapeOn ? '' : '. The tape itself is off: turn it on in the Transport tab'}${NOT_YET}`}
+            onPress={() => onTapeChange(!onTape)}
+          >
+            Tape
+          </AnalogButton>
+        </div>
+        <div
+          className={`transition-opacity ${onTape && tapeOn ? '' : 'opacity-50'}`}
+          data-hint={"Drive: the track's level onto the tape, like a Portastudio's input trim. "
+            + 'Drag up or down (shift for fine moves), or double-click for 0 dB'}
+        >
+          <Knob
+            label={`${label} tape drive`}
+            size={24}
+            min={DRIVE_DB.min}
+            max={DRIVE_DB.max}
+            center={DRIVE_DB.default}
+            step={0.1}
+            value={driveDb}
+            onChange={onDrive}
+            formatValue={db => `${formatDb(db)} dB`}
+          />
+        </div>
+      </div>
+    </>
+  )
+}
+
 interface Props {
   label: string
   volumeDb: number
@@ -151,6 +219,9 @@ interface Props {
   solo?: { on: boolean, onChange: (on: boolean) => void }
   // arming to record (track strips)
   record?: RecordControl
+  // on tape and its drive (track strips; the master keeps the room empty,
+  // so the faders line up)
+  tape?: TapeControl
   // silenced by another track's solo
   silenced?: boolean
   // renaming (track strips). an empty name goes back to the default
@@ -171,8 +242,8 @@ interface Props {
   wide?: boolean
 }
 
-// one column of the mixer: name, pan, fader and meter, volume, mute and
-// solo, and the effects' jack at the foot. a track's strip has its color as
+// one column of the mixer: name, on tape and drive, pan, fader and meter,
+// volume, mute and solo, and the effects' jack at the foot. a track's strip has its color as
 // an LED jewel left of the name, which mutes and solos it too
 const ChannelStrip = ({
   label,
@@ -184,6 +255,7 @@ const ChannelStrip = ({
   mute,
   solo,
   record,
+  tape,
   silenced = false,
   onRename,
   color,
@@ -221,6 +293,10 @@ const ChannelStrip = ({
       <div className='flex-1 min-w-0 h-full'>
         <NameLabel label={label} muted={!!mute?.on} silenced={silenced} onRename={onRename} />
       </div>
+    </div>
+
+    <div className='flex flex-col items-center h-12'>
+      {tape && <TapeRow label={label} tape={tape} />}
     </div>
 
     <div className='flex flex-col items-center h-16'>

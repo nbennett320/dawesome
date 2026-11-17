@@ -25,6 +25,8 @@ pub(crate) mod plugin_catalog;
 pub(crate) mod project;
 pub(crate) mod project_files;
 pub(crate) mod recording;
+pub(crate) mod tape;
+pub(crate) mod tape_settings;
 #[cfg(test)]
 pub(crate) mod test_support;
 
@@ -48,6 +50,9 @@ pub struct Session {
   pub history: Mutex<crate::daw::history::History>,
   // the clips last copied or cut (see clipboard.rs)
   pub clipboard: Mutex<crate::daw::clipboard::Clipboard>,
+  // the project's tape: its switch, the machine's controls, and the tracks
+  // on it (see tape_settings.rs)
+  pub tape: Mutex<crate::daw::tape_settings::TapeSettings>,
 }
 
 impl Session {
@@ -63,6 +68,7 @@ impl Session {
       recorder: Mutex::new(Default::default()),
       history: Mutex::new(Default::default()),
       clipboard: Mutex::new(Default::default()),
+      tape: Mutex::new(Default::default()),
     }
   }
 

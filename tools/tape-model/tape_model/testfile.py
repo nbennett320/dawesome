@@ -17,12 +17,19 @@ from .dsp import RATE, brickwall, fade, from_db, pink, stereo
 # 2: the map lists where sweep harmonics pass the pilot too (same audio)
 # 3: anchor noise bursts between the tonal sections
 # 4: the drive marker 30 db under 0 vu (at -20 a squashy deck bent it 0.1 db)
-VERSION = 4
+# 5: the pilot can go on a track of its own (4-track layout, T15)
+VERSION = 5
 
 # the calibration tone's peak: 0 vu on the deck, i.e. 0 db drive
 REF_DBFS = -18.0
 PILOT_HZ = 15_000.0
 PILOT_DBFS = -40.0
+# on a track of its own, nothing loud can crush it: louder, for more
+# signal over the hiss, still well under where cassette's highs saturate
+PILOT_OWN_TRACK_DBFS = -30.0
+# the 4-track layout: content on tracks 1 and 2, the pilot alone on 4 (the
+# real decks' tracks are picked after step 0: 04-recording.md)
+FOUR_TRACKS = 4
 # music, noise and clicks stay under this, clear of the pilot
 CONTENT_HZ = 12_000.0
 # a sweep passing within this of the pilot hides it for a moment
@@ -183,7 +190,10 @@ def clicks(rate=RATE):
   return x * gains[:len(x)]
 
 
-def build(seed=1, rate=RATE):
+# the test file. `pilot_track`: None mixes the pilot under the content on
+# both channels (stereo); a track number (0-based) gives a 4-track file
+# with content on tracks 0 and 1 and the pilot alone on that track
+def build(seed=1, rate=RATE, pilot_track=None):
   rng = np.random.default_rng(seed)
   b = _Builder(rate)
   b.silence(2.0, "preroll")
@@ -239,14 +249,23 @@ def build(seed=1, rate=RATE):
   end = next(s for s in b.sections if s.name == "sync_end").end
   i0, i1 = int(start * rate), int(end * rate)
   t = np.arange(i1 - i0) / rate
-  pilot = fade(np.sin(2 * np.pi * PILOT_HZ * t) * from_db(PILOT_DBFS), 0.02, rate)
-  audio[i0:i1] += pilot[:, None]
+  level = PILOT_DBFS if pilot_track is None else PILOT_OWN_TRACK_DBFS
+  pilot = fade(np.sin(2 * np.pi * PILOT_HZ * t) * from_db(level), 0.02, rate)
+  if pilot_track is None:
+    audio[i0:i1] += pilot[:, None]
+  else:
+    tracks = np.zeros((len(audio), FOUR_TRACKS))
+    tracks[:, :2] = audio
+    tracks[i0:i1, pilot_track] = pilot
+    audio = tracks
+    # nothing shares the pilot's track, so nothing hides it
+    gaps = []
 
   test_map = Map(
     rate=rate,
     seconds=len(audio) / rate,
     ref_dbfs=REF_DBFS,
-    pilot={"hz": PILOT_HZ, "peak_dbfs": PILOT_DBFS, "start": start, "end": end, "gaps": gaps},
+    pilot={"hz": PILOT_HZ, "peak_dbfs": level, "start": start, "end": end, "gaps": gaps, "track": pilot_track},
     sections=b.sections,
     seed=seed,
   )

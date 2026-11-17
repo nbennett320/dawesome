@@ -15,8 +15,35 @@ const LOOP_RECORDING = [
   { value: 'stop', label: 'Stop recording and playback' },
 ]
 
-// how the app is worked: where plugins open, the command bar, and what a
-// recording does at the loop's end. changes apply as they're made
+// how tracks on tape are worked out (T23 in context/tape-project)
+const TAPE_MODES = [
+  { value: 'print', label: 'Print in the background' },
+  { value: 'live', label: 'Always live' },
+]
+
+const TAPE_MODE_HINT = 'Print works out the tape\'s saturation once, in the background, whenever a track or the tape\'s settings change: light on the CPU. '
+  + 'Until a track is printed it\'s heard direct, as a 4-track\'s input is before it\'s on tape. '
+  + 'Always live works it out all the time, so changes are heard at once, but costs more CPU for each track on tape'
+
+const TAPE_METHODS = [
+  { value: 'modeled', label: 'Computer modeled' },
+  { value: 'neural', label: 'Neural' },
+]
+
+const TAPE_METHOD_HINT = 'Computer modeled: a hand-built model of a deck\'s saturation and tone, light on the CPU. '
+  + 'Neural: a network trained on recordings of a deck, heavier on the CPU (for now trained on a stand-in deck, and only at 48 kHz)'
+
+const TAPE_TAPS = [
+  { value: 'before', label: 'Before its effects' },
+  { value: 'after', label: 'After its effects' },
+]
+
+const TAPE_TAP_HINT = 'Before its effects, as on a 4-track: the track goes onto tape, and its effects work on what comes off it. '
+  + 'After its effects: the track\'s effects are recorded onto tape too'
+
+// how the app is worked: where plugins open, the command bar, what a
+// recording does at the loop's end, and how tracks on tape are worked out.
+// changes apply as they're made
 const Controls = () => {
   const dispatch = useAppDispatch()
   const { preferences } = useAppSelector(selectAppearance)
@@ -53,6 +80,36 @@ const Controls = () => {
               <Led color='blue' state={commandBar ? 'on' : 'off'} />
               <span>{commandBar ? 'On' : 'Off'}</span>
             </div>
+          </div>
+        </section>
+        <section className='flex flex-col gap-3'>
+          <span className='ft-label'>Tape</span>
+          <div data-hint={TAPE_MODE_HINT}>
+            <Choice
+              id='preferences-tape-mode'
+              label='Tracks on tape'
+              value={preferences.tapeMode}
+              options={TAPE_MODES}
+              onChange={tapeMode => dispatch(changePreferences({ tapeMode: tapeMode as Prefs['tapeMode'] }))}
+            />
+          </div>
+          <div data-hint={TAPE_METHOD_HINT}>
+            <Choice
+              id='preferences-tape-method'
+              label='Tape emulation'
+              value={preferences.tapeMethod}
+              options={TAPE_METHODS}
+              onChange={tapeMethod => dispatch(changePreferences({ tapeMethod: tapeMethod as Prefs['tapeMethod'] }))}
+            />
+          </div>
+          <div data-hint={TAPE_TAP_HINT}>
+            <Choice
+              id='preferences-tape-tap'
+              label='Where a track meets the tape'
+              value={preferences.tapeTap}
+              options={TAPE_TAPS}
+              onChange={tapeTap => dispatch(changePreferences({ tapeTap: tapeTap as Prefs['tapeTap'] }))}
+            />
           </div>
         </section>
       </div>

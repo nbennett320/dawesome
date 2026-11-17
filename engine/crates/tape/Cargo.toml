@@ -1,0 +1,20 @@
+[package]
+name = "dawesome-tape"
+description = "dawesome's tape: a cassette 4-track's record and playback sides, for the DAW, an insert effect, or a pedal"
+edition = "2021"
+license = "GPL-3.0-or-later"
+rust-version = "1.86"
+version = "0.1.0"
+
+# only dsp (its filters, delay line and smoothing), which has none: see
+# the top of src/lib.rs
+[dependencies]
+dawesome-dsp = { path = "../dsp" }
+
+# the parity tests read the model and fixture files the training tools
+# write (JSON); nothing that uses the crate needs this
+[dev-dependencies]
+serde_json = "1.0"
+
+[lib]
+name = "tape"

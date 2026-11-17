@@ -45,6 +45,39 @@ pub enum StepKeys {
   Tr8s,
 }
 
+// how tracks on tape are worked out (T23 in context/tape-project): their
+// record side printed once per change, in the background, or run live all
+// the time. see 08-mode-removal.md for removing either
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TapeMode {
+  #[default]
+  Print,
+  Live,
+}
+
+// how the tape's record side is worked out: the hand-built model of a
+// deck, or a network trained on recordings of one
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TapeMethod {
+  #[default]
+  Modeled,
+  Neural,
+}
+
+// where on a track the tape sits (W1): before its first effect, as on a
+// Portastudio (the effects are on the mixer, after the tape), or after its
+// whole chain (the effects are recorded onto tape too)
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Default)]
+pub enum TapeTap {
+  #[default]
+  #[serde(rename = "before")]
+  BeforeEffects,
+  #[serde(rename = "after")]
+  AfterEffects,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Preferences {
@@ -61,6 +94,12 @@ pub struct Preferences {
   // whether animations still being tried out are shown (a dragged clip
   // lifting off the playlist, for now). on unless turned off
   pub experimental_animations: bool,
+  // how tracks on tape are worked out
+  pub tape_mode: TapeMode,
+  // where on a track the tape sits
+  pub tape_tap: TapeTap,
+  // how the tape's record side is worked out
+  pub tape_method: TapeMethod,
 }
 
 impl Default for Preferences {
@@ -74,6 +113,9 @@ impl Default for Preferences {
       command_bar: false,
       loop_recording: LoopRecording::default(),
       experimental_animations: true,
+      tape_mode: TapeMode::default(),
+      tape_tap: TapeTap::default(),
+      tape_method: TapeMethod::default(),
     }
   }
 }
@@ -119,6 +161,9 @@ impl Preferences {
       command_bar: self.command_bar,
       loop_recording: self.loop_recording,
       experimental_animations: self.experimental_animations,
+      tape_mode: self.tape_mode,
+      tape_tap: self.tape_tap,
+      tape_method: self.tape_method,
     }
   }
 }
@@ -180,6 +225,9 @@ mod tests {
       command_bar: true,
       loop_recording: LoopRecording::Stop,
       experimental_animations: true,
+      tape_mode: TapeMode::Live,
+      tape_tap: TapeTap::default(),
+      tape_method: TapeMethod::default(),
     };
     prefs.save(&file).unwrap();
     assert_eq!(Preferences::load(&file), prefs);
@@ -190,6 +238,7 @@ mod tests {
     assert!(json.contains("\"commandBar\": true"), "{}", json);
     assert!(json.contains("\"loopRecording\": \"stop\""), "{}", json);
     assert!(json.contains("\"experimentalAnimations\": true"), "{}", json);
+    assert!(json.contains("\"tapeMode\": \"live\""), "{}", json);
     fs::remove_dir_all(file.parent().unwrap()).ok();
   }
 
@@ -221,6 +270,10 @@ mod tests {
     assert_eq!(prefs.loop_recording, LoopRecording::Layer);
     // and experimental animations are on
     assert!(prefs.experimental_animations);
+    // and tracks on tape are printed in the background
+    assert_eq!(prefs.tape_mode, TapeMode::Print);
+    assert_eq!(prefs.tape_tap, TapeTap::BeforeEffects);
+    assert_eq!(prefs.tape_method, TapeMethod::Modeled);
     fs::remove_dir_all(file.parent().unwrap()).ok();
   }
 
@@ -236,6 +289,9 @@ mod tests {
       command_bar: true,
       loop_recording: LoopRecording::Layer,
       experimental_animations: true,
+      tape_mode: TapeMode::Live,
+      tape_tap: TapeTap::default(),
+      tape_method: TapeMethod::default(),
     };
     assert_eq!(ok.sanitize(&themes), ok);
 
@@ -248,6 +304,9 @@ mod tests {
       command_bar: false,
       loop_recording: LoopRecording::Layer,
       experimental_animations: false,
+      tape_mode: TapeMode::Print,
+      tape_tap: TapeTap::default(),
+      tape_method: TapeMethod::default(),
     };
     let fixed = bad.sanitize(&themes);
     assert_eq!(fixed.light_theme, theme::DEFAULT_LIGHT);

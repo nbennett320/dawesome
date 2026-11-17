@@ -127,8 +127,9 @@ const logError = (what: string) => (e: unknown) =>
   console.error(`could not ${what}:`, e)
 
 // send a control's value at most every SEND_EVERY_MS. the latest value is
-// always sent last
-const sendLatest = (key: string, send: () => Promise<unknown>) => {
+// always sent last. the tape's knobs share it (tapeSlice), so flushing and
+// clearing the mixer's sends covers theirs too
+export const sendLatest =(key: string, send: () => Promise<unknown>) => {
   if(queued.has(key)) {
     queued.set(key, send)
     return

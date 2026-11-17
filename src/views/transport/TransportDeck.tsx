@@ -27,6 +27,7 @@ import {
 } from './tape'
 import { usePlayhead } from './usePlayhead'
 import { useElementSize } from './useElementSize'
+import TapeMachinePanel from './TapeMachinePanel'
 import { FastForwardIcon, HeadIcon, PauseIcon, PlayIcon, RecordIcon, RewindIcon, StopIcon, TapeIcon } from '../../components/icons'
 
 // holding a wind key this long winds the tape; a shorter press moves a bar
@@ -47,8 +48,8 @@ const DeckKey = ({ label, led, children }: { label: string, led?: React.ReactNod
 )
 
 // a cassette and the keys of a tape deck: record, rewind, fast forward, play,
-// stop and pause. the wind keys move a bar when tapped, and wind the tape
-// while held
+// stop and pause, and the tape machine's controls beside them. the wind keys
+// move a bar when tapped, and wind the tape while held
 const TransportDeck = () => {
   const dispatch = useAppDispatch()
   const cassetteVisible = useAppSelector(selectCassetteVisible)
@@ -259,6 +260,10 @@ const TransportDeck = () => {
               </AnalogButton>
             </DeckKey>
           </div>
+
+          {/* in with the keys, so the cassette leaves room for it, and
+              wrapping under them when the tab is narrow */}
+          <TapeMachinePanel />
 
           {/* what the tab shows */}
           <div className='flex flex-row items-end gap-2'>

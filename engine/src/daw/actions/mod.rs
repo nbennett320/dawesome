@@ -10,4 +10,5 @@ pub(crate) mod mixer;
 pub(crate) mod playlist;
 pub(crate) mod sequencer;
 pub(crate) mod synth;
+pub(crate) mod tape;
 pub(crate) mod transport;

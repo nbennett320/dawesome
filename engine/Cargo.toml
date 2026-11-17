@@ -13,7 +13,7 @@ version = "0.1.7"
 
 # the app and the crates under it share target/ and Cargo.lock
 [workspace]
-members = ["crates/dsp"]
+members = ["crates/dsp", "crates/tape"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -45,6 +45,8 @@ mp3lame-encoder = "0.3.0"
 vst3 = "0.3"
 # the built-in effects (crates/dsp)
 dawesome-dsp = { path = "crates/dsp" }
+# the tape: a cassette 4-track's record and playback sides (crates/tape)
+dawesome-tape = { path = "crates/tape" }
 
 # opening a plugin's bundle (macOS) or library (Linux, Windows)
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -86,6 +88,16 @@ custom-protocol = ["tauri/custom-protocol"]
 # the timings in src/perf.rs: turns on the allocator that counts what
 # perf_history holds (see context/pattern-merge-project/perf/measure.md)
 perf = []
+
+# the sound crates run on the audio thread: unoptimized, they can't keep up
+# (the tape's network took 23 us a sample in a debug build, 2.2 cores for
+# one stereo track, and chopped). optimized even in `tauri dev`, while the
+# rest stays quick to build
+[profile.dev.package.dawesome-tape]
+opt-level = 3
+
+[profile.dev.package.dawesome-dsp]
+opt-level = 3
 
 [profile.release]
 codegen-units = 1

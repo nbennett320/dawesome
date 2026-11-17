@@ -14,6 +14,12 @@ def built():
   return testfile.build(seed=1)
 
 
+# the 4-track layout: content on tracks 1 and 2, the pilot alone on 4
+@lru_cache(maxsize=1)
+def built4():
+  return testfile.build(seed=1, pilot_track=3)
+
+
 # the decks the criteria in context/tape-project/02-plan.md are about. the
 # fresh and worn ones have a 0.7-frame delay on the right (azimuth)
 DECKS = {
@@ -23,12 +29,14 @@ DECKS = {
   "worn": replace(faketape.preset("worn"), channel_delay=0.7),
   "ancient": faketape.preset("ancient"),
   "print-through": replace(faketape.preset("fresh"), print_through_db=-34.0),
+  # 4-track, pilot on its own (undriven) track, driven hard
+  "4track+18": replace(faketape.preset("fresh"), channel_delay=0.7, drive_db=18.0, undriven_track=3),
 }
 
 
 class Pass:
   def __init__(self, name):
-    test, test_map = built()
+    test, test_map = built4() if name.startswith("4track") else built()
     self.name, self.deck, self.test, self.map = name, DECKS[name], test, test_map
     self.rec, self.truth = faketape.run(test, self.deck)
     self.alignment = align.align(self.rec, test_map.rate, test, test_map)

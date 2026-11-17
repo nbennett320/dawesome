@@ -26,6 +26,9 @@ export const defaultPreferences: Preferences = {
   commandBar: false,
   loopRecording: 'layer',
   experimentalAnimations: true,
+  tapeMode: 'print',
+  tapeTap: 'before',
+  tapeMethod: 'modeled',
 }
 
 // settings an older engine doesn't know about (it leaves them out) are

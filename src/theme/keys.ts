@@ -37,6 +37,15 @@ export interface Preferences {
   // whether animations still being tried out are shown (see
   // experimental_animations in preferences.rs)
   experimentalAnimations: boolean
+  // how tracks on tape are worked out: printed in the background, or live
+  // (see TapeMode in preferences.rs)
+  tapeMode: 'print' | 'live'
+  // where on a track the tape sits: before its effects, as on a 4-track, or
+  // after them (see TapeTap in preferences.rs)
+  tapeTap: 'before' | 'after'
+  // how the tape's record side is worked out: the hand-built model, or a
+  // trained network (see TapeMethod in preferences.rs)
+  tapeMethod: 'modeled' | 'neural'
 }
 
 // coloured caps (TR-808), plain caps over a coloured strip (TR-909), or

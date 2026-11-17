@@ -40,8 +40,12 @@ class Deck:
   # one track on the tape, played to both sides
   mono: bool = False
   # the right channel's head gap sits this many frames behind the left's
-  # (azimuth): the tracks reach the heads a hair apart
+  # (azimuth): the tracks reach the heads a hair apart. with more tracks,
+  # each sits this much further on
   channel_delay: float = 0.0
+  # a track whose input isn't driven (the pilot's own track, T15): it's
+  # recorded at a fixed level whatever the content tracks' drive
+  undriven_track: object = None
   # ghost echoes from the layers either side on the reel
   print_through_db: float = -200.0
   print_through_s: float = 1.6
@@ -103,7 +107,10 @@ def preset(name, deck=None):
 # everything but time: drive, emphasis around the curve, the heads' eq
 def core(x, deck, rate=RATE):
   ref = from_db(REF_DBFS)
-  x = x * from_db(deck.drive_db)
+  gain = np.full(x.shape[1], from_db(deck.drive_db))
+  if deck.undriven_track is not None and deck.undriven_track < x.shape[1]:
+    gain[deck.undriven_track] = 1.0
+  x = x * gain[None, :]
   x = apply(biquad("highshelf", deck.emphasis_hz, rate, 0.7, deck.emphasis_db), x)
   u = x / ref
 
@@ -126,7 +133,11 @@ def core(x, deck, rate=RATE):
   if deck.mono:
     y = np.repeat(y.mean(axis=1, keepdims=True), y.shape[1], axis=1)
   else:
-    y = y + from_db(deck.crosstalk_db) * y[:, ::-1]
+    # each track bleeds into its neighbours on the head
+    bleed = np.zeros_like(y)
+    bleed[:, 1:] += y[:, :-1]
+    bleed[:, :-1] += y[:, 1:]
+    y = y + from_db(deck.crosstalk_db) * bleed
   return y + print_through(y, deck, rate)
 
 
@@ -218,7 +229,7 @@ def run(audio, deck=None, rate=RATE):
   pos = np.concatenate([[0.0], np.cumsum(v)[:-1]])
   pos = pos[pos < len(audio) - 1]
   if deck.channel_delay and not deck.mono and played.shape[1] > 1:
-    wobbled = np.stack([sinc_read(played[:, 0], pos), sinc_read(played[:, 1], pos - deck.channel_delay)], axis=1)
+    wobbled = np.stack([sinc_read(played[:, c], pos - c * deck.channel_delay) for c in range(played.shape[1])], axis=1)
   else:
     wobbled = sinc_read(played, pos)
   events = []

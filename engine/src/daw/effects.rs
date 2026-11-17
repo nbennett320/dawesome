@@ -1261,6 +1261,8 @@ pub fn follow_output(effects: &Arc<Effects>) {
     let racks = racks.clone();
     let started = std::thread::Builder::new().name("effects to output".into()).spawn(move || {
       if let Some(effects) = racks.upgrade() { effects.output_opened(); }
+      // the tape too (it shares this hook: there's one)
+      crate::daw::tape::output_opened();
     });
     if let Err(e) = started {
       println!("the effects weren't put on the new output: {}", e);

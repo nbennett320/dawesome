@@ -199,3 +199,23 @@ def test_an_inverted_channel_is_turned_back(passes):
     both = (a.quality == 2) & (b.quality == 2)
     assert both.mean() > 0.9
     assert np.max(np.abs(a.pos[both] - b.pos[both])) < 0.01
+
+
+@pytest.mark.slow
+def test_a_pilot_on_its_own_track_survives_full_drive(passes):
+  # T15: with the pilot on track 4, loud content can't crush it. on the
+  # mixed layout only 2 % of the music aligned at +18 db
+  p = passes("4track+18")
+  assert p.alignment.channels == [0, 1]
+  music = p.map.section("music")
+  for i, track in enumerate(p.alignment.tracks):
+    k = track.grid - p.truth["offset"]
+    ok = (k >= 0) & (k < len(p.truth["pos"]))
+    e = np.full(len(track.grid), np.nan)
+    e[ok] = track.pos[ok] - (p.truth["pos"][k[ok]] - i * p.deck.channel_delay)
+    e -= np.nanmedian(e[track.quality == 2])
+    inside = ok & (track.pos / RATE > music.start) & (track.pos / RATE < music.end)
+    assert np.mean(track.quality[inside] == 2) >= 0.95
+    assert np.nanmax(np.abs(e[ok & (track.quality == 2)])) <= 0.5
+  delays = p.alignment.summary()["channels"]
+  assert abs(delays[1]["delay_frames"] - 0.7) <= 0.05

@@ -106,3 +106,28 @@ describe('settings an older engine leaves out', () => {
     expect(store.getState().appearance.preferences.stepKeys).toBe('tr909')
   })
 })
+
+describe('tracks on tape', () => {
+  it('are printed in the background unless chosen otherwise, and an older engine leaves that alone', () => {
+    expect(defaultPreferences.tapeMode).toBe('print')
+    expect(defaultPreferences.tapeTap).toBe('before')
+    expect(defaultPreferences.tapeMethod).toBe('modeled')
+    setThemes(all)
+    const store = configureStore({ reducer: { appearance: reducer } })
+    const { tapeMode: _, ...older } = defaultPreferences
+    store.dispatch(hydrateAppearance({ preferences: older as Preferences, systemDark: false, themes: [] }))
+    expect(store.getState().appearance.preferences.tapeMode).toBe('print')
+  })
+
+  it('are sent to the engine when changed', async () => {
+    mockInvoke.mockReset()
+    window.matchMedia = vi.fn().mockReturnValue({ matches: false }) as never
+    const store = make()
+    mockInvoke.mockImplementation((_, { preferences }) => Promise.resolve(preferences))
+    await (store.dispatch as never as (t: unknown) => Promise<void>)(changePreferences({ tapeMode: 'live' }))
+    expect(mockInvoke).toHaveBeenCalledWith('set_preferences', {
+      preferences: expect.objectContaining({ tapeMode: 'live' }),
+    })
+    expect(store.getState().appearance.preferences.tapeMode).toBe('live')
+  })
+})

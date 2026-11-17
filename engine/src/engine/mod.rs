@@ -50,6 +50,7 @@ pub(crate) mod mixer;
 pub(crate) mod processor;
 pub(crate) mod sample_voice;
 pub(crate) mod sound_buffer;
+pub(crate) mod tape;
 pub(crate) mod util;
 
 use self::processor::{Processor, Transport};
@@ -522,10 +523,20 @@ impl Bus {
 
   // run the chain on the first `frames` of the mix, then the strip. returns
   // the pair the result ended up in
-  fn run(&mut self, frames: usize, transport: &Transport) -> usize {
+  // - tape: the tape, and this bus's place on it, if it's on tape: the
+  //   track goes through it before its first effect, or after its chain
+  fn run(&mut self, frames: usize, transport: &Transport, mut tape: Option<(&mut tape::LiveTape, [usize; 2])>) -> usize {
     let mut at = 0;
     for slot in self.chain.iter() {
       if slot.bypassed() { continue; }
+
+      // the first effect (not an instrument): the tape goes before it
+      // (safe: this is the callback of the engine whose chain holds the slot)
+      if tape.as_ref().is_some_and(|(t, _)| t.before_effects) && unsafe { slot.playing() }.is_none() {
+        let (t, sides) = tape.take().unwrap();
+        let [l, r] = &mut self.buffers[at];
+        t.run(sides, &mut l[..frames], &mut r[..frames]);
+      }
 
       let (first, second) = self.buffers.split_at_mut(1);
       let (input, output) = if at == 0 { (&first[0], &mut second[0]) } else { (&second[0], &mut first[0]) };
@@ -560,6 +571,12 @@ impl Bus {
         }
       }
       at = 1 - at;
+    }
+
+    // after its chain (or, before its effects, when it has none)
+    if let Some((t, sides)) = tape {
+      let [l, r] = &mut self.buffers[at];
+      t.run(sides, &mut l[..frames], &mut r[..frames]);
     }
 
     // (before the strip: a muted track's reverb is still sounding)
@@ -598,6 +615,12 @@ enum Command {
   Master(Arc<mixer::ChannelControls>),
   // a bus's whole chain, replacing the one it has
   Chain { channel: Channel, slots: Vec<Arc<Slot>> },
+  // the tape (always-live mode), replacing the one there is; None: no tape,
+  // and every track plays exactly as it did before there was one
+  Tape(Option<Box<tape::LiveTape>>),
+  // the tape's knobs, and a track's drive (neither allocates)
+  TapeSettings(Box<::tape::MachineSettings>),
+  TapeDrive { track_number: u32, drive_db: f32 },
 }
 
 // what the callback is done with, sent back to be freed off the audio thread
@@ -612,6 +635,8 @@ enum Garbage {
   Route(mixer::TrackRoute),
   Controls(Arc<mixer::ChannelControls>, Option<Arc<AtomicUsize>>),
   Chain(Vec<Arc<Slot>>),
+  Tape(Box<tape::LiveTape>),
+  TapeSettings(Box<::tape::MachineSettings>),
 }
 
 // how many voices can sound at once. more are dropped (and counted)
@@ -886,6 +911,23 @@ impl Engine {
   }
 
   // replace the master's chain of effects
+  // the tape for always-live mode, replacing the one there is (None: no
+  // tape: every track plays as it did before). build it off the audio
+  // thread: see tape.rs
+  pub fn set_tape(&self, tape: Option<Box<tape::LiveTape>>) -> Result<(), String> {
+    self.send(Command::Tape(tape))
+  }
+
+  // the tape's knobs, without rebuilding it (its wobble carries on)
+  pub fn set_tape_settings(&self, settings: ::tape::MachineSettings) -> Result<(), String> {
+    self.send(Command::TapeSettings(Box::new(settings)))
+  }
+
+  // a taped track's drive
+  pub fn set_tape_drive(&self, track_number: u32, drive_db: f32) -> Result<(), String> {
+    self.send(Command::TapeDrive { track_number, drive_db })
+  }
+
   pub fn set_master_chain(&self, slots: Vec<Arc<Slot>>) -> Result<(), String> {
     self.send_chain(Channel::Master, slots)
   }
@@ -1021,6 +1063,8 @@ pub struct Renderer {
   fade_frames: u32,
   // how long a chain is silent for before it rests (see Bus::rests)
   rest_frames: u64,
+  // the tape, in always-live mode while it's on (see tape.rs)
+  tape: Option<Box<tape::LiveTape>>,
 }
 
 impl Renderer {
@@ -1045,6 +1089,7 @@ impl Renderer {
       transport: Transport { sample_rate, ..Transport::default() },
       fade_frames: ((STOP_FADE.as_secs_f64() * sample_rate as f64) as u32).max(1),
       rest_frames: (REST_AFTER.as_secs_f64() * sample_rate as f64) as u64,
+      tape: None,
     }
   }
 
@@ -1157,20 +1202,32 @@ impl Renderer {
       }
     }
 
+    // the tape moves on once a block, the same for every track on it
+    if let Some(tape) = self.tape.as_mut() {
+      tape.machine.advance(frames);
+    }
+
     // each track bus with something to run, onto the master bus
     let transport = self.transport;
     let rest_frames = self.rest_frames;
     let mut resting = 0;
     let [master_l, master_r] = &mut self.master.buffers[0];
     for bus in self.buses.iter_mut() {
-      if !bus.sounding && bus.chain.is_empty() {
+      // a track on tape runs every block while the tape does: its head
+      // reads what's on the tape a few ms back, and hisses, whether or not
+      // anything new is going on
+      let taped = match (self.tape.as_ref(), bus.channel) {
+        (Some(tape), Channel::Track(number)) => tape.sides(number),
+        _ => None,
+      };
+      if !bus.sounding && bus.chain.is_empty() && taped.is_none() {
         bus.awake = false;
         continue;
       }
       if !bus.sounding { bus.clear(frames); }
       // a chain that's been silent, with silence going in, is left out
       let fed = bus.sounding && sounds(&bus.buffers[0], frames);
-      if bus.rests(fed, rest_frames) {
+      if taped.is_none() && bus.rests(fed, rest_frames) {
         bus.awake = false;
         resting += 1;
         continue;
@@ -1180,7 +1237,11 @@ impl Renderer {
         bus.awake = true;
       }
 
-      let at = bus.run(frames, &transport);
+      let tape = match (self.tape.as_deref_mut(), taped) {
+        (Some(tape), Some(sides)) => Some((tape, sides)),
+        _ => None,
+      };
+      let at = bus.run(frames, &transport, tape);
       let [l, r] = &bus.buffers[at];
       for i in 0..frames {
         master_l[i] += l[i];
@@ -1211,7 +1272,7 @@ impl Renderer {
     }
     self.master.awake = true;
 
-    let at = self.master.run(frames, &transport);
+    let at = self.master.run(frames, &transport, None);
     let [l, r] = &self.master.buffers[at];
     for (i, frame) in out.chunks_exact_mut(2).enumerate() {
       frame[0] = mixer::soft_limit(l[i]) + direct_l[i];
@@ -1285,6 +1346,22 @@ impl Renderer {
         };
         self.throw_away(Garbage::Chain(old));
         self.shared.chains_applied.fetch_add(1, Ordering::AcqRel);
+      }
+      Command::Tape(tape) => {
+        if let Some(old) = std::mem::replace(&mut self.tape, tape) {
+          self.throw_away(Garbage::Tape(old));
+        }
+      }
+      Command::TapeSettings(settings) => {
+        if let Some(tape) = self.tape.as_mut() {
+          tape.set_settings((*settings).clone());
+        }
+        self.throw_away(Garbage::TapeSettings(settings));
+      }
+      Command::TapeDrive { track_number, drive_db } => {
+        if let Some(tape) = self.tape.as_mut() {
+          tape.set_drive(track_number, drive_db);
+        }
       }
     }
   }

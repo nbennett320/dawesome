@@ -35,6 +35,7 @@ fn init_tauri() {
   use commands::effect::*;
   use effect_windows::*;
   use commands::synth::*;
+  use commands::tape::{get_tape, set_tape_machine, set_track_tape};
 
   // read before the menu is built, which lists them
   let recent_projects = recent::RecentProjects::load();
@@ -68,6 +69,9 @@ fn init_tauri() {
       daw::main_thread::init(Box::new(move |job| handle.run_on_main_thread(job).map_err(|e| e.to_string())));
       daw::effects::keep_idling(racks.clone());
       daw::effects::follow_output(&racks);
+      // the tape follows the preferences it's set by (Settings → Controls)
+      let prefs = app.state::<preferences::AppPreferences>().current();
+      daw::tape::set_preferences(prefs.tape_mode, prefs.tape_tap, prefs.tape_method);
       effect_windows::init(&racks);
       daw::actions::synth::keep_following(following.clone());
       // the empty project the app starts with is unchanged (see
@@ -152,6 +156,9 @@ fn init_tauri() {
       set_master_volume,
       reset_mixer,
       get_mixer_levels,
+      get_tape,
+      set_tape_machine,
+      set_track_tape,
       init_playlist_workspace,
       start_recording,
       stop_recording,
