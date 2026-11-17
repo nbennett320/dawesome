@@ -725,6 +725,13 @@ name = "dawesome-dsp"
 version = "0.1.0"
 
 [[package]]
+name = "dawesome-tape"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "dbus"
 version = "0.9.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"

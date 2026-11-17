@@ -13,7 +13,7 @@ version = "0.1.7"
 
 # the app and the crates under it share target/ and Cargo.lock
 [workspace]
-members = ["crates/dsp"]
+members = ["crates/dsp", "crates/tape"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

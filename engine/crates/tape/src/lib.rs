@@ -1,0 +1,16 @@
+// dawesome's tape: what a cassette 4-track does to sound, on the way onto
+// the tape (the record side) and off it again (the playback side). nothing
+// here knows about Tauri, the mixer or projects: the DAW's glue
+// (engine/src/daw/tape) puts tracks on tape, an insert effect can wrap one
+// track of it, and a headless build (a pedal) could use it alone. no
+// dependencies, on purpose, like dsp: the network's weights come in as
+// plain arrays, and reading model.json is the glue's job
+//
+// the plan, and why it's split this way: context/tape-project/02-plan.md
+// ("Architecture: one crate, three uses")
+//
+// nothing here allocates once it's set up: every buffer is made in new()
+
+pub mod gru;
+
+pub use gru::{Gru, GruError, GruWeights};
