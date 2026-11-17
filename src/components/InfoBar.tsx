@@ -3,6 +3,7 @@ import { useAppDispatch, useAppSelector } from '../hooks/redux'
 import { selectAppearance } from '../state/slices/appearanceSlice'
 import { findCommand } from '../state/commands'
 import { isTypingTarget } from '../util/keys'
+import { onInfoNote } from '../events/infoNote'
 
 // how long a message (e.g. an unknown command) stays before hints come back
 const MESSAGE_MS = 3000
@@ -21,6 +22,9 @@ const InfoBar = () => {
   // the command being typed, while the command line is open
   const [line, setLine] = React.useState<string | null>(null)
   const [message, setMessage] = React.useState('')
+  // a note from elsewhere (see events/infoNote), shown for a moment like a
+  // message, but not as a warning. `at` tells the same note again apart
+  const [note, setNote] = React.useState<{ text: string, at: number } | null>(null)
   const input = React.useRef<HTMLInputElement>(null)
 
   // the command line takes the keyboard as it opens
@@ -65,6 +69,13 @@ const InfoBar = () => {
     return () => clearTimeout(timer)
   }, [message])
 
+  React.useEffect(() => onInfoNote(text => setNote({ text, at: Date.now() })), [])
+  React.useEffect(() => {
+    if(!note) return undefined
+    const timer = setTimeout(() => setNote(null), MESSAGE_MS)
+    return () => clearTimeout(timer)
+  }, [note])
+
   const run = (typed: string) => {
     setLine(null)
     if(!typed.trim()) return
@@ -103,8 +114,12 @@ const InfoBar = () => {
   }
 
   return (
-    <div className={`InfoBar flex items-center px-3 border-t border-line bg-panel text-xs truncate ${message ? 'text-danger' : 'text-ink-soft'}`}>
-      {message || hint}
+    <div
+      className={`InfoBar flex items-center px-3 border-t border-line bg-panel text-xs truncate ${
+        message ? 'text-danger' : note ? 'text-ink-strong' : 'text-ink-soft'
+      }`}
+    >
+      {message || note?.text || hint}
     </div>
   )
 }

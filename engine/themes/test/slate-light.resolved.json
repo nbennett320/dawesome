@@ -106,6 +106,7 @@
   "playlist.currentTrackEdge": "#0ea5e9",
   "playlist.timeSelection": "#0ea5e929",
   "playlist.timeSelectionEdge": "#0ea5e9",
+  "playlist.landmarkFlash": "#0ea5e973",
   "playlist.loopRegion": "#0ea5e933",
   "playlist.modified": "#f59e0b",
   "playlist.patternBeat": "#fde68a",

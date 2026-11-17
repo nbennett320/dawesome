@@ -51,6 +51,7 @@
     "currentTrackEdge": "accent",
     "timeSelection": "alpha(accent, 0.16)",
     "timeSelectionEdge": "accent",
+    "landmarkFlash": "alpha(accent, 0.45)",
     "clip": "raised",
     "clipBorder": "lineStrong",
     "clipLabel": "panel",

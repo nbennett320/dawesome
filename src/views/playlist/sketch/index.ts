@@ -46,6 +46,7 @@ import { Pattern, SequencerState, patternSeconds } from '../../../types/sequence
 import { decodeLevels } from '../../../util/waveform'
 import { gridSteps, maxScale, openingScale, panForWidth, panToShow, scrollToShow, visibleBeats } from './grid'
 import { LandmarkName, Move, landmarks, moveTarget } from '../navigation'
+import { LANDING, flashStrength, glideBeat } from './landing'
 import {
   TimeSelection, blockOf, isEmptySpan, shiftTracks, bladePlan, startAt, withEdgeBeat, withEdgeTrack,
 } from '../timeSelection'
@@ -708,9 +709,54 @@ export class Renderer extends RendererBase {
     if(sel) this.#setTimeSelection(withEdgeBeat(sel, target.beat))
     // the playhead goes there, but while playing, a selection's edge moves
     // on its own and playback carries on
-    if(!sel || !this.playing) this.#seekTo(target.beat)
+    const moves = !sel || !this.playing
+    const from = this.shownPlayheadBeat()
+    if(moves) this.#seekTo(target.beat)
+    if(target.landmark) this.#markLanding(target.beat, moves ? from : null)
+    // (a step is instant: one in the middle of a glide ends it)
+    else this.#glide = null
     this.revealBeat(target.beat)
     return target
+  }
+
+  // a jump to a landmark (see landing.ts): the playhead glides there from
+  // `from` (null: it didn't move), and the ruler flashes there. with
+  // experimental animations on, and no glide with reduced motion
+  #glide: { from: number, at: number } | null = null
+  #flash: { beat: number, at: number } | null = null
+
+  #markLanding = (beat: number, from: number | null) => {
+    if(!this.experimentalAnimations) return
+    const now = performance.now()
+    const still = !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    this.#glide = from !== null && !still ? { from, at: now } : null
+    this.#flash = { beat, at: now }
+    this.wake()
+  }
+
+  // the playhead as it's drawn: part way to a landmark while it glides (to
+  // where it is, which carries on while playing)
+  shownPlayheadBeat = (): number | null => {
+    const beat = this.playheadBeat()
+    const glide = this.#glide
+    if(beat === null || !glide) return beat
+    return glideBeat(glide.from, beat, performance.now() - glide.at)
+  }
+
+  // the flash where a jump landed, while it shows: the beat, and how strong
+  landmarkFlash = (): { beat: number, strength: number } | null => {
+    const flash = this.#flash
+    if(!flash) return null
+    return { beat: flash.beat, strength: flashStrength(performance.now() - flash.at) }
+  }
+
+  // whether a glide or a flash is still going, letting go of ones that are
+  // over
+  #landing = (): boolean => {
+    const now = performance.now()
+    if(this.#glide && now - this.#glide.at >= LANDING.glideMs) this.#glide = null
+    if(this.#flash && now - this.#flash.at >= LANDING.flashMs) this.#flash = null
+    return this.#glide !== null || this.#flash !== null
   }
 
   // the playhead moved by the keys or a click: shown there at once, and
@@ -1497,6 +1543,7 @@ export class Renderer extends RendererBase {
       || this.edgeDrag !== null
       || this.#paint !== null
       || this.seekDragging
+      || this.#landing()
       || this.#loopDragging
       || this.scrollbarGrab !== null
       // armed lips pulse

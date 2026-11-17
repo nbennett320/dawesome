@@ -73,6 +73,12 @@ start and end are the [loop region](#_6-7-2-loop-region)'s edges, or with no
 region, the [end flag](#_6-7-1-loop-end) while looping is on. While looping,
 going to the loop's end goes round to its start at once, as playback would.
 
+When **⌘←**, **⌘→**, **Home** or **End** lands on a place, the info bar along
+the bottom names it, for example *Loop start · bar 9*. With **Experimental
+animations** on (in **Preferences**), the playhead also glides there, and
+the ruler glows briefly where it lands. If your system is set to reduce
+motion, the playhead goes straight there instead.
+
 ### 6-1-2 The current track
 
 One track is the *current track*: the one the keyboard works on. Its lane

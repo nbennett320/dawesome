@@ -22,7 +22,8 @@ class Cursor extends PlaylistComponent {
 
   render = () => {
     const playlist = this.renderer as Renderer
-    const beat = playlist.playheadBeat()
+    // (part way there, while it glides to a landmark)
+    const beat = playlist.shownPlayheadBeat()
     if(beat === null) return
 
     const x = playlist.transformX + playlist.beatToX(beat) * playlist.currentScale

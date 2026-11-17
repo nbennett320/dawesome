@@ -155,3 +155,50 @@ describe('another track', () => {
     expect(r.timeSelection).toBeNull()
   })
 })
+
+describe('a jump to a landmark', () => {
+  let now = 1_000
+  beforeEach(() => {
+    now = 1_000
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  it('glides the playhead there, and flashes where it lands', () => {
+    const { r } = renderer(16)
+    r.navigate({ kind: 'home' })
+    // the engine's playhead is there at once; the one drawn glides
+    expect(r.playheadBeat()).toBe(0)
+    expect(r.shownPlayheadBeat()).toBe(16)
+    now += 60
+    expect(r.shownPlayheadBeat()).toBeCloseTo(2)
+    expect(r.landmarkFlash()).toMatchObject({ beat: 0 })
+    now += 1_000
+    expect(r.shownPlayheadBeat()).toBe(0)
+    expect(r.landmarkFlash()?.strength).toBe(0)
+  })
+
+  it("doesn't with experimental animations off", () => {
+    const { r } = renderer(16)
+    r.experimentalAnimations = false
+    r.navigate({ kind: 'home' })
+    expect(r.shownPlayheadBeat()).toBe(0)
+    expect(r.landmarkFlash()).toBeNull()
+  })
+
+  it('is cut short by a step, which is instant', () => {
+    const { r } = renderer(16)
+    r.navigate({ kind: 'home' })
+    r.navigate(right)
+    expect(r.shownPlayheadBeat()).toBe(1)
+  })
+
+  it("flashes, but doesn't glide, when only a selection's edge moved", () => {
+    const { r } = renderer(4)
+    r.playing = true
+    r.seekBeat = 4
+    r.navigate({ kind: 'landmark', dir: 1 }, true)
+    expect(r.shownPlayheadBeat()).toBe(4)
+    expect(r.landmarkFlash()).toMatchObject({ beat: 16 })
+  })
+})

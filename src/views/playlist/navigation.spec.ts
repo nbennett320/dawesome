@@ -1,4 +1,6 @@
-import { Landmarks, Move, Place, landmarks, moveForKey, moveTarget, nextLandmark, stepFrom, trackStepForKey } from './navigation'
+import {
+  Landmarks, Move, Place, landmarkNote, landmarks, moveForKey, positionLabel, moveTarget, nextLandmark, stepFrom, trackStepForKey,
+} from './navigation'
 
 const key = (k: string, mods: Partial<Record<'shiftKey' | 'metaKey' | 'ctrlKey' | 'altKey', boolean>> = {}) => ({
   key: k, shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, ...mods,
@@ -149,5 +151,23 @@ describe('trackStepForKey', () => {
     expect(trackStepForKey(key('ArrowUp', { shiftKey: true }))).toBe(-1)
     expect(trackStepForKey(key('ArrowUp', { metaKey: true }))).toBeNull()
     expect(trackStepForKey(key('ArrowDown', { altKey: true }))).toBeNull()
+  })
+})
+
+describe('the info bar note', () => {
+  it('says where a beat is, in bars and beats counted from 1', () => {
+    expect(positionLabel(0, 4)).toBe('bar 1')
+    expect(positionLabel(32, 4)).toBe('bar 9')
+    expect(positionLabel(34, 4)).toBe('bar 9, beat 3')
+    expect(positionLabel(33.5, 4)).toBe('bar 9, beat 2.5')
+    expect(positionLabel(6, 3)).toBe('bar 3')
+    // a hair off a bar (float rounding) is on it
+    expect(positionLabel(31.9999999, 4)).toBe('bar 9')
+  })
+
+  it('names the landmark landed on', () => {
+    expect(landmarkNote('loop-start', 32, 4)).toBe('Loop start · bar 9')
+    expect(landmarkNote('last-play-start', 33.5, 4)).toBe('Last play start · bar 9, beat 2.5')
+    expect(landmarkNote('song-end', 64, 4)).toBe('Song end · bar 17')
   })
 })

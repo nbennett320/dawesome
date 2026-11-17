@@ -16,6 +16,9 @@ export type Move =
   | { kind: 'home' }
   | { kind: 'end' }
 
+// positions closer than this count as the same place (float rounding)
+const SAME = 1e-6
+
 type KeyPress = Pick<KeyboardEvent, 'key' | 'shiftKey' | 'metaKey' | 'ctrlKey' | 'altKey'>
 
 // the move a key press asks for, if any. ⌘ is ⌃ on other systems, and ⌥ is
@@ -68,6 +71,29 @@ export const landmarks = (t: LandmarkTransport): Landmarks => {
   }
 }
 
+// what a landmark is called, in the info bar
+const LANDMARK_NAMES: Record<LandmarkName, string> = {
+  'last-play-start': 'Last play start',
+  'loop-start': 'Loop start',
+  'song-start': 'Song start',
+  'loop-end': 'Loop end',
+  'song-end': 'Song end',
+}
+
+// where a beat is, as the info bar says it: "bar 9" on a bar, "bar 9, beat
+// 3" on a beat, and "bar 9, beat 2.5" between beats (counted from 1)
+export const positionLabel = (beat: number, beatsPerBar: number): string => {
+  const perBar = Math.max(1, Math.round(beatsPerBar))
+  const bar = Math.floor(beat / perBar + SAME)
+  const inBar = Math.max(0, beat - bar * perBar)
+  if(inBar < SAME) return `bar ${bar + 1}`
+  return `bar ${bar + 1}, beat ${+(inBar + 1).toFixed(2)}`
+}
+
+// the info bar's note for landing on a landmark: "Loop start · bar 9"
+export const landmarkNote = (name: LandmarkName, beat: number, beatsPerBar: number): string =>
+  `${LANDMARK_NAMES[name]} · ${positionLabel(beat, beatsPerBar)}`
+
 // the order ⌘← and ⌘→ try them in
 const LADDERS: Record<Direction, LandmarkName[]> = {
   [-1]: ['last-play-start', 'loop-start', 'song-start'],
@@ -81,9 +107,6 @@ const beatOf = (marks: Landmarks, name: LandmarkName): number | null => ({
   'loop-end': marks.loopEnd,
   'song-end': marks.songEnd,
 }[name])
-
-// positions closer than this count as the same place (float rounding)
-const SAME = 1e-6
 
 // where ⌘← or ⌘→ goes from `from`: the first landmark on its ladder that's
 // that way. so pressing again carries on to the next one (the last play

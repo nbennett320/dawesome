@@ -57,7 +57,8 @@ import { View } from '../../types/ui'
 import {
   isDeleteKey, isExplodeKey, isJoinKey, isLoopSelectionKey, isSliderTarget, isTextTarget, isTypingTarget,
 } from '../../util/keys'
-import { moveForKey, trackStepForKey } from './navigation'
+import { landmarkNote, moveForKey, trackStepForKey } from './navigation'
+import { postInfoNote } from '../../events/infoNote'
 import { editShortcutHandler } from '../../util/shortcuts'
 import {
   ClipCommand, ClipSource, clipCommand, sameCommand, setClipCommandRunner,
@@ -470,7 +471,11 @@ const PlaylistCanvas = () => {
       // not in the middle of a drag, which follows the mouse on the screen
       if(playlistRenderer.isDragging()) return
       // with ⇧, they select (see timeSelection.ts)
-      if(move) playlistRenderer.navigate(move, ev.shiftKey)
+      const landed = move ? playlistRenderer.navigate(move, ev.shiftKey) : null
+      // the info bar says which landmark it landed on
+      if(landed?.landmark) {
+        postInfoNote(landmarkNote(landed.landmark, landed.beat, playlistRenderer.transport?.beatsPerBar ?? 4))
+      }
       if(track) playlistRenderer.stepTrack(track, ev.shiftKey)
     }
 
