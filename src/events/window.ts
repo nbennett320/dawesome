@@ -30,6 +30,7 @@ export const menuViews: Record<string, View> = {
   sample: View.SamplePreview,
   mixer: View.Mixer,
   transport: View.Transport,
+  timeline: View.Timeline,
   sequencer: View.PatternSequencer,
   'effects-rack': View.EffectsRack,
   'piano-roll': View.PianoRoll,
