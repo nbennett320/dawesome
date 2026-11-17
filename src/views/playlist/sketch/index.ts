@@ -46,7 +46,9 @@ import { Pattern, SequencerState, patternSeconds } from '../../../types/sequence
 import { decodeLevels } from '../../../util/waveform'
 import { gridSteps, maxScale, openingScale, panForWidth, panToShow, scrollToShow, visibleBeats } from './grid'
 import { LandmarkName, Move, landmarks, moveTarget } from '../navigation'
-import { TimeSelection, blockOf, isEmptySpan, shiftTracks, startAt, withEdgeBeat, withEdgeTrack } from '../timeSelection'
+import {
+  TimeSelection, blockOf, isEmptySpan, shiftTracks, splitPlan, startAt, withEdgeBeat, withEdgeTrack,
+} from '../timeSelection'
 import { lineLevel, tileStep } from '../../../editing/beatGrid'
 import {
   Edge, MAX_PITCH, Snapping, Span, StretchClip, TrimClip, edgeAt, patternTrimClip, pitchOf, sampleTrimClip,
@@ -706,14 +708,14 @@ export class Renderer extends RendererBase {
     if(sel) this.#setTimeSelection(withEdgeBeat(sel, target.beat))
     // the playhead goes there, but while playing, a selection's edge moves
     // on its own and playback carries on
-    if(!sel || !this.playing) this.#seekFromKeys(target.beat)
+    if(!sel || !this.playing) this.#seekTo(target.beat)
     this.revealBeat(target.beat)
     return target
   }
 
-  // the playhead moved by the keys: shown there at once, and kept there
-  // until every key's seek has reached the engine
-  #seekFromKeys = (beat: number) => {
+  // the playhead moved by the keys or a click: shown there at once, and
+  // kept there until every such seek has reached the engine
+  #seekTo = (beat: number) => {
     this.seekBeat = beat
     this.#keySeeks += 1
     Promise.resolve(this.onSeek?.(beat)).finally(() => {
@@ -1204,6 +1206,16 @@ export class Renderer extends RendererBase {
     const clip = obj ? this.trimClipOf(obj) : null
     const beat = this.playheadBeat()
     return clip && beat !== null && canCut(clip, beat) ? beat : null
+  }
+
+  // what ⌘B splits (see splitPlan): the playhead's unsnapped, as "Split at
+  // playhead"
+  splitTarget = (): { ids: number[], beats: number[] } | null => {
+    const clips = this.playlistObjects.flatMap(obj => {
+      const clip = this.trimClipOf(obj)
+      return clip ? [{ track: obj.playlistItem.trackNumber, clip }] : []
+    })
+    return splitPlan(this.timeSelection, this.playheadBeat(), this.shownTrack(), clips)
   }
 
   // ---- trimming: dragging a clip's edge ----
@@ -2165,6 +2177,9 @@ export class Renderer extends RendererBase {
   secondsToWidth = (seconds: number): number =>
     this.beatToX(seconds * this.tempo / 60)
 
+  // whether empty space is being dragged, which pans the playlist
+  #panning = (): boolean => this.isMouseDown && this.isMouseDragged && !this.clipDrag
+
   // whether something on the playlist is being dragged, or pressed: keys
   // that change the clips wait until it's let go
   isDragging = (): boolean =>
@@ -2454,6 +2469,12 @@ export class Renderer extends RendererBase {
 
         // a click on empty space (not a pan) clears the selection
         if(this.#pressedOnEmpty && !this.isMouseDragged) this.clearSelection()
+        // and with the Select tool, a click (not a drag or a pan) on a clip
+        // or on empty space moves the playhead there, snapped, as a click
+        // in the ruler does
+        if(this.tool === 'select' && this.isMouseDown && !this.isMouseDragged && (!ev || ev.button === 0)) {
+          this.#seekTo(this.rulerBeat(p.mouseX))
+        }
         this.#pressedOnEmpty = false
         this.#endShiftPress(p)
         this.lasso = null
@@ -2888,6 +2909,8 @@ export class Renderer extends RendererBase {
         p.cursor('ew-resize')
       } else if(this.lasso || this.#paint) {
         p.cursor(p.CROSS)
+      } else if(this.#panning()) {
+        p.cursor('grabbing')
       } else if(this.scrollbarGrab !== null || this.overScrollbar(p.mouseX, p.mouseY)) {
         p.cursor(p.ARROW)
       } else if(!this.clipDrag?.active && !this.sampleDrag && this.lipAt(p.mouseX, p.mouseY) !== null) {

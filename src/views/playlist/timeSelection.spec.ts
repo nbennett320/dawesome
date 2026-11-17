@@ -1,4 +1,4 @@
-import { blockOf, isEmptySpan, shiftTracks, startAt, withEdgeBeat, withEdgeTrack } from './timeSelection'
+import { blockOf, isEmptySpan, shiftTracks, splitPlan, startAt, withEdgeBeat, withEdgeTrack } from './timeSelection'
 
 describe('the time selection', () => {
   it('starts empty, at a beat on a track', () => {
@@ -34,5 +34,32 @@ describe('the time selection', () => {
     expect(shiftTracks(down!, 1, 4)).toBeNull()
     expect(blockOf(shiftTracks(sel, -1, 4)!)).toMatchObject({ top: 0, bottom: 1 })
     expect(shiftTracks(shiftTracks(sel, -1, 4)!, -1, 4)).toBeNull()
+  })
+})
+
+describe('splitPlan', () => {
+  // clips 1 (beats 0–8) and 2 (8–16) on track 0, 3 (4–12) on track 1, 4
+  // (0–16) on track 3
+  const clip = (id: number, track: number, start: number, end: number) =>
+    ({ track, clip: { id, start, end, minLength: 0.25 } })
+  const clips = [clip(1, 0, 0, 8), clip(2, 0, 8, 16), clip(3, 1, 4, 12), clip(4, 3, 0, 16)]
+
+  it("cuts the current track's clip under the playhead", () => {
+    expect(splitPlan(null, 6, 0, clips)).toEqual({ ids: [1], beats: [6] })
+    expect(splitPlan(null, 6, 1, clips)).toEqual({ ids: [3], beats: [6] })
+    // on an edge, or nothing there
+    expect(splitPlan(null, 8, 0, clips)).toBeNull()
+    expect(splitPlan(null, 6, 2, clips)).toBeNull()
+    expect(splitPlan(null, null, 0, clips)).toBeNull()
+  })
+
+  it("cuts the selection's clips at both its ends, on its tracks only", () => {
+    const sel = withEdgeTrack(withEdgeBeat(startAt(6, 0), 10), 1, 4)
+    expect(splitPlan(sel, 0, 1, clips)).toEqual({ ids: [1, 2, 3], beats: [6, 10] })
+  })
+
+  it('cuts at just the one beat while the selection covers no time', () => {
+    const sel = withEdgeTrack(withEdgeTrack(startAt(6, 1), 1, 4), 1, 4)
+    expect(splitPlan(sel, 0, 3, clips)).toEqual({ ids: [3, 4], beats: [6] })
   })
 })

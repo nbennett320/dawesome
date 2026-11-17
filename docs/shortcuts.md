@@ -67,6 +67,7 @@ doesn't matter; an unknown command is named in the info bar.
 | **⌘V** | **Ctrl+V** | Paste clips at the playhead, snapped (Playlist), or notes at the mouse (Piano Roll) |
 | **⌘R** | **Ctrl+R** | Repeat: place a copy of the selected clips (Playlist) or notes (Piano Roll) straight after them |
 | **⌘A** | **Ctrl+A** | Select all clips (Playlist) or all notes (Piano Roll) |
+| **⌘B** | **Ctrl+B** | Playlist: split the current track's clip at the playhead, or the time selection's clips at both its ends (**Edit ▸ Split**) |
 
 In a text field, these act on the text. Dawesome's clipboards are its own:
 copying clips or notes doesn't change your system clipboard.
@@ -166,6 +167,7 @@ Click a knob or fader first to give it the keyboard.
 | **Option** while dragging an edge | **Alt** while dragging an edge | Playlist | Ignore snap. Also with the cut tool. |
 | *Drag* empty space | *Drag* empty space | Playlist | Scroll |
 | *Click* or *drag* | *Click* or *drag* | Playlist ruler | Move the playhead |
+| *Click* (no drag) | *Click* (no drag) | Playlist lane, Select tool | Move the playhead there, on the snap grid |
 | *Double-click* | *Double-click* | Playlist clip | Open a sample clip in the **Sample** tab, or a pattern clip's pattern in the **Pattern Sequencer** (not with the cut tool) |
 | *Drag* empty space | *Drag* empty space | Playlist track, Draw tool | Paint clips of the last selected pattern |
 | *Right-click* | *Right-click* | Playlist clip | Clip menu |

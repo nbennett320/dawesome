@@ -3,9 +3,9 @@
 // menu
 import type { Dispatch } from '@reduxjs/toolkit'
 import type { RootState } from './store'
-import { copyClips, cutClips, deepCopyClips, joinClips, pasteClips, repeatClips } from './slices/playlistSlice'
+import { copyClips, cutClips, deepCopyClips, joinClips, pasteClips, repeatClips, splitClipsAt } from './slices/playlistSlice'
 
-export type ClipCommand = 'copy' | 'cut' | 'paste' | 'repeat' | 'select-all' | 'join' | 'deep-copy'
+export type ClipCommand = 'copy' | 'cut' | 'paste' | 'repeat' | 'select-all' | 'join' | 'deep-copy' | 'split'
 
 export interface ClipTarget {
   // the selected clips
@@ -16,6 +16,8 @@ export interface ClipTarget {
   pasteBeat: number | null
   // whether the Playlist is the focused view
   focused: boolean
+  // what a split cuts: these clips, at these beats. null for nothing
+  split: { ids: number[], beats: number[] } | null
 }
 
 // run a command on the clips in `target`. nothing happens unless the
@@ -38,6 +40,7 @@ export const clipCommand = (
     case 'repeat': return selected.length ? repeatClips(selected)(dispatch) : undefined
     case 'join': return selected.length >= 2 ? joinClips(selected, setBusy)(dispatch, getState) : undefined
     case 'deep-copy': return selected.length ? deepCopyClips(selected, setBusy)(dispatch, getState) : undefined
+    case 'split': return target.split ? splitClipsAt(target.split.ids, target.split.beats)(dispatch) : undefined
     case 'select-all':
       select(all)
       return undefined

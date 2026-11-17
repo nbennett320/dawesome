@@ -12,7 +12,7 @@ const mockInvoke = invoke as Mock
 // get_playlist_data's answer: a new project's length in beats, and 4 tracks
 const playlistData = { beats: DEFAULT_PLAYLIST_BEATS, trackCount: 4 }
 const target = (over: Partial<ClipTarget> = {}): ClipTarget => ({
-  selected: [3, 4], all: [3, 4, 5], pasteBeat: 8, focused: true, ...over,
+  selected: [3, 4], all: [3, 4, 5], pasteBeat: 8, focused: true, split: null, ...over,
 })
 
 describe('clipCommand', () => {
@@ -60,6 +60,18 @@ describe('clipCommand', () => {
       (command === 'join_clips' ? { clips: [], patternClips: [], removed: [], sequencer: null } : playlistData))
     await run('join', target())
     expect(mockInvoke).toHaveBeenCalledWith('join_clips', { ids: [3, 4] })
+  })
+
+  it('splits the clips the playlist names, at its beats', async () => {
+    mockInvoke.mockImplementation(async (command: string) =>
+      (command === 'split_clips_at' ? { clips: [], patternClips: [] } : playlistData))
+    await run('split', target({ split: { ids: [3, 5], beats: [4, 8] } }))
+    expect(mockInvoke).toHaveBeenCalledWith('split_clips_at', { ids: [3, 5], beats: [4, 8] })
+  })
+
+  it('splits nothing when nothing is under it', async () => {
+    await run('split', target())
+    expect(mockInvoke).not.toHaveBeenCalled()
   })
 
   it('does not join fewer than two clips', async () => {

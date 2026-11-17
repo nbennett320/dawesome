@@ -73,8 +73,15 @@ pub(crate) fn set_windows(state: &daw::Session, edits: &[WindowEdit]) -> Result<
 }
 
 pub(crate) fn split(state: &daw::Session, ids: &[u64], beat: f64) -> Result<ChangedClips, String> {
-  if !beat.is_finite() || beat < 0. {
-    return Err(format!("{} isn't a beat of the playlist", beat));
+  split_at(state, ids, &[beat])
+}
+
+// cut clips at each of `beats`, as one step to undo. a half that one beat
+// made is cut again by a later beat it's across, so a clip across both ends
+// of a span comes out in three. a clip a beat isn't inside is left alone
+pub(crate) fn split_at(state: &daw::Session, ids: &[u64], beats: &[f64]) -> Result<ChangedClips, String> {
+  if let Some(bad) = beats.iter().find(|beat| !beat.is_finite() || **beat < 0.) {
+    return Err(format!("{} isn't a beat of the playlist", bad));
   }
 
   // each clip that was cut, and the half that was made
@@ -84,17 +91,24 @@ pub(crate) fn split(state: &daw::Session, ids: &[u64], beat: f64) -> Result<Chan
       return Err(format!("no node with id {}", missing));
     }
 
-    let at: Duration = audiograph.beat_interval().mul_f64(beat);
+    let interval = audiograph.beat_interval();
+    let mut clips = ids.to_vec();
     let mut cut = Vec::new();
-    for &id in ids {
-      if let Some(made) = audiograph.split_node(id, at)? {
-        cut.push((id, made));
+    for &beat in beats {
+      let at: Duration = interval.mul_f64(beat);
+      for id in clips.clone() {
+        if let Some(made) = audiograph.split_node(id, at)? {
+          clips.push(made);
+          cut.push((id, made));
+        }
       }
     }
     Ok(cut)
   }, |cut| cut.iter().map(|&(_, made)| made).collect())?;
 
-  let touched: Vec<u64> = cut.iter().flat_map(|&(id, made)| [id, made]).collect();
+  let mut touched: Vec<u64> = cut.iter().flat_map(|&(id, made)| [id, made]).collect();
+  touched.sort_unstable();
+  touched.dedup();
   Ok(changed_clips(state, &touched))
 }
 

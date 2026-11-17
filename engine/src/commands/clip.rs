@@ -1,7 +1,7 @@
 // the playlist's clip commands (see daw/actions/clip.rs)
 use std::thread;
 use crate::daw::actions::clip::{
-  add_clip, change_clip_settings, get_clip_of, move_clip, move_clips, remove_clips, set_windows, split, stretch,
+  add_clip, change_clip_settings, get_clip_of, move_clip, move_clips, remove_clips, set_windows, split, split_at, stretch,
   ChangedClips, ClipInfo, MovedNode, PlacedNode, StretchEdit, WindowEdit,
 };
 use crate::daw::bounce::deep_copy;
@@ -30,6 +30,13 @@ pub fn set_clip_windows(state: TState<'_>, edits: Vec<WindowEdit>) -> Result<Cha
 #[tauri::command]
 pub fn split_clips(state: TState<'_>, ids: Vec<u64>, beat: f64) -> Result<ChangedClips, String> {
   split(&state, &ids, beat)
+}
+
+// cut clips at each of several beats (both ends of a time selection), as
+// one step to undo. a clip a beat isn't inside is left alone
+#[tauri::command]
+pub fn split_clips_at(state: TState<'_>, ids: Vec<u64>, beats: Vec<f64>) -> Result<ChangedClips, String> {
+  split_at(&state, &ids, &beats)
 }
 
 // stretch sample clips, like tape: each is given a pitch, which changes

@@ -1,3 +1,5 @@
+import { CutItem, canCut } from '../../editing/cut'
+
 // the time selection: a span of time over a run of adjacent tracks, made
 // with ⇧ and the arrow keys as text is selected. one corner stays where it
 // was started (the anchor), the other moves (the edge). the edge's track is
@@ -55,4 +57,35 @@ export const shiftTracks = (sel: TimeSelection, dir: -1 | 1, trackCount: number)
   const { top, bottom } = blockOf(sel)
   if(top + dir < 0 || bottom + dir > trackCount - 1) return null
   return { ...sel, anchorTrack: sel.anchorTrack + dir, edgeTrack: sel.edgeTrack + dir }
+}
+
+// a clip, as far as ⌘B goes: its track, and where it can be cut
+export interface SplitClip {
+  track: number
+  clip: CutItem
+}
+
+// what ⌘B splits: with a time selection, every clip on its tracks across
+// either of its ends, at both ends (just the one, while it covers no
+// time); without one, the current track's clips under the playhead, there.
+// null when nothing's to be split
+export const splitPlan = (
+  sel: TimeSelection | null, playhead: number | null, currentTrack: number, clips: SplitClip[],
+): { ids: number[], beats: number[] } | null => {
+  let beats: number[]
+  let onTrack: (track: number) => boolean
+  if(sel) {
+    const { start, end, top, bottom } = blockOf(sel)
+    beats = isEmptySpan(sel) ? [start] : [start, end]
+    onTrack = track => track >= top && track <= bottom
+  } else {
+    if(playhead === null) return null
+    beats = [playhead]
+    onTrack = track => track === currentTrack
+  }
+
+  const ids = clips
+    .filter(({ track, clip }) => onTrack(track) && beats.some(beat => canCut(clip, beat)))
+    .map(({ clip }) => clip.id)
+  return ids.length ? { ids, beats } : null
 }

@@ -285,6 +285,24 @@ fn test_edits_are_quick_with_five_hundred_clips() {
 }
 
 #[test]
+fn test_cutting_at_both_ends_of_a_span_is_one_step() {
+  let (state, sample, pattern) = clips();
+
+  // the pattern clip runs from beat 8 to 12: cut at 9 and 11, it's in three.
+  // the sample clip (on beat 4) is inside neither
+  let changed = split_at(&state, &[sample, pattern], &[9., 11.]).unwrap();
+  assert_eq!(steps(&state), 1);
+  assert!(changed.clips.is_empty());
+  let mut starts: Vec<f64> = changed.pattern_clips.iter().map(|clip| clip.start_beat as f64).collect();
+  starts.sort_by(f64::total_cmp);
+  assert_eq!(starts, vec![8., 9., 11.]);
+
+  // a beat that isn't one cuts nothing
+  assert!(split_at(&state, &[sample], &[9., f64::NAN]).is_err());
+  assert_eq!(steps(&state), 1);
+}
+
+#[test]
 fn test_a_cut_that_cuts_nothing_is_no_step() {
   let (state, sample, pattern) = clips();
   let before = saved(&state);

@@ -205,6 +205,7 @@ fn init_tauri() {
       paint_pattern_clips,
       set_clip_windows,
       split_clips,
+      split_clips_at,
       stretch_clips,
       copy_clips,
       cut_clips,

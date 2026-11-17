@@ -31,18 +31,19 @@ describe('edit shortcuts', () => {
     expect(editShortcut({ key: 'z', ...ctrl }, false)).toBe('undo')
   })
 
-  it('⌘C, ⌘X, ⌘V, ⌘R and ⌘A are copy, cut, paste, repeat and select all', () => {
+  it('⌘C, ⌘X, ⌘V, ⌘R, ⌘A and ⌘B are copy, cut, paste, repeat, select all and split', () => {
     expect(editShortcut({ key: 'c', ...cmd }, true)).toBe('copy')
     expect(editShortcut({ key: 'x', ...cmd }, true)).toBe('cut')
     expect(editShortcut({ key: 'v', ...cmd }, true)).toBe('paste')
     expect(editShortcut({ key: 'r', ...cmd }, true)).toBe('repeat')
     expect(editShortcut({ key: 'a', ...cmd }, true)).toBe('select-all')
+    expect(editShortcut({ key: 'b', ...cmd }, true)).toBe('split')
     expect(editShortcut({ key: 'C', ...cmd }, true)).toBe('copy')
     expect(editShortcut({ key: 'v', ...ctrl }, false)).toBe('paste')
   })
 
   it('has none of them with ⇧, or with ⌃ on a Mac', () => {
-    ;['c', 'x', 'v', 'r', 'a', 'z'].forEach(key => {
+    ;['c', 'x', 'v', 'r', 'a', 'b', 'z'].forEach(key => {
       expect(editShortcut({ key: key.toUpperCase(), ...cmd, shiftKey: true }, true))
         .toBe(key === 'z' ? 'redo' : null)
       expect(editShortcut({ key, ...ctrl }, true)).toBeNull()

@@ -46,7 +46,6 @@ class Timeline extends PlaylistComponent {
     p.scale(1 / this.currentScale, 1)
     // (under the numbers, so they stay readable)
     this.drawLoopBand(beatWidth)
-    this.drawSelectionMark(beatWidth)
     // (counted in steps, so a fine step doesn't drift)
     for(let n = Math.ceil(first / lineEvery); n * lineEvery < last; n++) {
       const i = n * lineEvery
@@ -69,6 +68,8 @@ class Timeline extends PlaylistComponent {
     }
     p.textStyle(p.NORMAL)
 
+    // (over the ticks, which would notch it)
+    this.drawSelectionMark(beatWidth)
     this.drawLoopFlags(beatWidth)
     p.pop()
   }

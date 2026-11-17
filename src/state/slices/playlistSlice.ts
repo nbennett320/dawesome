@@ -978,6 +978,24 @@ export const splitClips = (ids: number[], beat: number) => async (
   }
 }
 
+// cut clips at each of several beats (⌘B: the playhead, or both ends of a
+// time selection), as one step to undo. clips a beat isn't inside are left
+// alone. null if the engine refused
+export const splitClipsAt = (ids: number[], beats: number[]) => async (
+  dispatch: Dispatch,
+): Promise<ChangedClips | null> => {
+  try {
+    const changed = await invoke<ChangedClips>('split_clips_at', { ids, beats })
+    dispatch(playlistSlice.actions.reduceChangedClips(changed))
+    await refreshTrackCount()(dispatch)
+    return changed
+  } catch(e) {
+    // eslint-disable-next-line no-console
+    console.error(`could not split the clips at beats ${beats.join(', ')}:`, e)
+    return null
+  }
+}
+
 export const { setClipboardCount, selectClips, reducePainted } = playlistSlice.actions
 
 // paint clips of a pattern along a track with the Draw tool, from startBeat
