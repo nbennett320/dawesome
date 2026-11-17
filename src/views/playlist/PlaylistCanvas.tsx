@@ -518,7 +518,7 @@ const PlaylistCanvas = () => {
         all: playlistRenderer.playlistObjects.map(o => o.playlistItem.id),
         pasteBeat,
         focused: selectFocusedView(store.getState()) === View.Playlist,
-        split: playlistRenderer.splitTarget(),
+        blade: playlistRenderer.bladeTarget(),
       }, ids => playlistRenderer.select(ids), setBusy)(dispatch, store.getState))
         // eslint-disable-next-line no-console
         .catch(e => console.error(`could not ${command}:`, e))

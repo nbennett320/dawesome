@@ -676,8 +676,8 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
 
     // (undo and redo are handled in useEditCommands)
     const onShortcut = editShortcutHandler(command => {
-      // (⌘B splits clips in the playlist, not notes)
-      if(command === 'undo' || command === 'redo' || command === 'split') return
+      // (⌘B blades clips in the playlist, not notes)
+      if(command === 'undo' || command === 'redo' || command === 'blade') return
       run(command, 'key')
     })
 

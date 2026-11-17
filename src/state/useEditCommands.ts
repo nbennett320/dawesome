@@ -33,7 +33,7 @@ export const useEditCommands = () => {
           }
           break
         case 'join':
-        case 'split':
+        case 'blade':
           if(!typing) runClipCommandFromMenu(command)
           break
         case 'select-all':

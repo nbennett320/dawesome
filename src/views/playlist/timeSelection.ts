@@ -59,18 +59,18 @@ export const shiftTracks = (sel: TimeSelection, dir: -1 | 1, trackCount: number)
   return { ...sel, anchorTrack: sel.anchorTrack + dir, edgeTrack: sel.edgeTrack + dir }
 }
 
-// a clip, as far as ⌘B goes: its track, and where it can be cut
-export interface SplitClip {
+// a clip, as far as Blade (⌘B) goes: its track, and where it can be cut
+export interface BladeClip {
   track: number
   clip: CutItem
 }
 
-// what ⌘B splits: with a time selection, every clip on its tracks across
+// what Blade (⌘B) cuts: with a time selection, every clip on its tracks across
 // either of its ends, at both ends (just the one, while it covers no
 // time); without one, the current track's clips under the playhead, there.
 // null when nothing's to be split
-export const splitPlan = (
-  sel: TimeSelection | null, playhead: number | null, currentTrack: number, clips: SplitClip[],
+export const bladePlan = (
+  sel: TimeSelection | null, playhead: number | null, currentTrack: number, clips: BladeClip[],
 ): { ids: number[], beats: number[] } | null => {
   let beats: number[]
   let onTrack: (track: number) => boolean

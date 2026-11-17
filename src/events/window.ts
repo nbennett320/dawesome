@@ -54,7 +54,7 @@ const viewMenu = (dispatch: AppDispatch) =>
 
 // the Edit menu's items, by the names the engine sends (see build_menu in
 // engine/src/app/window.rs)
-export type EditCommand = 'undo' | 'redo' | 'repeat' | 'select-all' | 'join' | 'split'
+export type EditCommand = 'undo' | 'redo' | 'repeat' | 'select-all' | 'join' | 'blade'
 
 // resolves to a function that stops listening
 const editMenu = (run: (command: EditCommand) => void) =>

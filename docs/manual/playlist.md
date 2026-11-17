@@ -224,7 +224,7 @@ semitones either way.
 ## 6-5 Editing commands
 
 The commands act on the selected clips while the playlist is the focused
-tab. Undo, Redo, Cut, Copy, Paste, Repeat, Select All, Join and Split are
+tab. Undo, Redo, Cut, Copy, Paste, Repeat, Select All, Join and Blade are
 also on the **Edit** menu. Most are on the clip right-click menu (see
 [6-8](#_6-8-clip-menu)).
 
@@ -240,7 +240,7 @@ also on the **Edit** menu. Most are on the clip right-click menu (see
 | Join | **Shift+J** | Makes one clip of the selected clips. |
 | Explode | **Shift+E** | Splits pattern clips into a track per row. |
 | Delete | **Delete** (or **Backspace**) | Removes the clips. |
-| Split | **⌘B (Ctrl+B)** | Cuts the current track's clip at the playhead, or the time selection's clips at both its ends (see [6-5-6](#_6-5-6-split)). |
+| Blade | **⌘B (Ctrl+B)** | Cuts the current track's clip at the playhead, or the time selection's clips at both its ends (see [6-5-6](#_6-5-6-blade)). |
 
 See also the [Shortcuts](../shortcuts.md) page.
 
@@ -319,9 +319,9 @@ page of the sidebar.
 the project has never been saved, the Save dialog opens first.
 :::
 
-### 6-5-6 Split
+### 6-5-6 Blade
 
-**Split** (⌘B) cuts clips without the Cut tool. It doesn't act on the
+**Blade** (⌘B) cuts clips without the Cut tool. It doesn't act on the
 selected clips:
 
 - With no [time selection](#_6-1-3-selecting-time), it cuts the clip on the

@@ -67,7 +67,7 @@ doesn't matter; an unknown command is named in the info bar.
 | **⌘V** | **Ctrl+V** | Paste clips at the playhead, snapped (Playlist), or notes at the mouse (Piano Roll) |
 | **⌘R** | **Ctrl+R** | Repeat: place a copy of the selected clips (Playlist) or notes (Piano Roll) straight after them |
 | **⌘A** | **Ctrl+A** | Select all clips (Playlist) or all notes (Piano Roll) |
-| **⌘B** | **Ctrl+B** | Playlist: split the current track's clip at the playhead, or the time selection's clips at both its ends (**Edit ▸ Split**) |
+| **⌘B** | **Ctrl+B** | Playlist: **Blade**. Cut the current track's clip at the playhead, or the time selection's clips at both its ends (**Edit ▸ Blade**) |
 
 In a text field, these act on the text. Dawesome's clipboards are its own:
 copying clips or notes doesn't change your system clipboard.

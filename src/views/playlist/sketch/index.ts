@@ -47,7 +47,7 @@ import { decodeLevels } from '../../../util/waveform'
 import { gridSteps, maxScale, openingScale, panForWidth, panToShow, scrollToShow, visibleBeats } from './grid'
 import { LandmarkName, Move, landmarks, moveTarget } from '../navigation'
 import {
-  TimeSelection, blockOf, isEmptySpan, shiftTracks, splitPlan, startAt, withEdgeBeat, withEdgeTrack,
+  TimeSelection, blockOf, isEmptySpan, shiftTracks, bladePlan, startAt, withEdgeBeat, withEdgeTrack,
 } from '../timeSelection'
 import { lineLevel, tileStep } from '../../../editing/beatGrid'
 import {
@@ -1208,14 +1208,14 @@ export class Renderer extends RendererBase {
     return clip && beat !== null && canCut(clip, beat) ? beat : null
   }
 
-  // what ⌘B splits (see splitPlan): the playhead's unsnapped, as "Split at
-  // playhead"
-  splitTarget = (): { ids: number[], beats: number[] } | null => {
+  // what Blade (⌘B) cuts (see bladePlan): the playhead's unsnapped, as
+  // "Split at playhead"
+  bladeTarget = (): { ids: number[], beats: number[] } | null => {
     const clips = this.playlistObjects.flatMap(obj => {
       const clip = this.trimClipOf(obj)
       return clip ? [{ track: obj.playlistItem.trackNumber, clip }] : []
     })
-    return splitPlan(this.timeSelection, this.playheadBeat(), this.shownTrack(), clips)
+    return bladePlan(this.timeSelection, this.playheadBeat(), this.shownTrack(), clips)
   }
 
   // ---- trimming: dragging a clip's edge ----
