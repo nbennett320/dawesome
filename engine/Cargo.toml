@@ -89,6 +89,16 @@ custom-protocol = ["tauri/custom-protocol"]
 # perf_history holds (see context/pattern-merge-project/perf/measure.md)
 perf = []
 
+# the sound crates run on the audio thread: unoptimized, they can't keep up
+# (the tape's network took 23 us a sample in a debug build, 2.2 cores for
+# one stereo track, and chopped). optimized even in `tauri dev`, while the
+# rest stays quick to build
+[profile.dev.package.dawesome-tape]
+opt-level = 3
+
+[profile.dev.package.dawesome-dsp]
+opt-level = 3
+
 [profile.release]
 codegen-units = 1
 debug = 0
