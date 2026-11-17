@@ -30,6 +30,14 @@ describe('timelineEndMs', () => {
   it('keeps a song that ends on a bar, or a hair past one', () => {
     expect(timelineEndMs(transport({ songEndMs: 8_000 }))).toBe(8_000)
     expect(timelineEndMs(transport({ songEndMs: 8_000.5 }))).toBe(8_000)
+    expect(timelineEndMs(transport({ songEndMs: 8_002 }))).toBe(10_000)
+  })
+
+  it('ends where an unmoved loop does, so looping lights the whole strip', () => {
+    // the engine's default loop end for a song ending at 5.25s is 6s
+    const looping = transport({ songEndMs: 5_250, loopEnabled: true, loopEndBeats: 12 })
+    expect(timelineEndMs(looping)).toBe(6_000)
+    expect(loopBand(looping)).toEqual({ start: 0, end: 6_000, bright: true })
   })
 
   it('is a few bars with no clips', () => {

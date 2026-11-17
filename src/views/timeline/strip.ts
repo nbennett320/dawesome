@@ -30,13 +30,15 @@ export const loopBand = (t: PlaylistTransport): LoopBand | null => {
 const ON_BAR_TOLERANCE_MS = 1
 
 // where the strip ends, in ms: the last clip's end, rounded up to the next
-// bar, and far enough to show all of the loop. with no clips, a few bars
+// bar, and far enough to show all of the loop. with no clips, a few bars.
+// the same as where the loop ends by default (loop_end_after in
+// engine/src/daw/playlist.rs), so a loop that isn't moved fills the strip
 export const timelineEndMs = (t: PlaylistTransport): number => {
   const bar = barMs(t)
   if(!(bar > 0)) return 0
 
   const song = t.songEndMs > 0
-    ? Math.max(1, Math.ceil((t.songEndMs - ON_BAR_TOLERANCE_MS) / bar)) * bar
+    ? (Math.floor(Math.max(0, t.songEndMs - ON_BAR_TOLERANCE_MS) / bar) + 1) * bar
     : bar * EMPTY_TAPE_BARS
   const loop = loopBand(t)
   return Math.max(song, loop ? loop.end : 0)
