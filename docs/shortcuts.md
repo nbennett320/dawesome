@@ -91,8 +91,9 @@ These work while the **Playlist** is the selected tab in the focused pane.
 | **⌘←** | **Ctrl+←** | Playhead to where you last pressed play; again for the loop's start, then the song's start |
 | **⌘→** | **Ctrl+→** | Playhead to the loop's end; again for the end of the last clip |
 | **Home** / **End** | **Home** / **End** | Playhead to the song's start / the end of the last clip (**Fn+←** / **Fn+→** on a Mac laptop) |
+| **↑** / **↓** | **↑** / **↓** | Make the track above or below the [current track](./manual/playlist.md#_6-1-2-the-current-track) |
 
-The playhead keys work with any tool, and the playlist scrolls to follow.
+The playhead and track keys work with any tool, and the playlist scrolls to follow.
 A knob or fader you've clicked keeps the arrow keys. See
 [Moving the playhead with the keys](./manual/playlist.md#_6-1-1-moving-the-playhead-with-the-keys).
 

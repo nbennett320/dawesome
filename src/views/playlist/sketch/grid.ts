@@ -95,6 +95,18 @@ export const panToShow = (pan: number, x: number, scale: number, width: number, 
   return Math.min(0, Math.max(width * (1 - scale), next))
 }
 
+// the scroll that brings a lane from `top` to `bottom` (in playlist y) into
+// the part of the canvas from `viewTop` to `viewBottom`, scrolled `scroll`
+// now. a scroll that already shows it is kept. a lane taller than that part
+// shows from its top. (the caller keeps the result in range)
+export const scrollToShow = (
+  scroll: number, top: number, bottom: number, viewTop: number, viewBottom: number,
+): number => {
+  if(top - scroll < viewTop) return top - viewTop
+  if(bottom - scroll > viewBottom) return Math.min(bottom - viewBottom, top - viewTop)
+  return scroll
+}
+
 // the most the playlist can zoom in: until a beat is MAX_PIXELS_PER_BEAT
 // wide, so the grid never gets finer than a 1/16 note. zoom is relative to
 // the width, so a wider canvas reaches it sooner. never under 1, the whole

@@ -69,6 +69,21 @@ start and end are the [loop region](#_6-7-2-loop-region)'s edges, or with no
 region, the [end flag](#_6-7-1-loop-end) while looping is on. While looping,
 going to the loop's end goes round to its start at once, as playback would.
 
+### 6-1-2 The current track
+
+One track is the *current track*: the one the keyboard works on. Its lane
+is lightly tinted, with a thin bar in the accent color down its left edge.
+A track becomes current when you:
+
+- click or right-click anything on its lane: a clip, empty space, or its
+  name tab
+- draw on it, or drop or drag clips onto it
+- paste onto it (with clips on several tracks, the topmost)
+
+**↑** and **↓** make the track above or below current, scrolling to it if
+need be. They work with any tool, and you can hold them down. A new or
+opened project starts with the top track current.
+
 ## 6-2 Tools
 
 The tray above the ruler has three mouse tools. Only one is active at a

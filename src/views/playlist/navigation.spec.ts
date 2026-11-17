@@ -1,4 +1,4 @@
-import { Landmarks, Move, Place, landmarks, moveForKey, moveTarget, nextLandmark, stepFrom } from './navigation'
+import { Landmarks, Move, Place, landmarks, moveForKey, moveTarget, nextLandmark, stepFrom, trackStepForKey } from './navigation'
 
 const key = (k: string, mods: Partial<Record<'shiftKey' | 'metaKey' | 'ctrlKey' | 'altKey', boolean>> = {}) => ({
   key: k, shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, ...mods,
@@ -136,5 +136,17 @@ describe('moveTarget', () => {
 
   it("keeps within the playlist's length", () => {
     expect(go({ kind: 'bar', dir: 1 }, { playhead: 63, length: 63.5 })).toEqual({ beat: 63.5, landmark: null })
+  })
+})
+
+describe('trackStepForKey', () => {
+  it('is ↑ or ↓ with nothing held', () => {
+    expect(trackStepForKey(key('ArrowUp'))).toBe(-1)
+    expect(trackStepForKey(key('ArrowDown'))).toBe(1)
+    expect(trackStepForKey(key('ArrowLeft'))).toBeNull()
+    // ⇧ selects; ⌘, ⌃ and ⌥ aren't track moves
+    expect(trackStepForKey(key('ArrowUp', { shiftKey: true }))).toBeNull()
+    expect(trackStepForKey(key('ArrowUp', { metaKey: true }))).toBeNull()
+    expect(trackStepForKey(key('ArrowDown', { altKey: true }))).toBeNull()
   })
 })

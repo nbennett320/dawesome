@@ -31,6 +31,7 @@ import {
   selectPlaylistUI,
   selectTransportRevision,
   setClipWindows,
+  setCurrentTrack,
   setGridStep,
   splitClips,
   stretchClips,
@@ -54,7 +55,7 @@ import {
 import { defaultInput } from '../../types/audio'
 import { View } from '../../types/ui'
 import { isDeleteKey, isExplodeKey, isJoinKey, isSliderTarget, isTextTarget, isTypingTarget } from '../../util/keys'
-import { moveForKey } from './navigation'
+import { moveForKey, trackStepForKey } from './navigation'
 import { editShortcutHandler } from '../../util/shortcuts'
 import {
   ClipCommand, ClipSource, clipCommand, sameCommand, setClipCommandRunner,
@@ -263,6 +264,7 @@ const PlaylistCanvas = () => {
   const transportRevision = useAppSelector(selectTransportRevision)
   const loopEnabled = useAppSelector(selectLoopEnabled)
   const handleSeek = React.useCallback((beat: number) => dispatch(seekPlaylist(beat)), [dispatch])
+  const handleCurrentTrack = React.useCallback((track: number) => { dispatch(setCurrentTrack(track)) }, [dispatch])
   // the loop's region and end flag, dragged in the ruler
   const handleLoopRegion = React.useCallback((start: number, end: number) => {
     dispatch(setLoopRegion(start, end))
@@ -326,6 +328,8 @@ const PlaylistCanvas = () => {
 
     if(type === 'drop' && over) {
       const { beat, trackNumber } = playlistRenderer.dropTarget(x, y)
+      // the track dropped onto becomes the current one
+      playlistRenderer.touchTrack(trackNumber)
 
       if(item.kind === 'pattern') {
         dispatch(addPatternToPlaylist(item.patternId, trackNumber, beat))
@@ -378,6 +382,7 @@ const PlaylistCanvas = () => {
       // trimmed clips show the part of their sample or pattern they play
       playlistRenderer.setClipWindows(playlist.clipWindows)
       playlistRenderer.setTool(playlist.tool)
+      playlistRenderer.setCurrentTrack(playlist.currentTrack)
       // pattern clips draw their pattern as it's edited
       playlistRenderer.setSequencer(store.getState().sequencer)
       // and the Draw tool paints the pattern last selected in a sequencer
@@ -441,23 +446,26 @@ const PlaylistCanvas = () => {
     }
   }, [store, dispatch])
 
-  // the arrow keys, Home and End move the playhead (see navigation.ts), in
-  // any tool, while the playlist is the focused pane's tab. a text field, or
-  // a knob or fader with the keyboard, keeps them. held, a step or a bar
-  // repeats, but a jump to a landmark doesn't run on to the next one
+  // the arrow keys, Home and End move the playhead (see navigation.ts), and
+  // ↑/↓ the current track, in any tool, while the playlist is the focused
+  // pane's tab. a text field, or a knob or fader with the keyboard, keeps
+  // them. held, a step, a bar or a track repeats, but a jump to a landmark
+  // doesn't run on to the next one
   React.useEffect(() => {
     const onKeyDown = (ev: KeyboardEvent) => {
       const move = moveForKey(ev)
-      if(!move || ev.defaultPrevented) return
+      const track = trackStepForKey(ev)
+      if((!move && !track) || ev.defaultPrevented) return
       if(isTypingTarget(ev.target) || isSliderTarget(ev.target)) return
       if(selectFocusedView(store.getState()) !== View.Playlist) return
 
       // (no pane scrolls with them either)
       ev.preventDefault()
-      if(ev.repeat && move.kind !== 'step' && move.kind !== 'bar') return
+      if(ev.repeat && move && move.kind !== 'step' && move.kind !== 'bar') return
       // not in the middle of a drag, which follows the mouse on the screen
       if(playlistRenderer.isDragging()) return
-      playlistRenderer.navigate(move)
+      if(move) playlistRenderer.navigate(move)
+      if(track) playlistRenderer.stepTrack(track)
     }
 
     window.addEventListener('keydown', onKeyDown)
@@ -697,6 +705,7 @@ const PlaylistCanvas = () => {
           transportRevision={transportRevision}
           loopEnabled={loopEnabled}
           onSeek={handleSeek}
+          onCurrentTrack={handleCurrentTrack}
           onLoopRegion={handleLoopRegion}
           onClearLoopRegion={handleClearLoopRegion}
           onLoopEnd={handleLoopEnd}

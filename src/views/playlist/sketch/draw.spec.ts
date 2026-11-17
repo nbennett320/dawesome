@@ -1,4 +1,4 @@
-import { Renderer } from './index'
+import { Renderer, trackTop } from './index'
 import { paint } from './theme'
 import { applyTheme } from '../../../theme/apply'
 import { slateLightTheme } from '../../../theme/fixture'
@@ -12,7 +12,7 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 const recordingP5 = (width: number, height: number) => {
   const numbers: Array<{ text: string, x: number }> = []
   const lines: Array<{ x: number, color: string }> = []
-  const rects: Array<{ x: number, w: number, color: string }> = []
+  const rects: Array<{ x: number, y: number, w: number, h: number, color: string }> = []
   let stroke = ''
   let fill = ''
   const noop = () => undefined
@@ -35,7 +35,7 @@ const recordingP5 = (width: number, height: number) => {
     keyIsDown: () => false,
     stroke: (...rgba: number[]) => { stroke = rgba.join() },
     fill: (...rgba: number[]) => { fill = rgba.join() },
-    rect: (x: number, _y: number, w: number) => { rects.push({ x, w, color: fill }) },
+    rect: (x: number, y: number, w: number, h: number) => { rects.push({ x, y, w, h, color: fill }) },
     line: (x: number) => { lines.push({ x, color: stroke }) },
     text: (text: string, x: number) => { numbers.push({ text, x }) },
   })
@@ -103,8 +103,12 @@ describe('the loop region', () => {
       // where the lanes are dimmed, in beats
       dimmed: rects.filter(r => r.color === paint.rgba('loopOutside').join())
         .map(r => [Math.round(r.x / beatX), Math.round((r.x + r.w) / beatX)]),
-      // the ruler's band, and its flags (drawn unzoomed, a beat 10px)
-      band: rects.filter(r => r.color.startsWith(paint.rgba('loopRegion').slice(0, 3).join())).map(r => [r.x / 10, (r.x + r.w) / 10]),
+      // the ruler's band, and its flags (drawn unzoomed, a beat 10px). the
+      // current track's tint and bar are in the accent color too
+      band: rects
+        .filter(r => r.color.startsWith(paint.rgba('loopRegion').slice(0, 3).join()))
+        .filter(r => r.color !== paint.rgba('currentLane').join() && r.color !== paint.rgba('currentTrackEdge').join())
+        .map(r => [r.x / 10, (r.x + r.w) / 10]),
       flags: lines.filter(l => l.color.startsWith(paint.rgba('loopEnd').slice(0, 3).join())).map(l => l.x / 10),
     }
   }
@@ -128,5 +132,35 @@ describe('the loop region', () => {
     expect(band).toEqual([])
     expect(flags).toEqual([12])
     expect(dimmed).toEqual([])
+  })
+})
+
+describe('the current track', () => {
+  beforeEach(() => applyTheme(slateLightTheme))
+
+  const draw = (current: number) => {
+    const renderer = new Renderer()
+    renderer.width = 960
+    renderer.height = 400
+    const { p, rects } = recordingP5(960, 400)
+    renderer.sketch(p)
+    p.setup()
+    renderer.transport = stopped
+    renderer.setCurrentTrack(current)
+    p.draw()
+    const tops = (key: 'currentLane' | 'currentTrackEdge') =>
+      rects.filter(r => r.color === paint.rgba(key).join()).map(r => ({ y: r.y, w: r.w }))
+    return { lane: tops('currentLane'), edge: tops('currentTrackEdge') }
+  }
+
+  it("tints its lane, and marks the lane's left edge", () => {
+    const { lane, edge } = draw(2)
+    expect(lane).toEqual([{ y: trackTop(2), w: 960 }])
+    expect(edge).toEqual([{ y: trackTop(2) + 1, w: 2 }])
+  })
+
+  it('shows the last track while one past it is being made', () => {
+    // (4 tracks: one landing on the fifth makes it)
+    expect(draw(4).lane).toEqual([{ y: trackTop(3), w: 960 }])
   })
 })

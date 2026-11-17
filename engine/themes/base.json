@@ -47,6 +47,8 @@
     "loopEnd": "inkMid",
     "loopRegion": "alpha(accent, 0.2)",
     "loopOutside": "alpha(surface, 0.25)",
+    "currentLane": "alpha(accent, 0.06)",
+    "currentTrackEdge": "accent",
     "clip": "raised",
     "clipBorder": "lineStrong",
     "clipLabel": "panel",

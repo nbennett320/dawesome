@@ -1,6 +1,7 @@
 // moving the playhead with the keyboard, as a text cursor moves: ←/→ by a
 // snap step, ⌥←/⌥→ by a bar, ⌘←/⌘→ to the next landmark that way, and
-// Home/End to the song's start and end. kept free of p5 so it can be tested
+// Home/End to the song's start and end. ↑/↓ move between tracks, as a text
+// cursor moves between lines. kept free of p5 so it can be tested
 // on its own. everything is in beats
 import { commandHeld, isMac } from '../../util/shortcuts'
 import { PlaylistTransport } from '../../types/transport'
@@ -33,6 +34,12 @@ export const moveForKey = (ev: KeyPress, mac: boolean = isMac()): Move | null =>
   if(ev.key === 'Home') return { kind: 'home' }
   if(ev.key === 'End') return { kind: 'end' }
   return null
+}
+
+// ↑ or ↓, with nothing held: the track above (-1) or below (1)
+export const trackStepForKey = (ev: KeyPress): Direction | null => {
+  if(ev.shiftKey || ev.metaKey || ev.ctrlKey || ev.altKey) return null
+  return ({ ArrowUp: -1, ArrowDown: 1 } as Record<string, Direction | undefined>)[ev.key] ?? null
 }
 
 export type LandmarkName = 'last-play-start' | 'loop-start' | 'song-start' | 'loop-end' | 'song-end'

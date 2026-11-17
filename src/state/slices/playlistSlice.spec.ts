@@ -1,7 +1,8 @@
 import type { Mock } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import reducer, {
-  addPatternToPlaylist, addToPlaylist, copyClips, moveNodeInPlaylist, moveNodesInPlaylist, cutClips, deepCopyClips, joinClips, NEEDS_SAVING, pasteClips, repeatClips, reduceLoadedProject, playlistSlice, removeManyFromPlaylist, selectBarQuarters, selectClipOverrides, selectClipWindow, setClipWindows,
+  addPatternToPlaylist, addToPlaylist, copyClips, moveNodeInPlaylist, moveNodesInPlaylist, cutClips, deepCopyClips, joinClips, NEEDS_SAVING, pasteClips, repeatClips, reduceLoadedProject, playlistSlice, removeManyFromPlaylist, selectBarQuarters, selectClipOverrides, selectClipWindow, selectCurrentTrack, setClipWindows,
+  setCurrentTrack,
   setPlaylistTempo, setLoopRegion, clearLoopEnd,
   splitClips, stretchClips, updateClipSettings, validTempo, withWaitCursor,
 } from './playlistSlice'
@@ -336,6 +337,27 @@ describe('the playlist view', () => {
   it('is 128 bars of 4/4 long, until the engine says', () => {
     const state = reducer(undefined, { type: 'init' })
     expect(state.ui.maxBeatsDisplayed).toBe(512)
+  })
+
+  it('keeps a current track, back at the top when a project is opened', () => {
+    let state = reducer(undefined, { type: 'init' })
+    expect(state.currentTrack).toBe(0)
+    state = reducer(state, setCurrentTrack(3))
+    expect(state.currentTrack).toBe(3)
+    // nothing that isn't a track
+    state = reducer(state, setCurrentTrack(-1))
+    state = reducer(state, setCurrentTrack(1.5))
+    expect(state.currentTrack).toBe(3)
+
+    state = reducer(state, reduceLoadedProject(loaded))
+    expect(state.currentTrack).toBe(0)
+  })
+
+  it('shows the current track as one of the tracks there are', () => {
+    // one past the last, while a clip lands there and makes it
+    const playlist = { ...reducer(undefined, { type: 'init' }), currentTrack: 4 }
+    expect(selectCurrentTrack({ playlist } as never)).toBe(3)
+    expect(selectCurrentTrack({ playlist: { ...playlist, currentTrack: 2 } } as never)).toBe(2)
   })
 
   it('goes back to its first bars when a project is opened', () => {
@@ -704,6 +726,14 @@ describe('the clip clipboard', () => {
     expect(state.playlistItems.map((i: { id: number }) => i.id)).toEqual([7, 9, 20, 21])
     expect(state.travelled.ids).toEqual([20, 21])
     expect(state.travelled.count).toBe(1)
+  })
+
+  it('makes the topmost track pasted onto the current one', async () => {
+    mockInvoke.mockImplementation(async (command: string) =>
+      (command === 'paste_clips' ? placed() : playlistData))
+    const { state } = await run(dispatch => pasteClips(12)(dispatch))
+    // the sample clip landed on track 2, the pattern clip on track 1
+    expect(state.currentTrack).toBe(1)
   })
 
   it('pastes on the original tracks by default', async () => {

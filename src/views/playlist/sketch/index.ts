@@ -21,7 +21,7 @@ import { CutItem, canCut, cutPoint, cutTargets } from '../../../editing/cut'
 import { onThemeChange } from '../../../theme/apply'
 import { paint, patternColors, theme, trackPaint } from './theme'
 import { painter } from '../../../theme/canvas'
-import { LIP, LipLook, drawLip, fitName, inBox, lipBox, lipWidth, onLed } from './lip'
+import { LIP, LipLook, drawLip, fitName, inBox, lipBox, lipWidth, onLed, over } from './lip'
 import { LiveTake, liveTakeSpan } from './liveTake'
 import {
   LOOP_GRAB_PX, LoopDrag, LoopMarks, doubleClickClears, draggedMarks, handleAt, loopChange, loopMarks, moveLoopDrag,
@@ -44,7 +44,7 @@ import type { MovedNode as Landed } from '../../../state/slices/playlistSlice'
 import { PlaceableItem as DragItem, dragItemKey } from '../../../state/sampleDrag'
 import { Pattern, SequencerState, patternSeconds } from '../../../types/sequencer'
 import { decodeLevels } from '../../../util/waveform'
-import { gridSteps, maxScale, openingScale, panForWidth, panToShow, visibleBeats } from './grid'
+import { gridSteps, maxScale, openingScale, panForWidth, panToShow, scrollToShow, visibleBeats } from './grid'
 import { LandmarkName, Move, landmarks, moveTarget } from '../navigation'
 import { lineLevel, tileStep } from '../../../editing/beatGrid'
 import {
@@ -122,6 +122,9 @@ export interface CanvasProps extends SketchProps {
   onAddTrack: () => Promise<unknown>
   // the grid's step changed, in beats
   onGridStep?: (beats: number) => void
+  // a track was pressed on, landed on, or moved to with ↑/↓ (see
+  // Renderer.touchTrack)
+  onCurrentTrack?: (track: number) => void
 }
 
 // how the Cut tool's cursor is drawn: a razor blade, its middle on the
@@ -202,6 +205,9 @@ const AUTO_SCROLL = {
   // pixels per frame, at the very edge
   maxSpeed: 12,
 }
+
+// how wide the bar marking the current track is, in pixels
+const CURRENT_EDGE_PX = 2
 
 // how far in from the timeline's edges the keys keep the playhead, in pixels
 // (on the right, clear of the tracks' name tabs)
@@ -887,6 +893,45 @@ export class Renderer extends RendererBase {
   // ---- the Cut tool ----
 
   // (called on every store update, so only a change does anything)
+  // the track the keyboard edits (see PlaylistState.currentTrack), as the
+  // store has it
+  currentTrack = 0
+  onCurrentTrack?: (track: number) => void
+
+  setCurrentTrack = (track: number) => {
+    if(track === this.currentTrack) return
+    this.currentTrack = track
+    this.wake()
+  }
+
+  // a track was pressed on, or landed on: it's the current one now, shown at
+  // once. the track just past the last counts (a clip landing there makes it)
+  touchTrack = (track: number) => {
+    if(!Number.isInteger(track) || track < 0 || track > this.trackCount) return
+    this.setCurrentTrack(track)
+    this.onCurrentTrack?.(track)
+  }
+
+  // the current track as drawn: one of the tracks there are
+  shownTrack = (): number => Math.max(0, Math.min(this.currentTrack, this.trackCount - 1))
+
+  // ↑ or ↓: the track above or below becomes the current one, stopping at
+  // the first and last, and scrolls into view
+  stepTrack = (dir: -1 | 1) => {
+    if(this.trackCount <= 0) return
+    const to = clamp(this.shownTrack() + dir, 0, this.trackCount - 1)
+    if(to !== this.currentTrack) this.touchTrack(to)
+    this.revealTrack(to)
+  }
+
+  // scroll the tracks, if need be, to show a whole lane below the ruler
+  revealTrack = (track: number) => {
+    const top = trackTop(track)
+    const bottom = top + staticDefaults.trackHeight
+    this.scrollTo(scrollToShow(this.scrollY, top, bottom, staticDefaults.timelineHeight, this.height))
+    this.wake()
+  }
+
   setTool = (tool: Tool) => {
     if(tool === this.tool) return
     this.tool = tool
@@ -948,6 +993,7 @@ export class Renderer extends RendererBase {
     // a pattern that's gone paints a new one, as its phantom showed
     const pattern = this.paintPatternId !== null && this.patternOf(this.paintPatternId) ? this.paintPatternId : null
     this.onPaint(pattern, painting.track, painting.start, painting.end)
+    this.touchTrack(painting.track)
     this.wake()
   }
 
@@ -1930,11 +1976,14 @@ export class Renderer extends RendererBase {
       rec: fourtrackPaint.rgba('ledRedOn'),
     }
     // (lanes aren't shaded: the lines between them set them apart, so a
-    // lip sits on the plain background)
-    const lane = paint.rgba('background')
+    // lip sits on the plain background. but the current one's tinted)
+    const plain = paint.rgba('background')
+    const current = over(paint.rgba('currentLane'), plain)
+    const shown = this.shownTrack()
 
     this.#lipBoxes().forEach(({ track, box, text }) => {
       const led = this.trackRgba(track)
+      const lane = track === shown ? current : plain
       drawLip(ctx, box, text, { ...base, lane, led }, {
         lit: sounding.has(track),
         ring: this.#ring(track),
@@ -1942,6 +1991,18 @@ export class Renderer extends RendererBase {
         recording: this.recording,
       })
     })
+  }
+
+  // a thin bar down the left edge of the current track's lane, pinned there
+  // as the timeline scrolls. under the ruler, which covers it as the lane
+  // scrolls up
+  #drawCurrentEdge = (p: P5CanvasInstance<CanvasProps>) => {
+    if(this.trackCount <= 0) return
+    p.push()
+    p.noStroke()
+    paint.fill(p, 'currentTrackEdge')
+    p.rect(0, trackTop(this.shownTrack()) - this.scrollY + 1, CURRENT_EDGE_PX, staticDefaults.trackHeight)
+    p.pop()
   }
 
   #drawScrollbar = (p: P5CanvasInstance<CanvasProps>) => {
@@ -2007,6 +2068,13 @@ export class Renderer extends RendererBase {
   #handleRightClick = (ev: MouseEvent, p: P5CanvasInstance<CanvasProps>) => {
     // not in the middle of dragging an edge, or painting
     if(this.edgeDrag || this.#paint) return
+
+    // a right-click on a lane (a clip, empty space, its lip) makes its track
+    // the current one, as a click does
+    if(!overRuler(p.mouseY) && !this.overScrollbar(p.mouseX, p.mouseY)) {
+      const lane = this.trackAt(this.screenToPlaylistY(p.mouseY))
+      if(lane < this.trackCount) this.touchTrack(lane)
+    }
 
     // the clip on top, as for clicks (not one hidden under the timeline)
     const item = this.clipUnderMouse()
@@ -2102,6 +2170,13 @@ export class Renderer extends RendererBase {
             if(!this.#startLoopDrag(p.mouseX, ev.shiftKey)) this.#startSeek(p.mouseX)
             return
           }
+
+          // whatever's pressed on a lane (a clip, empty space, its lip) makes
+          // its track the current one. not the area below the last track,
+          // where a track is only made once something lands
+          // (from the event: p5 hasn't caught its own mouse position up)
+          const lane = this.trackAt(this.screenToPlaylistY(ev.offsetY))
+          if(lane < this.trackCount) this.touchTrack(lane)
 
           // a lane's lip is its own control: the press doesn't reach the
           // clips or the lane under it. its LED mutes the track, or with
@@ -2264,6 +2339,8 @@ export class Renderer extends RendererBase {
           } else {
             this.onNodeMove(drag.item.playlistItem, target.beat, target.trackNumber, target.snappedBeat)
           }
+          // the track the clip that was held lands on
+          this.touchTrack(target.trackNumber)
         }
 
         // a click on empty space (not a pan) clears the selection
@@ -2419,6 +2496,7 @@ export class Renderer extends RendererBase {
       this.onNodesMove = props.onNodesMove
       this.onNodeDoubleClick = props.onNodeDoubleClick
       this.onSeek = props.onSeek
+      this.onCurrentTrack = props.onCurrentTrack
       this.onLoopRegion = props.onLoopRegion
       this.onClearLoopRegion = props.onClearLoopRegion
       this.onLoopEnd = props.onLoopEnd
@@ -2649,6 +2727,13 @@ export class Renderer extends RendererBase {
         p.line(x, 0, x, gridBottom)
       }
 
+      // the current track's lane, a shade apart: the one the keyboard edits
+      if(trackCount > 0) {
+        p.noStroke()
+        paint.fill(p, 'currentLane')
+        p.rect(0, trackTop(this.shownTrack()), width, staticDefaults.trackHeight)
+      }
+
       // render playlist tracks
       this.playlistTracks.forEach(track => {
         track.render()
@@ -2666,6 +2751,7 @@ export class Renderer extends RendererBase {
       
       p.pop()
 
+      this.#drawCurrentEdge(p)
       this.#drawTrackLips(p)
       this.#drawNewTrackArea(p, canvas)
       // under the ruler, which covers it when it reaches past the top

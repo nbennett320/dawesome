@@ -102,6 +102,8 @@
   "playlist.liftShadow": "#0f172a38",
   "playlist.loopEnd": "#475569",
   "playlist.loopOutside": "#ffffff40",
+  "playlist.currentLane": "#0ea5e90f",
+  "playlist.currentTrackEdge": "#0ea5e9",
   "playlist.loopRegion": "#0ea5e933",
   "playlist.modified": "#f59e0b",
   "playlist.patternBeat": "#fde68a",

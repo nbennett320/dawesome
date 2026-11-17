@@ -1,5 +1,5 @@
 import {
-  BEATS_IN_VIEW, MIN_LABEL_GAP, gridSteps, maxScale, openingScale, panForWidth, panToShow, rulerLabel, visibleBeats,
+  BEATS_IN_VIEW, MIN_LABEL_GAP, gridSteps, maxScale, openingScale, panForWidth, panToShow, rulerLabel, scrollToShow, visibleBeats,
 } from './grid'
 import { MAX_PIXELS_PER_BEAT, MIN_LINE_GAP } from '../../../editing/beatGrid'
 
@@ -173,5 +173,24 @@ describe('panToShow', () => {
 
   it('keeps the margin within a quarter of a narrow canvas', () => {
     expect(panToShow(0, 100, 4, 200, 80)).toBe(-250)
+  })
+})
+
+describe('scrollToShow', () => {
+  // the canvas shows from 30 (under the ruler) to 330
+  const show = (scroll: number, top: number) => scrollToShow(scroll, top, top + 100, 30, 330)
+
+  it('keeps a scroll that already shows the lane', () => {
+    expect(show(0, 50)).toBe(0)
+    expect(show(100, 300)).toBe(100)
+  })
+
+  it('scrolls just far enough to show it below the ruler, or above the bottom', () => {
+    expect(show(100, 110)).toBe(80)
+    expect(show(0, 400)).toBe(170)
+  })
+
+  it('shows a lane taller than the view from its top', () => {
+    expect(scrollToShow(0, 400, 900, 30, 330)).toBe(370)
   })
 })

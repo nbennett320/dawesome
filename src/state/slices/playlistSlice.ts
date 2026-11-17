@@ -58,6 +58,11 @@ export interface PlaylistState {
   snapNote: SnapNote,
   // the playlist's mouse tool. not saved with the project
   tool: Tool
+  // the track the keyboard edits: the one last pressed on, dropped or
+  // pasted onto, or moved to with ↑/↓. it may be the track just past the
+  // last one, while a clip landing there makes it. not saved, and not part
+  // of undo
+  currentTrack: number
   // the playlist grid's step at its zoom, in beats (see adaptiveStep). not
   // saved with the project
   gridStep: number
@@ -103,6 +108,7 @@ const initialState = {
   snapNote: 'QuarterNote',
   // not saved with the project
   tool: 'select',
+  currentTrack: 0,
   gridStep: 1,
   playlistItems: [],
   viewRevision: 0,
@@ -374,6 +380,9 @@ export const playlistSlice = createSlice({
     setTrackCount: (state, action: PayloadAction<number>) => {
       state.ui.trackCount = action.payload
     },
+    setCurrentTrack: (state, action: PayloadAction<number>) => {
+      if(Number.isInteger(action.payload) && action.payload >= 0) state.currentTrack = action.payload
+    },
     setSnapEnabled: (state, action) => {
       state.snapEnabled = action.payload
     },
@@ -402,6 +411,8 @@ export const playlistSlice = createSlice({
       state.snapNote = project.snapNote
       // the tool isn't saved: a project opens with Select
       state.tool = 'select'
+      // and back to the top track
+      state.currentTrack = 0
       state.inspectedClipId = null
       // the engine empties its clipboard on New and Open
       state.clipboardCount = 0
@@ -492,6 +503,13 @@ export const selectTransportRevision = (state: RootState) =>
   state.playlist.transportRevision
 
 export const { setWind } = playlistSlice.actions
+
+export const { setCurrentTrack } = playlistSlice.actions
+
+// the current track, kept to the tracks there are (one past the last may
+// be asked for while a clip lands there, before the track count says so)
+export const selectCurrentTrack = (state: RootState) =>
+  Math.min(state.playlist.currentTrack, Math.max(state.playlist.ui.trackCount - 1, 0))
 
 export const selectWind = (state: RootState) => state.playlist.wind
 // end play/pause methods
@@ -1163,6 +1181,9 @@ export const pasteClips = (beat: number, track: number | null = null) => async (
   try {
     const placed = await invoke<Placed>('paste_clips', { beat, track })
     await reducePlaced(dispatch, placed)
+    // the topmost track pasted onto becomes the current one
+    const tracks = [...placed.clips, ...placed.patternClips].map(clip => clip.trackNumber)
+    if(tracks.length) dispatch(setCurrentTrack(Math.min(...tracks)))
     return placed
   } catch(e) {
     await notify(dispatch, String(e))
