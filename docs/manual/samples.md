@@ -16,9 +16,11 @@ Click the key again to hide the sidebar.
 ![The Samples browser](./img/sample-browser.png)
 <!-- SCREENSHOT: Samples sidebar page with a folder open -->
 
-The browser shows the samples folder as a tree of folders and samples.
-
-<!-- VERIFY: where the samples folder is for the user (the engine lists ./assets/ relative to its working folder) -->
+The browser shows each folder of samples (see
+[11-1-1](#_11-1-1-folders-of-samples)) at the top, as a tree of folders and
+samples. **Dawesome**, the samples Dawesome comes with, is first, then your
+own folders, then **This project** when the open project has a `samples/`
+folder (one that came as a shareable project). Each starts open.
 
 - **Open or close a folder:** click it (or select it and press **Return (Enter)**).
   An empty folder shows **Empty**.
@@ -35,6 +37,31 @@ The browser shows the samples folder as a tree of folders and samples.
 Search only looks in folders you've opened so far. If a sample isn't
 found, open its folder first.
 :::
+
+### 11-1-1 Folders of samples
+
+Choose **Preferences ▸ File Paths…** to open the **File Paths** tab, which
+lists the folders the **Samples** browser shows:
+
+- **Dawesome** — The samples Dawesome comes with. Always there, and can't
+  be removed.
+- Your own folders, in the order you added them, each with its full path.
+  A folder that's been moved or deleted shows dimmed, with **Not found**,
+  and isn't in the browser until it's back.
+- **This project** — The open project's `samples/` folder, if it has one.
+  It's listed only while that project is open, and can't be removed.
+
+To add a folder (a sample pack, say), *click* **Add Folder…** and choose it.
+A folder that's already listed, inside one that is, or holding one that is,
+can't be added; the tab says why.
+
+To take a folder out, *click* its **Remove**. Nothing on disk changes, and
+projects using its samples still find them.
+
+Your folders are kept between launches (see
+[2-5](./install.md#_2-5-where-settings-are-kept)). A shareable project
+names the folders in its `samples/` folder after them (see
+[4-8-1](./projects.md#_4-8-1-saving-a-shareable-project)).
 
 ## 11-2 Sample tab
 

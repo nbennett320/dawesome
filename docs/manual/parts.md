@@ -42,10 +42,11 @@ project is saved.
 | Item | Key | Function |
 | --- | --- | --- |
 | **New Project** | **⌘N (Ctrl+N)** | Starts an empty project. |
-| **Open…** | **⌘O (Ctrl+O)** | Opens a project file. |
+| **Open…** | **⌘O (Ctrl+O)** | Opens a project file, or a shareable project. |
 | **Open Recent** | — | Lists up to eight recently opened or saved projects, and **Clear Recent**. |
 | **Save** | **⌘S (Ctrl+S)** | Saves the project. |
 | **Save As…** | **⇧⌘S (Ctrl+Shift+S)** | Saves the project under a new name. |
+| **Save as Shareable Project…** | — | Saves the project, with every sample it uses, as one file to send to someone. See [4-8](./projects.md#_4-8-sharing-a-project). |
 | **Mixdown…** | — | Opens the **Mixdown** tab. See [Mixdown](./mixdown.md). |
 
 See [Projects](./projects.md).
@@ -202,6 +203,7 @@ The tabs are:
 | **Mixdown** | Export to WAV or MP3. | **File ▸ Mixdown…** |
 | **Preferences** | Appearance preferences. | **Dawesome ▸ Preferences…** |
 | **Controls** | Where plugins open, and the command bar. | **Preferences ▸ Controls…** |
+| **File Paths** | The folders of samples the **Samples** browser shows ([11-1-1](./samples.md#_11-1-1-folders-of-samples)). | **Preferences ▸ File Paths…** |
 | *plugin name* <!-- PROVISIONAL --> | A plugin's own interface, when plugins open in a tab. | The plugin's open key |
 
 A new window opens with **Playlist**, **Mixer** and **Pattern Sequencer**

@@ -129,7 +129,7 @@ project.
 | File | Holds |
 | --- | --- |
 | `audio-settings.json` | Output, input, buffer size and recording offset |
-| `preferences.json` | Appearance, themes and where plugins open |
+| `preferences.json` | Appearance, themes, where plugins open, and your folders of samples (**File Paths**) |
 | `recent-projects.json` | The **File ▸ Open Recent** list |
 | `plugins.json` | The plugins found by the last scan <!-- PROVISIONAL --> |
 
