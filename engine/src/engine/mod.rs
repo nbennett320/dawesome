@@ -931,13 +931,20 @@ impl Engine {
   // scrub the song from `at` (seconds), reading `proxy`: following a drag
   // (`wind` None) or wound at a speed (multiples of play speed, negative
   // back). it plays over whatever else is: stop the run first
-  pub fn scrub_start(&self, proxy: Arc<scrub::Proxy>, at: f64, wind: Option<f64>) -> Result<(), String> {
+  // - warble: with the tape on, its transport settings and Wow & Flutter
+  pub fn scrub_start(
+    &self,
+    proxy: Arc<scrub::Proxy>,
+    at: f64,
+    wind: Option<f64>,
+    warble: Option<(::tape::TransportSettings, f32)>,
+  ) -> Result<(), String> {
     let drive = match wind {
       Some(speed) => ::tape::Drive::Wind(speed),
       None => ::tape::Drive::Follow(at),
     };
     self.shared.scrub_drive.store(wind.unwrap_or(at).to_bits(), Ordering::Relaxed);
-    let source = scrub::ScrubSource::new(proxy, self.sample_rate(), at, drive);
+    let source = scrub::ScrubSource::new(proxy, self.sample_rate(), at, drive, warble);
     self.send(Command::ScrubStart(Box::new(source)))
   }
 

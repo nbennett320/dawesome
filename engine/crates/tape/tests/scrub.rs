@@ -104,6 +104,22 @@ fn a_held_drag_is_silent_and_letting_go_fades_out() {
 }
 
 #[test]
+fn the_warble_wavers_the_tape_s_motion() {
+  let recording = tone(500.0, 20.0);
+  let mut plain = Scrubber::new(RATE, OUT, 1.0, Drive::Wind(2.0));
+  let mut warbled = Scrubber::new(RATE, OUT, 1.0, Drive::Wind(2.0));
+  let mut out = vec![0.0; 2 * 480];
+  let fast = vec![1.01f32; 480];
+  for _ in 0..100 {
+    plain.add_to(&recording, &mut out);
+    warbled.add_warbled(&recording, &mut out, &fast);
+  }
+  // a second, at 1 % fast: 1 % further
+  let (a, b) = (plain.at() - 1.0, warbled.at() - 1.0);
+  assert!((b / a - 1.01).abs() < 1e-6, "{a} {b}");
+}
+
+#[test]
 fn reading_allocates_nothing() {
   let recording = tone(500.0, 30.0);
   let mut s = Scrubber::new(RATE, OUT, 10.0, Drive::Follow(12.0));
@@ -124,4 +140,46 @@ fn reading_allocates_nothing() {
   s.end();
   s.add_to(&recording, &mut out);
   assert_eq!(counting::made() - before, 0, "allocated on the audio thread");
+}
+
+// S4's numbers: what reading costs a frame, at 1x and winding, and what the
+// tape's warble (the transport's speed, multiplied into the reading speed)
+// would add. run with `cargo test --release -p dawesome-tape --test scrub
+// -- --ignored --nocapture`
+#[test]
+#[ignore = "a measurement"]
+fn measure_costs() {
+  use std::time::Instant;
+  let recording = tone(500.0, 120.0);
+  let frames = 48_000 * 20;
+  let mut out = vec![0.0; 2 * 512];
+  for (name, drive) in [
+    ("dragged steadily at 1x", Drive::Follow(1_000.0)),
+    ("wound at 1x", Drive::Wind(1.0)),
+    ("wound at 2x (the crossfade)", Drive::Wind(2.0)),
+    ("wound at 10x", Drive::Wind(10.0)),
+    ("wound back at 10x", Drive::Wind(-10.0)),
+  ] {
+    let mut s = Scrubber::new(RATE, OUT, 60.0, drive);
+    // (past the spin up; a drag far off runs at its top speed meanwhile)
+    if let Drive::Follow(_) = drive { s.set_drive(Drive::Follow(60.0)); }
+    for _ in 0..100 { s.add_to(&recording, &mut out); }
+    if let Drive::Follow(_) = drive { s.set_drive(Drive::Follow(80.0)); }
+    let started = Instant::now();
+    let mut target = 80.0;
+    for _ in 0..frames / 512 {
+      // (a drag moving steadily at play speed)
+      if let Drive::Follow(_) = drive { target += 512.0 / OUT; s.set_drive(Drive::Follow(target)); }
+      s.add_to(&recording, &mut out);
+    }
+    let ns = started.elapsed().as_nanos() as f64 / frames as f64;
+    println!("scrub reader, {name}: {ns:.1} ns a frame ({:.3} % of a core at 48 kHz)", ns * 48_000.0 / 1e7);
+  }
+
+  let mut transport = tape::TapeTransport::new(tape::TransportSettings::default(), OUT as f32, 7);
+  let mut speed = vec![0.0f32; 512];
+  let started = Instant::now();
+  for _ in 0..frames / 512 { transport.fill_speed(&mut speed); }
+  let ns = started.elapsed().as_nanos() as f64 / frames as f64;
+  println!("the tape's warble (the transport's speed a frame): {ns:.1} ns a frame ({:.3} % of a core)", ns * 48_000.0 / 1e7);
 }

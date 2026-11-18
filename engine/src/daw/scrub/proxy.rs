@@ -201,4 +201,55 @@ mod tests {
     add_clip(&state, LONG.into(), 0, Some(0.0)).unwrap();
     assert_eq!(render(&state, RATE, &AtomicBool::new(true)).err().unwrap(), CANCELLED);
   }
+
+  // S4's numbers: how long the proxy takes to make, a minute of song, of
+  // clips and of patterns' samples, and its size. run with `cargo test
+  // [--release] -p app --bin app measure_the_proxy -- --ignored --nocapture`
+  #[test]
+  #[ignore = "a measurement"]
+  fn measure_the_proxy() {
+    use std::time::Instant;
+    // a minute at 120 bpm: 120 beats
+    let clips = |state: &daw::Session| {
+      for track in 0..4u32 {
+        for beat in (0..120).step_by(4) {
+          add_clip(state, LONG.into(), track, Some(beat as f32 + track as f32 * 0.5)).unwrap();
+        }
+      }
+      for beat in 0..120 {
+        add_clip(state, KICK.into(), 4, Some(beat as f32)).unwrap();
+      }
+    };
+    let patterns = |state: &daw::Session| {
+      let pattern = {
+        let mut sequencer = state.playlist.sequencer.lock().unwrap();
+        let kick = sequencer.add_row(KICK).unwrap();
+        let long = sequencer.add_row(LONG).unwrap();
+        let pattern = sequencer.add_pattern(1, 4).unwrap();
+        for step in 0..16 {
+          sequencer.set_pattern_step(pattern, kick, step, step % 2 == 0, 4).unwrap();
+        }
+        sequencer.set_pattern_step(pattern, long, 0, true, 4).unwrap();
+        pattern
+      };
+      for track in 5..9u32 {
+        for bar in 0..30u64 {
+          state.playlist.audiograph.lock().unwrap()
+            .add_pattern_node::<crate::daw::timing::Note>(pattern, Duration::from_secs(bar * 2), track, None).unwrap();
+        }
+      }
+    };
+    for (name, songs) in [("clips (4 tracks of long clips, a kick a beat)", 1), ("patterns (4 tracks of a pattern a bar)", 2), ("both", 3)] {
+      let state = daw::Session::default();
+      if songs & 1 != 0 { clips(&state); }
+      if songs & 2 != 0 { patterns(&state); }
+      let started = Instant::now();
+      let proxy = render(&state, RATE, &AtomicBool::new(false)).unwrap();
+      let took = started.elapsed().as_secs_f64();
+      let minutes = proxy.seconds() / 60.;
+      println!(
+        "scrub proxy, {name}: {:.0} ms a minute of song, {:.2} MB a minute ({:.1} s of song)",
+        took * 1000. / minutes, proxy.bytes() as f64 / 1e6 / minutes, proxy.seconds());
+    }
+  }
 }

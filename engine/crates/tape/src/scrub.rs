@@ -118,9 +118,10 @@ impl Scrubber {
     self.ending && self.level == 0.0
   }
 
-  // one frame on: the tape's motion
+  // one frame on: the tape's motion (`warble`: the transport's speed, the
+  // tape's wow and flutter, 1 without)
   #[inline]
-  fn step(&mut self, dt: f64) {
+  fn step(&mut self, dt: f64, warble: f64) {
     match self.drive {
       Drive::Follow(target) => {
         let w = 2.0 * std::f64::consts::PI * FOLLOW_HZ;
@@ -132,7 +133,7 @@ impl Scrubber {
         self.speed += d.clamp(-WIND_ACCEL * dt, WIND_ACCEL * dt);
       }
     }
-    self.at += self.speed * dt;
+    self.at += self.speed * warble * dt;
   }
 
   // the recording's sample `i`, silence outside it
@@ -172,6 +173,13 @@ impl Scrubber {
 
   // add the tape's sound to `out` (stereo interleaved), moving it on
   pub fn add_to(&mut self, recording: &[i16], out: &mut [f32]) {
+    self.add_warbled(recording, out, &[]);
+  }
+
+  // the same, the tape's motion wavering by `warble` (the transport's speed
+  // for each frame, as TapeTransport::fill_speed gives it; frames past its
+  // end don't waver): the tape's wow and flutter over the scrub
+  pub fn add_warbled(&mut self, recording: &[i16], out: &mut [f32], warble: &[f32]) {
     let dt = 1.0 / self.out_rate;
     let level_step = dt / LEVEL_SECONDS;
     for (n, frame) in out.chunks_exact_mut(2).enumerate() {
@@ -181,7 +189,7 @@ impl Scrubber {
         self.lp_a = (1.0 - (-2.0 * std::f64::consts::PI * corner.min(self.out_rate * 0.49) / self.out_rate).exp()) as f32;
       }
       let from = self.at * self.rate;
-      self.step(dt);
+      self.step(dt, warble.get(n).map_or(1.0, |&w| w as f64));
       let to = self.at * self.rate;
       let v = self.speed.abs();
 

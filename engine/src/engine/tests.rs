@@ -1590,7 +1590,7 @@ mod scrub_tests {
     let mut out = buffers(&mut renderer, 10);
     assert_eq!(engine.scrub_at(), None);
     // dragged from 0.9 s across the burst to 1.3 s
-    engine.scrub_start(proxy(), 0.9, None).unwrap();
+    engine.scrub_start(proxy(), 0.9, None, None).unwrap();
     engine.scrub_drive(1.3);
     out.extend(buffers(&mut renderer, 20));
     assert!((engine.scrub_at().unwrap() - 1.3).abs() < 0.05, "{:?}", engine.scrub_at());
@@ -1609,9 +1609,9 @@ mod scrub_tests {
   #[test]
   fn test_a_scrub_begun_over_another_takes_over() {
     let (engine, mut renderer) = Engine::new(OUT);
-    engine.scrub_start(proxy(), 0.5, None).unwrap();
+    engine.scrub_start(proxy(), 0.5, None, None).unwrap();
     buffers(&mut renderer, 2);
-    engine.scrub_start(proxy(), 1.0, Some(-2.0)).unwrap();
+    engine.scrub_start(proxy(), 1.0, Some(-2.0), Some((::tape::TransportSettings::default(), 1.0))).unwrap();
     buffers(&mut renderer, 2);
     // the second, winding back from 1 s
     assert!(engine.scrub_at().unwrap() < 1.0);

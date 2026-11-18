@@ -38,7 +38,13 @@ pub fn begin(state: &Arc<daw::Session>, at: Duration, wind: Option<f64>) -> Resu
   }
   // (nothing to read until the proxy's first made: a silent scrub)
   let proxy = current().unwrap_or_else(|| Arc::new(Proxy { rate: proxy::RATE, samples: Box::new([]) }));
-  engine.scrub_start(proxy, at.as_secs_f64(), wind)?;
+  // with the tape on, its wow and flutter waver the scrub too (S4)
+  let tape = state.tape.lock().unwrap().clone();
+  let warble = tape.machine.enabled.then(|| {
+    let settings = daw::tape::live::machine_settings(&tape);
+    (settings.transport, settings.wow_flutter)
+  });
+  engine.scrub_start(proxy, at.as_secs_f64(), wind, warble)?;
   // (a scrub begun over another keeps the first's playing)
   let mut held = HELD.lock().unwrap();
   if held.is_none() { *held = Some(playing); }
