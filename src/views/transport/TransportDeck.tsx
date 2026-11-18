@@ -246,8 +246,8 @@ const TransportDeck = () => {
 
   return (
     // the tab's whole body, scrolling only when even the smallest cassette
-    // and the keys don't fit
-    <div ref={box} className='ft-panel h-full w-full overflow-auto'>
+    // and the keys don't fit. a deck: nothing in it is text to select
+    <div ref={box} className='ft-panel h-full w-full overflow-auto select-none'>
       <div className='min-h-full flex flex-col items-center justify-center gap-5 p-4'>
         {/* hidden until measured, so it doesn't start at the wrong size */}
         {cassetteVisible && (

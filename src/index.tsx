@@ -8,6 +8,7 @@ import './components/fourtrack/fourtrack.scss'
 import { Preferences, ResolvedTheme, setThemes, startThemeSync } from './theme'
 import { defaultPreferences, hydrateAppearance } from './state/slices/appearanceSlice'
 import { startUnsavedWatch } from './state/unsaved'
+import { stopNativeDrags } from './events/nativeDrags'
 import slateLight from '../engine/themes/test/slate-light.resolved.json'
 
 declare global {
@@ -46,6 +47,8 @@ store.dispatch(hydrateAppearance({
 startThemeSync(store)
 // keeps the title's * (unsaved changes) up to date
 startUnsavedWatch(store)
+// selected text, images and links aren't dragged by the browser
+stopNativeDrags()
 
 root.render(
   <React.StrictMode>
