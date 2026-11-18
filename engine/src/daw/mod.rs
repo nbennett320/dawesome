@@ -28,6 +28,7 @@ pub(crate) mod project;
 pub(crate) mod project_files;
 pub(crate) mod recording;
 pub(crate) mod scrub;
+pub(crate) mod share;
 pub(crate) mod tape;
 pub(crate) mod tape_settings;
 #[cfg(test)]

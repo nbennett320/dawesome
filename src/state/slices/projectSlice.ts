@@ -4,9 +4,10 @@ import { ask, message, open, save } from '@tauri-apps/plugin-dialog'
 import { readDir } from '@tauri-apps/plugin-fs'
 import { dirname, documentDir, join } from '@tauri-apps/api/path'
 import type { RootState } from 'state/store'
-import { MissingEffect, MissingSample, PROJECT_EXTENSION } from '../../types/project'
+import { listen } from '@tauri-apps/api/event'
+import { ExportedShare, MissingEffect, MissingSample, PROJECT_EXTENSION, SHARE_EXTENSION } from '../../types/project'
 import { SynthInstrument } from '../../types/sequencer'
-import { newProject, openProject, saveProject } from './playlistSlice'
+import { flushClipSettings, newProject, openProject, savedLayout, saveProject } from './playlistSlice'
 import { clearPendingMixerSends } from './mixerSlice'
 import { setSequencer } from './sequencerSlice'
 import { dropHeldTrim } from '../pendingTrim'
@@ -14,7 +15,7 @@ import { fileName } from '../../util/helpers'
 
 // the File menu's project commands (ids of the engine's menu items, see
 // engine/src/app/window.rs)
-export type ProjectCommand = 'new' | 'open' | 'save' | 'save-as'
+export type ProjectCommand = 'new' | 'open' | 'save' | 'save-as' | 'save-shareable'
 
 // shown above the workspace after a project command
 export type ProjectNotice =
@@ -24,6 +25,10 @@ export type ProjectNotice =
   | { kind: 'error', message: string }
   // something worth knowing, like where a take was saved
   | { kind: 'info', message: string }
+  // a shareable project being packed, so far (bytes)
+  | { kind: 'sharing', file: string, done: number, total: number }
+  // a shareable project saved, with what it couldn't take
+  | { kind: 'shared', share: ExportedShare }
 
 export interface ProjectState {
   // the project file being worked on, or null before it's first saved
@@ -227,6 +232,40 @@ const saveAs = async (dispatch: Dispatch, getState: () => RootState): Promise<bo
   return chosen ? saveProjectTo(dispatch, getState, withExtension(chosen), true) : false
 }
 
+// File › Save as Shareable Project…: the project zipped, as it is now, with
+// every sample it uses, for someone else to open. one that's never been
+// saved is saved first (it needs a folder). the project itself isn't saved
+const saveShareable = async (dispatch: Dispatch, getState: () => RootState): Promise<void> => {
+  if(!getState().project.path && !(await saveAs(dispatch, getState))) return
+  const current = getState().project.path
+  if(!current) return
+
+  // beside the project's folder, not in it
+  const name = projectName(current) ?? 'Untitled'
+  const chosen = chosenPath(await save({
+    title: 'Save as shareable project',
+    filters: [{ name: 'Shareable Dawesome project', extensions: [SHARE_EXTENSION] }],
+    defaultPath: await join(await projectHome(current), `${name}.${SHARE_EXTENSION}`),
+  }))
+  if(!chosen) return
+  const path = chosen.toLowerCase().endsWith(`.${SHARE_EXTENSION}`) ? chosen : `${chosen}.${SHARE_EXTENSION}`
+  const file = fileName(path)
+
+  dispatch(setProjectNotice({ kind: 'sharing', file, done: 0, total: 0 }))
+  const stop = await listen<{ done: number, total: number }>('share-progress', ({ payload }) => {
+    dispatch(setProjectNotice({ kind: 'sharing', file, ...payload }))
+  }).catch(() => () => {})
+  try {
+    await flushClipSettings(getState)
+    const share = await invoke<ExportedShare>('export_shareable', { path, layout: savedLayout(getState()) })
+    dispatch(setProjectNotice({ kind: 'shared', share }))
+  } catch(e) {
+    dispatch(setProjectNotice({ kind: 'error', message: errorMessage("Couldn't save the shareable project", e) }))
+  } finally {
+    stop()
+  }
+}
+
 // File › Save: where it was saved last, or (never saved) where the user
 // chooses. returns whether it saved
 const saveCurrent = (dispatch: Dispatch, getState: () => RootState): Promise<boolean> => {
@@ -328,6 +367,9 @@ export const runProjectCommand = (command: ProjectCommand) => (
       break
     case 'save-as':
       await saveAs(dispatch, getState)
+      break
+    case 'save-shareable':
+      await saveShareable(dispatch, getState)
       break
     default:
       break

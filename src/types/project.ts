@@ -14,6 +14,19 @@ import type { LoopRegion } from './transport'
 
 export const PROJECT_EXTENSION = 'dawesome'
 
+// a shareable project: the project's folder zipped with every sample it
+// uses (see engine/src/daw/share.rs)
+export const SHARE_EXTENSION = 'sharedawesome'
+
+// what saving a shareable project made
+export interface ExportedShare {
+  path: string
+  // samples the project uses that couldn't be found, so aren't in it
+  missing: string[]
+  // plugins the project uses, which whoever opens it needs too
+  plugins: string[]
+}
+
 export interface TimeSignature {
   numerator: number
   denominator: number

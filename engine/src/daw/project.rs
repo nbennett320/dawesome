@@ -365,7 +365,7 @@ pub struct LoadedProject {
 }
 
 // the folder a project file is in, which its relative sample paths start from
-fn project_dir(project_path: &Path) -> Result<PathBuf, String> {
+pub(crate) fn project_dir(project_path: &Path) -> Result<PathBuf, String> {
   let dir = match project_path.parent() {
     Some(dir) if !dir.as_os_str().is_empty() => dir,
     _ => Path::new("."),

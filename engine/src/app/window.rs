@@ -178,7 +178,7 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
     "quit" => request_quit(app),
     // the frontend asks where to open or save, then calls the engine's
     // project commands
-    id @ ("new" | "open" | "save" | "save-as") => {
+    id @ ("new" | "open" | "save" | "save-as" | "save-shareable") => {
       app.emit("menu-project", EventPayload {
         data: id.into()
       }).unwrap();
@@ -237,6 +237,8 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     &PredefinedMenuItem::separator(app)?,
     &item("save", "Save", Some("CmdOrCtrl+S"))?,
     &item("save-as", "Save As…", Some("CmdOrCtrl+Shift+S"))?,
+    // the project zipped with every sample it uses, for someone else
+    &item("save-shareable", "Save as Shareable Project…", None)?,
     &PredefinedMenuItem::separator(app)?,
     // opens the Mixdown tab, as the Window menu opens tabs
     &item("view-mixdown", "Mixdown…", None)?,

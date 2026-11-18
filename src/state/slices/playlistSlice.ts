@@ -1393,6 +1393,13 @@ const showLoadedProject = async (
   return { samples: project.missing, effects, synths, dropped: project.dropped ?? [] }
 }
 
+// the window's panes and tabs, as a project file keeps them
+export const savedLayout = (state: RootState) => toSaved(
+  state.window.windowPane.root,
+  state.window.focusedPaneId,
+  state.effects.racks,
+  state.sequencer.rows.filter(isSynthRow).map(row => row.instrument))
+
 // save the playlist to a project file. saved somewhere new (a first save, or
 // Save As), the project gets a folder of its own, and the file it's saved to
 // is returned
@@ -1404,14 +1411,7 @@ export const saveProject = (path: string, somewhereNew: boolean) => async (
   // latest settings, so the file has them
   await flushClipSettings(getState)
 
-  const state = getState()
-  const layout = toSaved(
-    state.window.windowPane.root,
-    state.window.focusedPaneId,
-    state.effects.racks,
-    state.sequencer.rows.filter(isSynthRow).map(row => row.instrument))
-
-  const saved = await invoke<SavedProject>('save_project', { path, somewhereNew, layout })
+  const saved = await invoke<SavedProject>('save_project', { path, somewhereNew, layout: savedLayout(getState()) })
   dispatch(playlistSlice.actions.reduceMovedClips(saved.movedClips))
   return saved
 }

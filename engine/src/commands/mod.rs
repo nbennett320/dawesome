@@ -21,6 +21,7 @@ pub(crate) mod playlist;
 pub(crate) mod project;
 pub(crate) mod sample;
 pub(crate) mod sequencer;
+pub(crate) mod share;
 pub(crate) mod synth;
 pub(crate) mod tape;
 pub(crate) mod transport;

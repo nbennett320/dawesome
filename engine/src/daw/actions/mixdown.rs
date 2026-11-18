@@ -15,7 +15,7 @@ use crate::daw::mixdown::{self, Progress, CANCELLED};
 use crate::daw::mixdown_file::{Format, MixdownFile};
 
 // the folder in a saved project's folder that mixdowns go in by default
-const MIXDOWNS_FOLDER: &str = "mixdowns";
+pub(crate) const MIXDOWNS_FOLDER: &str = "mixdowns";
 const UNTITLED: &str = "Untitled";
 // what's said when a mixdown is started while one is going
 pub const BUSY: &str = "A mixdown is already going";

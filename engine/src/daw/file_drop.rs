@@ -132,7 +132,7 @@ fn folder_inside(clips: &Path, folder: &str) -> Result<PathBuf, String> {
 }
 
 // whether two files hold the same bytes
-fn same_bytes(a: &Path, b: &Path) -> bool {
+pub(crate) fn same_bytes(a: &Path, b: &Path) -> bool {
   let (Ok(a), Ok(b)) = (fs::File::open(a), fs::File::open(b)) else { return false };
   let (mut a, mut b) = (std::io::BufReader::new(a), std::io::BufReader::new(b));
   let (mut x, mut y) = ([0u8; 64 * 1024], [0u8; 64 * 1024]);
