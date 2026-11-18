@@ -37,7 +37,7 @@ fn init_tauri() {
   use effect_windows::*;
   use commands::synth::*;
   use commands::tape::{get_tape, set_tape_machine, set_track_tape};
-  use commands::share::export_shareable;
+  use commands::share::{export_shareable, unpack_shareable};
 
   // read before the menu is built, which lists them
   let recent_projects = recent::RecentProjects::load();
@@ -137,6 +137,7 @@ fn init_tauri() {
       add_sample_path,
       remove_sample_path,
       export_shareable,
+      unpack_shareable,
       preview_sample,
       stop_previews,
       get_audio_drivers,

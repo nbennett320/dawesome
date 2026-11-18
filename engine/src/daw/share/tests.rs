@@ -232,3 +232,153 @@ fn test_the_plugins_a_project_needs_are_listed() {
   }"#).unwrap();
   assert_eq!(plugins_of(&project), vec!["Valhalla (Valhalla DSP)".to_string()]);
 }
+
+// a project using a sample from outside its folder and a take, shared to
+// `dir`/song.sharedawesome. returns the share and the outside sample
+fn shared_project(dir: &Path) -> (PathBuf, String) {
+  let outside = sample_at(&dir.join("library").join("Drums").join("kick.wav"), Some(b"kick"));
+  let state = daw::Session::default();
+  add_clip(&state, &outside, 0);
+  add_clip(&state, &bundled_sample(), 1);
+  save_project_to(&state, &dir.join("mine").join("song"), true, None).unwrap();
+  let take = sample_at(&dir.join("mine").join("song").join("recordings").join("take.wav"), Some(b"take"));
+  add_clip(&state, &take, 2);
+  let dest = dir.join("song.sharedawesome");
+  export(&state, &dest, &[dir.join("library").join("Drums").to_string_lossy().into_owned()], None, &mut no_progress()).unwrap();
+  (dest, outside)
+}
+
+#[test]
+fn test_a_shared_project_opens_with_every_sample() {
+  let dir = test_dir("open");
+  let (share, outside) = shared_project(&dir);
+  // the friend's computer doesn't have the outside sample
+  fs::remove_file(&outside).unwrap();
+
+  let project = unpack(&share, &dir.join("theirs").join("song")).unwrap();
+  let folder = dir.join("theirs").join("song");
+  assert_eq!(project, folder.join("song.dawesome"));
+
+  let state = daw::Session::default();
+  let loaded = project::load_from(&state, &project).unwrap();
+  assert!(loaded.missing.is_empty(), "{:?}", loaded.missing);
+  let paths: Vec<String> = loaded.clips.iter().map(|clip| clip.path.clone()).collect();
+  assert_eq!(paths, vec![
+    folder.join("samples").join("Drums").join("kick.wav").to_string_lossy().into_owned(),
+    bundled_sample(),
+    folder.join("recordings").join("take.wav").to_string_lossy().into_owned(),
+  ]);
+  // nothing's left half unpacked
+  let names: Vec<String> = fs::read_dir(dir.join("theirs")).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+  assert_eq!(names, vec!["song"]);
+
+  let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_a_shared_project_goes_back_and_forth() {
+  let dir = test_dir("round-trip");
+  let (share, _) = shared_project(&dir);
+
+  // the friend opens it, adds a sample of their own, and shares it back
+  let theirs = unpack(&share, &dir.join("theirs").join("song")).unwrap();
+  let state = daw::Session::default();
+  project::load_from(&state, &theirs).unwrap();
+  let snare = sample_at(&dir.join("their library").join("snare.wav"), Some(b"snare"));
+  add_clip(&state, &snare, 3);
+  let back = dir.join("back.sharedawesome");
+  export(&state, &back, &[], None, &mut no_progress()).unwrap();
+  let files = zipped(&back);
+  assert_eq!(names(&files), vec![
+    "song/recordings/take.wav",
+    "song/samples/Drums/kick.wav",
+    "song/samples/other/snare.wav",
+    "song/song.dawesome",
+  ]);
+
+  // and it opens again here, as a copy beside the first
+  fs::remove_file(&snare).unwrap();
+  let again = unpack(&back, &dir.join("mine").join("song")).unwrap();
+  assert_eq!(again, dir.join("mine").join("song 1").join("song 1.dawesome"));
+  let loaded = project::load_from(&daw::Session::default(), &again).unwrap();
+  assert!(loaded.missing.is_empty(), "{:?}", loaded.missing);
+  assert_eq!(loaded.clips.len(), 4);
+
+  let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_a_shared_project_takes_the_name_its_given() {
+  let dir = test_dir("renamed");
+  let (share, _) = shared_project(&dir);
+  let project = unpack(&share, &dir.join("from sam")).unwrap();
+  assert_eq!(project, dir.join("from sam").join("from sam.dawesome"));
+  assert!(project::load_from(&daw::Session::default(), &project).unwrap().missing.is_empty());
+  let _ = fs::remove_dir_all(&dir);
+}
+
+// a zip of `files` (name, bytes; a name ending in / is a folder), and
+// `links` (name, target)
+fn handmade(path: &Path, files: &[(&str, &[u8])], links: &[(&str, &str)]) {
+  let mut zip = ZipWriter::new(fs::File::create(path).unwrap());
+  for (name, bytes) in files {
+    if name.ends_with('/') {
+      zip.add_directory(*name, SimpleFileOptions::default()).unwrap();
+    } else {
+      zip.start_file(*name, SimpleFileOptions::default()).unwrap();
+      zip.write_all(bytes).unwrap();
+    }
+  }
+  for (name, target) in links {
+    zip.add_symlink(*name, *target, SimpleFileOptions::default()).unwrap();
+  }
+  zip.finish().unwrap();
+}
+
+#[test]
+fn test_shareable_files_that_would_write_elsewhere_are_refused() {
+  let dir = test_dir("refused");
+  let project: &[u8] = br#"{ "clips": [] }"#;
+  let cases: Vec<(&str, Vec<(&str, &[u8])>, Vec<(&str, &str)>, &str)> = vec![
+    ("climbs", vec![("song/song.dawesome", project), ("song/../../escaped.txt", b"x")], vec![], "outside"),
+    ("absolute", vec![("song/song.dawesome", project), ("/tmp/escaped.txt", b"x")], vec![], "outside"),
+    ("link", vec![("song/song.dawesome", project)], vec![("song/samples/kick.wav", "/etc/passwd")], "link"),
+    ("two folders", vec![("song/song.dawesome", project), ("other/x.txt", b"x")], vec![], "more than one folder"),
+    ("two projects", vec![("song/song.dawesome", project), ("song/other.dawesome", project)], vec![], "more than one project"),
+    ("no project", vec![("song/notes.txt", b"x")], vec![], "no project"),
+    ("no folder", vec![("song.dawesome", project)], vec![], "no folder"),
+  ];
+  for (name, files, links, why) in cases {
+    let share = dir.join(format!("{}.sharedawesome", name));
+    handmade(&share, &files, &links);
+    let error = unpack(&share, &dir.join("out").join("song")).unwrap_err();
+    assert!(error.contains(why), "{}: {}", name, error);
+    assert!(!dir.join("out").join("song").exists(), "{}", name);
+  }
+  assert!(!dir.join("escaped.txt").exists());
+  // nor what isn't a zip
+  fs::write(dir.join("text.sharedawesome"), b"hello").unwrap();
+  assert!(unpack(&dir.join("text.sharedawesome"), &dir.join("out").join("song")).unwrap_err().contains("isn't a shareable project"));
+  // and nothing was left behind
+  let left: Vec<String> = fs::read_dir(dir.join("out")).map(|entries| entries.map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
+  assert_eq!(left, Vec::<String>::new());
+
+  let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_what_finder_adds_to_a_zip_is_left_out() {
+  let dir = test_dir("finder");
+  let share = dir.join("song.sharedawesome");
+  handmade(&share, &[
+    ("song/", b""),
+    ("song/song.dawesome", br#"{ "clips": [] }"#),
+    ("song/.DS_Store", b""),
+    ("__MACOSX/song/._song.dawesome", b""),
+  ], &[]);
+  let project = unpack(&share, &dir.join("out")).unwrap();
+  assert_eq!(project, dir.join("out").join("out.dawesome"));
+  let names: Vec<String> = fs::read_dir(dir.join("out")).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+  assert_eq!(names, vec!["out.dawesome"]);
+  let _ = fs::remove_dir_all(&dir);
+}

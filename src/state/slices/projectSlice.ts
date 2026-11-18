@@ -90,6 +90,10 @@ export const windowTitle = (path: string | null, unsaved: boolean): string =>
   `${projectName(path) ?? 'Untitled'}${unsaved ? '*' : ''} — Dawesome`
 
 const dialogFilters = [{ name: 'Dawesome project', extensions: [PROJECT_EXTENSION] }]
+// File › Open takes shareable projects too
+const openFilters = [{ name: 'Dawesome project', extensions: [PROJECT_EXTENSION, SHARE_EXTENSION] }]
+
+const isShareable = (path: string) => path.toLowerCase().endsWith(`.${SHARE_EXTENSION}`)
 
 // a dialog's chosen path, or null if it was cancelled
 const chosenPath = (chosen: string | string[] | null | undefined): string | null => {
@@ -191,6 +195,41 @@ const openFrom = async (dispatch: Dispatch, path: string): Promise<boolean> => {
     return false
   }
 }
+
+// open a shareable project: ask what to call it (a folder, beside the
+// shareable file to start with), unpack it there, and open the project in
+// it, which is an ordinary project from then on. returns whether it opened
+const openShareable = async (dispatch: Dispatch, path: string): Promise<boolean> => {
+  const name = fileName(path).replace(new RegExp(`\\.${SHARE_EXTENSION}$`, 'i'), '')
+  const target = chosenPath(await save({
+    title: 'Open shared project as',
+    defaultPath: await join(await dirname(path), name),
+  }))
+  if(!target) return false
+
+  dispatch(setProjectNotice({ kind: 'info', message: `Unpacking ${fileName(path)}…` }))
+  let project
+  try {
+    project = await invoke<string>('unpack_shareable', { path, target })
+  } catch(e) {
+    dispatch(setProjectNotice({ kind: 'error', message: errorMessage("Couldn't open the shared project", e) }))
+    return false
+  }
+  return openFrom(dispatch, project)
+}
+
+// open a project file or a shareable project, once it's fine to replace the
+// open one (File › Open, or a file opened from Finder)
+const openAny = async (dispatch: Dispatch, path: string): Promise<void> => {
+  if(!(await okToReplace())) return
+  if(isShareable(path)) await openShareable(dispatch, path)
+  else await openFrom(dispatch, path)
+}
+
+// a project or shareable project opened from outside the app (double-
+// clicked in Finder)
+export const openProjectFile = (path: string) => (dispatch: Dispatch): Promise<void> =>
+  exclusive(() => openAny(dispatch, path))
 
 // save the project, and carry on in the file it was saved to. returns
 // whether it saved
@@ -356,10 +395,12 @@ export const runProjectCommand = (command: ProjectCommand) => (
 
       const chosen = chosenPath(await open({
         title: 'Open project',
-        filters: dialogFilters,
+        filters: openFilters,
         multiple: false,
       }))
-      if(chosen) await openFrom(dispatch, chosen)
+      if(!chosen) break
+      if(isShareable(chosen)) await openShareable(dispatch, chosen)
+      else await openFrom(dispatch, chosen)
       break
     }
     case 'save':

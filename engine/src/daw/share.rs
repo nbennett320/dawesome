@@ -296,5 +296,114 @@ fn write_zip(dest: &Path, name: &str, json: &str, entries: &[Entry], progress: P
     })
 }
 
+// what's left out of a zip when opening it: what Finder's Compress adds
+fn is_clutter(parts: &[&str]) -> bool {
+  parts.first() == Some(&"__MACOSX") || parts.last().is_some_and(|name| *name == ".DS_Store")
+}
+
+// a zip entry's name, as its parts, if it's one that stays inside the
+// folder it's unpacked into: no absolute paths, no "..", nothing odd
+fn safe_parts(name: &str) -> Option<Vec<&str>> {
+  if name.starts_with('/') || name.contains('\\') || name.contains('\0') { return None; }
+  let parts: Vec<&str> = name.trim_end_matches('/').split('/').collect();
+  parts.iter().all(|part| !part.is_empty() && *part != "." && *part != ".." && !part.contains(':'))
+    .then_some(parts)
+}
+
+// a free folder for `wanted`: it, or it numbered ("song 1")
+fn free_folder(wanted: &Path) -> PathBuf {
+  if !wanted.exists() { return wanted.to_path_buf(); }
+  let name = wanted.file_name().unwrap_or_default().to_string_lossy().into_owned();
+  (1..).map(|n| wanted.with_file_name(format!("{} {}", name, n))).find(|path| !path.exists()).unwrap()
+}
+
+// open a shareable project: unpack `src` into the folder `target` (numbered
+// if that's taken), which is then an ordinary project folder, its project
+// file named after it. returns the project file
+//
+// shareable files come from other people, so every entry is checked before
+// anything is written: each must be a file or folder inside the one folder
+// the zip holds (no links, no absolute paths, no ".."), and that folder must
+// hold one project file. it's unpacked next to `target` first, and moved
+// into place once it all has been
+pub fn unpack(src: &Path, target: &Path) -> Result<PathBuf, String> {
+  let file = fs::File::open(src).map_err(|e| format!("could not open '{}': {}", src.display(), e))?;
+  let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file))
+    .map_err(|e| format!("'{}' isn't a shareable project: {}", src.display(), e))?;
+  let not_shareable = |why: &str| format!("'{}' isn't a shareable project: {}", src.display(), why);
+
+  // (index, path under the top folder, is a folder)
+  let mut entries: Vec<(usize, Vec<String>, bool)> = Vec::new();
+  let mut top: Option<String> = None;
+  let mut project_files = Vec::new();
+  for i in 0..archive.len() {
+    let entry = archive.by_index(i).map_err(|e| not_shareable(&e.to_string()))?;
+    let name = entry.name().to_string();
+    let parts = safe_parts(&name).ok_or_else(|| not_shareable(&format!("'{}' would land outside its folder", name)))?;
+    if is_clutter(&parts) { continue; }
+    if entry.is_symlink() { return Err(not_shareable(&format!("'{}' is a link", name))); }
+    match &top {
+      None => top = Some(parts[0].to_string()),
+      Some(top) if top != parts[0] => return Err(not_shareable("it holds more than one folder")),
+      _ => {}
+    }
+    let rest: Vec<String> = parts[1..].iter().map(|part| part.to_string()).collect();
+    let is_dir = entry.is_dir();
+    if rest.is_empty() {
+      if !is_dir { return Err(not_shareable("it holds no folder")); }
+      continue;
+    }
+    if !is_dir && rest.len() == 1 && rest[0].to_lowercase().ends_with(&format!(".{}", project_files::PROJECT_EXTENSION)) {
+      project_files.push(rest[0].clone());
+    }
+    entries.push((i, rest, is_dir));
+  }
+  let project_file = match project_files.as_slice() {
+    [one] => one.clone(),
+    [] => return Err(not_shareable("it has no project file")),
+    _ => return Err(not_shareable("it has more than one project file")),
+  };
+
+  let parent = target.parent().filter(|dir| !dir.as_os_str().is_empty()).unwrap_or(Path::new("."));
+  fs::create_dir_all(parent).map_err(|e| format!("could not make the folder '{}': {}", parent.display(), e))?;
+  let folder = free_folder(target);
+  let name = folder.file_name().unwrap_or_default().to_string_lossy().into_owned();
+  let tmp = parent.join(format!(".{}.unpacking-{}", name, std::process::id()));
+  let _ = fs::remove_dir_all(&tmp);
+
+  let write = |archive: &mut zip::ZipArchive<std::io::BufReader<fs::File>>| -> Result<(), String> {
+    fs::create_dir_all(&tmp).map_err(|e| format!("could not make the folder '{}': {}", tmp.display(), e))?;
+    for (i, rest, is_dir) in &entries {
+      // the project file takes the folder's name, as Save As would have it
+      let rel = if *rest == [project_file.clone()] {
+        PathBuf::from(format!("{}.{}", name, project_files::PROJECT_EXTENSION))
+      } else {
+        rest.iter().collect()
+      };
+      let out = tmp.join(&rel);
+      if *is_dir {
+        fs::create_dir_all(&out).map_err(|e| format!("could not make the folder '{}': {}", out.display(), e))?;
+        continue;
+      }
+      if let Some(dir) = out.parent() {
+        fs::create_dir_all(dir).map_err(|e| format!("could not make the folder '{}': {}", dir.display(), e))?;
+      }
+      let mut entry = archive.by_index(*i).map_err(|e| not_shareable(&e.to_string()))?;
+      // no more than the zip says is there
+      let size = entry.size();
+      let mut file = fs::File::create(&out).map_err(|e| format!("could not write '{}': {}", out.display(), e))?;
+      std::io::copy(&mut (&mut entry).take(size), &mut file)
+        .map_err(|e| format!("could not unpack '{}': {}", rel.display(), e))?;
+    }
+    fs::rename(&tmp, &folder).map_err(|e| format!("could not make the folder '{}': {}", folder.display(), e))
+  };
+
+  write(&mut archive).map_err(|e| {
+    let _ = fs::remove_dir_all(&tmp);
+    e
+  })?;
+  Ok(folder.join(format!("{}.{}", name, project_files::PROJECT_EXTENSION)))
+}
+
 #[cfg(test)]
 mod tests;

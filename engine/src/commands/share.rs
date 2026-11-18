@@ -38,3 +38,12 @@ pub fn export_shareable(
   share::export(&state, Path::new(&path), &prefs.current().sample_paths, layout, &mut progress)
 }
 
+
+// open a shareable project: unpack it into the folder `target` (numbered if
+// that's taken), returning the project file in it, which the frontend then
+// opens as any project
+// (async: off the main thread, as unpacking takes a while)
+#[tauri::command(async)]
+pub fn unpack_shareable(path: String, target: String) -> Result<String, String> {
+  share::unpack(Path::new(&path), Path::new(&target)).map(|project| project.to_string_lossy().into_owned())
+}
