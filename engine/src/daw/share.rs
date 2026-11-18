@@ -14,7 +14,7 @@
 // in samples/. the project on disk isn't touched. the samples Dawesome
 // comes with aren't copied: they're saved by name (see library.rs), and
 // every Dawesome has them
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -92,8 +92,9 @@ pub(crate) fn pack(
   let name = project_files::project_name(project_path)
     .unwrap_or_else(|| project_files::UNTITLED.into());
 
-  let (copies, missing) = bring_in_samples(&mut project, &dir, sample_paths);
   let mut entries = folder_files(&dir, project_path, dest);
+  let zipped: HashSet<String> = entries.iter().map(|entry| entry.to.clone()).collect();
+  let (copies, missing) = bring_in_samples(&mut project, &dir, &zipped, sample_paths);
   entries.extend(copies);
   let plugins = plugins_of(&project);
 
@@ -132,11 +133,18 @@ fn numbered(rel: &str, n: u32) -> String {
   if folder.is_empty() { numbered } else { format!("{}/{}", folder, numbered) }
 }
 
-// the samples the project uses from outside its folder (saved as absolute
-// paths), each given a place in samples/ and pointed at there. returns the
-// files to copy in, and the samples that couldn't be found (left as they
-// were)
-fn bring_in_samples(project: &mut Project, dir: &Path, sample_paths: &[String]) -> (Vec<Entry>, Vec<String>) {
+// the samples the project uses that aren't zipped with its folder (`zipped`,
+// the paths in it that are): ones from outside it (saved as absolute paths),
+// and ones in it that aren't zipped (beside a project file that isn't in a
+// folder of its own, say). each is given a place in samples/ and pointed at
+// there. returns the files to copy in, and the samples that couldn't be
+// found (left as they were)
+fn bring_in_samples(
+  project: &mut Project,
+  dir: &Path,
+  zipped: &HashSet<String>,
+  sample_paths: &[String],
+) -> (Vec<Entry>, Vec<String>) {
   let buckets = buckets(sample_paths);
   // where each sample went, by its saved path
   let mut placed: HashMap<String, String> = HashMap::new();
@@ -147,14 +155,14 @@ fn bring_in_samples(project: &mut Project, dir: &Path, sample_paths: &[String]) 
   let mut missing = BTreeSet::new();
 
   let mut place = |stored: &mut String| {
-    if stored.starts_with(library::BUNDLED_PREFIX) || Path::new(stored.as_str()).is_relative() {
+    if stored.starts_with(library::BUNDLED_PREFIX) || zipped.contains(stored.as_str()) {
       return;
     }
     if let Some(rel) = placed.get(stored.as_str()) {
       *stored = rel.clone();
       return;
     }
-    let from = PathBuf::from(stored.as_str());
+    let from = if Path::new(stored.as_str()).is_relative() { dir.join(stored.as_str()) } else { PathBuf::from(stored.as_str()) };
     if !from.is_file() {
       missing.insert(stored.clone());
       return;
@@ -167,15 +175,15 @@ fn bring_in_samples(project: &mut Project, dir: &Path, sample_paths: &[String]) 
       .unwrap_or_else(|| format!("{}/{}/{}", project_files::SAMPLES_FOLDER, OTHER_SAMPLES,
         canonical.file_name().unwrap_or_default().to_string_lossy()));
 
-    // the first free place, or one that already has this very file: from a
-    // share before (the project's own samples/ is zipped with it)
+    // the first free place, or one that already has this very file, zipped
+    // with the folder: from a share before
     let mut copy = true;
     let rel = (0..).map(|n| if n == 0 { wanted.clone() } else { numbered(&wanted, n) })
       .find(|rel| {
         if taken.contains_key(&rel.to_lowercase()) { return false; }
         let there = dir.join(rel);
         if !there.exists() { return true; }
-        if there.is_file() && same_bytes(&there, &canonical) { copy = false; return true; }
+        if zipped.contains(rel) && there.is_file() && same_bytes(&there, &canonical) { copy = false; return true; }
         false
       })
       .unwrap();
@@ -302,11 +310,14 @@ fn is_clutter(parts: &[&str]) -> bool {
 }
 
 // a zip entry's name, as its parts, if it's one that stays inside the
-// folder it's unpacked into: no absolute paths, no "..", nothing odd
+// folder it's unpacked into: no absolute paths, no "..", nothing odd. (`:`
+// and `\` are fine in a Mac file name, and the exporter writes them, so
+// they're only refused where they'd mean a drive or a folder)
 fn safe_parts(name: &str) -> Option<Vec<&str>> {
-  if name.starts_with('/') || name.contains('\\') || name.contains('\0') { return None; }
+  if name.starts_with('/') || name.contains('\0') { return None; }
+  if cfg!(windows) && (name.contains('\\') || name.contains(':')) { return None; }
   let parts: Vec<&str> = name.trim_end_matches('/').split('/').collect();
-  parts.iter().all(|part| !part.is_empty() && *part != "." && *part != ".." && !part.contains(':'))
+  parts.iter().all(|part| !part.is_empty() && *part != "." && *part != "..")
     .then_some(parts)
 }
 

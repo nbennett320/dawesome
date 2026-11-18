@@ -181,6 +181,63 @@ fn test_a_project_file_loose_in_a_folder_takes_only_its_own_folders() {
 }
 
 #[test]
+fn test_samples_beside_a_loose_project_file_are_brought_in() {
+  let dir = test_dir("loose-samples");
+  // an old project saved straight into a folder, using a sample from a
+  // folder beside it (saved relative to the project), which isn't zipped
+  let kick = sample_at(&dir.join("Splice").join("kick.wav"), Some(b"kick"));
+  let state = daw::Session::default();
+  add_clip(&state, &kick, 0);
+  save_project_to(&state, &dir.join("song.dawesome"), false, None).unwrap();
+  assert_eq!(saved_json_for_tests(&dir.join("song.dawesome")).clips[0].path, "Splice/kick.wav");
+
+  let dest = dir.join("song.sharedawesome");
+  let exported = export(&state, &dest, &[], None, &mut no_progress()).unwrap();
+  assert_eq!(exported.missing, Vec::<String>::new());
+  assert_eq!(names(&zipped(&dest)), vec!["song/samples/other/kick.wav", "song/song.dawesome"]);
+
+  // and it opens with its sample somewhere else
+  fs::remove_file(&kick).unwrap();
+  let opened = unpack(&dest, &dir.join("theirs").join("song")).unwrap();
+  assert!(project::load_from(&daw::Session::default(), &opened).unwrap().missing.is_empty());
+
+  let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_a_take_thats_gone_is_named_as_missing() {
+  let dir = test_dir("gone-take");
+  let state = daw::Session::default();
+  save_project_to(&state, &dir.join("song"), true, None).unwrap();
+  let take = sample_at(&dir.join("song").join("recordings").join("take.wav"), Some(b"take"));
+  add_clip(&state, &take, 0);
+  fs::remove_file(&take).unwrap();
+
+  let exported = export(&state, &dir.join("song.sharedawesome"), &[], None, &mut no_progress()).unwrap();
+  assert_eq!(exported.missing, vec!["recordings/take.wav".to_string()]);
+
+  let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_mac_file_names_with_colons_go_back_and_forth() {
+  let dir = test_dir("colons");
+  // Finder shows "Snare 1/2.wav", saved on disk as "Snare 1:2.wav"
+  let snare = sample_at(&dir.join("library").join("Snare 1:2.wav"), Some(b"snare"));
+  let state = daw::Session::default();
+  add_clip(&state, &snare, 0);
+  save_project_to(&state, &dir.join("song"), true, None).unwrap();
+  let dest = dir.join("song.sharedawesome");
+  export(&state, &dest, &[], None, &mut no_progress()).unwrap();
+  assert!(zipped(&dest).contains_key("song/samples/other/Snare 1:2.wav"));
+
+  let opened = unpack(&dest, &dir.join("theirs").join("song")).unwrap();
+  assert!(project::load_from(&daw::Session::default(), &opened).unwrap().missing.is_empty());
+
+  let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn test_missing_samples_are_named_and_left_out() {
   let dir = test_dir("missing");
   let gone = sample_at(&dir.join("elsewhere").join("gone.wav"), None);
