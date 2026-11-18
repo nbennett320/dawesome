@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { DroppedFile, SampleDragEvent, SkippedFile } from '../state/sampleDrag'
+import { DroppedFile, SampleDragEvent, SkippedFile, sendSampleDrag } from '../state/sampleDrag'
 
 // files dragged in from outside the app (from Finder), passed on as drags
 // like the sidebar's (see sampleDrag.ts), so the playlist, the Clips page
@@ -85,10 +85,8 @@ export const fileDropFollower = ({ scan, send, toClient: client }: Options) => {
 // start passing on drags from outside the window. resolves to a function that
 // stops listening
 export const listenForFileDrops = async () => {
-  const [{ getCurrentWebview }, { sendSampleDrag }] = await Promise.all([
-    import('@tauri-apps/api/webview'),
-    import('../state/sampleDrag'),
-  ])
+  // (loaded when needed, since it expects to run inside the app's window)
+  const { getCurrentWebview } = await import('@tauri-apps/api/webview')
   const mac = /Mac/.test(navigator.userAgent)
   const follow = fileDropFollower({
     scan: paths => invoke<DropScan>('scan_dropped_files', { paths }),
