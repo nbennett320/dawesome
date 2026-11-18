@@ -89,6 +89,20 @@ impl TapeInertia {
   }
 }
 
+// which drags are heard scrubbing (T32 in context/tape-project): all of
+// them (the playhead in the Timeline and the playlist, the Transport tab's
+// reels, and the wind keys), all but the playlist's ("Timeline and
+// transport", the default), or none, when no scrub proxy is made or kept
+// at all
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Scrubbing {
+  On,
+  #[default]
+  Transport,
+  Off,
+}
+
 // where on a track the tape sits (W1): before its first effect, as on a
 // Portastudio (the effects are on the mixer, after the tape), or after its
 // whole chain (the effects are recorded onto tape too)
@@ -125,6 +139,8 @@ pub struct Preferences {
   pub tape_method: TapeMethod,
   // whether Stop and Play run the tape down and up
   pub tape_inertia: TapeInertia,
+  // which drags are heard scrubbing
+  pub scrub: Scrubbing,
 }
 
 impl Default for Preferences {
@@ -142,6 +158,7 @@ impl Default for Preferences {
       tape_tap: TapeTap::default(),
       tape_method: TapeMethod::default(),
       tape_inertia: TapeInertia::default(),
+      scrub: Scrubbing::default(),
     }
   }
 }
@@ -191,6 +208,7 @@ impl Preferences {
       tape_tap: self.tape_tap,
       tape_method: self.tape_method,
       tape_inertia: self.tape_inertia,
+      scrub: self.scrub,
     }
   }
 }
@@ -256,6 +274,7 @@ mod tests {
       tape_tap: TapeTap::default(),
       tape_method: TapeMethod::default(),
       tape_inertia: TapeInertia::Stop,
+      scrub: Scrubbing::Off,
     };
     prefs.save(&file).unwrap();
     assert_eq!(Preferences::load(&file), prefs);
@@ -268,6 +287,7 @@ mod tests {
     assert!(json.contains("\"experimentalAnimations\": true"), "{}", json);
     assert!(json.contains("\"tapeMode\": \"live\""), "{}", json);
     assert!(json.contains("\"tapeInertia\": \"stop\""), "{}", json);
+    assert!(json.contains("\"scrub\": \"off\""), "{}", json);
     fs::remove_dir_all(file.parent().unwrap()).ok();
   }
 
@@ -305,6 +325,8 @@ mod tests {
     assert_eq!(prefs.tape_method, TapeMethod::Modeled);
     // and Stop and Play are at once
     assert_eq!(prefs.tape_inertia, TapeInertia::Off);
+    // and everything but the playlist's playhead scrubs
+    assert_eq!(prefs.scrub, Scrubbing::Transport);
     fs::remove_dir_all(file.parent().unwrap()).ok();
   }
 
@@ -319,6 +341,14 @@ mod tests {
       let prefs: Preferences = serde_json::from_str(&format!(r#"{{ "tapeInertia": "{json}" }}"#)).unwrap();
       assert_eq!(prefs.tape_inertia, inertia);
       assert_eq!((inertia.on_stop(), inertia.on_start()), (stop, start));
+    }
+  }
+
+  #[test]
+  fn test_scrubbing_reads_each_way() {
+    for (json, scrub) in [("on", Scrubbing::On), ("transport", Scrubbing::Transport), ("off", Scrubbing::Off)] {
+      let prefs: Preferences = serde_json::from_str(&format!(r#"{{ "scrub": "{json}" }}"#)).unwrap();
+      assert_eq!(prefs.scrub, scrub);
     }
   }
 
@@ -338,6 +368,7 @@ mod tests {
       tape_tap: TapeTap::default(),
       tape_method: TapeMethod::default(),
       tape_inertia: TapeInertia::Both,
+      scrub: Scrubbing::On,
     };
     assert_eq!(ok.sanitize(&themes), ok);
 
@@ -354,6 +385,7 @@ mod tests {
       tape_tap: TapeTap::default(),
       tape_method: TapeMethod::default(),
       tape_inertia: TapeInertia::Start,
+      scrub: Scrubbing::Transport,
     };
     let fixed = bad.sanitize(&themes);
     assert_eq!(fixed.light_theme, theme::DEFAULT_LIGHT);

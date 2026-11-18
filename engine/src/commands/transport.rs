@@ -49,9 +49,11 @@ pub fn stop_playlist(state: TState<'_>) {
 // the drag's speed. it begins where the drag starts, follows it (ms on the
 // timeline), and is let go at a beat, which the playhead moves to (playing
 // carries on from there if it was playing). see daw/scrub
+// (`source`: which drag it is, which the scrubbing preference may leave
+// silent: the Timeline's if not said)
 #[tauri::command]
-pub fn scrub_begin(state: TState<'_>, at_ms: f64) -> Result<(), String> {
-  crate::daw::scrub::begin(state.inner(), ms(at_ms), None)
+pub fn scrub_begin(state: TState<'_>, at_ms: f64, source: Option<crate::daw::scrub::Source>) -> Result<(), String> {
+  crate::daw::scrub::begin(state.inner(), ms(at_ms), None, source.unwrap_or(crate::daw::scrub::Source::Timeline))
 }
 
 #[tauri::command]
@@ -69,7 +71,7 @@ pub fn scrub_end(state: TState<'_>, beat: f64) -> f64 {
 // `at_ms` at `speed` (multiples of play speed, negative back)
 #[tauri::command]
 pub fn wind_begin(state: TState<'_>, at_ms: f64, speed: f64) -> Result<(), String> {
-  crate::daw::scrub::begin(state.inner(), ms(at_ms), Some(speed))
+  crate::daw::scrub::begin(state.inner(), ms(at_ms), Some(speed), crate::daw::scrub::Source::Wind)
 }
 
 // let go of a wind: the playhead's left where the tape got to (`fallback_ms`

@@ -15,6 +15,7 @@ import {
   setTapePathVisible,
 } from '../../state/slices/windowSlice'
 import { nameProject, projectName, selectProjectPath } from '../../state/slices/projectSlice'
+import { selectAppearance } from '../../state/slices/appearanceSlice'
 import { AnalogButton, Cassette, cassetteAspect, Led, LedState } from '../../components/fourtrack'
 import LatchKey from '../../components/topbar/LatchKey'
 import {
@@ -66,6 +67,10 @@ const TransportDeck = () => {
   const cassetteVisible = useAppSelector(selectCassetteVisible)
   const tapePathVisible = useAppSelector(selectTapePathVisible)
   const label = projectName(useAppSelector(selectProjectPath)) ?? 'untitled'
+  // the reels are only for scrubbing: not with Settings → Controls → Tape →
+  // Scrubbing playback off (winding is heard or not as it says, in the
+  // engine)
+  const reelsScrub = useAppSelector(selectAppearance).preferences.scrub !== 'off'
   const {
     transport, position, wind, playing, refresh, assume,
   } = usePlayhead()
@@ -147,7 +152,7 @@ const TransportDeck = () => {
         if(Math.abs(dx) < REEL_DRAG_PX) return
         drag.began = true
         e.currentTarget.setPointerCapture(e.pointerId)
-        scrubBegin(drag.fromMs)
+        scrubBegin(drag.fromMs, 'reels')
       }
       const atMs = Math.min(Math.max(0, drag.fromMs + dx * REEL_MS_PER_PX), Math.max(tapeLengthMs(transport), drag.fromMs))
       const now = performance.now()
@@ -247,11 +252,11 @@ const TransportDeck = () => {
         {/* hidden until measured, so it doesn't start at the wrong size */}
         {cassetteVisible && (
           <div
-            className='shrink-0 max-w-full touch-none cursor-ew-resize'
+            className={`shrink-0 max-w-full ${reelsScrub ? 'touch-none cursor-ew-resize' : ''}`}
             style={{ width: cassetteWidth, visibility: cassetteWidth ? undefined : 'hidden' }}
-            data-hint='Drag the cassette sideways to rock the tape over the heads: the song is heard scrubbing'
-            {...reelProps}
-            onPointerCancel={reelCancel}
+            data-hint={reelsScrub ? 'Drag the cassette sideways to rock the tape over the heads: the song is heard scrubbing' : undefined}
+            {...(reelsScrub ? reelProps : {})}
+            onPointerCancel={reelsScrub ? reelCancel : undefined}
           >
             <Cassette
               progress={progress}

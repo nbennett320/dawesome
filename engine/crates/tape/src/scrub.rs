@@ -29,8 +29,11 @@ pub const MAX_SPEED: f64 = 16.0;
 // how fast winding gets up to speed and back, in multiples of play speed a
 // second (10x in a third of a second)
 pub const WIND_ACCEL: f64 = 30.0;
-// winding is a little quieter (-6 dB), as a head lifted off the tape is
-pub const WIND_LEVEL: f64 = 0.5;
+// a scrub's level (-6 dB: at full level it was too loud against playback,
+// T32), and winding's, a little quieter again (-12 dB), as a head lifted
+// off the tape is
+pub const SCRUB_LEVEL: f64 = 0.5;
+pub const WIND_LEVEL: f64 = 0.25;
 // under this speed the head's output fades with the speed
 const QUIET_BELOW: f64 = 0.1;
 // how fast the level moves (fading in and out, the wind's level)
@@ -198,7 +201,7 @@ impl Scrubber {
       let want = if self.ending {
         0.0
       } else {
-        let wind = if matches!(self.drive, Drive::Wind(_)) { WIND_LEVEL } else { 1.0 };
+        let wind = if matches!(self.drive, Drive::Wind(_)) { WIND_LEVEL } else { SCRUB_LEVEL };
         (v / QUIET_BELOW).min(1.0) * wind
       };
       self.level = if want > self.level { (self.level + level_step).min(want) } else { (self.level - level_step).max(want) };

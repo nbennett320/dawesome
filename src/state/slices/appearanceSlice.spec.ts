@@ -131,6 +131,15 @@ describe('tracks on tape', () => {
     expect(store.getState().appearance.preferences.tapeMode).toBe('live')
   })
 
+  it('scrub everywhere but the playlist unless chosen otherwise, and an older engine leaves that alone', () => {
+    expect(defaultPreferences.scrub).toBe('transport')
+    setThemes(all)
+    const store = configureStore({ reducer: { appearance: reducer } })
+    const { scrub: _, ...older } = defaultPreferences
+    store.dispatch(hydrateAppearance({ preferences: older as Preferences, systemDark: false, themes: [] }))
+    expect(store.getState().appearance.preferences.scrub).toBe('transport')
+  })
+
   it('stop and start at once unless chosen otherwise, and an older engine leaves that alone', async () => {
     expect(defaultPreferences.tapeInertia).toBe('off')
     setThemes(all)

@@ -13,9 +13,13 @@ const scrubError = (what: string) => (e: unknown) =>
   // eslint-disable-next-line no-console
   console.error(`could not ${what}:`, e)
 
+// which drag it is: Settings → Controls → Tape → Scrubbing playback says
+// which are heard (the engine leaves the rest silent: a seek when let go)
+export type ScrubSource = 'timeline' | 'playlist' | 'reels'
+
 // a drag begins at `atMs` on the timeline
-export const scrubBegin = (atMs: number) =>
-  invoke<void>('scrub_begin', { atMs }).catch(scrubError('scrub'))
+export const scrubBegin = (atMs: number, source: ScrubSource) =>
+  invoke<void>('scrub_begin', { atMs, source }).catch(scrubError('scrub'))
 
 // the drag's at `atMs` now (sent at most every few ms, the latest last)
 export const scrubTo = (atMs: number) =>

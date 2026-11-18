@@ -30,6 +30,7 @@ export const defaultPreferences: Preferences = {
   tapeTap: 'before',
   tapeMethod: 'modeled',
   tapeInertia: 'off',
+  scrub: 'transport',
 }
 
 // settings an older engine doesn't know about (it leaves them out) are

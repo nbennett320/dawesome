@@ -73,6 +73,7 @@ fn init_tauri() {
       let prefs = app.state::<preferences::AppPreferences>().current();
       daw::tape::set_preferences(prefs.tape_mode, prefs.tape_tap, prefs.tape_method);
       daw::tape::set_inertia(prefs.tape_inertia);
+      daw::scrub::set_preference(prefs.scrub);
       effect_windows::init(&racks);
       daw::actions::synth::keep_following(following.clone());
       // print mode's job: re-prints taped tracks when they change

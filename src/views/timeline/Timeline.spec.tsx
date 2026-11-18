@@ -97,7 +97,7 @@ describe('Timeline', () => {
 
     fireEvent.pointerDown(strip(), at(42))
     // 42px is 1.68s: the scrub begins there
-    expect(calls('scrub_begin')).toEqual([['scrub_begin', { atMs: 1_680 }]])
+    expect(calls('scrub_begin')).toEqual([['scrub_begin', { atMs: 1_680, source: 'timeline' }]])
     fireEvent.pointerMove(strip(), at(103))
     fireEvent.pointerMove(strip(), at(204))
     // 204px is 8.16s: shown where the mouse is, unsnapped, and scrubbed to

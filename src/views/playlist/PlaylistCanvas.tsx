@@ -276,6 +276,7 @@ const PlaylistCanvas = () => {
   const transportRevision = useAppSelector(selectTransportRevision)
   const loopEnabled = useAppSelector(selectLoopEnabled)
   const handleSeek = React.useCallback((beat: number) => dispatch(seekPlaylist(beat)), [dispatch])
+  const handleScrubBegin = React.useCallback((atMs: number) => scrubBegin(atMs, 'playlist'), [])
   const handleScrubEnd = React.useCallback((beat: number) => dispatch(scrubEnd(beat)), [dispatch])
   const handleCurrentTrack = React.useCallback((track: number) => { dispatch(setCurrentTrack(track)) }, [dispatch])
   // the loop's region and end flag, dragged in the ruler
@@ -789,7 +790,7 @@ const PlaylistCanvas = () => {
           transportRevision={transportRevision}
           loopEnabled={loopEnabled}
           onSeek={handleSeek}
-          onScrubBegin={scrubBegin}
+          onScrubBegin={handleScrubBegin}
           onScrubTo={scrubTo}
           onScrubEnd={handleScrubEnd}
           onCurrentTrack={handleCurrentTrack}

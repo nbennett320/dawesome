@@ -48,7 +48,7 @@ const Timeline = () => {
     const ms = mouseMs(e)
     dragFrom.current = position
     setDragMs(ms)
-    scrubBegin(ms)
+    scrubBegin(ms, 'timeline')
   }
 
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
