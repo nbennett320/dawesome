@@ -17,9 +17,11 @@ const Timeline = () => {
   const strip = React.useRef<HTMLDivElement>(null)
   const size = useElementSize(strip)
   const width = size?.width ?? 0
+  // (every frame: the playhead's a line moving across the strip, and 20 a
+  // second looks choppy)
   const {
     transport, position, playing, refresh, assume,
-  } = usePlayhead()
+  } = usePlayhead(0)
   const snapEnabled = useAppSelector(selectSnapEnabled)
   const snapNote = useAppSelector(selectSnapNote)
 
