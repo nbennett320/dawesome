@@ -640,6 +640,11 @@ enum Command {
   // stop a run (if it's the one playing) as a tape stops with its motor
   // cut: the speed coasts down to a standstill, then it stops
   Coast { run: u64 },
+  // a scrub starts (part S), taking over from any that's going, or the one
+  // going is let go of (it fades out). where it's dragged or how fast it's
+  // wound is in Shared
+  ScrubStart(Box<scrub::ScrubSource>),
+  ScrubEnd,
 }
 
 // what the callback is done with, sent back to be freed off the audio thread
@@ -657,6 +662,7 @@ enum Garbage {
   Tape(Box<tape::EngineTape>),
   TapeSettings(Box<::tape::MachineSettings>),
   Print(Arc<tape::Print>),
+  Scrub(Box<scrub::ScrubSource>),
 }
 
 // how many voices can sound at once. more are dropped (and counted)
@@ -714,6 +720,11 @@ struct Shared {
   clock_speed: AtomicU64,
   clock_target: AtomicU64,
   clock_lag_ns: AtomicU64,
+  // a scrub's drag (where it's pulled to, in seconds of the song) or wind
+  // (its speed), as f64 bits, read each buffer; and where the tape is, NaN
+  // with no scrub going
+  scrub_drive: AtomicU64,
+  scrub_at: AtomicU64,
 }
 
 // where a run started, in the engine's frames and in time
@@ -769,6 +780,8 @@ impl Engine {
       clock_speed: AtomicU64::new(1f64.to_bits()),
       clock_target: AtomicU64::new(1f64.to_bits()),
       clock_lag_ns: AtomicU64::new(0f64.to_bits()),
+      scrub_drive: AtomicU64::new(0f64.to_bits()),
+      scrub_at: AtomicU64::new(f64::NAN.to_bits()),
     });
 
     let engine = Engine {
@@ -913,6 +926,35 @@ impl Engine {
   pub fn coast_run(&self, run: u64) -> Result<(), String> {
     VARISPEED_USED.store(true, Ordering::Relaxed);
     self.send(Command::Coast { run })
+  }
+
+  // scrub the song from `at` (seconds), reading `proxy`: following a drag
+  // (`wind` None) or wound at a speed (multiples of play speed, negative
+  // back). it plays over whatever else is: stop the run first
+  pub fn scrub_start(&self, proxy: Arc<scrub::Proxy>, at: f64, wind: Option<f64>) -> Result<(), String> {
+    let drive = match wind {
+      Some(speed) => ::tape::Drive::Wind(speed),
+      None => ::tape::Drive::Follow(at),
+    };
+    self.shared.scrub_drive.store(wind.unwrap_or(at).to_bits(), Ordering::Relaxed);
+    let source = scrub::ScrubSource::new(proxy, self.sample_rate(), at, drive);
+    self.send(Command::ScrubStart(Box::new(source)))
+  }
+
+  // where the scrub's dragged to (seconds), or how fast it's wound
+  pub fn scrub_drive(&self, value: f64) {
+    if value.is_finite() {
+      self.shared.scrub_drive.store(value.to_bits(), Ordering::Relaxed);
+    }
+  }
+
+  pub fn scrub_end(&self) -> Result<(), String> {
+    self.send(Command::ScrubEnd)
+  }
+
+  // where the scrubbed tape is, in seconds of the song (None with no scrub)
+  pub fn scrub_at(&self) -> Option<f64> {
+    Some(Engine::clock_f64(&self.shared.scrub_at)).filter(|at| !at.is_nan())
   }
 
   // the speed the song plays at (1 + the PITCH knob, with the tape on):
@@ -1213,6 +1255,8 @@ pub struct Renderer {
   varispeed: Option<Box<::tape::Varispeed>>,
   // a run coasting to a stop
   coasting: Option<u64>,
+  // a scrub going (part S)
+  scrub: Option<Box<scrub::ScrubSource>>,
   rate: f64,
 }
 
@@ -1248,6 +1292,7 @@ impl Renderer {
       limit: true,
       varispeed: Some(Box::new(::tape::Varispeed::new(sample_rate as f64, MAX_CHUNK, SPIN_UP_SECONDS, COAST_SECONDS))),
       coasting: None,
+      scrub: None,
       rate: sample_rate as f64,
     }
   }
@@ -1307,6 +1352,19 @@ impl Renderer {
       }
     }
     self.varispeed = Some(varispeed);
+
+    // a scrub plays over whatever else is (normal playback's paused for it),
+    // after the varispeed, so the PITCH knob doesn't pitch it again
+    if let Some(scrub) = self.scrub.as_mut() {
+      scrub.drive(f64::from_bits(self.shared.scrub_drive.load(Ordering::Relaxed)));
+      scrub.add_to(out);
+      let at = if scrub.done() { f64::NAN } else { scrub.at() };
+      self.shared.scrub_at.store(at.to_bits(), Ordering::Relaxed);
+      if scrub.done() {
+        let done = self.scrub.take().expect("the scrub");
+        self.throw_away(Garbage::Scrub(done));
+      }
+    }
 
     // take out finished voices, and those that have faded out
     let mut i = 0;
@@ -1531,6 +1589,14 @@ impl Renderer {
           self.varispeed.as_mut().expect("the varispeed").flywheel.cut();
           self.coasting = Some(run);
         }
+      }
+      Command::ScrubStart(source) => {
+        if let Some(was) = self.scrub.replace(source) {
+          self.throw_away(Garbage::Scrub(was));
+        }
+      }
+      Command::ScrubEnd => {
+        if let Some(scrub) = self.scrub.as_mut() { scrub.end(); }
       }
       Command::Speed(speed) => {
         self.varispeed.as_mut().expect("the varispeed").flywheel.set_target(speed);

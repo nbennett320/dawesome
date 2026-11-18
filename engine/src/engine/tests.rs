@@ -1544,3 +1544,77 @@ mod varispeed_tests {
     assert_eq!(engine.speed(), 1.);
   }
 }
+
+// ---- scrubbing (part S): a scrub plays over the engine, from the proxy
+
+mod scrub_tests {
+  use super::*;
+  use super::scrub::Proxy;
+
+  const OUT: u32 = 48_000;
+
+  // a proxy that's silent but for a burst of tone from 1 s to 1.2 s
+  fn proxy() -> Arc<Proxy> {
+    let samples: Vec<i16> = (0..48_000).map(|i| {
+      if (24_000..28_800).contains(&i) { ((i as f32 * 0.3).sin() * 20_000.) as i16 } else { 0 }
+    }).collect();
+    Arc::new(Proxy { rate: 24_000, samples: samples.into_boxed_slice() })
+  }
+
+  fn song(engine: &Engine, mixer: &mixer::Mixer) {
+    let samples: Vec<f32> = (0..96_000).flat_map(|i| { let s = (i as f32 * 0.01).sin() * 0.3; [s, s] }).collect();
+    engine.start_run(1, mixer.master(), vec![
+      engine.voice(SamplesBuffer::new(2, OUT, samples), Some(1), 0, Route::Track(mixer.track_route(0))),
+    ]).unwrap();
+  }
+
+  fn buffers(renderer: &mut Renderer, n: usize) -> Vec<f32> {
+    let mut all = Vec::new();
+    let mut out = vec![0.; 480 * 2];
+    for _ in 0..n {
+      renderer.render(&mut out, Instant::now(), Duration::ZERO);
+      all.extend_from_slice(&out);
+    }
+    all
+  }
+
+  #[test]
+  fn test_a_scrub_is_heard_where_it_s_dragged_and_let_go_leaves_the_engine_as_it_was() {
+    let mixer = mixer::Mixer::default();
+    let (plain, mut plain_renderer) = Engine::new(OUT);
+    song(&plain, &mixer);
+    let unscrubbed = buffers(&mut plain_renderer, 60);
+
+    let (engine, mut renderer) = Engine::new(OUT);
+    song(&engine, &mixer);
+    let mut out = buffers(&mut renderer, 10);
+    assert_eq!(engine.scrub_at(), None);
+    // dragged from 0.9 s across the burst to 1.3 s
+    engine.scrub_start(proxy(), 0.9, None).unwrap();
+    engine.scrub_drive(1.3);
+    out.extend(buffers(&mut renderer, 20));
+    assert!((engine.scrub_at().unwrap() - 1.3).abs() < 0.05, "{:?}", engine.scrub_at());
+    engine.scrub_end().unwrap();
+    out.extend(buffers(&mut renderer, 30));
+    assert_eq!(engine.scrub_at(), None);
+    assert!(renderer.scrub.is_none(), "let go of");
+
+    // heard over the song while it was held, and nothing of it after
+    let held = &out[10 * 960..30 * 960];
+    let worst = held.iter().zip(&unscrubbed[10 * 960..30 * 960]).map(|(a, b)| (a - b).abs()).fold(0., f32::max);
+    assert!(worst > 0.1, "the burst was heard: {worst}");
+    assert_eq!(&out[32 * 960..], &unscrubbed[32 * 960..]);
+  }
+
+  #[test]
+  fn test_a_scrub_begun_over_another_takes_over() {
+    let (engine, mut renderer) = Engine::new(OUT);
+    engine.scrub_start(proxy(), 0.5, None).unwrap();
+    buffers(&mut renderer, 2);
+    engine.scrub_start(proxy(), 1.0, Some(-2.0)).unwrap();
+    buffers(&mut renderer, 2);
+    // the second, winding back from 1 s
+    assert!(engine.scrub_at().unwrap() < 1.0);
+    engine.collect_garbage();
+  }
+}

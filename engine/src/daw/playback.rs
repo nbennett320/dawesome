@@ -699,9 +699,10 @@ pub fn start_playlist_after(state: &Arc<daw::Session>, count_in: Duration) {
   run_from_playhead(state, count_in, true, false);
 }
 
-// carry on playing from the playhead after it was moved (a seek, or a tempo
-// change). not a new play, so the last play start stays where it was
-fn resume_playlist(state: &Arc<daw::Session>) {
+// carry on playing from the playhead after it was moved (a seek, a tempo
+// change, a scrub let go of). not a new play, so the last play start stays
+// where it was
+pub fn resume_playlist(state: &Arc<daw::Session>) {
   run_from_playhead(state, Duration::ZERO, false, false);
 }
 

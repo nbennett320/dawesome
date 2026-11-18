@@ -45,6 +45,48 @@ pub fn stop_playlist(state: TState<'_>) {
   playback::stop_playlist_as(state.inner(), playback::Motion::AsTape);
 }
 
+// scrubbing (part S): dragging the playhead or the reels plays the song at
+// the drag's speed. it begins where the drag starts, follows it (ms on the
+// timeline), and is let go at a beat, which the playhead moves to (playing
+// carries on from there if it was playing). see daw/scrub
+#[tauri::command]
+pub fn scrub_begin(state: TState<'_>, at_ms: f64) -> Result<(), String> {
+  crate::daw::scrub::begin(state.inner(), ms(at_ms), None)
+}
+
+#[tauri::command]
+pub fn scrub_to(at_ms: f64) {
+  crate::daw::scrub::drag(ms(at_ms));
+}
+
+// returns the beat it moved to
+#[tauri::command]
+pub fn scrub_end(state: TState<'_>, beat: f64) -> f64 {
+  crate::daw::scrub::end(state.inner(), beat)
+}
+
+// holding Rewind or Fast forward: the song heard as it winds (T31), from
+// `at_ms` at `speed` (multiples of play speed, negative back)
+#[tauri::command]
+pub fn wind_begin(state: TState<'_>, at_ms: f64, speed: f64) -> Result<(), String> {
+  crate::daw::scrub::begin(state.inner(), ms(at_ms), Some(speed))
+}
+
+// let go of a wind: the playhead's left where the tape got to (`fallback_ms`
+// if the engine doesn't know), kept within the playlist. returns where, in
+// ms
+#[tauri::command]
+pub fn wind_end(state: TState<'_>, fallback_ms: f64) -> f64 {
+  let interval = playback::beat_interval(state.inner()).as_secs_f64() * 1000.;
+  let at = crate::daw::scrub::wound_to().map_or(fallback_ms, |secs| secs * 1000.).max(0.);
+  if interval <= 0. { return 0.; }
+  crate::daw::scrub::end(state.inner(), at / interval) * interval
+}
+
+fn ms(ms: f64) -> std::time::Duration {
+  std::time::Duration::from_secs_f64(if ms.is_finite() { ms.max(0.) / 1000. } else { 0. })
+}
+
 // move the playhead to a beat (kept within the playlist), carrying on playing
 // from there if playing. returns the beat it moved to
 #[tauri::command]
