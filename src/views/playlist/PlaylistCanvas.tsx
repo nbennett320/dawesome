@@ -44,6 +44,7 @@ import type { RootState } from '../../state/store'
 import { PlaylistWindow, PlaylistItem } from '../../types/playlist'
 import { Renderer, StretchEdit, WindowEdit } from './sketch'
 import { isPlaceable, onSampleDrag } from '../../state/sampleDrag'
+import { dropFilesOnPlaylist } from '../../state/fileDrop'
 import { OWN_DRAG_PREVIEW } from '../../components/DragGhost'
 import { selectFocusedView } from '../../state/slices/windowSlice'
 import { selectAppearance } from '../../state/slices/appearanceSlice'
@@ -349,6 +350,16 @@ const PlaylistCanvas = () => {
         dispatch(addPatternToPlaylist(item.patternId, trackNumber, beat))
           // eslint-disable-next-line no-console
           .catch(e => console.error('could not place the pattern:', e))
+        return
+      }
+
+      // from outside the app: copied into the clips, one per track
+      if(item.kind === 'files') {
+        dispatch(dropFilesOnPlaylist(item.files, item.skipped, trackNumber, beat, {
+          x: clientX, y: clientY, left, top, right, bottom,
+        }, setBusy))
+          // eslint-disable-next-line no-console
+          .catch(e => console.error('could not place the files:', e))
         return
       }
 

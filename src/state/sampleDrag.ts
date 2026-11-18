@@ -9,11 +9,28 @@
 // the sidebar browsers that have folders
 export type FolderScope = 'recordings' | 'clips' | 'patterns'
 
+// a file dragged in from outside the app that can be played, and the folder
+// in the clips it goes in ("" for a file dragged in by itself, "Pack/Kicks"
+// for one in a folder Pack). see scan_dropped_files in
+// engine/src/daw/file_drop.rs
+export interface DroppedFile {
+  path: string
+  folder: string
+}
+
+// something dragged in that won't be brought in, and why
+export interface SkippedFile {
+  path: string
+  reason: string
+}
+
 // what's being dragged. a folder only moves within its browser: it can't be
 // placed in the playlist or the Pattern Sequencer. an effect (from the
 // sidebar) and a slot (a row of the Effects Rack) go onto a mixer channel or
 // the rack. an instrument (from the sidebar) goes into the Pattern
-// Sequencer, or onto a track's mixer strip
+// Sequencer, or onto a track's mixer strip. files come from outside the app
+// (Finder): they're copied into the clips, and placed in the playlist or
+// the Pattern Sequencer
 export type DragItem =
   | { kind: 'sample', path: string }
   | { kind: 'pattern', patternId: number, label: string }
@@ -21,13 +38,14 @@ export type DragItem =
   | { kind: 'effect', pluginId: string, label: string }
   | { kind: 'instrument', pluginId: string, label: string }
   | { kind: 'slot', slotId: number, label: string }
+  | { kind: 'files', files: DroppedFile[], skipped: SkippedFile[] }
 
 // what can be dropped into the playlist (or, for samples, the Pattern
 // Sequencer)
-export type PlaceableItem = Extract<DragItem, { kind: 'sample' | 'pattern' }>
+export type PlaceableItem = Extract<DragItem, { kind: 'sample' | 'pattern' | 'files' }>
 
 export const isPlaceable = (item: DragItem): item is PlaceableItem =>
-  item.kind === 'sample' || item.kind === 'pattern'
+  item.kind === 'sample' || item.kind === 'pattern' || item.kind === 'files'
 
 // what can be dropped on a mixer channel or into the Effects Rack
 export type EffectDragItem = Extract<DragItem, { kind: 'effect' | 'slot' }>
@@ -42,12 +60,21 @@ export const dragItemKey = (item: DragItem): string => {
   if(item.kind === 'effect') return `effect:${item.pluginId}`
   if(item.kind === 'instrument') return `instrument:${item.pluginId}`
   if(item.kind === 'slot') return `slot:${item.slotId}`
+  if(item.kind === 'files') return `files:${item.files.length}:${item.files[0]?.path ?? ''}`
   return `folder:${item.scope}:${item.key}`
 }
 
+export const fileName = (path: string): string => path.split(/[\\/]/).pop() ?? path
+
 // what a dragged thing is called, for the label following the mouse
-export const dragItemLabel = (item: DragItem): string =>
-  (item.kind === 'sample' ? item.path.split(/[\\/]/).pop() ?? item.path : item.label)
+export const dragItemLabel = (item: DragItem): string => {
+  if(item.kind === 'sample') return fileName(item.path)
+  if(item.kind === 'files') {
+    if(item.files.length === 1) return fileName(item.files[0].path)
+    return item.files.length ? `${item.files.length} files` : 'Nothing here plays'
+  }
+  return item.label
+}
 
 export interface SampleDragEvent {
   // move: the mouse moved while dragging
@@ -75,6 +102,10 @@ export const onSampleDrag = (fn: Listener) => {
 }
 
 const emit = (ev: SampleDragEvent) => listeners.forEach(fn => fn(ev))
+
+// a drag that the window didn't start with a press: files dragged in from
+// outside the app (see events/fileDrop.ts)
+export const sendSampleDrag = emit
 
 // call from a sample's mousedown. follows the mouse until it's released
 export const beginSampleDrag = (

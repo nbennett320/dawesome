@@ -4,6 +4,7 @@ import Topbar from './components/topbar/Topbar'
 import Sidebar from './components/sidebar/Sidebar'
 import TabWindow from './views/TabWindow'
 import { listeners } from './events/window'
+import { listenForFileDrops } from './events/fileDrop'
 import { selectProjectPath, selectProjectUnsaved, windowTitle } from './state/slices/projectSlice'
 import ProjectNotice from './components/ProjectNotice'
 import DragGhost from './components/DragGhost'
@@ -24,6 +25,8 @@ const App = () => {
       listeners.recentProjectMenu(dispatch),
       listeners.quitRequested(dispatch),
       listeners.viewMenu(dispatch),
+      // files dragged in from Finder
+      listenForFileDrops(),
     ]
     return () => { listening.forEach(l => l.then(stop => stop())) }
   }, [dispatch])

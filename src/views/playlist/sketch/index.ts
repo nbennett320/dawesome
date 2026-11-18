@@ -320,7 +320,21 @@ interface SampleDrag {
   preview: PlaylistObject | null
   // set if the waveform couldn't be loaded
   error: string | null
+  // files dragged in from outside after the first (up to FILE_GHOSTS in
+  // all), each to land a track further down
+  more: MoreGhost[]
 }
+
+// a file dragged in from outside after the first, drawn below it
+interface MoreGhost {
+  path: string
+  data: { soundData: Float32Array, duration: number } | null
+  preview: PlaylistObject | null
+}
+
+// how many of the files dragged in from outside are drawn following the
+// mouse: past this many, the drop asks first (see dropFilesOnPlaylist)
+export const FILE_GHOSTS = 16
 
 // a clip following the mouse, whichever kind of drag it came from
 interface DraggedClip {
@@ -1683,9 +1697,15 @@ export class Renderer extends RendererBase {
       return
     }
 
-    this.sampleDrag = { item, key, x, y, containerTop, data: null, preview: null, error: null }
+    this.sampleDrag = { item, key, x, y, containerTop, data: null, preview: null, error: null, more: [] }
     if(item.kind === 'sample') {
       this.#loadSamplePreview(item.path, key)
+    } else if(item.kind === 'files') {
+      // one under the mouse, the rest a track further down each
+      const [first, ...rest] = item.files.slice(0, FILE_GHOSTS)
+      if(first) this.#loadSamplePreview(first.path, key)
+      this.sampleDrag.more = rest.map(file => ({ path: file.path, data: null, preview: null }))
+      this.sampleDrag.more.forEach(ghost => this.#loadSamplePreview(ghost.path, key, ghost))
     } else {
       // a pattern clip has no waveform: it draws its pattern (see PlaylistObject)
       this.sampleDrag.data = { soundData: new Float32Array(0), duration: this.patternSecondsOf(item.patternId) }
@@ -1752,14 +1772,17 @@ export class Renderer extends RendererBase {
     if(override?.playedDuration !== undefined) obj.setDuration(override.playedDuration)
   }
 
-  #loadSamplePreview = async (path: string, key: string) => {
+  // - more: a file after the first, from outside, to load instead
+  #loadSamplePreview = async (path: string, key: string, more?: MoreGhost) => {
     try {
       const [encoded, duration] =
         await invoke<[string, number]>('get_sample_preview', { samplePath: path })
       // the drag may have ended, or moved on to another sample, while loading
       if(this.sampleDrag?.key !== key) return
 
-      this.sampleDrag.data = { soundData: decodeLevels(encoded), duration }
+      const data = { soundData: decodeLevels(encoded), duration }
+      if(more) more.data = data
+      else this.sampleDrag.data = data
     } catch(e) {
       console.error('could not preview sample:', path, e)
       if(this.sampleDrag?.key === key) this.sampleDrag.error = String(e)
@@ -1777,21 +1800,37 @@ export class Renderer extends RendererBase {
     if(!drag?.data) return null
     if(drag.preview) return drag.preview
 
-    const { item, containerTop, data: { soundData, duration } } = drag
-    drag.preview = new PlaylistObject(p, canvas, this, {
+    const { item, data } = drag
+    const path = item.kind === 'sample' ? item.path : item.kind === 'files' ? item.files[0]?.path ?? '' : ''
+    drag.preview = this.#ghostClip(p, canvas, data, path, 0, item.kind === 'pattern' ? item.patternId : undefined)
+    return drag.preview
+  }
+
+  // a clip drawn following the mouse, not in the playlist (its id is -1)
+  // - track: how far below the clip under the mouse it is
+  #ghostClip = (
+    p: P5CanvasInstance<CanvasProps>,
+    canvas: p5.Renderer,
+    { soundData, duration }: { soundData: Float32Array, duration: number },
+    path: string,
+    track: number,
+    patternId?: number,
+  ): PlaylistObject => {
+    const containerTop = this.sampleDrag?.containerTop ?? 0
+    return new PlaylistObject(p, canvas, this, {
       currentScale: this.currentScale,
       soundData,
       duration,
       timelineWidth: this.width,
       timelineHeight: staticDefaults.timelineHeight,
-      trackNumber: 0,
+      trackNumber: track,
       trackHeight: staticDefaults.trackHeight,
       playlistItem: {
-        id: -1,
-        path: item.kind === 'sample' ? item.path : '',
-        ...(item.kind === 'pattern' ? { patternId: item.patternId } : {}),
+        id: -1 - track,
+        path,
+        ...(patternId !== undefined ? { patternId } : {}),
         startBeat: 0,
-        trackNumber: 0,
+        trackNumber: track,
         // same vertical offset added clips get (see addToPlaylist)
         pixelOffset: {
           x: 0, y: containerTop, left: 0, top: containerTop,
@@ -1799,9 +1838,16 @@ export class Renderer extends RendererBase {
         },
       },
     })
-
-    return drag.preview
   }
+
+  // the files dragged in from outside after the first that have loaded,
+  // each a track further down
+  #moreGhosts = (p: P5CanvasInstance<CanvasProps>, canvas: p5.Renderer): PlaylistObject[] =>
+    (this.sampleDrag?.more ?? []).flatMap((ghost, i) => {
+      if(!ghost.data) return []
+      ghost.preview ??= this.#ghostClip(p, canvas, ghost.data, ghost.path, i + 1)
+      return [ghost.preview]
+    })
 
   // what the sidebar drag is doing, for the debug window
   #sampleDragStatus = (): string => {
@@ -1829,7 +1875,7 @@ export class Renderer extends RendererBase {
     if(sampleDrag && preview) {
       return {
         item: preview,
-        group: [],
+        group: this.#moreGhosts(p, canvas),
         grabX: 0,
         grabY: this.sampleGrabY,
         mouseX: sampleDrag.x,
@@ -1853,6 +1899,13 @@ export class Renderer extends RendererBase {
     if(!drag.group.length) {
       return [{ item: drag.item, beat: target.snappedBeat, track: target.trackNumber }]
     }
+    // files from outside: one a track, from the one under the mouse down
+    // (onto new tracks as needed), all starting together
+    if(!this.clipDrag?.active && this.sampleDrag?.item.kind === 'files') {
+      return [drag.item, ...drag.group].map(item => ({
+        item, beat: target.snappedBeat, track: target.trackNumber + item.playlistItem.trackNumber,
+      }))
+    }
 
     const clips = [drag.item, ...drag.group]
     const placed = clips.map(clip => ({
@@ -1867,7 +1920,7 @@ export class Renderer extends RendererBase {
   // the top of a track's lane, in playlist y. a new track (see trackAt)
   // starts where the area below the last one does
   #laneTop = (trackNumber: number): number | null => {
-    if(trackNumber === this.trackCount) return trackTop(this.trackCount)
+    if(trackNumber >= this.trackCount) return trackTop(trackNumber)
     return this.playlistTracks.find(t => t.trackNumber === trackNumber)?.minHeight ?? null
   }
 
