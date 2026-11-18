@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::effect::{Effect, Entry, Io, Values};
+use crate::readout::{Readout, READOUT};
 use crate::smooth::Smoother;
 use crate::tap::Tap;
 use crate::transport::Transport;
@@ -34,6 +35,8 @@ pub struct Store {
   entry: &'static Entry,
   // what the effect puts out, for the app's analyzers (tap.rs)
   tap: Tap,
+  // what it's doing, for its panel (readout.rs)
+  readout: Readout,
   // each parameter's plain value (f32 bits), by id
   values: Box<[AtomicU32]>,
   version: AtomicU64,
@@ -45,7 +48,7 @@ impl Store {
     let values = entry.params.iter()
       .map(|p| AtomicU32::new(p.default.to_bits()))
       .collect();
-    Arc::new(Store { entry, tap: Tap::new(), values, version: AtomicU64::new(0) })
+    Arc::new(Store { entry, tap: Tap::new(), readout: Readout::new(), values, version: AtomicU64::new(0) })
   }
 
   pub fn entry(&self) -> &'static Entry {
@@ -54,6 +57,10 @@ impl Store {
 
   pub fn tap(&self) -> &Tap {
     &self.tap
+  }
+
+  pub fn readout(&self) -> &Readout {
+    &self.readout
   }
 
   // how many changes there have been
@@ -203,6 +210,9 @@ impl Runner {
       self.frames += len as u64;
     }
     self.store.tap.write(&out_l[..frames], &out_r[..frames], transport.sample_rate);
+    let mut readout = [0.; READOUT];
+    self.effect.readout(&mut readout);
+    self.store.readout.write(&readout, frames, transport.sample_rate);
     self.tail = self.effect.tail_frames(&Values(&self.plain), self.rate);
   }
 

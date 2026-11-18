@@ -126,6 +126,12 @@ docs
 
 - pan law compensation
 
+---
+
+- delay ui work
+- chorus ui work
+- styles: less than half the window - make things look nicer
+- styles: default timeline tab height to be short
 
 
 

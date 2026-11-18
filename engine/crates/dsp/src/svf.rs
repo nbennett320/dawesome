@@ -85,6 +85,17 @@ impl Coefs {
     Coefs { g, k, a1, a2, a3, m0, m1, m2 }
   }
 
+  // just the filter's poles, for `State::outputs` (which gives every pass
+  // at once): `g` is tan(pi f / rate), worked out once and shared by
+  // filters at the same frequency
+  pub fn poles(g: f32, q: f32) -> Coefs {
+    let k = 1. / q.max(0.01);
+    let a1 = 1. / (1. + g * (g + k));
+    let a2 = g * a1;
+    let a3 = g * a2;
+    Coefs { g, k, a1, a2, a3, m0: 0., m1: 0., m2: 1. }
+  }
+
   // the gain (as an amplitude) these make at `freq` Hz, at `rate` Hz: the
   // analog filter, warped as the trapezoidal one is
   pub fn response(&self, freq: f32, rate: f32) -> f32 {
@@ -116,6 +127,20 @@ impl State {
     self.ic1 = 2. * v1 - self.ic1;
     self.ic2 = 2. * v2 - self.ic2;
     c.m0 * x + c.m1 * v1 + c.m2 * v2
+  }
+
+  // the low, high and band pass of `x` at once (12 dB/oct each, the band
+  // 0 dB at its peak). the memory moves the same whichever is listened to,
+  // so a filter can glide from one to another without starting anything
+  // cold
+  #[inline]
+  pub fn outputs(&mut self, c: &Coefs, x: f32) -> [f32; 3] {
+    let v3 = x - self.ic2;
+    let v1 = c.a1 * self.ic1 + c.a2 * v3;
+    let v2 = self.ic2 + c.a2 * self.ic1 + c.a3 * v3;
+    self.ic1 = 2. * v1 - self.ic1;
+    self.ic2 = 2. * v2 - self.ic2;
+    [v2, x - c.k * v1 - v2, c.k * v1]
   }
 
   pub fn reset(&mut self) {
@@ -166,6 +191,23 @@ mod tests {
     assert!((at(Shape::HighCut, 0.) + 3.).abs() < 0.05);
     assert!(at(Shape::Notch, 0.) < -60.);
     assert!(at(Shape::BandPass, 0.).abs() < 0.01);
+  }
+
+  #[test]
+  fn test_its_outputs_are_its_cuts_and_band_pass() {
+    let g = (PI * 1000. / RATE).tan();
+    let poles = Coefs::poles(g, 2.);
+    let shapes = [Shape::HighCut, Shape::LowCut, Shape::BandPass];
+    let mut all = State::default();
+    let mut each = [State::default(); 3];
+    for i in 0..2000 {
+      let x = (i as f32 * 0.37).sin() + if i == 10 { 1. } else { 0. };
+      let outs = all.outputs(&poles, x);
+      for (n, shape) in shapes.iter().enumerate() {
+        let one = each[n].run(&Coefs::new(*shape, 1000., 0., 2., RATE), x);
+        assert!((outs[n] - one).abs() < 1e-4, "{:?} at {}: {} vs {}", shape, i, outs[n], one);
+      }
+    }
   }
 
   #[test]

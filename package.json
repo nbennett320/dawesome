@@ -16,6 +16,7 @@
     "engine:test:ignored": "cargo test --manifest-path engine/Cargo.toml -- --ignored --test-threads=1",
     "engine:test:profile": "cargo test --manifest-path engine/Cargo.toml --release --no-default-features --features perf --bin app perf_ -- --ignored --show-output --test-threads=1",
     "dsp:bench": "cargo run --release --manifest-path engine/Cargo.toml -p dawesome-dsp --example bench",
+    "dsp:render": "cargo run --release --manifest-path engine/Cargo.toml -p dawesome-dsp --example render --",
     "engine:clean": "cargo clean --manifest-path engine/Cargo.toml -p app",
     "info": "tauri info",
     "build": "tauri build",

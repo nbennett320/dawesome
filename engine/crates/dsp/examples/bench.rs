@@ -10,7 +10,7 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use dsp::effects::{delay, eq};
+use dsp::effects::{chorus, delay, eq, filter, flanger, phaser};
 use dsp::{Runner, Store, Transport, REGISTRY};
 
 const RATE: u32 = 48_000;
@@ -125,6 +125,52 @@ fn main() {
   let mut runner = Runner::new(store.clone(), RATE as f32);
   let cut = time(&mut runner, |n| { store.set(delay::HIGH_CUT, (n % 100) as f32 / 100.); });
   report("high cut turned all the time", cut);
+
+  // the Chorus at its busiest: four voices with every experimental part on
+  println!("\nChorus");
+  let store = Store::new(&chorus::ENTRY);
+  report("defaults (two voices), still", time(&mut Runner::new(store.clone(), RATE as f32), |_| {}));
+  store.set_plain(chorus::VOICES, 3.);
+  store.set_plain(chorus::BLOOM, 50.);
+  store.set_plain(chorus::DRIFT, 50.);
+  store.set_plain(chorus::PRISM, 50.);
+  report("four voices, Bloom, Drift and Prism on, still", time(&mut Runner::new(store.clone(), RATE as f32), |_| {}));
+  let mut runner = Runner::new(store.clone(), RATE as f32);
+  let turned = time(&mut runner, |n| { store.set(chorus::TONE, (n % 100) as f32 / 100.); });
+  report("four voices, tone turned all the time", turned);
+
+  // the Flanger: Barberpole reads three more copies
+  println!("\nFlanger");
+  let store = Store::new(&flanger::ENTRY);
+  report("defaults, still", time(&mut Runner::new(store.clone(), RATE as f32), |_| {}));
+  store.set_plain(flanger::ZERO, 1.);
+  store.set_plain(flanger::BARBERPOLE, 60.);
+  store.set_plain(flanger::ENVELOPE, 60.);
+  report("through-zero, Barberpole and Envelope on, still", time(&mut Runner::new(store.clone(), RATE as f32), |_| {}));
+
+  // the Phaser: a stage's coefficients are worked out once a sample, so
+  // Melt (every stage its own) and Barberpole (two more chains) cost most
+  println!("\nPhaser");
+  let store = Store::new(&phaser::ENTRY);
+  report("defaults (six stages), still", time(&mut Runner::new(store.clone(), RATE as f32), |_| {}));
+  store.set_plain(phaser::STAGES, 5.);
+  report("twelve stages, still", time(&mut Runner::new(store.clone(), RATE as f32), |_| {}));
+  store.set_plain(phaser::MELT, 60.);
+  store.set_plain(phaser::BARBERPOLE, 60.);
+  store.set_plain(phaser::ENVELOPE, 60.);
+  report("twelve stages, Melt, Barberpole and Envelope on", time(&mut Runner::new(store.clone(), RATE as f32), |_| {}));
+
+  // the Filter: still (its coefficients kept), then swept every sample
+  println!("\nFilter");
+  let store = Store::new(&filter::ENTRY);
+  report("defaults (24 dB low pass, still)", time(&mut Runner::new(store.clone(), RATE as f32), |_| {}));
+  store.set_plain(filter::MODE, filter::LFO as f32);
+  store.set_plain(filter::DRIVE, 12.);
+  report("LFO sweeping, drive on", time(&mut Runner::new(store.clone(), RATE as f32), |_| {}));
+  store.set_plain(filter::VOWEL, 60.);
+  store.set_plain(filter::SPIN, 60.);
+  store.set_plain(filter::TUNE, 1.);
+  report("LFO sweeping, Vowel, Spin and Tune on", time(&mut Runner::new(store.clone(), RATE as f32), |_| {}));
 
   // an analyzer frame, as the app asks for one ~30 times a second
   println!("\nAnalyzer");

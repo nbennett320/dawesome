@@ -16,12 +16,17 @@
 // it holds their values, smooths them, and calls the effect with values
 // that hold still for each call
 
+pub mod allpass;
 pub mod delay_line;
 pub mod effect;
 pub mod effects;
+pub mod envelope;
 pub mod fft;
+pub mod hilbert;
 pub mod interp;
+pub mod lfo;
 pub mod param;
+pub mod readout;
 pub mod runner;
 pub mod smooth;
 pub mod spectrum;
@@ -35,6 +40,7 @@ mod testing;
 pub use effect::{Effect, EffectInfo, Entry, Io, Values};
 pub use effects::{find, REGISTRY};
 pub use param::{Kind, ParamDesc, Taper, Unit};
+pub use readout::{Readout, READOUT};
 pub use runner::{Runner, Store};
 pub use tap::Tap;
 pub use transport::Transport;

@@ -3,8 +3,12 @@ import { Notice } from '../../components/common'
 import { groupParams } from '../../types/nativeEffect'
 import ParamControl from './ParamControl'
 import { EffectParamsApi, useEffectParams } from './useEffectParams'
+import ChorusPanel from './chorus/ChorusPanel'
 import DelayPanel from './delay/DelayPanel'
 import EqPanel from './eq/EqPanel'
+import FilterPanel from './filter/FilterPanel'
+import FlangerPanel from './flanger/FlangerPanel'
+import PhaserPanel from './phaser/PhaserPanel'
 
 // a built-in effect's own panel, for one that wants more than knobs (the
 // EQ's curve), by the effect's id. one that has none gets the generated
@@ -13,8 +17,12 @@ import EqPanel from './eq/EqPanel'
 //   then
 export type CustomPanel = React.ComponentType<{ api: EffectParamsApi, slotId: number, active: boolean }>
 const PANELS: Record<string, CustomPanel> = {
+  chorus: ChorusPanel,
   delay: DelayPanel,
   eq: EqPanel,
+  filter: FilterPanel,
+  flanger: FlangerPanel,
+  phaser: PhaserPanel,
 }
 
 // every parameter, a group to a box, the boxes wrapping to the tab's

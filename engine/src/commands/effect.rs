@@ -3,7 +3,7 @@
 use crate::daw::actions::effect::{add, move_to, remove, set_bypassed, set_param, set_param_text, AddedEffect};
 use crate::commands::TState;
 use crate::daw::effects::Racks;
-use crate::daw::native::{EffectParams, EffectSpectrum, ParamValue};
+use crate::daw::native::{EffectParams, EffectReadout, EffectSpectrum, ParamValue};
 use crate::daw::plugin_catalog::PluginCatalog;
 
 // the plugins installed, after Dawesome's own effects (native.rs)
@@ -59,6 +59,14 @@ pub fn get_effect_params(state: TState<'_>, slot_id: u64) -> Result<EffectParams
 #[tauri::command(async)]
 pub fn get_effect_spectrum(state: TState<'_>, slot_id: u64) -> Result<Option<EffectSpectrum>, String> {
   state.playlist.effects.with_native(slot_id, |native| native.spectrum())
+}
+
+// what a built-in effect is doing now (an LFO's phase, a notch's
+// frequency), for its panel to draw. polled while its tab shows: off the
+// main thread, as the spectrum is
+#[tauri::command(async)]
+pub fn get_effect_readout(state: TState<'_>, slot_id: u64) -> Result<EffectReadout, String> {
+  state.playlist.effects.with_native(slot_id, |native| native.readout())
 }
 
 // set one of a built-in effect's parameters, by its normalized value (0 to

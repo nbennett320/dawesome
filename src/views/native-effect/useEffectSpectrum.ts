@@ -4,7 +4,7 @@ import { EffectSpectrum } from '../../types/nativeEffect'
 import { follow, Picture, POLL_MS } from './spectrum'
 
 // whether the app's window can be seen (not minimized or hidden)
-const useVisible = (): boolean => {
+export const useVisible = (): boolean => {
   const [visible, setVisible] = React.useState(() => document.visibilityState !== 'hidden')
   React.useEffect(() => {
     const update = () => setVisible(document.visibilityState !== 'hidden')

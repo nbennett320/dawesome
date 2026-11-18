@@ -287,12 +287,30 @@ fn test_turning_a_knob_doesnt_click() {
         store.set_plain(id, p.max);
         let turned = run(&mut runner, after, 256, RATE);
         let tail = run(&mut runner, after, 256, RATE);
+        // and the same with the knob left where it was, or where it went,
+        // all along: a sound that swells by itself (a barberpole's comb
+        // passing the sine) moves as fast there, at the same moment
+        let still = |value: f32| {
+          let store = store_with(entry, base);
+          store.set_plain(id, value);
+          let mut runner = Runner::new(store.clone(), RATE as f32);
+          run(&mut runner, before, 256, RATE);
+          run(&mut runner, before, 256, RATE);
+          run(&mut runner, after, 256, RATE)
+        };
 
         let step = |s: &[f32]| s.windows(2).fold(0f32, |m, w| m.max((w[1] - w[0]).abs()));
-        let usual = step(&settled[0]).max(step(&tail[0]));
+        // (and how sharply it bends: a click is a corner, where a swell is
+        // still the sine's own smooth curve, only bigger. a sound that's
+        // quiet when steady, a barberpole's wet, swells as a knob moves its
+        // notches past the sine: the step grows then, the bend barely)
+        let bend = |s: &[f32]| s.windows(3).fold(0f32, |m, w| m.max((w[2] - 2. * w[1] + w[0]).abs()));
+        let (still_min, still_max) = (still(p.min), still(p.max));
+        let usual = step(&settled[0]).max(step(&tail[0])).max(step(&still_min[0])).max(step(&still_max[0]));
+        let usual_bend = bend(&settled[0]).max(bend(&tail[0])).max(bend(&still_min[0])).max(bend(&still_max[0]));
         let moving = step(&turned[0]);
         assert!(
-          moving <= usual * 2. + 1e-3,
+          moving <= usual * 2. + 1e-3 || bend(&turned[0]) <= usual_bend * 2. + 1e-4,
           "{}: turning {} with {:?} clicks (a jump of {} where the sound moves at most {})", name, p.key, base, moving, usual
         );
       }
@@ -416,6 +434,18 @@ fn test_what_it_puts_out_is_tapped_for_the_app() {
     let (latest, _) = tap.latest(64).unwrap();
     let expected: Vec<f32> = (5000 - 64..5000).map(|i| (l[i] + r[i]) * 0.5).collect();
     assert_eq!(latest, expected, "{}", entry.info.name);
+  }
+}
+
+#[test]
+fn test_its_readout_counts_the_frames_it_runs() {
+  for entry in effects() {
+    let store = Store::new(entry);
+    let mut runner = Runner::new(store.clone(), RATE as f32);
+    run(&mut runner, &noise(5000, 3), 512, RATE);
+    let (slots, written, rate) = store.readout().read();
+    assert_eq!((written, rate), (5000, RATE), "{}", entry.info.name);
+    assert!(slots.iter().all(|x| x.is_finite()), "{}", entry.info.name);
   }
 }
 

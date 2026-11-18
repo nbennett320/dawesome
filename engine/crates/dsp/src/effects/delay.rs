@@ -99,7 +99,7 @@ pub fn times(params: &Values, tempo: f64) -> [f32; 2] {
 
 // how the dry sound and the echoes are mixed at `mix` (0 to 100): the dry
 // stays whole to the middle, then falls; the echoes are whole from there
-fn levels(mix: f32) -> (f32, f32) {
+pub(crate) fn levels(mix: f32) -> (f32, f32) {
   let m = (mix / 100.).clamp(0., 1.);
   ((2. * (1. - m)).min(1.), (2. * m).min(1.))
 }
