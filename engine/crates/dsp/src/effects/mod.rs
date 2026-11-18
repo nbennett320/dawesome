@@ -8,8 +8,9 @@ pub mod chorus;
 pub mod delay;
 pub mod eq;
 pub mod flanger;
+pub mod phaser;
 
-pub static REGISTRY: &[&Entry] = &[&eq::ENTRY, &delay::ENTRY, &chorus::ENTRY, &flanger::ENTRY];
+pub static REGISTRY: &[&Entry] = &[&eq::ENTRY, &delay::ENTRY, &chorus::ENTRY, &flanger::ENTRY, &phaser::ENTRY];
 
 // a built-in effect by its id ("eq")
 pub fn find(id: &str) -> Option<&'static Entry> {

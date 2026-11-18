@@ -52,6 +52,14 @@ impl Allpass {
     self.s = 0.;
   }
 
+  // left out of a chain, but ready to come in near the top of the
+  // spectrum: where its memory would settle there, with `x` going in (a
+  // one-pole that high follows its input), so it joins without a jump
+  #[inline]
+  pub fn rest(&mut self, x: f32) {
+    self.s = x;
+  }
+
   // (see svf::State::flush)
   pub fn flush(&mut self) {
     if self.s.abs() < TINY { self.s = 0.; }

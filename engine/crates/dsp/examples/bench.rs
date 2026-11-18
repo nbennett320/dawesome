@@ -10,7 +10,7 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use dsp::effects::{chorus, delay, eq, flanger};
+use dsp::effects::{chorus, delay, eq, flanger, phaser};
 use dsp::{Runner, Store, Transport, REGISTRY};
 
 const RATE: u32 = 48_000;
@@ -147,6 +147,18 @@ fn main() {
   store.set_plain(flanger::BARBERPOLE, 60.);
   store.set_plain(flanger::ENVELOPE, 60.);
   report("through-zero, Barberpole and Envelope on, still", time(&mut Runner::new(store.clone(), RATE as f32), |_| {}));
+
+  // the Phaser: a stage's coefficients are worked out once a sample, so
+  // Melt (every stage its own) and Barberpole (two more chains) cost most
+  println!("\nPhaser");
+  let store = Store::new(&phaser::ENTRY);
+  report("defaults (six stages), still", time(&mut Runner::new(store.clone(), RATE as f32), |_| {}));
+  store.set_plain(phaser::STAGES, 5.);
+  report("twelve stages, still", time(&mut Runner::new(store.clone(), RATE as f32), |_| {}));
+  store.set_plain(phaser::MELT, 60.);
+  store.set_plain(phaser::BARBERPOLE, 60.);
+  store.set_plain(phaser::ENVELOPE, 60.);
+  report("twelve stages, Melt, Barberpole and Envelope on", time(&mut Runner::new(store.clone(), RATE as f32), |_| {}));
 
   // an analyzer frame, as the app asks for one ~30 times a second
   println!("\nAnalyzer");
