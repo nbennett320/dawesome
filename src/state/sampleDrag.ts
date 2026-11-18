@@ -142,6 +142,10 @@ export const beginSampleDrag = (
     if(dragging) emit({ type: 'cancel', item, ...last })
   }
 
+  // nothing's selected by pressing on what's dragged and moving off it:
+  // the browser starts selecting before the drag is far enough to begin
+  window.addEventListener('selectstart', ev => ev.preventDefault(), { signal })
+
   window.addEventListener('mousemove', (ev: MouseEvent) => {
     last = { clientX: ev.clientX, clientY: ev.clientY }
 
@@ -151,8 +155,10 @@ export const beginSampleDrag = (
 
       dragging = true
       body.style.cursor = 'grabbing'
-      // don't select text in the sidebar while dragging over it
+      // don't select text in the sidebar while dragging over it, and let go
+      // of any that was (a tab's label, say, from before the drag began)
       body.style.userSelect = 'none'
+      window.getSelection()?.removeAllRanges()
     }
 
     emit({ type: 'move', item, ...last })
