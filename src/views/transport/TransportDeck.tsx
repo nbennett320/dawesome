@@ -28,6 +28,7 @@ import {
 import { usePlayhead } from './usePlayhead'
 import { useElementSize } from './useElementSize'
 import TapeMachinePanel from './TapeMachinePanel'
+import PitchKnob from './PitchKnob'
 import { FastForwardIcon, HeadIcon, PauseIcon, PlayIcon, RecordIcon, RewindIcon, StopIcon, TapeIcon } from '../../components/icons'
 
 // holding a wind key this long winds the tape; a shorter press moves a bar
@@ -147,7 +148,8 @@ const TransportDeck = () => {
   if(wind && transport) {
     speed = windDone(wind, position, transport) ? 0 : wind.direction * WIND_SPEED
   } else if(playing && progress < 1) {
-    speed = 1
+    // (at the varispeed's speed, with the tape on)
+    speed = transport?.speed ?? 1
   }
 
   // armed: blinks while waiting, lit while the tape runs
@@ -259,6 +261,8 @@ const TransportDeck = () => {
                 <PauseIcon />
               </AnalogButton>
             </DeckKey>
+            <div className='self-stretch w-px my-1 bg-line' aria-hidden />
+            <PitchKnob />
           </div>
 
           {/* in with the keys, so the cassette leaves room for it, and

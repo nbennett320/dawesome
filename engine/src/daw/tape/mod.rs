@@ -57,6 +57,9 @@ struct State {
   // a track's (content, recipe) seen out of date once, waiting to hold
   // still for another look
   waiting: BTreeMap<u32, (u64, print::Recipe)>,
+  // the speed last sent to the engine (the varispeed: the PITCH knob with
+  // the tape on). an engine starts at 1, so 1 is never sent (T14)
+  speed: f64,
 }
 
 static STATE: Mutex<State> = Mutex::new(State {
@@ -67,6 +70,7 @@ static STATE: Mutex<State> = Mutex::new(State {
   built: None,
   prints: BTreeMap::new(),
   waiting: BTreeMap::new(),
+  speed: 1.,
 });
 
 // the project's tape changed (an edit, undo or redo, a project opened)
@@ -89,6 +93,7 @@ pub fn set_preferences(mode: TapeMode, tap: TapeTap, method: TapeMethod) {
 pub fn output_opened() {
   let mut state = STATE.lock().unwrap();
   state.built = None;
+  state.speed = 1.;
   send(&mut state);
 }
 
@@ -96,8 +101,20 @@ fn send(state: &mut State) {
   // (no output open: nothing to send; output_opened sends it when one is)
   let Some(engine) = engine::engine_if_open() else {
     state.built = None;
+    state.speed = 1.;
     return;
   };
+  let Some(settings) = state.settings.as_ref() else { return };
+
+  // the song's speed, whether or not anything's on tape (the varispeed is
+  // the whole song's, after the master)
+  let speed = settings.machine.speed();
+  if speed != state.speed {
+    match engine.set_speed(speed) {
+      Ok(()) => state.speed = speed,
+      Err(e) => println!("the tape's speed didn't reach the engine: {}", e),
+    }
+  }
   let Some(settings) = state.settings.as_ref() else { return };
   let shape = live::shape(settings, state.mode, state.tap, state.method, engine.sample_rate());
 

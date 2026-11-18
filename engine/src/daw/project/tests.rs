@@ -1290,7 +1290,7 @@ fn test_the_tape_is_saved_and_loaded() {
   save_to(&state, &file).unwrap();
   assert!(!fs::read_to_string(&file).unwrap().contains("\"tape\""));
 
-  let machine = TapeMachine { enabled: true, machine: 1, age: 30., wobble: 150., hiss: 0., dbx: false, output_db: -6. };
+  let machine = TapeMachine { enabled: true, machine: 1, age: 30., wobble: 150., hiss: 0., dbx: false, output_db: -6., pitch: -4.5 };
   crate::daw::actions::tape::change_tape_machine(&state, machine, None);
   crate::daw::actions::tape::change_track_tape(&state, TrackTape { track_number: 2, on_tape: true, drive_db: 4.5 }, None);
   save_to(&state, &file).unwrap();

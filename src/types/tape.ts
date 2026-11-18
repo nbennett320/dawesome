@@ -20,6 +20,10 @@ export interface TapeMachine {
   // the deck's noise reduction
   dbx: boolean
   outputDb: number
+  // the PITCH knob: how much faster (below 0, slower) the whole song plays,
+  // in %, pitch and tempo together, as a tape deck's varispeed. only with
+  // the tape on
+  pitch: number
 }
 
 // a track's place on the tape
@@ -49,6 +53,7 @@ export const defaultTapeMachine: TapeMachine = {
   hiss: 100,
   dbx: true,
   outputDb: 0,
+  pitch: 0,
 }
 
 export const DEFAULT_DRIVE_DB = 0
@@ -59,9 +64,20 @@ export const WOBBLE = { min: 0, max: 200, default: 100 }
 export const HISS = { min: 0, max: 200, default: 100 }
 export const OUTPUT_DB = { min: -24, max: 12, default: 0 }
 export const DRIVE_DB = { min: -12, max: 18, default: DEFAULT_DRIVE_DB }
+// ±12 % with a click at 0, like a Portastudio's PITCH knob (T27)
+export const PITCH = { min: -12, max: 12, default: 0 }
+// how near 0 a drag has to come for the knob to click into place there
+export const PITCH_DETENT = 0.5
 
 // e.g. "40%"
 export const formatPercent = (percent: number): string => `${Math.round(percent)}%`
+
+// e.g. "+3.5%", "0%" (at its click), "-12.0%"
+export const formatPitch = (percent: number): string => {
+  const rounded = Math.round(percent * 10) / 10
+  if(rounded === 0) return '0%'
+  return `${rounded > 0 ? '+' : ''}${rounded.toFixed(1)}%`
+}
 
 // e.g. "+3.0 dB", "0.0 dB", "-6.5 dB"
 export const formatGainDb = (db: number): string => {
