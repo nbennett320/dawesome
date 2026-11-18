@@ -3,6 +3,7 @@ import { Notice } from '../../components/common'
 import { groupParams } from '../../types/nativeEffect'
 import ParamControl from './ParamControl'
 import { EffectParamsApi, useEffectParams } from './useEffectParams'
+import ChorusPanel from './chorus/ChorusPanel'
 import DelayPanel from './delay/DelayPanel'
 import EqPanel from './eq/EqPanel'
 
@@ -13,6 +14,7 @@ import EqPanel from './eq/EqPanel'
 //   then
 export type CustomPanel = React.ComponentType<{ api: EffectParamsApi, slotId: number, active: boolean }>
 const PANELS: Record<string, CustomPanel> = {
+  chorus: ChorusPanel,
   delay: DelayPanel,
   eq: EqPanel,
 }
