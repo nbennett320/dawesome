@@ -43,6 +43,8 @@ export const menuViews: Record<string, View> = {
   appearance: View.Preferences,
   // Preferences › Controls…
   controls: View.Controls,
+  // Preferences › File Paths…
+  'file-paths': View.FilePaths,
 }
 
 // the Window and Preferences menus (and File › Mixdown…): open a tab, or select it where it's already open.

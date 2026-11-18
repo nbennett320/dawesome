@@ -1,12 +1,14 @@
-// the samples Dawesome comes with, and how a project names them
+// where samples come from: the ones Dawesome comes with, the folders added
+// in Preferences › File Paths, and the open project's own samples folder
 //
-// they're bundled into the app (assets/dawesome, see resources in
+// the bundled ones are bundled into the app (assets/dawesome, see resources in
 // tauri.conf.json), so where they are depends on where the app is. a project
 // saves one as `dawesome:TR-808/kick.wav` instead of a path into the app, and
 // so still finds it when the app has moved, or on someone else's computer
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use serde::Serialize;
 
 // what a bundled sample's saved path starts with
 pub const BUNDLED_PREFIX: &str = "dawesome:";
@@ -80,6 +82,100 @@ pub fn recovered(path: &Path) -> Option<PathBuf> {
   found.is_file().then_some(found)
 }
 
+// what a folder of samples is, in the File Paths list
+#[derive(Serialize, Debug, Clone, Copy, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum SamplePathKind {
+  // the ones Dawesome comes with
+  Bundled,
+  // a folder added in File Paths
+  User,
+  // the open project's samples folder (a shared project's samples)
+  Project,
+}
+
+// a folder of samples, as File Paths and the Samples browser list it
+#[derive(Serialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SamplePath {
+  pub name: String,
+  pub path: String,
+  pub kind: SamplePathKind,
+  // whether it's there (an added folder can be moved or deleted)
+  pub found: bool,
+}
+
+// what the bundled folder and the project's are called in the list
+pub const BUNDLED_NAME: &str = "Dawesome";
+pub const PROJECT_NAME: &str = "This project";
+
+fn folder_name(path: &Path) -> String {
+  path.file_name().map_or_else(|| path.to_string_lossy().into_owned(), |name| name.to_string_lossy().into_owned())
+}
+
+// every folder of samples, in order: the bundled ones (listed from
+// `bundled`, which in a debug build is all of ./assets), the user's, and
+// the open project's samples folder when it has one
+pub fn sample_paths(bundled: Option<&Path>, user: &[String], project: Option<&Path>) -> Vec<SamplePath> {
+  let mut paths = Vec::new();
+  if let Some(dir) = bundled {
+    let dir = fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    paths.push(SamplePath {
+      name: BUNDLED_NAME.into(),
+      found: dir.is_dir(),
+      path: dir.to_string_lossy().into_owned(),
+      kind: SamplePathKind::Bundled,
+    });
+  }
+  paths.extend(user.iter().map(|path| SamplePath {
+    name: folder_name(Path::new(path)),
+    path: path.clone(),
+    kind: SamplePathKind::User,
+    found: Path::new(path).is_dir(),
+  }));
+  if let Some(dir) = project.filter(|dir| dir.is_dir()) {
+    paths.push(SamplePath {
+      name: PROJECT_NAME.into(),
+      path: fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf()).to_string_lossy().into_owned(),
+      kind: SamplePathKind::Project,
+      found: true,
+    });
+  }
+  paths
+}
+
+// the user's folders with `dir` added, or why it can't be: it isn't a
+// folder, or it's already listed, or inside a folder that is, or holds one
+pub fn with_added(user: &[String], dir: &Path) -> Result<Vec<String>, String> {
+  let dir = fs::canonicalize(dir)
+    .map_err(|e| format!("could not find the folder '{}': {}", dir.display(), e))?;
+  if !dir.is_dir() {
+    return Err(format!("'{}' isn't a folder", dir.display()));
+  }
+  let listed = bundled_root().map(|root| (BUNDLED_NAME.to_string(), root.to_path_buf()))
+    .into_iter()
+    .chain(user.iter().map(|path| (folder_name(Path::new(path)), fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path)))));
+  for (name, path) in listed {
+    if dir == path {
+      return Err(format!("{} is already in File Paths", name));
+    }
+    if dir.starts_with(&path) {
+      return Err(format!("that folder is inside {}, which is already in File Paths", name));
+    }
+    if path.starts_with(&dir) {
+      return Err(format!("that folder holds {}, which is already in File Paths. Remove it first", name));
+    }
+  }
+  let mut user = user.to_vec();
+  user.push(dir.to_string_lossy().into_owned());
+  Ok(user)
+}
+
+// the user's folders without `dir`
+pub fn without(user: &[String], dir: &str) -> Vec<String> {
+  user.iter().filter(|path| path.as_str() != dir).cloned().collect()
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -117,6 +213,60 @@ mod tests {
     // and only in an app
     let loose = Path::new("/Users/me/Contents/Resources/samples/TR-808/CB.WAV");
     assert_eq!(bundled_name(loose), None);
+  }
+
+  // an empty folder for one test's files
+  fn test_dir(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("dawesome-library-{}-{}", name, std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    fs::canonicalize(dir).unwrap()
+  }
+
+  #[test]
+  fn test_sample_paths_are_listed_in_order() {
+    let dir = test_dir("list");
+    let drums = dir.join("Drums");
+    let project = dir.join("song").join("samples");
+    fs::create_dir_all(&drums).unwrap();
+    fs::create_dir_all(&project).unwrap();
+    let user = vec![drums.to_string_lossy().into_owned(), dir.join("Gone").to_string_lossy().into_owned()];
+
+    let paths = sample_paths(bundled_root(), &user, Some(&project));
+    let listed: Vec<(&str, SamplePathKind, bool)> = paths.iter().map(|p| (p.name.as_str(), p.kind, p.found)).collect();
+    assert_eq!(listed, vec![
+      ("Dawesome", SamplePathKind::Bundled, true),
+      ("Drums", SamplePathKind::User, true),
+      ("Gone", SamplePathKind::User, false),
+      ("This project", SamplePathKind::Project, true),
+    ]);
+    // a project without a samples folder has none listed
+    assert_eq!(sample_paths(None, &[], Some(&dir.join("nothing"))), vec![]);
+
+    let _ = fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_adding_a_folder() {
+    let dir = test_dir("add");
+    let drums = dir.join("Drums");
+    fs::create_dir_all(drums.join("Kicks")).unwrap();
+    fs::write(dir.join("file.wav"), b"").unwrap();
+
+    let user = with_added(&[], &drums).unwrap();
+    assert_eq!(user, vec![drums.to_string_lossy().into_owned()]);
+    // not twice, nor a folder inside it, nor one holding it
+    assert!(with_added(&user, &drums).unwrap_err().contains("already"));
+    assert!(with_added(&user, &drums.join("Kicks")).unwrap_err().contains("inside Drums"));
+    assert!(with_added(&user, &dir).unwrap_err().contains("holds Drums"));
+    // nor the bundled samples
+    assert!(with_added(&[], bundled_root().unwrap()).unwrap_err().contains("Dawesome"));
+    // nor a file, nor what isn't there
+    assert!(with_added(&[], &dir.join("file.wav")).is_err());
+    assert!(with_added(&[], &dir.join("nothing")).is_err());
+
+    assert_eq!(without(&user, &user[0]), Vec::<String>::new());
+    let _ = fs::remove_dir_all(&dir);
   }
 
   #[test]

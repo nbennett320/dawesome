@@ -1,5 +1,5 @@
 use std::vec::{Vec};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::fs::{
   self,
   DirEntry,
@@ -25,34 +25,6 @@ pub fn bundled_samples_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     return Ok(PathBuf::from("./assets/dawesome"));
   }
   sample_browser_root(app)
-}
-
-pub fn get_sample_browser_root(root: &Path) -> Result<(Vec<String>, Vec<String>, Vec<String>, Vec<String>), String> {
-  let entries: Vec<DirEntry> = fs::read_dir(root)
-    .map_err(|e| format!("could not list {}: {}", root.display(), e))?
-    .filter_map(|e| e.ok())
-    .filter(|e| !is_hidden(e))
-    .collect();
-  let mut dirs: Vec<String> = Vec::new();
-  let mut dirs_paths: Vec<String> = Vec::new();
-  let mut samples: Vec<String> = Vec::new();
-  let mut samples_paths: Vec<String> = Vec::new();
-
-  for entry in entries {
-    if entry.path().is_dir() {
-      let val = String::from(entry.path().to_str().unwrap());
-      let path = String::from(entry.path().to_str().unwrap());
-      dirs.push(val);
-      dirs_paths.push(path);
-    } else {
-      let val = String::from(entry.path().file_name().unwrap().to_str().unwrap());
-      let path = String::from(entry.path().to_str().unwrap());
-      samples.push(val);
-      samples_paths.push(path);
-    }
-  }
-
-  Ok((samples, samples_paths, dirs, dirs_paths))
 }
 
 pub fn enumerate_files_in_dir(dir_path: String) -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>) {

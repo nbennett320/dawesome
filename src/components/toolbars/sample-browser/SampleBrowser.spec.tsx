@@ -5,16 +5,20 @@ import { configureStore } from '@reduxjs/toolkit'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { invoke } from '@tauri-apps/api/core'
 import envReducer from '../../../state/slices/envSlice'
+import projectReducer from '../../../state/slices/projectSlice'
 import SampleBrowser from './SampleBrowser'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 const mockInvoke = invoke as Mock
 
+// the folder of samples Dawesome comes with, as File Paths lists it
+const samples = { name: 'Dawesome', path: '/s', kind: 'bundled', found: true }
+
 // how long each sample plays, in seconds
 const lengths: Record<string, number> = { '/s/Clap.wav': 2, '/s/Kick.wav': 0.5, '/s/Long.wav': 5, '/s/Shaker.aif': 3 }
 
 const setup = async () => {
-  const store = configureStore({ reducer: { env: envReducer } })
+  const store = configureStore({ reducer: { env: envReducer, project: projectReducer } })
   render(<Provider store={store}><SampleBrowser /></Provider>)
   await act(async () => {})
 }
@@ -32,7 +36,8 @@ beforeEach(() => {
   vi.useFakeTimers()
   mockInvoke.mockReset()
   mockInvoke.mockImplementation(async (command: string, args?: { path?: string }) => {
-    if(command === 'get_sidebar_samples') {
+    if(command === 'sample_paths') return [samples]
+    if(command === 'enumerate_directory') {
       return [['Clap', 'Kick', 'Long', 'Shaker'], ['/s/Clap.wav', '/s/Kick.wav', '/s/Long.wav', '/s/Shaker.aif'], [], []]
     }
     if(command === 'preview_sample') return lengths[args?.path ?? '']
@@ -116,12 +121,40 @@ describe('previewing a sample', () => {
   it('shows no button if the sample couldn’t be played', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     mockInvoke.mockImplementation(async (command: string) => {
-      if(command === 'get_sidebar_samples') return [['Kick'], ['/s/Kick.wav'], [], []]
+      if(command === 'sample_paths') return [samples]
+      if(command === 'enumerate_directory') return [['Kick'], ['/s/Kick.wav'], [], []]
       if(command === 'preview_sample') throw new Error('could not decode')
       return undefined
     })
     await setup()
     await hear('Kick')
     expect(stopButtons()).toHaveLength(0)
+  })
+})
+
+describe('folders of samples', () => {
+  const drums = { name: 'Drums', path: '/me/Drums', kind: 'user', found: true }
+  const gone = { name: 'Old', path: '/usb/Old', kind: 'user', found: false }
+  const listings: Record<string, [string[], string[], string[], string[]]> = {
+    '/s': [['Clap'], ['/s/Clap.wav'], [], []],
+    '/me/Drums': [['Kick'], ['/me/Drums/Kick.wav'], [], []],
+  }
+
+  it('shows each one that’s there as a folder, open, named as File Paths names it', async () => {
+    mockInvoke.mockImplementation(async (command: string, args?: { dirPath?: string }) => {
+      if(command === 'sample_paths') return [samples, drums, gone]
+      if(command === 'enumerate_directory') return listings[args?.dirPath ?? '']
+      return undefined
+    })
+    await setup()
+    const folders = screen.getAllByRole('treeitem').filter(item => item.hasAttribute('aria-expanded'))
+    expect(folders.map(folder => folder.textContent)).toEqual([
+      expect.stringContaining('Dawesome'),
+      expect.stringContaining('Drums'),
+    ])
+    expect(folders.every(folder => folder.getAttribute('aria-expanded') === 'true')).toBe(true)
+    expect(row('Clap')).toBeTruthy()
+    expect(row('Kick')).toBeTruthy()
+    expect(screen.queryByRole('treeitem', { name: /Old/ })).toBeNull()
   })
 })

@@ -5,6 +5,7 @@ import {
   getDirectorySamples,
   selectBrowserSamples,
 } from '../../../state/slices/envSlice'
+import { selectProjectPath } from '../../../state/slices/projectSlice'
 import { useAppSelector, useAppDispatch } from '../../../hooks/redux'
 import { BrowserItemTypes, BrowserSampleItem } from '../../../types/sampleBrowser'
 import SampleItem from './SampleItem'
@@ -29,9 +30,27 @@ const SampleBrowser = () => {
   const { playing, preview: hear, stop } = usePreviewStop()
   const [query, setQuery] = React.useState('')
 
+  // the folders of samples, listed again when the project (whose samples
+  // folder is one) changes
+  const projectPath = useAppSelector(selectProjectPath)
   React.useEffect(() => {
-    dispatch(getBrowserRootSamples()).catch(logError('list the samples folder'))
-  }, [dispatch])
+    dispatch(getBrowserRootSamples()).catch(logError('list the folders of samples'))
+  }, [dispatch, projectPath])
+
+  // each folder of samples starts open, so its samples show as they always
+  // have. one the user closes stays closed
+  const roots = items.root.children
+  const seen = React.useRef<Set<string>>(new Set())
+  React.useEffect(() => {
+    const fresh = roots.filter(root => !seen.current.has(root))
+    if(!fresh.length) return
+    fresh.forEach(root => seen.current.add(root))
+    setExpanded(was => new Set([...was, ...fresh]))
+    setListed(was => new Set([...was, ...fresh]))
+    fresh.forEach(root => {
+      dispatch(getDirectorySamples(root)).catch(logError(`list ${root}`))
+    })
+  }, [dispatch, roots])
 
   // const refresh = () => {
   //   setListed(new Set())

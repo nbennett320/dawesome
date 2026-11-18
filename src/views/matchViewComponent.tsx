@@ -8,6 +8,7 @@ import AudioSettings from './audio-settings/AudioSettings'
 import Mixdown from './mixdown/Mixdown'
 import Preferences from './preferences/Preferences'
 import Controls from './preferences/Controls'
+import FilePaths from './preferences/FilePaths'
 import EffectsRack from './effects-rack/EffectsRack'
 import PianoRoll from './piano-roll/PianoRoll'
 import PluginTab from './plugin/PluginTab'
@@ -43,6 +44,8 @@ export const matchViewComponent = ({ component: view, slotId }: PaneTab): JSX.El
       return <Controls />
     case View.Timeline:
       return <Timeline />
+    case View.FilePaths:
+      return <FilePaths />
     default:
       // eslint-disable-next-line no-console
       console.error("Tab does not have a matching component: ", view)

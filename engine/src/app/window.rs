@@ -283,6 +283,7 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     &item("view-appearance", "Appearance", None)?,
     &item("view-audio", "Audio Settings", None)?,
     &item("view-controls", "Controls", None)?,
+    &item("view-file-paths", "File Paths", None)?,
   ])?;
 
   Menu::with_items(app, &[

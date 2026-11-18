@@ -1,18 +1,55 @@
-use crate::daw::{audiograph, playback};
-use crate::app;
+use std::path::Path;
 
-// (async: off the main thread, as listing a folder can take a while)
-#[tauri::command(async)]
-pub fn get_sidebar_samples(app: tauri::AppHandle) -> Result<(
-  Vec<String>,
-  Vec<String>,
-  Vec<String>,
-  Vec<String>
-), String> {
-  let root = app::env::sample_browser_root(&app)?;
-  app::env::get_sample_browser_root(&root)
+use crate::daw::{audiograph, library, playback, project_files};
+use crate::app;
+use crate::commands::TState;
+use crate::preferences::AppPreferences;
+
+// every folder of samples, as File Paths and the Samples browser list it:
+// the ones Dawesome comes with, the user's, and the open project's
+fn listed_sample_paths(app: &tauri::AppHandle, state: &TState<'_>, prefs: &AppPreferences) -> Vec<library::SamplePath> {
+  let bundled = app::env::sample_browser_root(app).ok();
+  let project = state.project.lock().unwrap().path.as_deref().map(project_files::samples_dir_for);
+  library::sample_paths(bundled.as_deref(), &prefs.current().sample_paths, project.as_deref())
 }
 
+#[tauri::command]
+pub fn sample_paths(
+  app: tauri::AppHandle,
+  state: TState<'_>,
+  prefs: tauri::State<'_, AppPreferences>,
+) -> Vec<library::SamplePath> {
+  listed_sample_paths(&app, &state, &prefs)
+}
+
+// add a folder of samples (File Paths' Add Folder…), returning the list
+#[tauri::command]
+pub fn add_sample_path(
+  app: tauri::AppHandle,
+  state: TState<'_>,
+  prefs: tauri::State<'_, AppPreferences>,
+  path: String,
+) -> Result<Vec<library::SamplePath>, String> {
+  let user = library::with_added(&prefs.current().sample_paths, Path::new(&path))?;
+  prefs.set_sample_paths(user)?;
+  Ok(listed_sample_paths(&app, &state, &prefs))
+}
+
+// take a folder out of File Paths (nothing on disk changes), returning the
+// list
+#[tauri::command]
+pub fn remove_sample_path(
+  app: tauri::AppHandle,
+  state: TState<'_>,
+  prefs: tauri::State<'_, AppPreferences>,
+  path: String,
+) -> Result<Vec<library::SamplePath>, String> {
+  let user = library::without(&prefs.current().sample_paths, &path);
+  prefs.set_sample_paths(user)?;
+  Ok(listed_sample_paths(&app, &state, &prefs))
+}
+
+// (async: off the main thread, as listing a folder can take a while)
 #[tauri::command(async)]
 pub fn enumerate_directory(dir_path: String) -> Result<(
   Vec<String>, 
