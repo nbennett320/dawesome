@@ -1,5 +1,5 @@
 use std::vec::{Vec};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::fs::{
   self,
   DirEntry,
@@ -18,32 +18,13 @@ pub fn sample_browser_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     .map_err(|e| format!("could not find the app's resources: {}", e))
 }
 
-pub fn get_sample_browser_root(root: &Path) -> Result<(Vec<String>, Vec<String>, Vec<String>, Vec<String>), String> {
-  let entries: Vec<DirEntry> = fs::read_dir(root)
-    .map_err(|e| format!("could not list {}: {}", root.display(), e))?
-    .filter_map(|e| e.ok())
-    .filter(|e| !is_hidden(e))
-    .collect();
-  let mut dirs: Vec<String> = Vec::new();
-  let mut dirs_paths: Vec<String> = Vec::new();
-  let mut samples: Vec<String> = Vec::new();
-  let mut samples_paths: Vec<String> = Vec::new();
-
-  for entry in entries {
-    if entry.path().is_dir() {
-      let val = String::from(entry.path().to_str().unwrap());
-      let path = String::from(entry.path().to_str().unwrap());
-      dirs.push(val);
-      dirs_paths.push(path);
-    } else {
-      let val = String::from(entry.path().file_name().unwrap().to_str().unwrap());
-      let path = String::from(entry.path().to_str().unwrap());
-      samples.push(val);
-      samples_paths.push(path);
-    }
+// where the samples Dawesome comes with are: in the app's resources, or
+// ./assets/dawesome in a debug build (see daw/library.rs)
+pub fn bundled_samples_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+  if cfg!(debug_assertions) {
+    return Ok(PathBuf::from("./assets/dawesome"));
   }
-
-  Ok((samples, samples_paths, dirs, dirs_paths))
+  sample_browser_root(app)
 }
 
 pub fn enumerate_files_in_dir(dir_path: String) -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>) {

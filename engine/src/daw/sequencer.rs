@@ -773,6 +773,13 @@ impl SavedSequencer {
     })
   }
 
+  pub fn sample_paths(&self) -> impl Iterator<Item = &String> {
+    self.rows.iter().filter_map(|row| match &row.instrument {
+      SavedInstrument::Sample(sample) => Some(&sample.path),
+      SavedInstrument::Synth(_) => None,
+    })
+  }
+
   pub fn synths_mut(&mut self) -> impl Iterator<Item = &mut SavedSynth> {
     self.rows.iter_mut().filter_map(|row| match &mut row.instrument {
       SavedInstrument::Synth(synth) => Some(synth),

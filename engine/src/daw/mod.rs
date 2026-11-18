@@ -18,6 +18,7 @@ pub(crate) mod effects;
 pub(crate) mod file_drop;
 pub(crate) mod history;
 pub(crate) mod join;
+pub(crate) mod library;
 pub(crate) mod main_thread;
 pub(crate) mod mixdown;
 pub(crate) mod mixdown_file;
@@ -27,6 +28,7 @@ pub(crate) mod project;
 pub(crate) mod project_files;
 pub(crate) mod recording;
 pub(crate) mod scrub;
+pub(crate) mod share;
 pub(crate) mod tape;
 pub(crate) mod tape_settings;
 #[cfg(test)]

@@ -71,3 +71,25 @@ describe('the project notice', () => {
     expect(store.getState().project.notice).toBeNull()
   })
 })
+
+describe('the shareable project notice', () => {
+  it('shows how far along packing is', () => {
+    setup({ kind: 'sharing', file: 'song.sharedawesome', done: 50, total: 200 })
+    expect(screen.getByRole('status').textContent).toContain('Packing song.sharedawesome… 25%')
+  })
+
+  it('says where it was saved, what it left out, and the plugins it needs', () => {
+    setup({ kind: 'shared', share: { path: '/songs/song.sharedawesome', missing: ['/gone.wav'], plugins: ['Verb (Acme)'] } })
+    const text = screen.getByRole('status').textContent
+    expect(text).toContain('Saved song.sharedawesome')
+    expect(text).toContain('/gone.wav')
+    expect(text).toContain('Verb (Acme)')
+    expect(screen.getByRole('button', { name: 'Show in Finder' })).toBeTruthy()
+  })
+
+  it('leaves out what there isn’t', () => {
+    setup({ kind: 'shared', share: { path: '/songs/song.sharedawesome', missing: [], plugins: [] } })
+    expect(screen.queryByText(/couldn’t be found/)).toBeNull()
+    expect(screen.queryByText(/Plugins aren’t included/)).toBeNull()
+  })
+})

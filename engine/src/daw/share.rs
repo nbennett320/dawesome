@@ -1,0 +1,420 @@
+// shareable projects (.sharedawesome): a project's folder zipped with every
+// sample it uses, so it opens on someone else's computer as it does here
+//
+//   song.sharedawesome (a zip)
+//     song/
+//       song.dawesome
+//       clips/  recordings/  mixdowns/
+//       samples/
+//         Drums/kicks/kick.wav    (from the File Paths folder "Drums")
+//         other/snare.wav         (from a folder that isn't in File Paths)
+//
+// the project file in it is the project as it's open now (unsaved changes
+// too), with its samples from outside its folder pointing at their copies
+// in samples/. the project on disk isn't touched. the samples Dawesome
+// comes with aren't copied: they're saved by name (see library.rs), and
+// every Dawesome has them
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::fs;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
+
+use serde::Serialize;
+use zip::write::SimpleFileOptions;
+use zip::{CompressionMethod, ZipWriter};
+
+use crate::daw::{self, library, native, project, project_files};
+use crate::daw::file_drop::same_bytes;
+use crate::daw::project::Project;
+
+pub const SHARE_EXTENSION: &str = "sharedawesome";
+// where samples from a folder that isn't in File Paths go
+const OTHER_SAMPLES: &str = "other";
+// the folders of a project, for one whose file isn't in a folder of its own
+// (see folder_files)
+const PROJECT_FOLDERS: [&str; 4] = [
+  project_files::RECORDINGS_FOLDER,
+  project_files::CLIPS_FOLDER,
+  crate::daw::actions::mixdown::MIXDOWNS_FOLDER,
+  project_files::SAMPLES_FOLDER,
+];
+
+// what exporting made
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Exported {
+  pub path: String,
+  // samples the project uses that couldn't be found, so aren't in it
+  pub missing: Vec<String>,
+  // the plugins the project uses (Dawesome's own effects aside), which
+  // whoever opens it needs too
+  pub plugins: Vec<String>,
+}
+
+// how far along an export is, in bytes
+pub type Progress<'a> = &'a mut dyn FnMut(u64, u64);
+
+// zip the open project, as it is now, into `dest`
+// - sample_paths: the folders in File Paths, which name the folders samples
+//   from them go in
+// - layout: the window's panes and tabs, as a save writes them
+pub fn export(
+  state: &daw::Session,
+  dest: &Path,
+  sample_paths: &[String],
+  layout: Option<serde_json::Value>,
+  progress: Progress,
+) -> Result<Exported, String> {
+  let project_path = state.project.lock().unwrap().path.clone()
+    .ok_or_else(|| "save the project before sharing it".to_string())?;
+  let dir = project::project_dir(&project_path)?;
+  let mut captured = project::capture(state, Some(&dir));
+  captured.layout = layout;
+  pack(captured, &project_path, dest, sample_paths, progress)
+}
+
+// a file going into the zip: from where, to where (under the top folder)
+struct Entry {
+  from: PathBuf,
+  to: String,
+}
+
+// zip `project`, saved as `project_path` (with its sample paths stored for
+// its folder), into `dest`
+pub(crate) fn pack(
+  mut project: Project,
+  project_path: &Path,
+  dest: &Path,
+  sample_paths: &[String],
+  progress: Progress,
+) -> Result<Exported, String> {
+  let dir = project::project_dir(project_path)?;
+  let name = project_files::project_name(project_path)
+    .unwrap_or_else(|| project_files::UNTITLED.into());
+
+  let mut entries = folder_files(&dir, project_path, dest);
+  let zipped: HashSet<String> = entries.iter().map(|entry| entry.to.clone()).collect();
+  let (copies, missing) = bring_in_samples(&mut project, &dir, &zipped, sample_paths);
+  entries.extend(copies);
+  let plugins = plugins_of(&project);
+
+  let json = serde_json::to_string_pretty(&project)
+    .map_err(|e| format!("could not write the project: {}", e))?;
+  write_zip(dest, &name, &json, &entries, progress)?;
+
+  Ok(Exported { path: dest.to_string_lossy().into_owned(), missing, plugins })
+}
+
+// the folders in File Paths, each with the name its samples' folder in
+// samples/ gets: its own, numbered when two share one
+fn buckets(sample_paths: &[String]) -> Vec<(PathBuf, String)> {
+  let mut taken: BTreeSet<String> = BTreeSet::from([OTHER_SAMPLES.to_string()]);
+  sample_paths.iter().map(|path| {
+    let root = fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path));
+    let base = root.file_name().map_or_else(|| "samples".into(), |n| n.to_string_lossy().into_owned());
+    let name = (0..).map(|n| if n == 0 { base.clone() } else { format!("{} {}", base, n) })
+      .find(|name| !taken.contains(&name.to_lowercase()))
+      .unwrap();
+    taken.insert(name.to_lowercase());
+    (root, name)
+  }).collect()
+}
+
+// `rel` (a path under the project's folder, with forward slashes) with a
+// number before its extension: "samples/other/kick 1.wav"
+fn numbered(rel: &str, n: u32) -> String {
+  let (folder, file) = rel.rsplit_once('/').map_or(("", rel), |(f, n)| (f, n));
+  let path = Path::new(file);
+  let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+  let numbered = match path.extension() {
+    Some(ext) => format!("{} {}.{}", stem, n, ext.to_string_lossy()),
+    None => format!("{} {}", stem, n),
+  };
+  if folder.is_empty() { numbered } else { format!("{}/{}", folder, numbered) }
+}
+
+// the samples the project uses that aren't zipped with its folder (`zipped`,
+// the paths in it that are): ones from outside it (saved as absolute paths),
+// and ones in it that aren't zipped (beside a project file that isn't in a
+// folder of its own, say). each is given a place in samples/ and pointed at
+// there. returns the files to copy in, and the samples that couldn't be
+// found (left as they were)
+fn bring_in_samples(
+  project: &mut Project,
+  dir: &Path,
+  zipped: &HashSet<String>,
+  sample_paths: &[String],
+) -> (Vec<Entry>, Vec<String>) {
+  let buckets = buckets(sample_paths);
+  // where each sample went, by its saved path
+  let mut placed: HashMap<String, String> = HashMap::new();
+  // what's been given each place in samples/ (lowercase: macOS doesn't
+  // tell kick.wav from Kick.wav)
+  let mut taken: HashMap<String, PathBuf> = HashMap::new();
+  let mut copies = Vec::new();
+  let mut missing = BTreeSet::new();
+
+  let mut place = |stored: &mut String| {
+    if stored.starts_with(library::BUNDLED_PREFIX) || zipped.contains(stored.as_str()) {
+      return;
+    }
+    if let Some(rel) = placed.get(stored.as_str()) {
+      *stored = rel.clone();
+      return;
+    }
+    let from = if Path::new(stored.as_str()).is_relative() { dir.join(stored.as_str()) } else { PathBuf::from(stored.as_str()) };
+    if !from.is_file() {
+      missing.insert(stored.clone());
+      return;
+    }
+    let canonical = fs::canonicalize(&from).unwrap_or_else(|_| from.clone());
+    let rest = |root: &Path| canonical.strip_prefix(root).ok()
+      .map(|rest| rest.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/"));
+    let wanted = buckets.iter()
+      .find_map(|(root, name)| rest(root).map(|rest| format!("{}/{}/{}", project_files::SAMPLES_FOLDER, name, rest)))
+      .unwrap_or_else(|| format!("{}/{}/{}", project_files::SAMPLES_FOLDER, OTHER_SAMPLES,
+        canonical.file_name().unwrap_or_default().to_string_lossy()));
+
+    // the first free place, or one that already has this very file, zipped
+    // with the folder: from a share before
+    let mut copy = true;
+    let rel = (0..).map(|n| if n == 0 { wanted.clone() } else { numbered(&wanted, n) })
+      .find(|rel| {
+        if taken.contains_key(&rel.to_lowercase()) { return false; }
+        let there = dir.join(rel);
+        if !there.exists() { return true; }
+        if zipped.contains(rel) && there.is_file() && same_bytes(&there, &canonical) { copy = false; return true; }
+        false
+      })
+      .unwrap();
+    taken.insert(rel.to_lowercase(), canonical.clone());
+    if copy {
+      copies.push(Entry { from: canonical, to: rel.clone() });
+    }
+    placed.insert(stored.clone(), rel.clone());
+    *stored = rel;
+  };
+  project.clips.iter_mut().for_each(|clip| place(&mut clip.path));
+  project.sequencer.sample_paths_mut().for_each(|path| place(path));
+
+  (copies, missing.into_iter().collect())
+}
+
+// the project folder's files, as they go in the zip. a project in a folder
+// of its own (named after it, as Save As makes them) is zipped whole. one
+// whose file is loose in some other folder takes only its own folders, not
+// everything else in there. left out either way: hidden files, the project
+// files there (the one written is the project as it's open), older
+// versions' copies of them, and shareable files (`dest` too)
+fn folder_files(dir: &Path, project_path: &Path, dest: &Path) -> Vec<Entry> {
+  let own_folder = dir.file_name().is_some() && dir.file_name() == project_path.file_stem();
+  let dest = fs::canonicalize(dest.parent().unwrap_or(Path::new(".")))
+    .ok()
+    .zip(dest.file_name())
+    .map(|(parent, name)| parent.join(name));
+
+  let mut entries = Vec::new();
+  project_files::walk(dir, &mut |path, is_dir| {
+    let Ok(rel) = path.strip_prefix(dir) else { return };
+    let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+    let top_level_file = parts.len() == 1 && !is_dir;
+    let in_own_folders = PROJECT_FOLDERS.iter().any(|folder| parts[0] == *folder);
+    if !own_folder && !in_own_folders { return; }
+    let file_name = parts.last().map(|s| s.to_lowercase()).unwrap_or_default();
+    if top_level_file && file_name.ends_with(&format!(".{}", project_files::PROJECT_EXTENSION)) { return; }
+    if file_name.ends_with(&format!(".{}", SHARE_EXTENSION)) || file_name.ends_with(&format!(".{}.tmp", SHARE_EXTENSION)) { return; }
+    if dest.as_deref() == Some(path) { return; }
+    if is_dir { return; }
+    entries.push(Entry { from: path.to_path_buf(), to: parts.join("/") });
+  });
+  entries
+}
+
+// the plugins a project's effects and synth rows use, by name
+fn plugins_of(project: &Project) -> Vec<String> {
+  let named = |name: &str, vendor: &str| if vendor.is_empty() { name.to_string() } else { format!("{} ({})", name, vendor) };
+  let effects = project.effects.iter()
+    .flat_map(|rack| rack.slots.iter())
+    .filter(|slot| !native::is_native(&slot.plugin_id))
+    .map(|slot| named(&slot.name, &slot.vendor));
+  let mut sequencer = project.sequencer.clone();
+  let synths: Vec<String> = sequencer.synths_mut()
+    .filter(|synth| !native::is_native(&synth.plugin_id))
+    .map(|synth| named(&synth.name, &synth.vendor))
+    .collect();
+  effects.chain(synths).collect::<BTreeSet<_>>().into_iter().collect()
+}
+
+// how a file is stored: audio as it is (it barely shrinks, and storing is
+// quick), the rest compressed
+fn options_for(path: &Path, size: u64) -> SimpleFileOptions {
+  let method = if project_files::is_audio(path) { CompressionMethod::Stored } else { CompressionMethod::Deflated };
+  SimpleFileOptions::default()
+    .compression_method(method)
+    .large_file(size >= u32::MAX as u64)
+}
+
+// write the zip next to `dest` and move it into place once it's whole, so a
+// failed export leaves nothing half written
+fn write_zip(dest: &Path, name: &str, json: &str, entries: &[Entry], progress: Progress) -> Result<(), String> {
+  let size_of = |entry: &Entry| fs::metadata(&entry.from).map(|m| m.len()).unwrap_or(0);
+  let total = json.len() as u64 + entries.iter().map(size_of).sum::<u64>();
+  let mut done = 0;
+  progress(done, total);
+
+  let mut tmp = dest.as_os_str().to_owned();
+  tmp.push(".tmp");
+  let tmp = PathBuf::from(tmp);
+
+  let mut write = || -> Result<(), String> {
+    let file = fs::File::create(&tmp).map_err(|e| format!("could not write '{}': {}", tmp.display(), e))?;
+    let mut zip = ZipWriter::new(std::io::BufWriter::new(file));
+    let failed = |e: zip::result::ZipError| format!("could not write '{}': {}", dest.display(), e);
+
+    zip.start_file(format!("{}/{}.{}", name, name, project_files::PROJECT_EXTENSION),
+      SimpleFileOptions::default().compression_method(CompressionMethod::Deflated)).map_err(failed)?;
+    zip.write_all(json.as_bytes()).map_err(|e| failed(e.into()))?;
+    done += json.len() as u64;
+    progress(done, total);
+
+    let mut buffer = vec![0u8; 1 << 20];
+    for entry in entries {
+      let mut from = fs::File::open(&entry.from)
+        .map_err(|e| format!("could not read '{}': {}", entry.from.display(), e))?;
+      zip.start_file(format!("{}/{}", name, entry.to), options_for(&entry.from, size_of(entry))).map_err(failed)?;
+      loop {
+        let n = from.read(&mut buffer)
+          .map_err(|e| format!("could not read '{}': {}", entry.from.display(), e))?;
+        if n == 0 { break; }
+        zip.write_all(&buffer[..n]).map_err(|e| failed(e.into()))?;
+        done += n as u64;
+        progress(done, total);
+      }
+    }
+    let mut out = zip.finish().map_err(failed)?;
+    out.flush().map_err(|e| failed(e.into()))?;
+    Ok(())
+  };
+
+  write()
+    .and_then(|_| fs::rename(&tmp, dest).map_err(|e| format!("could not write '{}': {}", dest.display(), e)))
+    .map_err(|e| {
+      let _ = fs::remove_file(&tmp);
+      e
+    })
+}
+
+// what's left out of a zip when opening it: what Finder's Compress adds
+fn is_clutter(parts: &[&str]) -> bool {
+  parts.first() == Some(&"__MACOSX") || parts.last().is_some_and(|name| *name == ".DS_Store")
+}
+
+// a zip entry's name, as its parts, if it's one that stays inside the
+// folder it's unpacked into: no absolute paths, no "..", nothing odd. (`:`
+// and `\` are fine in a Mac file name, and the exporter writes them, so
+// they're only refused where they'd mean a drive or a folder)
+fn safe_parts(name: &str) -> Option<Vec<&str>> {
+  if name.starts_with('/') || name.contains('\0') { return None; }
+  if cfg!(windows) && (name.contains('\\') || name.contains(':')) { return None; }
+  let parts: Vec<&str> = name.trim_end_matches('/').split('/').collect();
+  parts.iter().all(|part| !part.is_empty() && *part != "." && *part != "..")
+    .then_some(parts)
+}
+
+// a free folder for `wanted`: it, or it numbered ("song 1")
+fn free_folder(wanted: &Path) -> PathBuf {
+  if !wanted.exists() { return wanted.to_path_buf(); }
+  let name = wanted.file_name().unwrap_or_default().to_string_lossy().into_owned();
+  (1..).map(|n| wanted.with_file_name(format!("{} {}", name, n))).find(|path| !path.exists()).unwrap()
+}
+
+// open a shareable project: unpack `src` into the folder `target` (numbered
+// if that's taken), which is then an ordinary project folder, its project
+// file named after it. returns the project file
+//
+// shareable files come from other people, so every entry is checked before
+// anything is written: each must be a file or folder inside the one folder
+// the zip holds (no links, no absolute paths, no ".."), and that folder must
+// hold one project file. it's unpacked next to `target` first, and moved
+// into place once it all has been
+pub fn unpack(src: &Path, target: &Path) -> Result<PathBuf, String> {
+  let file = fs::File::open(src).map_err(|e| format!("could not open '{}': {}", src.display(), e))?;
+  let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file))
+    .map_err(|e| format!("'{}' isn't a shareable project: {}", src.display(), e))?;
+  let not_shareable = |why: &str| format!("'{}' isn't a shareable project: {}", src.display(), why);
+
+  // (index, path under the top folder, is a folder)
+  let mut entries: Vec<(usize, Vec<String>, bool)> = Vec::new();
+  let mut top: Option<String> = None;
+  let mut project_files = Vec::new();
+  for i in 0..archive.len() {
+    let entry = archive.by_index(i).map_err(|e| not_shareable(&e.to_string()))?;
+    let name = entry.name().to_string();
+    let parts = safe_parts(&name).ok_or_else(|| not_shareable(&format!("'{}' would land outside its folder", name)))?;
+    if is_clutter(&parts) { continue; }
+    if entry.is_symlink() { return Err(not_shareable(&format!("'{}' is a link", name))); }
+    match &top {
+      None => top = Some(parts[0].to_string()),
+      Some(top) if top != parts[0] => return Err(not_shareable("it holds more than one folder")),
+      _ => {}
+    }
+    let rest: Vec<String> = parts[1..].iter().map(|part| part.to_string()).collect();
+    let is_dir = entry.is_dir();
+    if rest.is_empty() {
+      if !is_dir { return Err(not_shareable("it holds no folder")); }
+      continue;
+    }
+    if !is_dir && rest.len() == 1 && rest[0].to_lowercase().ends_with(&format!(".{}", project_files::PROJECT_EXTENSION)) {
+      project_files.push(rest[0].clone());
+    }
+    entries.push((i, rest, is_dir));
+  }
+  let project_file = match project_files.as_slice() {
+    [one] => one.clone(),
+    [] => return Err(not_shareable("it has no project file")),
+    _ => return Err(not_shareable("it has more than one project file")),
+  };
+
+  let parent = target.parent().filter(|dir| !dir.as_os_str().is_empty()).unwrap_or(Path::new("."));
+  fs::create_dir_all(parent).map_err(|e| format!("could not make the folder '{}': {}", parent.display(), e))?;
+  let folder = free_folder(target);
+  let name = folder.file_name().unwrap_or_default().to_string_lossy().into_owned();
+  let tmp = parent.join(format!(".{}.unpacking-{}", name, std::process::id()));
+  let _ = fs::remove_dir_all(&tmp);
+
+  let write = |archive: &mut zip::ZipArchive<std::io::BufReader<fs::File>>| -> Result<(), String> {
+    fs::create_dir_all(&tmp).map_err(|e| format!("could not make the folder '{}': {}", tmp.display(), e))?;
+    for (i, rest, is_dir) in &entries {
+      // the project file takes the folder's name, as Save As would have it
+      let rel = if *rest == [project_file.clone()] {
+        PathBuf::from(format!("{}.{}", name, project_files::PROJECT_EXTENSION))
+      } else {
+        rest.iter().collect()
+      };
+      let out = tmp.join(&rel);
+      if *is_dir {
+        fs::create_dir_all(&out).map_err(|e| format!("could not make the folder '{}': {}", out.display(), e))?;
+        continue;
+      }
+      if let Some(dir) = out.parent() {
+        fs::create_dir_all(dir).map_err(|e| format!("could not make the folder '{}': {}", dir.display(), e))?;
+      }
+      let mut entry = archive.by_index(*i).map_err(|e| not_shareable(&e.to_string()))?;
+      // no more than the zip says is there
+      let size = entry.size();
+      let mut file = fs::File::create(&out).map_err(|e| format!("could not write '{}': {}", out.display(), e))?;
+      std::io::copy(&mut (&mut entry).take(size), &mut file)
+        .map_err(|e| format!("could not unpack '{}': {}", rel.display(), e))?;
+    }
+    fs::rename(&tmp, &folder).map_err(|e| format!("could not make the folder '{}': {}", folder.display(), e))
+  };
+
+  write(&mut archive).map_err(|e| {
+    let _ = fs::remove_dir_all(&tmp);
+    e
+  })?;
+  Ok(folder.join(format!("{}.{}", name, project_files::PROJECT_EXTENSION)))
+}
+
+#[cfg(test)]
+mod tests;

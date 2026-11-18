@@ -4,13 +4,14 @@ import { invoke } from '@tauri-apps/api/core'
 import { ask, message, open, save } from '@tauri-apps/plugin-dialog'
 import { readDir } from '@tauri-apps/plugin-fs'
 import { dirname, documentDir, join } from '@tauri-apps/api/path'
+import { listen } from '@tauri-apps/api/event'
 import playlistReducer, { playlistSlice } from './playlistSlice'
 import windowReducer, { closeTab, selectFocusedPaneId, selectWindowPane, splitPane } from './windowSlice'
 import { tabKey, View } from '../../types/ui'
 import effectsReducer from './effectsSlice'
 import sequencerReducer from './sequencerSlice'
 import projectReducer, {
-  cleanProjectName, confirmQuit, quitIfSaved, saveAndQuit, nameProject, setUnsaved, windowTitle, openRecentProject, projectName, runProjectCommand, setProjectPath,
+  cleanProjectName, confirmQuit, quitIfSaved, saveAndQuit, nameProject, setUnsaved, windowTitle, openProjectFile, openRecentProject, projectName, runProjectCommand, setProjectPath,
 } from './projectSlice'
 import { LoadedProject, SavedProject } from '../../types/project'
 import { sampleRow, synthRow } from '../../types/sequencer.fixture'
@@ -19,6 +20,7 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ ask: vi.fn(), message: vi.fn(), open: vi.fn(), save: vi.fn() }))
 vi.mock('@tauri-apps/api/path', () => ({ dirname: vi.fn(), documentDir: vi.fn(), join: vi.fn() }))
 vi.mock('@tauri-apps/plugin-fs', () => ({ readDir: vi.fn() }))
+vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn() }))
 
 const mockInvoke = invoke as Mock
 const mockAsk = ask as Mock
@@ -29,6 +31,7 @@ const mockDocumentDir = documentDir as Mock
 const mockJoin = join as Mock
 const mockDirname = dirname as Mock
 const mockReadDir = readDir as Mock
+const mockListen = listen as Mock
 
 const emptyProject: LoadedProject = {
   tempo: 120,
@@ -400,6 +403,139 @@ describe('runProjectCommand', () => {
     await run(store, 'open')
 
     expect(selectWindowPane(store.getState() as never)).toBe(before)
+  })
+})
+
+describe('Save as Shareable Project', () => {
+  const exported = { path: '/songs/song.sharedawesome', missing: [], plugins: [] }
+  // what the progress listener was given, to send it progress
+  let progress: ((event: { payload: { done: number, total: number } }) => void) | undefined
+  const unlisten = vi.fn()
+
+  beforeEach(() => {
+    progress = undefined
+    mockListen.mockImplementation(async (_event: string, handler: typeof progress) => {
+      progress = handler
+      return unlisten
+    })
+  })
+
+  it('asks where, beside the project’s folder, and packs the project there', async () => {
+    const store = makeStore()
+    store.dispatch(setProjectPath('/songs/song/song.dawesome'))
+    mockSave.mockResolvedValue('/songs/song')
+    let notices: unknown[] = []
+    engine({
+      export_shareable: new Promise(resolve => {
+        // a notice shows how far along it is meanwhile
+        setTimeout(() => {
+          progress?.({ payload: { done: 50, total: 200 } })
+          notices = [store.getState().project.notice]
+          resolve(exported)
+        })
+      }),
+    })
+
+    await run(store, 'save-shareable')
+    expect(mockSave).toHaveBeenCalledWith(expect.objectContaining({
+      defaultPath: '/songs/song.sharedawesome',
+      filters: [{ name: 'Shareable Dawesome project', extensions: ['sharedawesome'] }],
+    }))
+    expect(mockInvoke).toHaveBeenCalledWith('export_shareable', { path: '/songs/song.sharedawesome', layout: expect.any(Object) })
+    // the project itself isn't saved
+    expect(mockInvoke).not.toHaveBeenCalledWith('save_project', expect.anything())
+    expect(notices).toEqual([{ kind: 'sharing', file: 'song.sharedawesome', done: 50, total: 200 }])
+    expect(store.getState().project.notice).toEqual({ kind: 'shared', share: exported })
+    expect(unlisten).toHaveBeenCalled()
+  })
+
+  it('saves a project that’s never been saved first', async () => {
+    const store = makeStore()
+    engine({ export_shareable: exported })
+    mockSave.mockResolvedValueOnce('/songs/song').mockResolvedValueOnce('/songs/song.sharedawesome')
+
+    await run(store, 'save-shareable')
+    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/song.dawesome', somewhereNew: true, layout: expect.any(Object) })
+    expect(mockInvoke).toHaveBeenCalledWith('export_shareable', { path: '/songs/song.sharedawesome', layout: expect.any(Object) })
+  })
+
+  it('does nothing when either dialog is cancelled', async () => {
+    const store = makeStore()
+    mockSave.mockResolvedValue(null)
+    await run(store, 'save-shareable')
+    store.dispatch(setProjectPath('/songs/song/song.dawesome'))
+    await run(store, 'save-shareable')
+    expect(mockInvoke).not.toHaveBeenCalledWith('export_shareable', expect.anything())
+    expect(store.getState().project.notice).toBeNull()
+  })
+
+  it('says when it couldn’t be saved', async () => {
+    const store = makeStore()
+    store.dispatch(setProjectPath('/songs/song/song.dawesome'))
+    mockSave.mockResolvedValue('/songs/song.sharedawesome')
+    engine({ export_shareable: new Error('disk full') })
+
+    await run(store, 'save-shareable')
+    expect(store.getState().project.notice).toEqual({ kind: 'error', message: "Couldn't save the shareable project: disk full" })
+    expect(unlisten).toHaveBeenCalled()
+  })
+})
+
+describe('opening a shareable project', () => {
+  it('asks what to call it, beside it, unpacks it there and opens it', async () => {
+    const store = makeStore()
+    engine({ unpack_shareable: '/Downloads/song/song.dawesome' })
+    mockOpen.mockResolvedValue('/Downloads/song.sharedawesome')
+    mockSave.mockResolvedValue('/Downloads/song')
+
+    await run(store, 'open')
+    expect(mockOpen).toHaveBeenCalledWith(expect.objectContaining({
+      filters: [{ name: 'Dawesome project', extensions: ['dawesome', 'sharedawesome'] }],
+    }))
+    expect(mockSave).toHaveBeenCalledWith(expect.objectContaining({ defaultPath: '/Downloads/song' }))
+    expect(mockInvoke).toHaveBeenCalledWith('unpack_shareable', { path: '/Downloads/song.sharedawesome', target: '/Downloads/song' })
+    expect(mockInvoke).toHaveBeenCalledWith('load_project', { path: '/Downloads/song/song.dawesome' })
+    expect(mockInvoke).toHaveBeenCalledWith('add_recent_project', { path: '/Downloads/song/song.dawesome' })
+    expect(store.getState().project.path).toBe('/Downloads/song/song.dawesome')
+    expect(store.getState().project.notice).toBeNull()
+  })
+
+  it('does nothing when the name isn’t given', async () => {
+    const store = makeStore()
+    mockOpen.mockResolvedValue('/Downloads/song.sharedawesome')
+    mockSave.mockResolvedValue(null)
+    await run(store, 'open')
+    expect(mockInvoke).not.toHaveBeenCalledWith('unpack_shareable', expect.anything())
+    expect(store.getState().project.path).toBeNull()
+  })
+
+  it('says why it couldn’t be opened, and keeps the project open', async () => {
+    const store = makeStore()
+    store.dispatch(setProjectPath('/songs/mine/mine.dawesome'))
+    engine({ unpack_shareable: new Error("it holds more than one folder") })
+    mockOpen.mockResolvedValue('/Downloads/song.sharedawesome')
+    mockSave.mockResolvedValue('/Downloads/song')
+
+    await run(store, 'open')
+    expect(mockInvoke).not.toHaveBeenCalledWith('load_project', expect.anything())
+    expect(store.getState().project.path).toBe('/songs/mine/mine.dawesome')
+    expect(store.getState().project.notice).toEqual({ kind: 'error', message: "Couldn't open the shared project: it holds more than one folder" })
+  })
+
+  it('opens either kind from Finder, asking first when there are unsaved changes', async () => {
+    const store = makeStore()
+    engine({ project_has_unsaved_changes: true, unpack_shareable: '/Downloads/song/song.dawesome' })
+    mockAsk.mockResolvedValue(false)
+    await openProjectFile('/Downloads/song.sharedawesome')(store.dispatch)
+    expect(mockSave).not.toHaveBeenCalled()
+
+    mockAsk.mockResolvedValue(true)
+    mockSave.mockResolvedValue('/Downloads/song')
+    await openProjectFile('/Downloads/song.sharedawesome')(store.dispatch)
+    expect(store.getState().project.path).toBe('/Downloads/song/song.dawesome')
+
+    await openProjectFile('/songs/other/other.dawesome')(store.dispatch)
+    expect(store.getState().project.path).toBe('/songs/other/other.dawesome')
   })
 })
 

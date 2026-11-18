@@ -37,6 +37,7 @@ fn init_tauri() {
   use effect_windows::*;
   use commands::synth::*;
   use commands::tape::{get_tape, set_tape_machine, set_track_tape};
+  use commands::share::{export_shareable, unpack_shareable};
 
   // read before the menu is built, which lists them
   let recent_projects = recent::RecentProjects::load();
@@ -67,6 +68,11 @@ fn init_tauri() {
     .setup(move |app| {
       // (setup runs on the main thread, which plugins are called on)
       let handle = app.handle().clone();
+      // bundled samples are saved by name, found again wherever the app is
+      match app::env::bundled_samples_dir(&handle) {
+        Ok(dir) => daw::library::set_bundled_root(&dir),
+        Err(e) => println!("{}", e),
+      }
       daw::main_thread::init(Box::new(move |job| handle.run_on_main_thread(job).map_err(|e| e.to_string())));
       daw::effects::keep_idling(racks.clone());
       daw::effects::follow_output(&racks);
@@ -106,6 +112,7 @@ fn init_tauri() {
     .manage(recent_projects)
     .manage(preferences::AppPreferences::load())
     .manage(app::window_size::KeptWindowSize::load())
+    .manage(app::opened_files::OpenedFiles::default())
     .manage(Arc::new(daw::actions::mixdown::Mixdowns::default()))
     .manage(std::sync::Mutex::new(app::workspaces::WorkspaceViewport::new()))
     .invoke_handler(tauri::generate_handler![
@@ -126,8 +133,13 @@ fn init_tauri() {
       get_metronome_enabled,
       toggle_count_in,
       set_playlist_time_signature,
-      get_sidebar_samples,
       enumerate_directory,
+      sample_paths,
+      add_sample_path,
+      remove_sample_path,
+      export_shareable,
+      unpack_shareable,
+      app::opened_files::opened_files,
       preview_sample,
       stop_previews,
       get_audio_drivers,
@@ -292,6 +304,12 @@ fn init_tauri() {
         // however the app quits (Quit, the close button, the unsaved
         // changes dialog's, the Dock's), the window's size is kept
         tauri::RunEvent::Exit => app.state::<app::window_size::KeptWindowSize>().save(),
+        // a project double-clicked in Finder (see app/opened_files.rs)
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Opened { urls } => {
+          let paths = urls.into_iter().filter_map(|url| url.to_file_path().ok());
+          app.state::<app::opened_files::OpenedFiles>().opened(app, paths);
+        }
         _ => {}
       }
     });

@@ -4,5 +4,84 @@
 <dict>
   <key>NSMicrophoneUsageDescription</key>
   <string>Dawesome records from your microphone or audio interface.</string>
+
+  <!-- the project files Dawesome opens from Finder, and their icons
+       (bundle.resources in tauri.conf.json puts the .icns files in
+       Contents/Resources; they're built from icons/documents by scripts/build-icons.sh).
+       written here, not as tauri's fileAssociations, which can't give a type
+       its own icon -->
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Dawesome Project</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Owner</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>io.github.nbennett320.dawesome.project</string>
+      </array>
+      <key>CFBundleTypeIconFile</key>
+      <string>dawesome-document.icns</string>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Shareable Dawesome Project</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Owner</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>io.github.nbennett320.dawesome.shareable</string>
+      </array>
+      <key>CFBundleTypeIconFile</key>
+      <string>sharedawesome-document.icns</string>
+    </dict>
+  </array>
+
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>io.github.nbennett320.dawesome.project</string>
+      <key>UTTypeDescription</key>
+      <string>Dawesome Project</string>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.json</string>
+      </array>
+      <key>UTTypeIconFile</key>
+      <string>dawesome-document.icns</string>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>dawesome</string>
+        </array>
+      </dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>io.github.nbennett320.dawesome.shareable</string>
+      <key>UTTypeDescription</key>
+      <string>Shareable Dawesome Project</string>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.zip-archive</string>
+      </array>
+      <key>UTTypeIconFile</key>
+      <string>sharedawesome-document.icns</string>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>sharedawesome</string>
+        </array>
+      </dict>
+    </dict>
+  </array>
 </dict>
 </plist>

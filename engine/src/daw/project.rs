@@ -13,25 +13,30 @@
 // rewritten for this one as it's read (see merge_pattern_kinds)
 //
 // sample paths inside the project's folder are saved relative to it, so a
-// project folder can be moved or shared. other samples are saved as
-// absolute paths
+// project folder can be moved or shared. the samples Dawesome comes with are
+// saved by name (`dawesome:TR-808/…`, see daw/library.rs), and other samples
+// as absolute paths
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
-use crate::daw::{audiograph, defaults, playback, playlist, sequencer, timing};
+use crate::daw::{audiograph, defaults, library, playback, playlist, sequencer, timing};
 use crate::engine::{clip, mixer};
 use crate::daw;
 use crate::daw::actions::clip::{clip_info, ClipInfo, ClipWindow};
 use crate::daw::project_files::{self, recordings_dir_for};
 
 // the newest project format this version of the app reads and writes.
-// bump it when a change means older apps would misread a project. version 4
-// has a sequencer of rows and patterns as daw/sequencer.rs has them,
-// and pattern clips saved with their own start and length
-pub const PROJECT_VERSION: u32 = 4;
+// bump it when a change means older apps would misread a project. version 5
+// saves the samples Dawesome comes with by name (`dawesome:…`), which an
+// older app would take for a missing file
+pub const PROJECT_VERSION: u32 = 5;
+// what a project with no bundled samples is saved as. version 4 has a
+// sequencer of rows and patterns as daw/sequencer.rs has them, and pattern
+// clips saved with their own start and length
+pub const PROJECT_VERSION_WITHOUT_BUNDLED: u32 = 4;
 // what a project without a sequencer or pattern clips is saved as, so older
 // apps can still open it. version 3 added clips that play part of their
 // sample
@@ -360,7 +365,7 @@ pub struct LoadedProject {
 }
 
 // the folder a project file is in, which its relative sample paths start from
-fn project_dir(project_path: &Path) -> Result<PathBuf, String> {
+pub(crate) fn project_dir(project_path: &Path) -> Result<PathBuf, String> {
   let dir = match project_path.parent() {
     Some(dir) if !dir.as_os_str().is_empty() => dir,
     _ => Path::new("."),
@@ -370,13 +375,18 @@ fn project_dir(project_path: &Path) -> Result<PathBuf, String> {
     .map_err(|e| format!("could not find the folder '{}': {}", dir.display(), e))
 }
 
-// a sample's path as saved: relative (with forward slashes) when it's inside
-// the project's folder, otherwise absolute
-fn stored_path(sample_path: &str, project_dir: Option<&Path>) -> String {
+// a sample's path as saved: a name for one Dawesome comes with, relative
+// (with forward slashes) when it's inside the project's folder, otherwise
+// absolute
+pub(crate) fn stored_path(sample_path: &str, project_dir: Option<&Path>) -> String {
   // samples can be added by relative paths, which wouldn't mean the same
   // thing once the project is loaded from elsewhere
   let absolute = fs::canonicalize(sample_path)
     .unwrap_or_else(|_| PathBuf::from(sample_path));
+
+  if let Some(name) = library::bundled_name(&absolute) {
+    return name;
+  }
 
   match project_dir.and_then(|dir| absolute.strip_prefix(dir).ok()) {
     Some(relative) => relative
@@ -388,14 +398,25 @@ fn stored_path(sample_path: &str, project_dir: Option<&Path>) -> String {
   }
 }
 
-// where a saved sample path points, for a project in `project_dir`
-fn resolved_path(stored: &str, project_dir: Option<&Path>) -> PathBuf {
+// where a saved sample path points, for a project in `project_dir`. a
+// bundled sample saved (before they were named) as a path into another
+// copy of the app is found in this one's
+pub(crate) fn resolved_path(stored: &str, project_dir: Option<&Path>) -> PathBuf {
+  // (before the relative paths: a name reads as one)
+  if let Some(path) = library::bundled_path(stored) {
+    return path;
+  }
   let path = Path::new(stored);
 
   match project_dir {
     Some(dir) if path.is_relative() => dir.join(path),
-    _ => path.to_path_buf(),
+    _ => library::recovered(path).unwrap_or_else(|| path.to_path_buf()),
   }
+}
+
+// whether a saved sample path names one of the bundled samples
+fn is_bundled(stored: &str) -> bool {
+  stored.starts_with(library::BUNDLED_PREFIX)
 }
 
 // round away floating point noise, so saved beats read like 4 rather than
@@ -475,11 +496,15 @@ pub fn capture(state: &daw::Session, project_dir: Option<&Path>) -> Project {
   let mut mixer = state.playlist.mixer.settings(0);
   mixer.tracks.retain(|track| track.settings != mixer::ChannelSettings::default() || track.labelled());
 
+  let uses_bundled = clips.iter().any(|clip| is_bundled(&clip.path))
+    || sequencer.sample_paths().any(|path| is_bundled(path));
   let uses_patterns = !sequencer.is_empty() || !pattern_clips.is_empty();
   let uses_windows = clips.iter().any(|clip| clip.window.is_some());
   Project {
-    version: if uses_patterns {
+    version: if uses_bundled {
       PROJECT_VERSION
+    } else if uses_patterns {
+      PROJECT_VERSION_WITHOUT_BUNDLED
     } else if uses_windows {
       PROJECT_VERSION_WITHOUT_PATTERNS
     } else {
@@ -769,17 +794,17 @@ fn write_project(project: &Project, project_path: &Path) -> Result<(), String> {
     })
 }
 
-// the first time a project file an older version wrote (format 1 to 3) is
-// written over in a newer format (`writing`: a save, or following a moved
-// take), it's copied beside it first, named for its format
-// ("song.v3.dawesome"), unless a copy of that name is there already. the
+// the first time a project file an older version wrote is written over in a
+// newer format, 4 or later (`writing`: a save, or following a moved take),
+// it's copied beside it first, named for its format ("song.v3.dawesome"),
+// unless a copy of that name is there already. the
 // older app still opens the copy, and nothing in it is lost should the new
 // format read it wrongly. a copy that can't be made stops the write: the
 // project stays open, and can be saved elsewhere
 fn keep_older_file(project_path: &Path, writing: u32) -> Result<(), String> {
-  if writing < PROJECT_VERSION { return Ok(()); }
+  if writing < PROJECT_VERSION_WITHOUT_BUNDLED { return Ok(()); }
   let Some(version) = saved_version(project_path) else { return Ok(()) };
-  if version >= u64::from(PROJECT_VERSION) { return Ok(()); }
+  if version >= u64::from(writing) { return Ok(()); }
 
   let copy = older_copy_path(project_path, version);
   if copy.exists() { return Ok(()); }

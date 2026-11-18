@@ -141,6 +141,9 @@ pub struct Preferences {
   pub tape_inertia: TapeInertia,
   // which drags are heard scrubbing
   pub scrub: Scrubbing,
+  // the folders of samples added in Preferences › File Paths, besides the
+  // ones Dawesome comes with (see daw/library.rs)
+  pub sample_paths: Vec<String>,
 }
 
 impl Default for Preferences {
@@ -159,6 +162,7 @@ impl Default for Preferences {
       tape_method: TapeMethod::default(),
       tape_inertia: TapeInertia::default(),
       scrub: Scrubbing::default(),
+      sample_paths: Vec::new(),
     }
   }
 }
@@ -209,6 +213,7 @@ impl Preferences {
       tape_method: self.tape_method,
       tape_inertia: self.tape_inertia,
       scrub: self.scrub,
+      sample_paths: self.sample_paths.clone(),
     }
   }
 }
@@ -237,8 +242,22 @@ impl AppPreferences {
     self.prefs.lock().unwrap().sanitize(&self.themes)
   }
 
-  // sanitize, keep and save new settings, and return what was kept
+  // keep and save the folders of samples added in File Paths. only these
+  // change them: set keeps the ones there are
+  pub fn set_sample_paths(&self, sample_paths: Vec<String>) -> Result<Preferences, String> {
+    let prefs = Preferences { sample_paths, ..self.prefs.lock().unwrap().clone() };
+    if let Some(file) = &self.file {
+      prefs.save(file)?;
+    }
+    *self.prefs.lock().unwrap() = prefs.clone();
+    Ok(prefs)
+  }
+
+  // sanitize, keep and save new settings, and return what was kept. the
+  // sample folders stay as they are (the frontend's copy of the settings
+  // may be from before one was added)
   pub fn set(&self, prefs: Preferences) -> Result<Preferences, String> {
+    let prefs = Preferences { sample_paths: self.prefs.lock().unwrap().sample_paths.clone(), ..prefs };
     let prefs = prefs.sanitize(&self.themes);
     if let Some(file) = &self.file {
       prefs.save(file)?;
@@ -275,6 +294,7 @@ mod tests {
       tape_method: TapeMethod::default(),
       tape_inertia: TapeInertia::Stop,
       scrub: Scrubbing::Off,
+      sample_paths: vec!["/Users/me/Samples".to_string()],
     };
     prefs.save(&file).unwrap();
     assert_eq!(Preferences::load(&file), prefs);
@@ -288,6 +308,7 @@ mod tests {
     assert!(json.contains("\"tapeMode\": \"live\""), "{}", json);
     assert!(json.contains("\"tapeInertia\": \"stop\""), "{}", json);
     assert!(json.contains("\"scrub\": \"off\""), "{}", json);
+    assert!(json.contains("\"samplePaths\": [\n    \"/Users/me/Samples\"\n  ]"), "{}", json);
     fs::remove_dir_all(file.parent().unwrap()).ok();
   }
 
@@ -353,6 +374,19 @@ mod tests {
   }
 
   #[test]
+  fn test_only_set_sample_paths_changes_them() {
+    let file = temp_file("sample-paths");
+    let app = AppPreferences { file: Some(file.clone()), prefs: Mutex::new(Preferences::default()), themes: theme::stock() };
+    app.set_sample_paths(vec!["/Users/me/Samples".into()]).unwrap();
+    // settings from before the folder was added don't take it away
+    let kept = app.set(Preferences { command_bar: true, ..Preferences::default() }).unwrap();
+    assert!(kept.command_bar);
+    assert_eq!(kept.sample_paths, vec!["/Users/me/Samples".to_string()]);
+    assert_eq!(Preferences::load(&file).sample_paths, vec!["/Users/me/Samples".to_string()]);
+    fs::remove_dir_all(file.parent().unwrap()).ok();
+  }
+
+  #[test]
   fn test_sanitize() {
     let themes = theme::stock();
     let ok = Preferences {
@@ -369,6 +403,7 @@ mod tests {
       tape_method: TapeMethod::default(),
       tape_inertia: TapeInertia::Both,
       scrub: Scrubbing::On,
+      sample_paths: vec!["/Users/me/Samples".to_string()],
     };
     assert_eq!(ok.sanitize(&themes), ok);
 
@@ -386,6 +421,7 @@ mod tests {
       tape_method: TapeMethod::default(),
       tape_inertia: TapeInertia::Start,
       scrub: Scrubbing::Transport,
+      sample_paths: Vec::new(),
     };
     let fixed = bad.sanitize(&themes);
     assert_eq!(fixed.light_theme, theme::DEFAULT_LIGHT);

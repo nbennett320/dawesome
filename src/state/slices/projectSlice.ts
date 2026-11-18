@@ -4,9 +4,10 @@ import { ask, message, open, save } from '@tauri-apps/plugin-dialog'
 import { readDir } from '@tauri-apps/plugin-fs'
 import { dirname, documentDir, join } from '@tauri-apps/api/path'
 import type { RootState } from 'state/store'
-import { MissingEffect, MissingSample, PROJECT_EXTENSION } from '../../types/project'
+import { listen } from '@tauri-apps/api/event'
+import { ExportedShare, MissingEffect, MissingSample, PROJECT_EXTENSION, SHARE_EXTENSION } from '../../types/project'
 import { SynthInstrument } from '../../types/sequencer'
-import { newProject, openProject, saveProject } from './playlistSlice'
+import { flushClipSettings, newProject, openProject, savedLayout, saveProject } from './playlistSlice'
 import { clearPendingMixerSends } from './mixerSlice'
 import { setSequencer } from './sequencerSlice'
 import { dropHeldTrim } from '../pendingTrim'
@@ -14,7 +15,7 @@ import { fileName } from '../../util/helpers'
 
 // the File menu's project commands (ids of the engine's menu items, see
 // engine/src/app/window.rs)
-export type ProjectCommand = 'new' | 'open' | 'save' | 'save-as'
+export type ProjectCommand = 'new' | 'open' | 'save' | 'save-as' | 'save-shareable'
 
 // shown above the workspace after a project command
 export type ProjectNotice =
@@ -24,6 +25,10 @@ export type ProjectNotice =
   | { kind: 'error', message: string }
   // something worth knowing, like where a take was saved
   | { kind: 'info', message: string }
+  // a shareable project being packed, so far (bytes)
+  | { kind: 'sharing', file: string, done: number, total: number }
+  // a shareable project saved, with what it couldn't take
+  | { kind: 'shared', share: ExportedShare }
 
 export interface ProjectState {
   // the project file being worked on, or null before it's first saved
@@ -85,6 +90,10 @@ export const windowTitle = (path: string | null, unsaved: boolean): string =>
   `${projectName(path) ?? 'Untitled'}${unsaved ? '*' : ''} — Dawesome`
 
 const dialogFilters = [{ name: 'Dawesome project', extensions: [PROJECT_EXTENSION] }]
+// File › Open takes shareable projects too
+const openFilters = [{ name: 'Dawesome project', extensions: [PROJECT_EXTENSION, SHARE_EXTENSION] }]
+
+const isShareable = (path: string) => path.toLowerCase().endsWith(`.${SHARE_EXTENSION}`)
 
 // a dialog's chosen path, or null if it was cancelled
 const chosenPath = (chosen: string | string[] | null | undefined): string | null => {
@@ -187,6 +196,41 @@ const openFrom = async (dispatch: Dispatch, path: string): Promise<boolean> => {
   }
 }
 
+// open a shareable project: ask what to call it (a folder, beside the
+// shareable file to start with), unpack it there, and open the project in
+// it, which is an ordinary project from then on. returns whether it opened
+const openShareable = async (dispatch: Dispatch, path: string): Promise<boolean> => {
+  const name = fileName(path).replace(new RegExp(`\\.${SHARE_EXTENSION}$`, 'i'), '')
+  const target = chosenPath(await save({
+    title: 'Open shared project as',
+    defaultPath: await join(await dirname(path), name),
+  }))
+  if(!target) return false
+
+  dispatch(setProjectNotice({ kind: 'info', message: `Unpacking ${fileName(path)}…` }))
+  let project
+  try {
+    project = await invoke<string>('unpack_shareable', { path, target })
+  } catch(e) {
+    dispatch(setProjectNotice({ kind: 'error', message: errorMessage("Couldn't open the shared project", e) }))
+    return false
+  }
+  return openFrom(dispatch, project)
+}
+
+// open a project file or a shareable project, once it's fine to replace the
+// open one (File › Open, or a file opened from Finder)
+const openAny = async (dispatch: Dispatch, path: string): Promise<void> => {
+  if(!(await okToReplace())) return
+  if(isShareable(path)) await openShareable(dispatch, path)
+  else await openFrom(dispatch, path)
+}
+
+// a project or shareable project opened from outside the app (double-
+// clicked in Finder)
+export const openProjectFile = (path: string) => (dispatch: Dispatch): Promise<void> =>
+  exclusive(() => openAny(dispatch, path))
+
 // save the project, and carry on in the file it was saved to. returns
 // whether it saved
 // - somewhereNew: a first save or Save As, which gets a folder of its own
@@ -225,6 +269,40 @@ const saveAs = async (dispatch: Dispatch, getState: () => RootState): Promise<bo
   }))
 
   return chosen ? saveProjectTo(dispatch, getState, withExtension(chosen), true) : false
+}
+
+// File › Save as Shareable Project…: the project zipped, as it is now, with
+// every sample it uses, for someone else to open. one that's never been
+// saved is saved first (it needs a folder). the project itself isn't saved
+const saveShareable = async (dispatch: Dispatch, getState: () => RootState): Promise<void> => {
+  if(!getState().project.path && !(await saveAs(dispatch, getState))) return
+  const current = getState().project.path
+  if(!current) return
+
+  // beside the project's folder, not in it
+  const name = projectName(current) ?? 'Untitled'
+  const chosen = chosenPath(await save({
+    title: 'Save as shareable project',
+    filters: [{ name: 'Shareable Dawesome project', extensions: [SHARE_EXTENSION] }],
+    defaultPath: await join(await projectHome(current), `${name}.${SHARE_EXTENSION}`),
+  }))
+  if(!chosen) return
+  const path = chosen.toLowerCase().endsWith(`.${SHARE_EXTENSION}`) ? chosen : `${chosen}.${SHARE_EXTENSION}`
+  const file = fileName(path)
+
+  dispatch(setProjectNotice({ kind: 'sharing', file, done: 0, total: 0 }))
+  const stop = await listen<{ done: number, total: number }>('share-progress', ({ payload }) => {
+    dispatch(setProjectNotice({ kind: 'sharing', file, ...payload }))
+  }).catch(() => () => {})
+  try {
+    await flushClipSettings(getState)
+    const share = await invoke<ExportedShare>('export_shareable', { path, layout: savedLayout(getState()) })
+    dispatch(setProjectNotice({ kind: 'shared', share }))
+  } catch(e) {
+    dispatch(setProjectNotice({ kind: 'error', message: errorMessage("Couldn't save the shareable project", e) }))
+  } finally {
+    stop()
+  }
 }
 
 // File › Save: where it was saved last, or (never saved) where the user
@@ -317,10 +395,12 @@ export const runProjectCommand = (command: ProjectCommand) => (
 
       const chosen = chosenPath(await open({
         title: 'Open project',
-        filters: dialogFilters,
+        filters: openFilters,
         multiple: false,
       }))
-      if(chosen) await openFrom(dispatch, chosen)
+      if(!chosen) break
+      if(isShareable(chosen)) await openShareable(dispatch, chosen)
+      else await openFrom(dispatch, chosen)
       break
     }
     case 'save':
@@ -328,6 +408,9 @@ export const runProjectCommand = (command: ProjectCommand) => (
       break
     case 'save-as':
       await saveAs(dispatch, getState)
+      break
+    case 'save-shareable':
+      await saveShareable(dispatch, getState)
       break
     default:
       break

@@ -7,7 +7,7 @@ license = "GPL-3.0-or-later"
 name = "app"
 repository = "https://github.com/nbennett320/dawesome"
 rust-version = "1.86"
-version = "0.1.8"
+version = "0.1.9"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -39,6 +39,9 @@ lazy_static = "1.4.0"
 hound = "3.5.0"
 rtrb = "0.3"
 trash = "~5.2.3"  # 5.3 needs rustc 1.87
+# shareable projects (.sharedawesome) are zips. 8 and later need a newer
+# rustc than 1.86
+zip = { version = "~7.3", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 # MP3s for mixdowns (builds its own LAME, which is LGPL)
 mp3lame-encoder = "0.3.0"
 # VST3 plugins: bindings generated from the SDK's headers (we write the host)

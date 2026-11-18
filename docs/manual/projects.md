@@ -26,7 +26,9 @@ project?** before it clears anything.
    current project?**.
    Confirm to carry on.
    <!-- VERIFY: the confirm dialog's button labels (system dialog, e.g. Yes/No or OK/Cancel). -->
-3. In the **Open project** dialog, choose a `.dawesome` file.
+3. In the **Open project** dialog, choose a `.dawesome` file, or a
+   shareable project (`.sharedawesome`, see
+   [4-8](#_4-8-sharing-a-project)).
 
 When the project opens, the notice bar lists anything it couldn't find:
 
@@ -57,6 +59,21 @@ name, the folder each is in is added.
   **No Recent Projects**.
 
 The list is kept between launches (see [2-5](./install.md#_2-5-where-settings-are-kept)).
+
+### 4-2-2 Opening from Finder
+
+*Double-click* a `.dawesome` or `.sharedawesome` file in Finder (or drop it
+on Dawesome's Dock icon) to open it in Dawesome. It opens as with
+**Open…**: Dawesome asks first if the current project has unsaved changes.
+If Dawesome isn't running, it starts and opens the project.
+
+A project file's icon is a Dawesome page. A shareable project's is that
+page in a folder.
+
+::: tip NOTE
+Finder learns these icons the first time Dawesome is opened. If a project
+still shows a plain icon, open Dawesome once, then look again.
+:::
 
 ## 4-3 Saving a project
 
@@ -131,6 +148,10 @@ my_song/
 - `clips/` — The project's own audio files: files you drag in from your
   computer, and files Dawesome writes with **Deep copy** and **Join**. The
   folder is made the first time one goes in.
+- `samples/` — Only in a project that came as a shareable project (see
+  [4-8](#_4-8-sharing-a-project)): copies of the samples it used from
+  outside its folder. It shows in the **Samples** browser as **This
+  project** while the project is open.
 
 These folders appear in the sidebar's **Recordings** and **Clips** browsers
 (see [3-4](./parts.md#_3-4-sidebar)).
@@ -164,12 +185,15 @@ The project file stores where each one is:
 
 - a sample inside the project's folder is stored relative to the folder, so
   the folder can be moved or shared;
+- a sample Dawesome comes with (the TR-808 and TR-707 kits) is stored by
+  its name, so it's found wherever Dawesome is installed, on any computer;
 - any other sample is stored by its full path.
 
 ::: warning CAUTION
 If you move a project folder to another computer, samples from outside the
 folder won't be found there. Their clips are left out when the project opens,
-and listed in the notice bar.
+and listed in the notice bar. To take a project to another computer, save
+it as a shareable project instead (see [4-8](#_4-8-sharing-a-project)).
 :::
 
 ### 4-5-3 Projects from older versions
@@ -185,8 +209,9 @@ folders in one tree (see
 Opening it doesn't change the file. Saving it writes the new format.
 
 ::: warning CAUTION
-A project with patterns, once saved by this version, can't be opened by
-older versions of Dawesome: they say it was saved by a newer version. To
+A project with patterns, or with samples Dawesome comes with, once saved by
+this version, can't be opened by older versions of Dawesome: they say it
+was saved by a newer version. To
 keep the original for an older version, copy the project's folder before
 you save, or save the opened project under a new name with **Save As…**
 (the original file is left as it was).
@@ -228,6 +253,74 @@ has, Dawesome asks **Save changes to "*name*" before quitting?**:
   save fails, Dawesome stays open.
 - **Don't Save** — Quits, losing the changes.
 - **Cancel** — Stays open.
+
+## 4-8 Sharing a project
+
+A shareable project is one file (`.sharedawesome`) that holds the project
+and every sample it uses, so a friend can open it on their computer as it
+is on yours, edit it, and send it back the same way.
+
+### 4-8-1 Saving a shareable project
+
+1. Choose **File ▸ Save as Shareable Project…**. A project that has never
+   been saved is saved first (see [4-3-2](#_4-3-2-save-as)).
+2. In the **Save as shareable project** dialog, choose where. It starts
+   beside the project's folder, with the project's name.
+
+The notice bar shows **Packing *name*.sharedawesome…** with how far along
+it is, then **Saved *name*.sharedawesome**. *Click* **Show in Finder** to
+see it.
+
+What goes in:
+
+- The project as it's open now, unsaved changes too. The project itself
+  isn't saved: what's on disk stays as it was.
+- The project's folder: its recordings, clips and mixdowns, and anything
+  else you keep there. Older versions' copies of the project file (see
+  [4-5-3](#_4-5-3-projects-from-older-versions)) and hidden files are left
+  out.
+- A copy of every sample the project uses from outside its folder, in a
+  `samples/` folder. A sample from one of your folders of samples (see
+  [11-1-1](./samples.md#_11-1-1-folders-of-samples)) goes in a folder of
+  that name, keeping the folders inside it, for example
+  `samples/Drums/kicks/kick.wav`. A sample from anywhere else goes in
+  `samples/other/`. Only the samples the project uses are copied, not whole
+  folders.
+
+What doesn't:
+
+- The samples Dawesome comes with. Every Dawesome has them.
+- Plugins. The notice lists the plugins the project uses, which whoever
+  opens it needs installed. Dawesome's own effects aren't listed.
+- Samples that can't be found. The notice names them.
+
+::: tip NOTE
+A project file saved straight into a folder with other things in it (an
+old project with no folder of its own) only takes its own `recordings/`,
+`clips/`, `mixdowns/` and `samples/` folders, not the rest of that folder.
+:::
+
+### 4-8-2 Opening a shareable project
+
+1. Choose **File ▸ Open…** and choose the `.sharedawesome` file, or
+   *double-click* it in Finder.
+2. In the **Open shared project as** dialog, name the project and choose
+   where it goes. It starts beside the shareable file, with its name.
+
+Dawesome unpacks it into a folder of that name (numbered, for example
+`song 1`, if there's one already) and opens it. From then on it's an
+ordinary project: **Save** saves it there.
+
+A shareable file that isn't one, or that would put files outside its
+folder, is refused, and the notice bar says why. Nothing is unpacked.
+
+### 4-8-3 Sending it back
+
+Your friend edits the project and chooses **File ▸ Save as Shareable
+Project…** to send it back. Its `samples/` folder goes with it, and any
+samples they added from their own folders are copied in beside them. A
+sample that's already in `samples/` isn't copied twice; a different one
+with the same name is numbered (`kick 1.wav`).
 
 While the project has unsaved changes, the window's title shows a **\*** after
 its name (**my_song\* — Dawesome**). It goes away when you save, or undo

@@ -22,6 +22,9 @@ pub const PROJECT_EXTENSION: &str = "dawesome";
 pub const RECORDINGS_FOLDER: &str = "recordings";
 // where clips written out by Deep copy and Join go, next to the recordings
 pub const CLIPS_FOLDER: &str = "clips";
+// where a shared project's samples are, from wherever they were (see
+// daw/share.rs)
+pub const SAMPLES_FOLDER: &str = "samples";
 // what takes are called before the project has a name
 pub const UNTITLED: &str = "untitled";
 
@@ -151,6 +154,11 @@ pub fn recordings_dir_for(project_path: &Path) -> PathBuf {
 // a project's folder of written-out clips, next to its file
 pub fn clips_dir_for(project_path: &Path) -> PathBuf {
   project_path.parent().unwrap_or_else(|| Path::new("")).join(CLIPS_FOLDER)
+}
+
+// where a project's own samples are (a shared project's)
+pub fn samples_dir_for(project_path: &Path) -> PathBuf {
+  project_path.parent().unwrap_or_else(|| Path::new("")).join(SAMPLES_FOLDER)
 }
 
 // a name fit for a file, from a sample's or a pattern's: nothing that could

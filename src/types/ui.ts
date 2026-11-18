@@ -27,6 +27,9 @@ export enum View {
   // the whole song along one strip, start to end: click or drag to move
   // the playhead
   Timeline,
+  // Preferences › File Paths…: the folders of samples the Samples browser
+  // shows
+  FilePaths,
 }
 
 // the label a view's tab gets when it's opened
@@ -45,6 +48,7 @@ export const viewLabels: Record<View, string> = {
   [View.Plugin]: 'Plugin',
   [View.Controls]: 'Controls',
   [View.Timeline]: 'Timeline',
+  [View.FilePaths]: 'File Paths',
 }
 
 // a view's name in a project's saved layout (see state/savedLayout.ts).
@@ -63,6 +67,7 @@ export const viewNames: Record<View, string> = {
   [View.Plugin]: 'plugin',
   [View.Controls]: 'controls',
   [View.Timeline]: 'timeline',
+  [View.FilePaths]: 'file-paths',
 }
 
 export const viewHints: Record<View, string> = {
@@ -79,6 +84,7 @@ export const viewHints: Record<View, string> = {
   [View.Plugin]: "A plugin's own interface",
   [View.Controls]: 'How the app is worked: where plugins open, and the command bar',
   [View.Timeline]: 'The whole song, start to end: click or drag to move the playhead',
+  [View.FilePaths]: 'The folders of samples the Samples browser shows: the ones Dawesome comes with, your own, and the open project\'s',
 }
 
 // how a split pane lays out its children:

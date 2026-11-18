@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024">
+<!-- sharedawesome-document.svg for 16 and 32 pixels: the small page in a
+     folder that fills more of the square, with thicker edges -->
+<defs>
+  <linearGradient id="cap" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f1ebdd"/><stop offset="1" stop-color="#dcd2bc"/></linearGradient>
+  <linearGradient id="folder" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ddd0b2"/><stop offset="1" stop-color="#c2b088"/></linearGradient>
+  <linearGradient id="folderback" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c3b38f"/><stop offset="1" stop-color="#ab9a71"/></linearGradient>
+  <g id="dbold">
+    <path fill="#e2562b" fill-rule="evenodd" transform="translate(7,5)" d="M28,18 L62,18 C84,18 90,36 86,53 C81,72 66,82 47,82 L12,82 Z M46,36 L59,36 C66,36 68,43 66,50 C64,58 59,63 52,63 L40,63 Z"/>
+    <path fill="#2b2a28" fill-rule="evenodd" d="M28,18 L62,18 C84,18 90,36 86,53 C81,72 66,82 47,82 L12,82 Z M46,36 L59,36 C66,36 68,43 66,50 C64,58 59,63 52,63 L40,63 Z"/>
+  </g>
+  <g id="page">
+    <path d="M20,0 L230,0 L300,70 L300,360 Q300,380 280,380 L20,380 Q0,380 0,360 L0,20 Q0,0 20,0 Z" fill="url(#cap)" stroke="#9c8f6f" stroke-width="12" stroke-linejoin="round"/>
+    <path d="M230,0 L230,52 Q230,70 248,70 L300,70 Z" fill="#c4b898" stroke="#9c8f6f" stroke-width="12" stroke-linejoin="round"/>
+    <use xlink:href="#dbold" transform="translate(28,90) scale(2.4)"/>
+  </g>
+</defs>
+<g transform="translate(122,19) scale(1.95)">
+  <path d="M0,60 Q0,40 20,40 L130,40 L155,15 L380,15 Q400,15 400,35 L400,500 Q400,520 380,520 L20,520 Q0,520 0,500 Z" fill="url(#folderback)" stroke="#8f7f58" stroke-width="10" stroke-linejoin="round"/>
+  <g transform="translate(62,6) scale(0.92)"><use xlink:href="#page"/></g>
+  <path d="M0,290 Q0,270 20,270 L380,270 Q400,270 400,290 L400,500 Q400,520 380,520 L20,520 Q0,520 0,500 Z" fill="url(#folder)" stroke="#8f7f58" stroke-width="10" stroke-linejoin="round"/>
+</g>
+</svg>

@@ -489,7 +489,7 @@ fn test_patterns_saved_and_loaded() {
   save_to(&state, &project_path).unwrap();
 
   let saved = Project::from_json(&fs::read_to_string(&project_path).unwrap()).unwrap();
-  assert_eq!(saved.version, PROJECT_VERSION);
+  assert_eq!(saved.version, PROJECT_VERSION_WITHOUT_BUNDLED);
   // inside the project's folder, so saved relative to it
   assert_eq!(saved.sequencer.rows[0].instrument.sample_path(), Some("drums/kick.wav"));
   // in the order they start, each the whole of its pattern
@@ -745,9 +745,9 @@ fn test_an_older_file_loads_whole_and_is_left_alone() {
 
 #[test]
 fn test_a_newer_file_is_refused() {
-  let error = Project::from_json(r#"{"version": 5}"#).unwrap_err();
+  let error = Project::from_json(r#"{"version": 6}"#).unwrap_err();
   assert!(error.contains("saved by a newer version"), "{}", error);
-  assert!(Project::from_json(r#"{"version": 4}"#).is_ok());
+  assert!(Project::from_json(r#"{"version": 5}"#).is_ok());
 }
 
 #[test]
@@ -1228,7 +1228,7 @@ fn test_an_older_project_file_is_kept_as_it_was_before_its_first_save_as_version
   let state = daw::Session::default();
   load_from(&state, &file).unwrap();
   save_to(&state, &file).unwrap();
-  assert_eq!(version_of(&file), u64::from(PROJECT_VERSION));
+  assert_eq!(version_of(&file), u64::from(PROJECT_VERSION_WITHOUT_BUNDLED));
   assert_eq!(fs::read_to_string(&backup).unwrap(), old);
 
   // once: a later save (of a version 4 file now) leaves the copy alone, and
@@ -1273,7 +1273,7 @@ fn test_an_older_project_file_rewritten_for_a_moved_take_is_kept_as_it_was() {
   fs::rename(&take, &moved).unwrap();
   follow_moved_recording(&file, Path::new(&take), &moved).unwrap();
   assert_eq!(saved_json(&file.to_string_lossy()).clips[0].path, "recordings/kept/take.wav");
-  assert_eq!(version_of(&file), u64::from(PROJECT_VERSION));
+  assert_eq!(version_of(&file), u64::from(PROJECT_VERSION_WITHOUT_BUNDLED));
   assert_eq!(fs::read_to_string(dir.join("song.v3.dawesome")).unwrap(), old);
 
   let _ = fs::remove_dir_all(&dir);
@@ -1385,6 +1385,90 @@ fn test_layout_is_not_an_unsaved_change() {
   let loaded = daw::Session::default();
   load_from(&loaded, &file).unwrap();
   assert!(!has_unsaved_changes(&loaded));
+
+  let _ = fs::remove_dir_all(&dir);
+}
+
+// one of the samples Dawesome comes with, and the name it's saved by
+fn bundled_sample() -> (String, &'static str) {
+  let path = crate::daw::library::bundled_root().unwrap().join("TR-808").join("CB.WAV");
+  (path.to_string_lossy().into_owned(), "dawesome:TR-808/CB.WAV")
+}
+
+#[test]
+fn test_bundled_samples_are_saved_by_name() {
+  let dir = test_dir("bundled");
+  let file = dir.join("song.dawesome");
+  let (cowbell, name) = bundled_sample();
+
+  let state = daw::Session::default();
+  add_clip(&state, &cowbell, 0, 0.);
+  state.playlist.sequencer.lock().unwrap().add_row(&cowbell).unwrap();
+  save_to(&state, &file).unwrap();
+
+  let saved = saved_json(&file.to_string_lossy());
+  assert_eq!(saved.version, PROJECT_VERSION);
+  assert_eq!(saved.clips[0].path, name);
+  assert_eq!(saved.sequencer.rows[0].instrument.sample_path(), Some(name));
+
+  let loaded = daw::Session::default();
+  let project = load_from(&loaded, &file).unwrap();
+  assert!(project.missing.is_empty());
+  assert_eq!(project.clips[0].path, cowbell);
+  assert_eq!(project.sequencer.rows[0].sample_path(), Some(cowbell.as_str()));
+  assert!(!has_unsaved_changes(&loaded));
+
+  let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_a_bundled_sample_saved_as_a_path_into_another_app_is_found() {
+  let dir = test_dir("bundled-old");
+  let file = dir.join("song.dawesome");
+  let (cowbell, name) = bundled_sample();
+  let gone = "/Applications/Old Dawesome.app/Contents/Resources/samples/TR-808/CB.WAV";
+  let old = format!(r#"{{ "clips": [{{ "path": "{}", "trackNumber": 0, "startBeat": 0.0 }}] }}"#, gone);
+  fs::write(&file, &old).unwrap();
+
+  let state = daw::Session::default();
+  let project = load_from(&state, &file).unwrap();
+  assert!(project.missing.is_empty());
+  assert_eq!(project.clips[0].path, cowbell);
+
+  // saved again, it's named, and the file as it was is kept
+  save_to(&state, &file).unwrap();
+  assert_eq!(saved_json(&file.to_string_lossy()).clips[0].path, name);
+  assert_eq!(fs::read_to_string(dir.join("song.v1.dawesome")).unwrap(), old);
+
+  let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_other_samples_are_saved_as_before() {
+  let dir = test_dir("not-bundled");
+  let state = daw::Session::default();
+  add_clip(&state, playback::METRONOME_TICK_PATH, 0, 0.);
+  let project = capture(&state, Some(&dir));
+  assert_eq!(project.version, PROJECT_VERSION_WITHOUT_WINDOWS);
+  assert!(Path::new(&project.clips[0].path).is_absolute());
+
+  let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_a_version_4_file_is_kept_before_its_first_save_as_version_5() {
+  let dir = test_dir("backup-v4");
+  let file = dir.join("song.dawesome");
+  let state = daw::Session::default();
+  state.playlist.sequencer.lock().unwrap().add_pattern(1, 4).unwrap();
+  save_to(&state, &file).unwrap();
+  assert_eq!(version_of(&file), u64::from(PROJECT_VERSION_WITHOUT_BUNDLED));
+  let old = fs::read_to_string(&file).unwrap();
+
+  add_clip(&state, &bundled_sample().0, 0, 0.);
+  save_to(&state, &file).unwrap();
+  assert_eq!(version_of(&file), u64::from(PROJECT_VERSION));
+  assert_eq!(fs::read_to_string(dir.join("song.v4.dawesome")).unwrap(), old);
 
   let _ = fs::remove_dir_all(&dir);
 }

@@ -1,6 +1,7 @@
 import { listen } from '@tauri-apps/api/event'
+import { invoke } from '@tauri-apps/api/core'
 import { openTab } from '../state/slices/windowSlice'
-import { ProjectCommand, confirmQuit, openRecentProject, runProjectCommand } from '../state/slices/projectSlice'
+import { ProjectCommand, confirmQuit, openProjectFile, openRecentProject, runProjectCommand } from '../state/slices/projectSlice'
 import type { AppDispatch } from '../state/store'
 import { View } from '../types/ui'
 
@@ -15,6 +16,20 @@ const recentProjectMenu = (dispatch: AppDispatch) =>
   listen<{ data: string }>('menu-open-recent', ev => {
     dispatch(openRecentProject(ev.payload.data))
   })
+
+// projects (or shareable projects) double-clicked in Finder: one that
+// opened the app is held by the engine until asked for, once listening (so
+// none is missed), and later ones are sent as they come. only one project
+// is open at a time, so of several, the first. resolves to a function that
+// stops listening
+const openedFiles = async (dispatch: AppDispatch) => {
+  const stop = await listen<string>('open-file', ev => {
+    dispatch(openProjectFile(ev.payload))
+  })
+  const held = await invoke<string[]>('opened_files').catch(() => [])
+  if(held.length) dispatch(openProjectFile(held[0]))
+  return stop
+}
 
 // quitting (or closing the window) with unsaved changes: the engine waits
 // for the frontend to ask about them. resolves to a function that stops
@@ -43,6 +58,8 @@ export const menuViews: Record<string, View> = {
   appearance: View.Preferences,
   // Preferences › Controls…
   controls: View.Controls,
+  // Preferences › File Paths…
+  'file-paths': View.FilePaths,
 }
 
 // the Window and Preferences menus (and File › Mixdown…): open a tab, or select it where it's already open.
@@ -64,6 +81,7 @@ const editMenu = (run: (command: EditCommand) => void) =>
 const listeners = { 
   projectMenu,
   recentProjectMenu,
+  openedFiles,
   quitRequested,
   viewMenu,
   editMenu,
