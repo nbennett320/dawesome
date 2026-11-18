@@ -112,6 +112,7 @@ fn init_tauri() {
     .manage(recent_projects)
     .manage(preferences::AppPreferences::load())
     .manage(app::window_size::KeptWindowSize::load())
+    .manage(app::opened_files::OpenedFiles::default())
     .manage(Arc::new(daw::actions::mixdown::Mixdowns::default()))
     .manage(std::sync::Mutex::new(app::workspaces::WorkspaceViewport::new()))
     .invoke_handler(tauri::generate_handler![
@@ -138,6 +139,7 @@ fn init_tauri() {
       remove_sample_path,
       export_shareable,
       unpack_shareable,
+      app::opened_files::opened_files,
       preview_sample,
       stop_previews,
       get_audio_drivers,
@@ -301,6 +303,12 @@ fn init_tauri() {
         // however the app quits (Quit, the close button, the unsaved
         // changes dialog's, the Dock's), the window's size is kept
         tauri::RunEvent::Exit => app.state::<app::window_size::KeptWindowSize>().save(),
+        // a project double-clicked in Finder (see app/opened_files.rs)
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Opened { urls } => {
+          let paths = urls.into_iter().filter_map(|url| url.to_file_path().ok());
+          app.state::<app::opened_files::OpenedFiles>().opened(app, paths);
+        }
         _ => {}
       }
     });

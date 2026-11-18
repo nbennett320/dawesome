@@ -23,6 +23,8 @@ const App = () => {
     const listening = [
       listeners.projectMenu(dispatch),
       listeners.recentProjectMenu(dispatch),
+      // projects double-clicked in Finder
+      listeners.openedFiles(dispatch),
       listeners.quitRequested(dispatch),
       listeners.viewMenu(dispatch),
       // files dragged in from Finder

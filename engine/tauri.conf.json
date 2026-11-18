@@ -20,7 +20,9 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "assets/dawesome/": "samples/"
+      "assets/dawesome/": "samples/",
+      "icons/dawesome-document.icns": "dawesome-document.icns",
+      "icons/sharedawesome-document.icns": "sharedawesome-document.icns"
     },
     "externalBin": [],
     "copyright": "",

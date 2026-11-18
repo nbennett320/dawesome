@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024">
+<!-- a .dawesome project's icon: a page in the app icon's key-cap style.
+     built into dawesome-document.icns by build-icons.sh -->
+<defs>
+  <linearGradient id="cap" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ebe4d4"/><stop offset="1" stop-color="#d6ccb6"/></linearGradient>
+  <linearGradient id="capface" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f6f3ec"/><stop offset="1" stop-color="#e6e1d6"/></linearGradient>
+  <clipPath id="dclip">
+    <path d="M30,20 L62,20 C82,20 88,36 84,52 C80,70 66,80 48,80 L16,80 Z"/>
+    <path transform="translate(5,3)" d="M30,20 L62,20 C82,20 88,36 84,52 C80,70 66,80 48,80 L16,80 Z"/>
+    <rect x="2" y="56" width="20" height="21"/>
+  </clipPath>
+  <g id="dlogo">
+    <path fill="#e2562b" fill-rule="evenodd" transform="translate(5,3)" d="M30,20 L62,20 C82,20 88,36 84,52 C80,70 66,80 48,80 L16,80 Z M44,35 L59,35 C67,35 70,43 68,51 C66,59 60,65 52,65 L37,65 Z"/>
+    <path fill="#2b2a28" fill-rule="evenodd" d="M30,20 L62,20 C82,20 88,36 84,52 C80,70 66,80 48,80 L16,80 Z M44,35 L59,35 C67,35 70,43 68,51 C66,59 60,65 52,65 L37,65 Z"/>
+    <g fill="#f4f1ea" clip-path="url(#dclip)"><rect x="0" y="57" width="100" height="3"/><rect x="0" y="65" width="100" height="3"/><rect x="0" y="73" width="100" height="3"/></g>
+  </g>
+  <g id="page">
+    <path d="M20,0 L230,0 L300,70 L300,360 Q300,380 280,380 L20,380 Q0,380 0,360 L0,20 Q0,0 20,0 Z" fill="url(#cap)" stroke="#bfb397" stroke-width="3"/>
+    <path d="M38,22 L222,22 L278,78 L278,342 Q278,358 262,358 L38,358 Q22,358 22,342 L22,38 Q22,22 38,22 Z" fill="url(#capface)" stroke="#d3cbbb" stroke-width="2"/>
+    <path d="M230,0 L230,52 Q230,70 248,70 L300,70 Z" fill="#cdc2a8" stroke="#bfb397" stroke-width="3"/>
+    <use xlink:href="#dlogo" transform="translate(40,95) scale(2.2)"/>
+  </g>
+</defs>
+<g transform="translate(182,94) scale(2.2)"><use xlink:href="#page"/></g>
+</svg>
