@@ -113,6 +113,8 @@ export const dropFilesOnSequencer = (
 // files dropped on the playlist: copied into the clips, then a clip of each,
 // one per track from `trackNumber` down, all at `dropBeat` (snapped). more
 // than ASK_ABOVE asks first. returns the ids of the clips placed
+// - hold: shows the files where they're landing, as loading, until they're
+//   placed; returns what stops showing them (see fileDropHolder)
 export const dropFilesOnPlaylist = (
   files: DroppedFile[],
   skipped: SkippedFile[],
@@ -120,12 +122,34 @@ export const dropFilesOnPlaylist = (
   dropBeat: number,
   pixelOffset: Omit<PlaylistItemPixelOffset, 'xOffset' | 'yOffset'>,
   setBusy: (busy: boolean) => void = () => {},
+  hold: () => () => void = () => () => {},
 ) => async (dispatch: Dispatch): Promise<number[]> => {
   const choice = files.length > ASK_ABOVE ? await askAboutMany(files.length) : 'place'
   if(!choice) return []
+  if(choice === 'copy') {
+    await importFiles(dispatch, files, skipped, '', setBusy)
+    return []
+  }
 
+  const release = hold()
+  try {
+    return await placeFiles(dispatch, files, skipped, trackNumber, dropBeat, pixelOffset, setBusy)
+  } finally {
+    release()
+  }
+}
+
+const placeFiles = async (
+  dispatch: Dispatch,
+  files: DroppedFile[],
+  skipped: SkippedFile[],
+  trackNumber: number,
+  dropBeat: number,
+  pixelOffset: Omit<PlaylistItemPixelOffset, 'xOffset' | 'yOffset'>,
+  setBusy: (busy: boolean) => void,
+): Promise<number[]> => {
   const imported = await importFiles(dispatch, files, skipped, '', setBusy)
-  if(!imported || choice === 'copy') return []
+  if(!imported) return []
 
   let placed: { id: number, startBeat: number }[]
   try {

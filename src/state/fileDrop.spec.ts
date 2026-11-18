@@ -118,6 +118,52 @@ describe('dropFilesOnPlaylist', () => {
     expect(types(dispatch)).toContain('recordingSlice/takesChanged')
     expect(types(dispatch)).not.toContain('playlistSlice/addPlaylistItem')
   })
+
+  // the files drawn where they're landing, as loading, until they're in
+  describe('while placing', () => {
+    const holding = () => {
+      const events: string[] = []
+      const hold = vi.fn(() => {
+        events.push('held')
+        return () => { events.push('let go') }
+      })
+      return { events, hold }
+    }
+
+    it('shows the files until the clips and their lengths are in', async () => {
+      const { events, hold } = holding()
+      engine({
+        import_files: { files: copies(2), skipped: [] },
+        place_files: () => { events.push('placing'); return placed(2) },
+      })
+      const dispatch = vi.fn()
+      dispatch.mockImplementation((action: { type?: string }) => {
+        if(action.type === 'playlistSlice/setClipInfo') events.push('length')
+      })
+      await dropFilesOnPlaylist(files(2), [], 0, 0, offset, undefined, hold)(dispatch)
+      expect(events).toEqual(['held', 'placing', 'length', 'length', 'let go'])
+    })
+
+    it('stops showing them when placing fails', async () => {
+      const { events, hold } = holding()
+      engine({ import_files: { files: copies(1), skipped: [] }, place_files: () => Promise.reject('could not decode sample') })
+      await dropFilesOnPlaylist(files(1), [], 0, 0, offset, undefined, hold)(vi.fn())
+      expect(events).toEqual(['held', 'let go'])
+    })
+
+    it('doesn’t show them for only copying, or while asking', async () => {
+      const { hold } = holding()
+      engine({ import_files: { files: copies(17), skipped: [] } })
+      mockMessage.mockImplementationOnce(async () => {
+        expect(hold).not.toHaveBeenCalled()
+        return ONLY_COPY
+      })
+      await dropFilesOnPlaylist(files(17), [], 0, 0, offset, undefined, hold)(vi.fn())
+      mockMessage.mockResolvedValueOnce('Cancel')
+      await dropFilesOnPlaylist(files(17), [], 0, 0, offset, undefined, hold)(vi.fn())
+      expect(hold).not.toHaveBeenCalled()
+    })
+  })
 })
 
 describe('importFiles', () => {

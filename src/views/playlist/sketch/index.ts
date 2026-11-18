@@ -42,7 +42,7 @@ import { Tool } from '../../../editing/tools'
 import { DRAG_THRESHOLD_PX, wheelIntent, zoomAround } from '../../../editing/view'
 import type { MovedNode as Landed } from '../../../state/slices/playlistSlice'
 import type { Span as TimeSpan } from '../../../types/project'
-import { PlaceableItem as DragItem, dragItemKey } from '../../../state/sampleDrag'
+import { PlaceableItem as DragItem, dragItemKey, fileName } from '../../../state/sampleDrag'
 import { Pattern, SequencerState, patternSeconds } from '../../../types/sequencer'
 import { decodeLevels } from '../../../util/waveform'
 import {
@@ -332,9 +332,43 @@ interface MoreGhost {
   preview: PlaylistObject | null
 }
 
+// as much of `text` as fits in `width` pixels, ending in … when cut short
+const fitText = (ctx: Pick<CanvasRenderingContext2D, 'measureText'>, text: string, width: number): string => {
+  if(ctx.measureText(text).width <= width) return text
+  let n = text.length
+  while(n > 0 && ctx.measureText(`${text.slice(0, n)}…`).width > width) n--
+  return n > 0 ? `${text.slice(0, n).trimEnd()}…` : ''
+}
+
 // how many of the files dragged in from outside are drawn following the
 // mouse: past this many, the drop asks first (see dropFilesOnPlaylist)
 export const FILE_GHOSTS = 16
+
+// files dropped from outside, drawn where they're landing until the engine
+// has placed them (see fileDropHolder)
+interface HeldDrop {
+  // the drag they came in on, with its ghosts' lengths (some may still be
+  // loading)
+  drag: SampleDrag
+  beat: number
+  track: number
+}
+
+// a clip that isn't one yet, drawn as a card saying it's loading: a file
+// being read as it's dragged in, or dropped and being placed
+interface LoadingCard {
+  track: number
+  name: string
+  // its length, once known
+  seconds: number | null
+}
+
+// how wide a loading card is before its length is known, in beats, and at
+// the least, in screen pixels
+const LOADING_BEATS = 4
+const LOADING_MIN_WIDTH = 96
+// one pulse of a loading card
+const LOADING_PULSE_MS = 1200
 
 // a clip following the mouse, whichever kind of drag it came from
 interface DraggedClip {
@@ -1605,6 +1639,7 @@ export class Renderer extends RendererBase {
       || this.isMouseDown
       || this.clipDrag !== null
       || this.sampleDrag !== null
+      || this.#heldDrops.length > 0
       || this.lasso !== null
       || this.#shiftPress !== null
       || this.edgeDrag !== null
@@ -1736,6 +1771,28 @@ export class Renderer extends RendererBase {
     this.wake()
   }
 
+  // files dropped from outside that the engine is placing (see fileDropHolder)
+  #heldDrops: HeldDrop[] = []
+
+  // what keeps the files being dragged in drawn where they'd land if let go
+  // at (x, y), while they're placed: taken before the drag is cleared. it
+  // shows them when called, and returns what takes them away again (once
+  // the clips are in)
+  fileDropHolder = (x: number, y: number): (() => () => void) => {
+    const drag = this.sampleDrag
+    if(drag?.item.kind !== 'files') return () => () => {}
+    const { snappedBeat, trackNumber } = this.dropTarget(x, y)
+    return () => {
+      const held = { drag, beat: snappedBeat, track: trackNumber }
+      this.#heldDrops.push(held)
+      this.wake()
+      return () => {
+        this.#heldDrops = this.#heldDrops.filter(other => other !== held)
+        this.wake()
+      }
+    }
+  }
+
   // clips whose settings changed in the Sample tab, by id. kept here so
   // clips rebuilt on later prop updates get them too
   clipOverrides: Record<number, ClipOverride> = {}
@@ -1774,18 +1831,19 @@ export class Renderer extends RendererBase {
 
   // - more: a file after the first, from outside, to load instead
   #loadSamplePreview = async (path: string, key: string, more?: MoreGhost) => {
+    // (kept by the drag it's for: one dropped from outside still shows its
+    // length while it's placed, see fileDropHolder)
+    const drag = this.sampleDrag
+    if(drag?.key !== key) return
     try {
       const [encoded, duration] =
         await invoke<[string, number]>('get_sample_preview', { samplePath: path })
-      // the drag may have ended, or moved on to another sample, while loading
-      if(this.sampleDrag?.key !== key) return
-
       const data = { soundData: decodeLevels(encoded), duration }
       if(more) more.data = data
-      else this.sampleDrag.data = data
+      else drag.data = data
     } catch(e) {
       console.error('could not preview sample:', path, e)
-      if(this.sampleDrag?.key === key) this.sampleDrag.error = String(e)
+      drag.error = String(e)
     }
     this.wake()
   }
@@ -1915,6 +1973,72 @@ export class Renderer extends RendererBase {
     }))
     return groupLanding(placed, drag.item.playlistItem.id, target.snappedBeat, target.trackNumber, this.beatsDisplayed, this.trackCount)
       .map((landed, i) => ({ item: clips[i], beat: landed.beat, track: landed.track }))
+  }
+
+  // a drag's ghosts as loading cards, a track apart from the first: those
+  // still being read, or (`all`) every one
+  #loadingCards = (drag: SampleDrag, all: boolean): LoadingCard[] => {
+    const { item } = drag
+    const paths = item.kind === 'files' ? item.files.slice(0, FILE_GHOSTS).map(file => file.path)
+      : item.kind === 'sample' ? [item.path] : []
+    const data = [drag.data, ...drag.more.map(ghost => ghost.data)]
+    // (the ghosts after the first are drawn once it is)
+    const unread = all || !drag.data
+    return paths.flatMap((path, track) => {
+      const known = data[track] ?? null
+      if(known && !unread) return []
+      return [{ track, name: fileName(path), seconds: known ? known.duration : null }]
+    })
+  }
+
+  // clips that aren't in yet: files (or a sample) dragged in whose sound is
+  // still being read, at where they'd land, and files dropped that are
+  // being placed, where they're landing
+  #drawLoadingClips = (p: P5CanvasInstance<CanvasProps>) => {
+    const drag = this.sampleDrag
+    if(drag && !drag.error && !this.clipDrag?.active) {
+      const { snappedBeat, trackNumber } = this.dropTarget(drag.x, drag.y)
+      this.#drawLoading(p, snappedBeat, this.#loadingCards(drag, false)
+        .map(card => ({ ...card, track: trackNumber + card.track })))
+    }
+    this.#heldDrops.forEach(held => {
+      this.#drawLoading(p, held.beat, this.#loadingCards(held.drag, true)
+        .map(card => ({ ...card, track: held.track + card.track })))
+    })
+  }
+
+  // cards for clips that aren't in yet (see LoadingCard), all starting at
+  // `beat`: dashed like the landing spots, pulsing gently, and saying so.
+  // called inside the zoom/pan transform
+  #drawLoading = (p: P5CanvasInstance<CanvasProps>, beat: number, cards: LoadingCard[]) => {
+    if(!cards.length) return
+    const still = !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    const pulse = still ? 0.5 : 0.5 - 0.5 * Math.cos(performance.now() / LOADING_PULSE_MS * 2 * Math.PI)
+    const ctx = p.drawingContext as CanvasRenderingContext2D
+    const { labelHeight } = staticDefaults.PlaylistObject
+    p.push()
+    // in screen pixels across, so zoom doesn't stretch the outline or the text
+    p.scale(1 / this.currentScale, 1)
+    p.textFont(theme.font)
+    p.textSize(11)
+    p.textAlign(p.LEFT, p.CENTER)
+    const left = this.beatToX(beat) * this.currentScale
+    cards.forEach(({ track, name, seconds }) => {
+      const laneTop = this.#laneTop(track)
+      if(laneTop === null) return
+      const beats = seconds === null ? LOADING_BEATS : seconds * this.tempo / 60
+      const width = Math.max(this.beatToX(beats) * this.currentScale, LOADING_MIN_WIDTH)
+      ctx.setLineDash([4, 3])
+      p.strokeWeight(1)
+      paint.stroke(p, 'accent')
+      paint.fill(p, 'accentSoft', 0.15 + 0.3 * pulse)
+      p.rect(left, laneTop + 2, width, staticDefaults.trackHeight - 4, 3)
+      ctx.setLineDash([])
+      p.noStroke()
+      paint.fill(p, 'accent')
+      p.text(fitText(ctx, `${name}: loading…`, width - 12), left + 6, laneTop + 2 + labelHeight / 2)
+    })
+    p.pop()
   }
 
   // the top of a track's lane, in playlist y. a new track (see trackAt)
@@ -3073,6 +3197,7 @@ export class Renderer extends RendererBase {
 
       // render the clip being dragged on top of the other clips
       this.drawClipDrag(p, canvas)
+      this.#drawLoadingClips(p)
       this.#drawCutLine(p)
       this.#drawPaint(p)
       

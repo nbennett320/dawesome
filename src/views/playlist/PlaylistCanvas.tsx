@@ -339,6 +339,8 @@ const PlaylistCanvas = () => {
       return
     }
 
+    // files from outside stay drawn where they land while they're placed
+    const hold = type === 'drop' && over && item.kind === 'files' ? playlistRenderer.fileDropHolder(x, y) : undefined
     playlistRenderer.clearSampleDrag()
 
     if(type === 'drop' && over) {
@@ -357,7 +359,7 @@ const PlaylistCanvas = () => {
       if(item.kind === 'files') {
         dispatch(dropFilesOnPlaylist(item.files, item.skipped, trackNumber, beat, {
           x: clientX, y: clientY, left, top, right, bottom,
-        }, setBusy))
+        }, setBusy, hold))
           // eslint-disable-next-line no-console
           .catch(e => console.error('could not place the files:', e))
         return
