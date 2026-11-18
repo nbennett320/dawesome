@@ -33,3 +33,10 @@ html,
 body {
   background: rgb(var(--c-panel));
 }
+
+// a theme change cross-fades from the old look to the new (theme/fade.ts)
+::view-transition-group(root),
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 300ms;
+}

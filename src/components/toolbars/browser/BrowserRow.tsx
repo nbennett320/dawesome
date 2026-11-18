@@ -8,6 +8,9 @@ interface Props extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   used?: boolean
   // dragged somewhere (a sample, a pattern), rather than opened (a folder)
   grab?: boolean
+  // shown in the dot's slot instead of the dot, for now (a take's stop button
+  // while it plays)
+  lead?: React.ReactNode
 }
 
 // marks what the project uses, so the rest stands apart
@@ -26,7 +29,7 @@ const UsedDot = ({ used }: { used: boolean }) => (
 // sample, a pattern and a take all read alike
 // - give it a role (treeitem, option) for aria-selected to mean something
 const BrowserRow = ({
-  selected, used, grab = true, className = '', children, ...rest
+  selected, used, grab = true, lead, className = '', children, ...rest
 }: React.PropsWithChildren<Props>) => {
   let tone = 'text-ink-mid'
   if(used === false) tone = 'text-ink-faint'
@@ -44,7 +47,7 @@ const BrowserRow = ({
         } ${grab ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} ${className}`}
       {...rest}
     >
-      {used !== undefined && <UsedDot used={used} />}
+      {lead ?? (used !== undefined && <UsedDot used={used} />)}
       {children}
     </button>
   )

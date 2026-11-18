@@ -18,6 +18,8 @@ import { plural } from '../../../util/helpers'
 import { WaveIcon } from '../../icons'
 import { ClipMenuItem } from '../../../views/playlist/ClipMenu'
 import BrowserRow, { RowHint } from '../browser/BrowserRow'
+import StopPreview from '../browser/StopPreview'
+import { usePreviewStop } from '../browser/usePreviewStop'
 import FolderBrowser, { ItemContext } from '../browser/FolderBrowser'
 import RenameField from '../browser/RenameField'
 import { useFail } from '../browser/useFail'
@@ -49,13 +51,18 @@ interface RowProps {
   depth: number
   // searching: the folder it's in, shown instead of when it was recorded
   showFolder: boolean
+  // being heard, while it plays: it shows a stop button
+  playing: boolean
   onPreview: (take: RecordingFile) => void
+  onStop: () => void
   onMenu: (take: RecordingFile, ev: React.MouseEvent) => void
 }
 
 // one take: click to hear it, drag it into the playlist, the Sequencer, or
 // a folder, right-click to rename or delete it
-const TakeRow = ({ take, library, use, selected, depth, showFolder, onPreview, onMenu }: RowProps) => {
+const TakeRow = ({
+  take, library, use, selected, depth, showFolder, playing, onPreview, onStop, onMenu,
+}: RowProps) => {
   const recorded = take.modifiedMs === null ? '' : new Date(take.modifiedMs).toLocaleString()
 
   const onMouseDown = (ev: React.MouseEvent) => {
@@ -65,6 +72,13 @@ const TakeRow = ({ take, library, use, selected, depth, showFolder, onPreview, o
   }
 
   const onKeyDown = (ev: React.KeyboardEvent) => {
+    if(ev.key === 'Escape' && playing) {
+      // (and nothing else listening for Escape hears it)
+      ev.preventDefault()
+      ev.stopPropagation()
+      onStop()
+      return
+    }
     // (space plays and pauses, see App)
     if(ev.key !== 'Enter') return
     ev.preventDefault()
@@ -76,6 +90,8 @@ const TakeRow = ({ take, library, use, selected, depth, showFolder, onPreview, o
       role='treeitem'
       selected={selected}
       used={isUsed(use)}
+      // (in the dot's place while it plays; the dot's back once it ends)
+      lead={playing ? <StopPreview onStop={onStop} /> : undefined}
       title={[take.path, recorded && `${words[library].made} ${recorded}`, describeUse(use)].filter(Boolean).join('\n')}
       style={{ paddingLeft: depth * 12 + 8 }}
       onMouseDown={onMouseDown}
@@ -119,6 +135,8 @@ const RecordingsBrowser = ({ library = 'recordings' }: BrowserProps) => {
   // the take heard last
   const [selected, setSelected] = React.useState<string | null>(null)
   const [renamingTake, setRenamingTake] = React.useState<string | null>(null)
+  // the take being heard, while it plays (it shows a stop button)
+  const { playing, preview: hear, stop, rekey } = usePreviewStop()
 
   React.useEffect(() => {
     let current = true
@@ -159,7 +177,7 @@ const RecordingsBrowser = ({ library = 'recordings' }: BrowserProps) => {
   const preview = (take: RecordingFile, { deselectFolder }: ItemContext) => {
     setSelected(take.path)
     deselectFolder()
-    invoke('preview_sample', { path: take.path }).catch(logError(`preview ${take.name}`))
+    hear(take.path, take.path, take.name)
   }
 
   const renameTake = (take: RecordingFile, name: string | null) => {
@@ -167,7 +185,10 @@ const RecordingsBrowser = ({ library = 'recordings' }: BrowserProps) => {
     if(name === null) return
 
     moved('rename_recording', { path: take.path, name })
-      .then(result => { if(selected === take.path) setSelected(result.path) })
+      .then(result => {
+        if(selected === take.path) setSelected(result.path)
+        rekey(take.path, result.path)
+      })
       .catch(fail(`rename ${take.name}`))
   }
 
@@ -212,7 +233,9 @@ const RecordingsBrowser = ({ library = 'recordings' }: BrowserProps) => {
         selected={selected === take.path}
         depth={depth}
         showFolder={context.searching}
+        playing={playing === take.path}
         onPreview={t => preview(t, context)}
+        onStop={stop}
         onMenu={(t, ev) => {
           setSelected(t.path)
           context.openMenu(ev, () => takeMenu(t))
