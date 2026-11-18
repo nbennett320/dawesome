@@ -6,6 +6,7 @@ import { EffectParamsApi, useEffectParams } from './useEffectParams'
 import ChorusPanel from './chorus/ChorusPanel'
 import DelayPanel from './delay/DelayPanel'
 import EqPanel from './eq/EqPanel'
+import FlangerPanel from './flanger/FlangerPanel'
 
 // a built-in effect's own panel, for one that wants more than knobs (the
 // EQ's curve), by the effect's id. one that has none gets the generated
@@ -17,6 +18,7 @@ const PANELS: Record<string, CustomPanel> = {
   chorus: ChorusPanel,
   delay: DelayPanel,
   eq: EqPanel,
+  flanger: FlangerPanel,
 }
 
 // every parameter, a group to a box, the boxes wrapping to the tab's
