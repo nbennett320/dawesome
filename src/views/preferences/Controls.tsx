@@ -41,6 +41,18 @@ const TAPE_TAPS = [
 const TAPE_TAP_HINT = 'Before its effects, as on a 4-track: the track goes onto tape, and its effects work on what comes off it. '
   + 'After its effects: the track\'s effects are recorded onto tape too'
 
+// whether Stop and Play run the tape down and up (T30), most first
+const TAPE_INERTIA = [
+  { value: 'both', label: 'On stop and start' },
+  { value: 'stop', label: 'On stop only' },
+  { value: 'start', label: 'On start only' },
+  { value: 'off', label: 'Off' },
+]
+
+const TAPE_INERTIA_HINT = 'With the tape on, the transport\'s Stop and Play can go as a deck\'s motor does: '
+  + 'Stop lets the tape coast down to a standstill, its pitch diving, and Play spins it up from one. '
+  + 'Off, they\'re at once. Not while recording'
+
 // how the app is worked: where plugins open, the command bar, what a
 // recording does at the loop's end, and how tracks on tape are worked out.
 // changes apply as they're made
@@ -109,6 +121,15 @@ const Controls = () => {
               value={preferences.tapeTap}
               options={TAPE_TAPS}
               onChange={tapeTap => dispatch(changePreferences({ tapeTap: tapeTap as Prefs['tapeTap'] }))}
+            />
+          </div>
+          <div data-hint={TAPE_INERTIA_HINT}>
+            <Choice
+              id='preferences-tape-inertia'
+              label='Tape stop and start'
+              value={preferences.tapeInertia}
+              options={TAPE_INERTIA}
+              onChange={tapeInertia => dispatch(changePreferences({ tapeInertia: tapeInertia as Prefs['tapeInertia'] }))}
             />
           </div>
         </section>

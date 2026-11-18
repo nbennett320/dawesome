@@ -1458,7 +1458,7 @@ mod varispeed_tests {
     let mut buffer = vec![0.; 512 * 2];
     for _ in 0..10 { renderer.render(&mut buffer, Instant::now(), Duration::ZERO); }
     let from = engine.frames();
-    let covers = engine.coast_seconds();
+    let covers = engine.coast_reach().as_secs_f64();
     assert!((covers - 0.3).abs() < 1e-9);
     engine.coast_run(1).unwrap();
     let mut buffers = 0;
@@ -1513,5 +1513,34 @@ mod varispeed_tests {
     assert_eq!(engine.anchor(2).unwrap().heard, now + latency);
     assert_eq!(engine.song_instant(now), now);
     assert_eq!(engine.real_instant(now), now);
+  }
+
+  #[test]
+  fn test_a_coasting_run_isn_t_cut_short_by_its_stop_and_play_picks_it_up_from_where_it_s_got_to() {
+    let mixer = mixer::Mixer::default();
+    let (engine, mut renderer) = Engine::new(SONG_RATE);
+    song(&engine, &mixer);
+    let mut buffer = vec![0.; 512 * 2];
+    for _ in 0..10 { renderer.render(&mut buffer, Instant::now(), Duration::ZERO); }
+    engine.coast_run(1).unwrap();
+    // the run's thread stops it as it finishes: it coasts on
+    engine.stop_run(1).unwrap();
+    // 0.32 s of a 0.6 s coast
+    for _ in 0..30 { renderer.render(&mut buffer, Instant::now(), Duration::ZERO); }
+    assert!(renderer.run.is_some());
+    let slowed = engine.speed();
+    assert!(slowed > 0.4 && slowed < 0.55, "{slowed}");
+
+    // Play again, spinning up: from the speed it's coasted down to
+    engine.start_run_with(2, mixer.master(), RunStart::default(), vec![], true).unwrap();
+    // (the speed's said as each buffer starts)
+    renderer.render(&mut buffer, Instant::now(), Duration::ZERO);
+    let from = engine.speed();
+    assert!((from - slowed).abs() < 0.02, "{from} {slowed}");
+    renderer.render(&mut buffer, Instant::now(), Duration::ZERO);
+    assert!(engine.speed() > from, "{} {}", engine.speed(), from);
+    assert_eq!(renderer.run.as_ref().map(|run| run.id), Some(2));
+    while !renderer.straight() { renderer.render(&mut buffer, Instant::now(), Duration::ZERO); }
+    assert_eq!(engine.speed(), 1.);
   }
 }

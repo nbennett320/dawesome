@@ -96,6 +96,11 @@ impl Flywheel {
     self.speed = if from_rest { 0.0 } else { self.target };
   }
 
+  // the motor's back on, from whatever speed it's at
+  pub fn power(&mut self) {
+    self.motor = true;
+  }
+
   // at its speed, with nothing moving it: 1x like this needs no varispeed
   pub fn settled(&self) -> bool {
     self.motor && self.speed == self.target

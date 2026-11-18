@@ -8,13 +8,15 @@ use crate::daw::actions::transport::{
 use crate::daw::{playback, timing};
 use crate::commands::TState;
 
+// (the transport's own keys: they stop and start as a tape does, when the
+// tape stop and start preference says so)
 #[tauri::command]
 pub fn toggle_playlist(state: TState<'_>) {
   if state.playlist.playing() {
-    playback::pause_playlist(state.inner());
+    playback::pause_playlist_as(state.inner(), playback::Motion::AsTape);
   } else {
     // start playlist
-    playback::start_playlist(state.inner());
+    playback::start_playlist_as(state.inner(), playback::Motion::AsTape);
   }
 }
 
@@ -23,7 +25,7 @@ pub fn toggle_playlist(state: TState<'_>) {
 pub fn play_playlist(state: TState<'_>) {
   // a pattern playing on its own is replaced by the playlist
   if !state.playlist.playing_playlist() {
-    playback::start_playlist(state.inner());
+    playback::start_playlist_as(state.inner(), playback::Motion::AsTape);
   }
 }
 
@@ -31,14 +33,14 @@ pub fn play_playlist(state: TState<'_>) {
 #[tauri::command]
 pub fn pause_playlist(state: TState<'_>) {
   if state.playlist.playing() {
-    playback::pause_playlist(state.inner());
+    playback::pause_playlist_as(state.inner(), playback::Motion::AsTape);
   }
 }
 
 // stop and go back to the start
 #[tauri::command]
 pub fn stop_playlist(state: TState<'_>) {
-  playback::stop_playlist(state.inner());
+  playback::stop_playlist_as(state.inner(), playback::Motion::AsTape);
 }
 
 // move the playhead to a beat (kept within the playlist), carrying on playing

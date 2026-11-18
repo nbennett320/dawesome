@@ -934,11 +934,12 @@ impl Engine {
     Engine::clock_f64(&self.shared.clock_target)
   }
 
-  // how much song (in seconds) a coast from now covers: a flywheel slowing
-  // at a steady rate covers half what it would at its speed
-  pub fn coast_seconds(&self) -> f64 {
-    let v = self.speed();
-    v * v * COAST_SECONDS / 2.
+  // how much song a coast from now covers: a flywheel slowing at a steady
+  // rate covers half what it would at its speed (at the speed it's going
+  // to, if that's faster)
+  pub fn coast_reach(&self) -> Duration {
+    let v = self.speed().max(self.target_speed());
+    Duration::from_secs_f64(v * v * COAST_SECONDS / 2.)
   }
 
   // how much song (in seconds) the speed will lag behind its target while
@@ -1488,7 +1489,13 @@ impl Renderer {
         // run on: pitch 0 after a turn of the knob is today's timing, T14)
         let varispeed = self.varispeed.as_mut().expect("the varispeed");
         varispeed.reset_drift();
-        if spin_up || self.coasting.is_some() { varispeed.flywheel.run(spin_up); }
+        match (spin_up, self.coasting.is_some()) {
+          // from the speed it's coasted down to
+          (true, true) => varispeed.flywheel.power(),
+          (true, false) => varispeed.flywheel.run(true),
+          (false, true) => varispeed.flywheel.run(false),
+          (false, false) => {}
+        }
         self.coasting = None;
         self.run = Some(Run { id: run, frame: self.frame, start });
         self.transport.tempo = start.tempo;
@@ -1513,12 +1520,10 @@ impl Renderer {
 
         self.add(voices);
       }
+      // (a run coasting to a stop stops when it gets there: its thread
+      // stopping it as it finishes doesn't cut the coast short)
       Command::Stop { run } => {
-        if self.coasting == Some(run) {
-          self.coasting = None;
-          self.varispeed.as_mut().expect("the varispeed").flywheel.run(false);
-        }
-        self.stop(run)
+        if self.coasting != Some(run) { self.stop(run) }
       }
       Command::Coast { run } => {
         if self.run.as_ref().is_some_and(|playing| playing.id == run) {

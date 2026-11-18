@@ -130,4 +130,23 @@ describe('tracks on tape', () => {
     })
     expect(store.getState().appearance.preferences.tapeMode).toBe('live')
   })
+
+  it('stop and start at once unless chosen otherwise, and an older engine leaves that alone', async () => {
+    expect(defaultPreferences.tapeInertia).toBe('off')
+    setThemes(all)
+    const store = configureStore({ reducer: { appearance: reducer } })
+    const { tapeInertia: _, ...older } = defaultPreferences
+    store.dispatch(hydrateAppearance({ preferences: older as Preferences, systemDark: false, themes: [] }))
+    expect(store.getState().appearance.preferences.tapeInertia).toBe('off')
+
+    mockInvoke.mockReset()
+    window.matchMedia = vi.fn().mockReturnValue({ matches: false }) as never
+    const changed = make()
+    mockInvoke.mockImplementation((_, { preferences }) => Promise.resolve(preferences))
+    await (changed.dispatch as never as (t: unknown) => Promise<void>)(changePreferences({ tapeInertia: 'stop' }))
+    expect(mockInvoke).toHaveBeenCalledWith('set_preferences', {
+      preferences: expect.objectContaining({ tapeInertia: 'stop' }),
+    })
+    expect(changed.getState().appearance.preferences.tapeInertia).toBe('stop')
+  })
 })

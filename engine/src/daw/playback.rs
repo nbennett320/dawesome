@@ -287,10 +287,22 @@ pub fn count_in_clicks(beats: u16, beat: Duration) -> Vec<(Duration, bool)> {
 
 // - count_in: how long to count in for (none for no count-in). the run
 //   starts with that long of clicks, and the playlist after them
+// how the transport starts and stops: at once, or as a tape's motor runs it
+// up and down (the tape stop and start preference, with the tape on: T30).
+// only the transport's own Play, Stop and Pause go as tape: a seek, a
+// pattern taking over, a recording or a project closing are at once
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Motion {
+  AtOnce,
+  AsTape,
+}
+
+// - spin_up: the song starts from a standstill and spins up to its speed
 pub fn run_playlist(
   state_ref: &Arc<daw::Session>,
   ready: mpsc::Sender<Result<(), String>>,
   count_in: Duration,
+  spin_up: bool,
 ) {
   let state = state_ref.clone();
   let tempo_interval = beat_interval(&state);
@@ -403,7 +415,7 @@ pub fn run_playlist(
     // (its notes straight after it: sent before, they'd be for a run that
     // hasn't started)
     let anchor = match engine
-      .start_run_at(run, state.playlist.mixer.master(), run_start, first)
+      .start_run_with(run, state.playlist.mixer.master(), run_start, first, spin_up)
       .map(|_| send_notes(count_in, first_notes))
       .and_then(|_| engine.wait_for_anchor(run, Duration::from_secs(2)))
     {
@@ -444,8 +456,11 @@ pub fn run_playlist(
     let current = || is_current(&state, run);
     // the engine's frame `at` into the run, and when it's sent ahead / heard
     let frame_at = |at: Duration| anchor.frame + engine.frames_in(at);
+    // (and, when Stop coasts the tape down, as far again as a coast goes:
+    // the song runs on that far after Stop, and what starts there is heard)
     let send_by = |at: Duration| {
-      let ahead = engine.frames_in(SCHEDULE_AHEAD) + 2 * engine.buffer_frames();
+      let coast = if crate::daw::tape::inertia().on_stop() { engine.frames_in(engine.coast_reach()) } else { 0 };
+      let ahead = engine.frames_in(SCHEDULE_AHEAD) + 2 * engine.buffer_frames() + coast;
       frame_at(at).saturating_sub(ahead)
     };
     let heard_at = |at: Duration| frame_at(at) + engine.frames_in(engine.latency());
@@ -577,6 +592,19 @@ pub fn run_playlist(
 
 // end the current run, if any, leaving the playhead where it is
 fn end_run(state: &daw::Session) {
+  end_run_as(state, Motion::AtOnce);
+}
+
+// the same, coasting to a stop as a tape does if `motion` says so and the
+// preference has it. returns how much further the song runs as it coasts
+// (zero if it stops at once)
+fn end_run_as(state: &daw::Session, motion: Motion) -> Duration {
+  // (a recording stops at once: its take ends where Stop was pressed)
+  let coast = motion == Motion::AsTape
+    && state.playlist.playing()
+    && !crate::daw::recording::is_recording(state)
+    && crate::daw::tape::inertia().on_stop();
+
   // a recording ends with playback, its takes put on their tracks
   crate::daw::recording::finish(state, false);
 
@@ -588,9 +616,17 @@ fn end_run(state: &daw::Session) {
     .playlist
     .set_playing(false);
 
-  // fade out what's playing now, rather than at the next beat
+  // fade out what's playing now, rather than at the next beat (or coast
+  // down from now)
+  let mut coasted = Duration::ZERO;
   if let Some(engine) = engine::engine_if_open() {
-    if let Err(e) = engine.stop_run(run) {
+    let stopped = if coast {
+      coasted = engine.coast_reach();
+      engine.coast_run(run)
+    } else {
+      engine.stop_run(run)
+    };
+    if let Err(e) = stopped {
       println!("could not stop playback: {}", e);
     }
   }
@@ -598,6 +634,7 @@ fn end_run(state: &daw::Session) {
   // pause the audiograph
   let mut audiograph_ref = state.playlist.audiograph.lock().unwrap();
   audiograph_ref.pause();
+  coasted
 }
 
 // move the playhead (with no run going)
@@ -610,48 +647,62 @@ fn set_playhead(state: &daw::Session, offset: Duration) {
 // stop playing, keeping the playhead where it got to, so playing again
 // carries on from there
 pub fn pause_playlist(state: &daw::Session) {
+  pause_playlist_as(state, Motion::AtOnce);
+}
+
+// the same, from the transport (a tape coasts to a stop, see Motion): the
+// playhead's left where the coast ends
+pub fn pause_playlist_as(state: &daw::Session, motion: Motion) {
   println!("pausing playlist");
 
   // a pattern playing on its own just stops: the playlist's playhead
   // never moved
   if state.playlist.playing_pattern().is_some() {
-    end_run(state);
+    end_run_as(state, motion);
     return;
   }
 
   // read before stopping, while the run's start time still applies
   let position = playhead(state);
-  end_run(state);
-  set_playhead(state, playlist::snap_to_beat(position, beat_interval(state)));
+  let coasted = end_run_as(state, motion);
+  set_playhead(state, playlist::snap_to_beat(position + coasted, beat_interval(state)));
 }
 
 // stop playing and wind back to the start
 pub fn stop_playlist(state: &daw::Session) {
+  stop_playlist_as(state, Motion::AtOnce);
+}
+
+// the same, from the transport (see Motion)
+pub fn stop_playlist_as(state: &daw::Session, motion: Motion) {
   println!("stopping playlist");
 
   // stopping a pattern leaves the playlist's playhead alone
   let pattern = state.playlist.playing_pattern().is_some();
-  end_run(state);
+  end_run_as(state, motion);
   if !pattern { set_playhead(state, Duration::ZERO); }
 }
 
-pub fn start_playlist(state: &Arc<daw::Session>) {
-  start_playlist_after(state, Duration::ZERO);
+// play the playlist from the playhead (from the transport: the tape spins
+// up from a standstill if the preference has it, see Motion)
+pub fn start_playlist_as(state: &Arc<daw::Session>, motion: Motion) {
+  let spin_up = motion == Motion::AsTape && crate::daw::tape::inertia().on_start();
+  run_from_playhead(state, Duration::ZERO, true, spin_up);
 }
 
 // play the playlist from the playhead, after a count-in this long (see
 // run_playlist). where it starts is kept as the last play start
 pub fn start_playlist_after(state: &Arc<daw::Session>, count_in: Duration) {
-  run_from_playhead(state, count_in, true);
+  run_from_playhead(state, count_in, true, false);
 }
 
 // carry on playing from the playhead after it was moved (a seek, or a tempo
 // change). not a new play, so the last play start stays where it was
 fn resume_playlist(state: &Arc<daw::Session>) {
-  run_from_playhead(state, Duration::ZERO, false);
+  run_from_playhead(state, Duration::ZERO, false, false);
 }
 
-fn run_from_playhead(state: &Arc<daw::Session>, count_in: Duration, new_play: bool) {
+fn run_from_playhead(state: &Arc<daw::Session>, count_in: Duration, new_play: bool, spin_up: bool) {
   println!("playing playlist");
 
   // a pattern playing on its own stops first
@@ -660,7 +711,7 @@ fn run_from_playhead(state: &Arc<daw::Session>, count_in: Duration, new_play: bo
 
   play_inside_loop(state);
   if new_play { mark_play_start(state); }
-  start_run(state, count_in);
+  start_run(state, count_in, spin_up);
 }
 
 // keep where the playhead is as the last play start, in beats (so it stays
@@ -689,13 +740,13 @@ pub fn play_inside_loop(state: &daw::Session) {
 // start a run of whatever the mode is, and wait until the output stream is
 // open and the start time is set, so a `get_playlist_playing` right after
 // this sees the new run
-fn start_run(state: &Arc<daw::Session>, count_in: Duration) {
+fn start_run(state: &Arc<daw::Session>, count_in: Duration, spin_up: bool) {
   // every synth's copies there, and in step with it, before anything plays
   // (here, as the run's thread can't reach the main thread: this one may be
   // it, waiting below)
   crate::daw::actions::synth::before_playing(state);
   let (ready_tx, ready_rx) = mpsc::channel();
-  run_playlist(state, ready_tx, count_in);
+  run_playlist(state, ready_tx, count_in, spin_up);
 
   match ready_rx.recv() {
     Ok(Ok(())) => {}
@@ -807,7 +858,7 @@ pub fn start_pattern(state: &Arc<daw::Session>, id: u64, from_step: f64) -> Resu
   // (once the run before has ended, so it can't move the step on)
   *state.playlist.pattern_start.lock().unwrap() = if from_step.is_finite() { from_step.max(0.) } else { 0. };
   *state.playlist.mode.lock().unwrap() = playlist::PlayMode::Pattern(id);
-  start_run(state, Duration::ZERO);
+  start_run(state, Duration::ZERO, false);
   Ok(())
 }
 

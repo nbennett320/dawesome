@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 use crate::daw;
 use crate::daw::tape_settings::TapeSettings;
 use crate::engine::{self, tape::Print};
-use crate::preferences::{TapeMethod, TapeMode, TapeTap};
+use crate::preferences::{TapeInertia, TapeMethod, TapeMode, TapeTap};
 
 pub mod live;
 pub mod print;
@@ -60,6 +60,8 @@ struct State {
   // the speed last sent to the engine (the varispeed: the PITCH knob with
   // the tape on). an engine starts at 1, so 1 is never sent (T14)
   speed: f64,
+  // whether Stop and Play run the tape down and up (a preference, T30)
+  inertia: TapeInertia,
 }
 
 static STATE: Mutex<State> = Mutex::new(State {
@@ -71,6 +73,7 @@ static STATE: Mutex<State> = Mutex::new(State {
   prints: BTreeMap::new(),
   waiting: BTreeMap::new(),
   speed: 1.,
+  inertia: TapeInertia::Off,
 });
 
 // the project's tape changed (an edit, undo or redo, a project opened)
@@ -87,6 +90,23 @@ pub fn set_preferences(mode: TapeMode, tap: TapeTap, method: TapeMethod) {
   state.tap = tap;
   state.method = method;
   send(&mut state);
+}
+
+// whether Stop and Play run the tape down and up (Settings → Controls →
+// Tape), changed or read at startup
+pub fn set_inertia(inertia: TapeInertia) {
+  STATE.lock().unwrap().inertia = inertia;
+}
+
+// how the transport's Stop and Play go now: the preference, with the tape on
+// (off, they're at once, as without tape: T14)
+pub fn inertia() -> TapeInertia {
+  let state = STATE.lock().unwrap();
+  with_tape(state.inertia, state.settings.as_ref())
+}
+
+fn with_tape(inertia: TapeInertia, settings: Option<&TapeSettings>) -> TapeInertia {
+  if settings.is_some_and(|s| s.machine.enabled) { inertia } else { TapeInertia::Off }
 }
 
 // a new output opened (the audio device changed): it has no tape yet
@@ -237,4 +257,18 @@ fn look(session: &daw::Session) {
   let mut state = STATE.lock().unwrap();
   state.prints.retain(|track, _| shape.tracks.contains(track));
   state.waiting.retain(|track, _| shape.tracks.contains(track));
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::daw::tape_settings::TapeMachine;
+
+  #[test]
+  fn test_stop_and_start_go_as_tape_only_with_the_tape_on() {
+    let on = TapeSettings { machine: TapeMachine { enabled: true, ..TapeMachine::default() }, tracks: vec![] };
+    assert_eq!(with_tape(TapeInertia::Both, Some(&on)), TapeInertia::Both);
+    assert_eq!(with_tape(TapeInertia::Stop, Some(&TapeSettings::default())), TapeInertia::Off);
+    assert_eq!(with_tape(TapeInertia::Start, None), TapeInertia::Off);
+  }
 }
