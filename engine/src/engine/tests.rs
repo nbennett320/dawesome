@@ -1459,7 +1459,7 @@ mod varispeed_tests {
     for _ in 0..10 { renderer.render(&mut buffer, Instant::now(), Duration::ZERO); }
     let from = engine.frames();
     let covers = engine.coast_reach().as_secs_f64();
-    assert!((covers - 0.3).abs() < 1e-9);
+    assert!((covers - COAST_SECONDS / 2.).abs() < 1e-9);
     engine.coast_run(1).unwrap();
     let mut buffers = 0;
     while renderer.run.is_some() {
@@ -1467,9 +1467,9 @@ mod varispeed_tests {
       buffers += 1;
       assert!(buffers < 100, "never stopped");
     }
-    // 0.6 s of coast, covering 0.3 s of song
+    // the coast's time, covering half that of song
     let took = buffers as f64 * 512. / SONG_RATE as f64;
-    assert!((took - 0.6).abs() < 0.02, "{took}");
+    assert!((took - COAST_SECONDS).abs() < 0.02, "{took}");
     let song = (engine.frames() - from) as f64 / SONG_RATE as f64;
     assert!((song - covers).abs() < 0.01, "{song}");
     // the motor's back on for whatever plays next, faded in
@@ -1525,8 +1525,9 @@ mod varispeed_tests {
     engine.coast_run(1).unwrap();
     // the run's thread stops it as it finishes: it coasts on
     engine.stop_run(1).unwrap();
-    // 0.32 s of a 0.6 s coast
-    for _ in 0..30 { renderer.render(&mut buffer, Instant::now(), Duration::ZERO); }
+    // a little over half the coast
+    let buffers = (COAST_SECONDS * 0.53 * SONG_RATE as f64 / 512.).round() as usize;
+    for _ in 0..buffers { renderer.render(&mut buffer, Instant::now(), Duration::ZERO); }
     assert!(renderer.run.is_some());
     let slowed = engine.speed();
     assert!(slowed > 0.4 && slowed < 0.55, "{slowed}");
@@ -1536,7 +1537,9 @@ mod varispeed_tests {
     // (the speed's said as each buffer starts)
     renderer.render(&mut buffer, Instant::now(), Duration::ZERO);
     let from = engine.speed();
-    assert!((from - slowed).abs() < 0.02, "{from} {slowed}");
+    // (within a buffer's worth of coasting)
+    let per_buffer = 512. / SONG_RATE as f64 / COAST_SECONDS;
+    assert!((from - slowed).abs() <= per_buffer + 1e-6, "{from} {slowed}");
     renderer.render(&mut buffer, Instant::now(), Duration::ZERO);
     assert!(engine.speed() > from, "{} {}", engine.speed(), from);
     assert_eq!(renderer.run.as_ref().map(|run| run.id), Some(2));

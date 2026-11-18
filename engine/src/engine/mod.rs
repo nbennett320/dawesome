@@ -1205,8 +1205,11 @@ impl Engine {
 }
 
 // how long a coast from 1x takes (crates/tape's transport: the deck's
-// flywheel), and a spin up from a standstill
-const COAST_SECONDS: f64 = 0.6;
+// flywheel), and a spin up from a standstill. a coast covers half its time
+// in song (0.1 s), and while Stop coasts, playback schedules that much
+// further ahead, so edits made while playing reach the engine that much
+// later (D100): 0.2 s is a short, subtle dive (0.6 s felt long: T38)
+const COAST_SECONDS: f64 = 0.2;
 const SPIN_UP_SECONDS: f64 = 0.5;
 
 // `a` less `b`, in seconds, either way round
