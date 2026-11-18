@@ -130,6 +130,8 @@ pub const Q_MOST: f32 = 25.;
 // the second only, so there's one peak
 pub const Q_24: (f32, f32) = (0.541, 1.307);
 const Q_24_MOST: f32 = 40.;
+// Drive keeps a peak this loud (-6 dBFS) where it was
+const DRIVE_LEVEL: f32 = 0.5;
 // m's smoothing: the LFO's steps (S&H, Square, a saw's reset) over 3 ms;
 // the envelope and follower (already smooth) barely; and a change of mode
 // over CROSSFADE, until it's landed
@@ -333,6 +335,9 @@ impl Effect for FilterFx {
     let q = q_of(params.get(RESONANCE));
     let q_second = (Q_24.1 * q / Q_LEAST).min(Q_24_MOST);
     let drive = 10f32.powf(params.get(DRIVE) / 20.);
+    // (made up so a peak at DRIVE_LEVEL comes out where it went in: louder
+    // drive squashes and roughens, rather than turning it down or up)
+    let makeup = DRIVE_LEVEL / (drive * DRIVE_LEVEL).tanh();
     // (0 dB of drive is none at all: it fades in over its first 3 dB)
     let drive_share = (params.get(DRIVE) / 3.).min(1.);
     let shape = params.choice(SHAPE);
@@ -424,7 +429,7 @@ impl Effect for FilterFx {
         side.freq = freq;
         let g = (std::f32::consts::PI * freq / rate).tan();
 
-        let x = if drive_share == 0. { ins[s] } else { ins[s] + drive_share * ((drive * ins[s]).tanh() / drive - ins[s]) };
+        let x = if drive_share == 0. { ins[s] } else { ins[s] + drive_share * (makeup * (drive * ins[s]).tanh() - ins[s]) };
         let one = side.one.outputs(&Coefs::poles(g, q), x);
         let first = side.first.outputs(&Coefs::poles(g, Q_24.0), x);
         let second_coefs = Coefs::poles(g, q_second);
@@ -469,7 +474,9 @@ impl Effect for FilterFx {
     // lowest it goes; 10.4 of those is -90 dB. Vowel's formants ring too
     let q = q_of(params.get(RESONANCE));
     let most_q = (Q_24.1 * q / Q_LEAST).min(Q_24_MOST).max(q).max(FORMANT_Q[2]);
-    let lowest = params.get(FLOOR).min(params.get(CUTOFF)).max(20.);
+    let mut lowest = params.get(FLOOR).min(params.get(CUTOFF)).max(20.);
+    // (Vowel's lowest formant rings wherever the filter is)
+    if params.get(VOWEL) > 0. { lowest = lowest.min(VOWELS.iter().map(|v| v[0]).fold(f32::MAX, f32::min)); }
     let seconds = 10.4 * 2. * most_q / (std::f32::consts::TAU * lowest) + 0.05;
     Some((seconds * rate).ceil() as u64)
   }
@@ -561,6 +568,19 @@ mod tests {
     store.set_plain(SLOPE, 0.);
     assert!(db_at(&store, 1000.).abs() < 0.3);
     assert!(db_at(&store, 100.) < -15. && db_at(&store, 10_000.) < -15.);
+  }
+
+  #[test]
+  fn test_drive_roughens_without_turning_it_down() {
+    let store = plain_store();
+    store.set_plain(CUTOFF, 20_000.);
+    store.set_plain(DRIVE, 24.);
+    let ([l, _], _) = run(&store, &sine(24_000, 220.), 512);
+    // a half-scale sine comes out about as loud, squared off
+    let p = peak(&l[12_000..]);
+    assert!((p - 0.5).abs() < 0.05, "{}", p);
+    let rms = (l[12_000..].iter().map(|x| x * x).sum::<f32>() / 12_000.).sqrt();
+    assert!(rms > 0.45, "a square's rms is near its peak: {}", rms);
   }
 
   #[test]
