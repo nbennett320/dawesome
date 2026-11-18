@@ -58,6 +58,7 @@ pub(super) fn session() -> Recording {
     start_beat: 0.,
     heard: Instant::now(),
     keep_from: Instant::now(),
+    speed: 1.,
     at_loop_end: LoopRecording::Layer,
     live: None,
     placing: None,
@@ -321,14 +322,14 @@ fn test_passes_go_where_the_loop_comes_round() {
   let at = Instant::now();
   let start = Duration::from_secs(3);
   // the first where the recording started, the rest at the loop's start
-  assert_eq!(pass_start(&takes(std::path::Path::new("a"), 0), (start, Duration::ZERO), at), start);
-  assert_eq!(pass_start(&takes(std::path::Path::new("a"), 2), (start, Duration::ZERO), at), Duration::ZERO);
+  assert_eq!(pass_start(&takes(std::path::Path::new("a"), 0), (start, Duration::ZERO), at, 1.), start);
+  assert_eq!(pass_start(&takes(std::path::Path::new("a"), 2), (start, Duration::ZERO), at, 1.), Duration::ZERO);
   // a region's start, and a first from before it or in it
-  assert_eq!(pass_start(&takes(std::path::Path::new("a"), 2), (start, secs(2)), at), secs(2));
-  assert_eq!(pass_start(&takes(std::path::Path::new("a"), 0), (secs(1), secs(2)), at), secs(1));
+  assert_eq!(pass_start(&takes(std::path::Path::new("a"), 2), (start, secs(2)), at, 1.), secs(2));
+  assert_eq!(pass_start(&takes(std::path::Path::new("a"), 0), (secs(1), secs(2)), at, 1.), secs(1));
   // a first that started late starts as late
   let late = input::Takes { started: Some(at + Duration::from_millis(20)), ..takes(std::path::Path::new("a"), 0) };
-  assert_eq!(pass_start(&late, (start, Duration::ZERO), at), start + Duration::from_millis(20));
+  assert_eq!(pass_start(&late, (start, Duration::ZERO), at, 1.), start + Duration::from_millis(20));
 }
 
 #[test]
@@ -353,11 +354,11 @@ fn test_the_pass_playing_as_it_was_recorded_is_held_back() {
 
   // pass 1 is playing on pass 2 as it was recorded: its clip doesn't start
   // too, until the loop comes round again
-  let (held, problems) = place(&state, &takes(&second, 1), &[3], Duration::ZERO);
+  let (held, problems) = place(&state, &takes(&second, 1), &[3], Duration::ZERO, 1.);
   assert!(problems.is_empty());
   assert_eq!((held[0].track_number, held[0].start_beat), (3, 0.));
   // the pass before it plays from the playlist
-  let (playing, _) = place(&state, &takes(&first, 0), &[3], Duration::ZERO);
+  let (playing, _) = place(&state, &takes(&first, 0), &[3], Duration::ZERO, 1.);
   {
     let audiograph = state.playlist.audiograph.lock().unwrap();
     assert!(audiograph.held_back.contains(&held[0].id));
@@ -387,7 +388,7 @@ fn test_one_undo_takes_a_whole_loop_recording_off() {
   // three passes, put on their tracks as they're finished
   let (finished_tx, finished_rx) = mpsc::channel();
   let placer = state.clone();
-  let placing = thread::spawn(move || place_passes(&placer, finished_rx, &[2], (Duration::ZERO, Duration::ZERO), Instant::now()));
+  let placing = thread::spawn(move || place_passes(&placer, finished_rx, &[2], (Duration::ZERO, Duration::ZERO), Instant::now(), 1.));
   for (n, path) in paths.iter().enumerate() { finished_tx.send(takes(path, n as u32)).unwrap(); }
   drop(finished_tx);
   state.recorder.lock().unwrap().session = Some(Recording { placing: Some(placing), ..session() });
@@ -610,7 +611,7 @@ fn test_passes_play_in_a_run_that_started_with_an_empty_playlist() {
   state.playlist.set_playing(true);
   let path = take_file("empty-run");
 
-  let (clips, _) = place(&state, &takes(&path, 1), &[1], Duration::ZERO);
+  let (clips, _) = place(&state, &takes(&path, 1), &[1], Duration::ZERO, 1.);
   assert_eq!(clips.len(), 1);
   let mut audiograph = state.playlist.audiograph.lock().unwrap();
   audiograph.set_current_offset(Some(Duration::ZERO));
@@ -618,4 +619,72 @@ fn test_passes_play_in_a_run_that_started_with_an_empty_playlist() {
   drop(audiograph);
 
   let _ = std::fs::remove_file(&path);
+}
+
+// ---- recording at another speed (the tape's PITCH knob, T29)
+
+#[test]
+fn test_a_take_at_another_speed_plays_back_as_much_slower_or_faster() {
+  for speed in [1.1, 0.88] {
+    // a second of the clock is `speed` seconds of song
+    let rate = 2f64.powf(take_pitch(speed) as f64 / 12.);
+    assert!((rate * speed - 1.).abs() < 1e-6, "{speed}: {rate}");
+    assert!((real_time(Duration::from_secs(11), speed).as_secs_f64() - 11. / speed).abs() < 1e-9);
+  }
+  // at 1x, nothing
+  assert_eq!(take_pitch(1.), 0.);
+  assert_eq!(real_time(Duration::from_millis(1_234), 1.), Duration::from_millis(1_234));
+}
+
+#[test]
+fn test_a_take_recorded_at_another_speed_fills_the_span_of_song_it_was_played_along_to() {
+  let state = daw::Session::default();
+  let path = take_file("varispeed");
+  let at_1x = audiograph::AudioNode::new(0, path.to_string_lossy().into(), Duration::ZERO, 0).unwrap().duration();
+  let (clips, problems) = place(&state, &takes(&path, 0), &[2], Duration::ZERO, 1.1);
+  assert!(problems.is_empty());
+  let audiograph = state.playlist.audiograph.lock().unwrap();
+  let node = audiograph.get_node_by_id(clips[0].id).unwrap();
+  // 10 % longer in the song, and pitched down to match: heard at 1.1x it's
+  // as it was played
+  assert!((node.duration().as_secs_f64() / at_1x.as_secs_f64() - 1.1).abs() < 1e-4);
+  assert!((node.settings().pitch - take_pitch(1.1)).abs() < 1e-6);
+  drop(audiograph);
+  let _ = std::fs::remove_file(&path);
+
+  // and a take that started late, late by as much more song
+  let at = Instant::now();
+  let late = input::Takes { started: Some(at + Duration::from_millis(20)), ..takes(std::path::Path::new("a"), 0) };
+  assert_eq!(pass_start(&late, (secs(3), Duration::ZERO), at, 1.1), secs(3) + Duration::from_millis(22));
+}
+
+#[test]
+fn test_a_pass_recorded_at_another_speed_plays_on_the_next_where_it_was_played() {
+  // a click recorded 0.5 s into a pass at 1.1x is 0.55 s into it in the song
+  let rate = 1_000;
+  let state = daw::Session::default();
+  let (engine, mut renderer) = engine::Engine::new(rate);
+  let samples = Arc::new(clip_reader::LiveSamples::new(3_000, 1, rate));
+  for n in 0..2_000 { samples.push([if n == 500 { 1. } else { 0. }]); }
+  let live = Arc::new(input::LivePasses::default());
+  live.add(input::LivePass { index: 0, files: vec![samples] });
+  let heard = Instant::now();
+  state.recorder.lock().unwrap().session = Some(Recording {
+    tracks: vec![(1, PathBuf::new())],
+    start: Duration::from_secs(1),
+    heard,
+    speed: 1.1,
+    live: Some(live),
+    looping: true,
+    span: span(0, 4),
+    ..session()
+  });
+  let at = Duration::from_millis(500);
+  let voices = layer_voices(&state, &engine, 1, at, heard + Duration::from_secs(3));
+  engine.start_run(1, state.playlist.mixer.master(), voices).unwrap();
+  let mut out = vec![0f32; 2 * 3_000];
+  renderer.render(&mut out, Instant::now(), Duration::ZERO);
+  // the pass starts 1 s into the run (1.5 s): the click 0.55 s after
+  let loudest = (0..3_000).max_by(|&a, &b| out[a * 2].abs().total_cmp(&out[b * 2].abs())).unwrap();
+  assert!((loudest as i64 - 2_050).abs() <= 1, "{loudest}");
 }

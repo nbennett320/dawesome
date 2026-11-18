@@ -11,6 +11,14 @@
 // captured, so the take keeps frames from the moment the run was heard (plus
 // the recording offset in the audio settings, for devices that don't report
 // all their latency, like Bluetooth headphones)
+//
+// at another speed (the tape's PITCH knob) the song runs faster or slower
+// than the clock, and the input keeps to the clock: a take is played back
+// that much slower or faster (its clip's pitch, which moves its speed as
+// tape does), so it fills the span of the song it was played along to and,
+// at the speed it was recorded at, sounds as it was played. back at 0 it's
+// pitched: the tape trick (T29). the speed holds while recording, as the
+// tempo does
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -82,10 +90,12 @@ struct Recording {
   // change while recording)
   start: Duration,
   start_beat: f64,
-  // when that was heard
+  // when that was heard, on the song's clock (see playback::song_now)
   heard: Instant,
-  // when the first frame kept was meant to be captured
+  // when the first frame kept was meant to be captured, on the clock itself
   keep_from: Instant,
+  // the song's speed (1 + the tape's PITCH knob): it holds while recording
+  speed: f64,
   // what it does when the loop comes round
   at_loop_end: LoopRecording,
   // while looping and layering: its passes, playable as they're recorded,
@@ -197,7 +207,7 @@ pub fn collect(state: &daw::Session) -> Recorded {
   let mut recorder = state.recorder.lock().unwrap();
   let take = recorder.session.as_ref().map(|session| {
     let first = session.span.end.saturating_sub(session.start);
-    let came_round = session.live.is_some() && Instant::now() >= session.heard + first;
+    let came_round = session.live.is_some() && playback::song_now() >= session.heard + first;
     TakeInProgress {
       start_beat: if came_round { session.span_start_beat } else { session.start_beat },
       tracks: session.tracks.iter().map(|(track, _)| *track).collect(),
@@ -267,8 +277,10 @@ pub fn start(state: &Arc<daw::Session>, at_loop_end: LoopRecording) -> Result<()
   let (heard, start) = if state.playlist.playing_playlist() {
     // already playing: from now (or, still counting in, from when the
     // playlist's first frame is heard)
+    // (on the song's clock, as the run's anchor is)
     let (_, started) = playback::run_anchor(state);
-    let heard = started.map_or(Instant::now(), |started| started.max(Instant::now()));
+    let now = playback::song_now();
+    let heard = started.map_or(now, |started| started.max(now));
     (heard, playback::playhead_at(state, heard))
   } else {
     // a pattern playing on its own stops first
@@ -286,12 +298,15 @@ pub fn start(state: &Arc<daw::Session>, at_loop_end: LoopRecording) -> Result<()
     }
   };
 
+  // the input's on the clock itself: when the song's clock reads `heard`
+  let speed = state.tape.lock().unwrap().machine.speed();
+  let heard_real = playback::real_at(heard);
   let offset_ms = engine::audio_settings().record_offset_ms;
   let offset = Duration::from_secs_f64(offset_ms.abs() / 1000.);
   let keep_from = if offset_ms >= 0. {
-    heard + offset
+    heard_real + offset
   } else {
-    heard.checked_sub(offset).unwrap_or(heard)
+    heard_real.checked_sub(offset).unwrap_or(heard_real)
   };
 
   // looping and layering: a new pass each time the loop comes round, each
@@ -307,8 +322,8 @@ pub fn start(state: &Arc<daw::Session>, at_loop_end: LoopRecording) -> Result<()
     let (finished_tx, finished_rx) = mpsc::channel();
     let count = files.len();
     let passes = input::Passes {
-      first: span.end - start,
-      every: span.len(),
+      first: real_time(span.end - start, speed),
+      every: real_time(span.len(), speed),
       next_paths: Box::new(move || project_files::next_take_paths(&dir, &name, &project_files::today(), count)),
       finished: finished_tx,
     };
@@ -320,7 +335,7 @@ pub fn start(state: &Arc<daw::Session>, at_loop_end: LoopRecording) -> Result<()
   let placing = finished.map(|finished| {
     let state = state.clone();
     let tracks = tracks.clone();
-    thread::spawn(move || place_passes(&state, finished, &tracks, (start, span.start), keep_from))
+    thread::spawn(move || place_passes(&state, finished, &tracks, (start, span.start), keep_from, speed))
   });
 
   let interval = playback::beat_interval(state);
@@ -330,6 +345,7 @@ pub fn start(state: &Arc<daw::Session>, at_loop_end: LoopRecording) -> Result<()
     start,
     heard,
     keep_from,
+    speed,
     at_loop_end,
     live: if layering { live } else { None },
     placing,
@@ -359,11 +375,24 @@ pub fn count_in(state: &daw::Session) -> Duration {
   playback::beat_interval(state) * beats as u32
 }
 
+// a span of the song, in the time it takes to play at `speed`
+fn real_time(song: Duration, speed: f64) -> Duration {
+  if speed == 1. { song } else { song.div_f64(speed) }
+}
+
+// the pitch, in semitones, a take recorded at the song's speed `speed` is
+// played back at: as much slower (or faster) as the song was faster, so it
+// fills the span of the song it was recorded along to
+fn take_pitch(speed: f64) -> f32 {
+  if speed == 1. { 0. } else { (-12. * speed.log2()) as f32 }
+}
+
 // where a pass of a recording goes on the playlist: the first where the
 // recording started (as late as its take started, if capture hadn't begun
 // when the run was heard), the rest at the loop's start
 // - starts: where the recording started, and where the loop starts
-fn pass_start(takes: &input::Takes, (start, loop_start): (Duration, Duration), keep_from: Instant) -> Duration {
+// - speed: the song's (lateness on the clock is that much more song)
+fn pass_start(takes: &input::Takes, (start, loop_start): (Duration, Duration), keep_from: Instant, speed: f64) -> Duration {
   if takes.pass > 0 { return loop_start; }
   // (by less than a frame is just the take starting on a whole frame)
   let rate = takes.files.first().map(|take| take.sample_rate).unwrap_or(48_000);
@@ -372,13 +401,14 @@ fn pass_start(takes: &input::Takes, (start, loop_start): (Duration, Duration), k
     .map(|started| started.saturating_duration_since(keep_from))
     .filter(|&late| late > frame)
     .unwrap_or_default();
-  start + late
+  start + if speed == 1. { late } else { late.mul_f64(speed) }
 }
 
-// put a take's files on their tracks (in order), as clips from `start`.
-// while layering, a pass whose sound is playing as it was recorded is held
-// back until the loop comes round again, so it isn't heard twice
-fn place(state: &daw::Session, takes: &input::Takes, tracks: &[u32], start: Duration) -> (Vec<LoadedClip>, Vec<String>) {
+// put a take's files on their tracks (in order), as clips from `start`,
+// recorded at the song's speed `speed`. while layering, a pass whose sound
+// is playing as it was recorded is held back until the loop comes round
+// again, so it isn't heard twice
+fn place(state: &daw::Session, takes: &input::Takes, tracks: &[u32], start: Duration, speed: f64) -> (Vec<LoadedClip>, Vec<String>) {
   let mut problems = Vec::new();
 
   // decoded before taking any lock, as playback needs the graph's
@@ -390,7 +420,12 @@ fn place(state: &daw::Session, takes: &input::Takes, tracks: &[u32], start: Dura
     }
     let path = take.path.to_string_lossy().into_owned();
     match audiograph::AudioNode::new(0, path.clone(), start, track_number) {
-      Ok(node) => nodes.push((path, track_number, node)),
+      Ok(mut node) => {
+        if speed != 1. {
+          node.set_settings(clip::ClipSettings { pitch: take_pitch(speed), ..clip::ClipSettings::default() });
+        }
+        nodes.push((path, track_number, node))
+      }
       Err(e) => problems.push(format!("the take couldn't be added: {}", e)),
     }
   }
@@ -429,10 +464,11 @@ fn place_passes(
   tracks: &[u32],
   starts: (Duration, Duration),
   keep_from: Instant,
+  speed: f64,
 ) -> Vec<u64> {
   let mut ids = Vec::new();
   for takes in finished {
-    let (clips, problems) = place(state, &takes, tracks, pass_start(&takes, starts, keep_from));
+    let (clips, problems) = place(state, &takes, tracks, pass_start(&takes, starts, keep_from, speed), speed);
     ids.extend(clips.iter().map(|clip| clip.id));
     let mut recorder = state.recorder.lock().unwrap();
     recorder.clips.extend(clips);
@@ -483,14 +519,16 @@ pub fn layer_voices(state: &daw::Session, engine: &engine::Engine, run: u64, at:
 
     session.playing_pass = Some(ended);
     let tracks: Vec<u32> = session.tracks.iter().map(|(track, _)| *track).collect();
-    ((pass, tracks), pass_heard(ended, session.start, session.span))
+    ((pass, tracks, session.speed), pass_heard(ended, session.start, session.span))
   };
 
-  let ((pass, tracks), rate) = (pass, engine.sample_rate());
+  let ((pass, tracks, speed), rate) = (pass, engine.sample_rate());
+  // (at another speed, as its clip will play: see place)
+  let settings = clip::ClipSettings { pitch: take_pitch(speed), ..clip::ClipSettings::default() };
   pass.files.into_iter().zip(tracks).map(|(samples, track)| {
     let pcm = Arc::new(clip_reader::Pcm::live(samples));
     let lead = engine.frames_in(lead);
-    let reader = clip_reader::ClipReader::new(pcm, &clip::ClipSettings::default(), rate, (Duration::ZERO, Duration::MAX), lead, None);
+    let reader = clip_reader::ClipReader::new(pcm, &settings, rate, (Duration::ZERO, Duration::MAX), lead, None);
     let route = engine::Route::Track(state.playlist.mixer.track_route(track));
     engine.boxed_voice(Box::new(reader), Some(run), engine.frames_in(at + delay), route)
   }).collect()
@@ -516,7 +554,7 @@ pub fn finish(state: &daw::Session, at_loop_end: bool) {
   };
 
   let limit = match (at_loop_end, session.looping) {
-    (true, true) => Some(session.span.end.saturating_sub(session.start)),
+    (true, true) => Some(real_time(session.span.end.saturating_sub(session.start), session.speed)),
     _ => None,
   };
 
@@ -538,7 +576,8 @@ pub fn finish(state: &daw::Session, at_loop_end: bool) {
         problems.push("some audio was lost because the disk couldn't keep up".into());
       }
       let tracks: Vec<u32> = session.tracks.iter().map(|(track, _)| *track).collect();
-      let (placed, trouble) = place(state, &takes, &tracks, pass_start(&takes, (session.start, session.span.start), session.keep_from));
+      let start = pass_start(&takes, (session.start, session.span.start), session.keep_from, session.speed);
+      let (placed, trouble) = place(state, &takes, &tracks, start, session.speed);
       clips = placed;
       problems.extend(trouble);
     }

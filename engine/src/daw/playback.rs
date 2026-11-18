@@ -149,6 +149,13 @@ pub fn song_now() -> Instant {
   engine::song_clock().map_or(now, |engine| engine.song_instant(now))
 }
 
+// the other way: when the song's clock reads `song`, on the clock itself
+// (at the speed the song's going at). what the input captures is on the
+// clock itself
+pub fn real_at(song: Instant) -> Instant {
+  engine::song_clock().map_or(song, |engine| engine.real_instant(song))
+}
+
 // where the playhead is (or was, or will be) heard at `at` on the song's
 // clock (see song_now), as playhead. before the run's first frame is heard
 // (counting in), where it starts
