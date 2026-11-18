@@ -220,7 +220,9 @@ pub(crate) fn add_clips(
   drop_beat: Option<f32>,
 ) -> Result<Vec<PlacedNode>, String> {
   if sample_paths.is_empty() { return Ok(Vec::new()); }
-  // decoded before taking the graph's lock, which playback needs
+  // decoded before taking the graph's lock, which playback needs: several
+  // at once, then each clip shares its file's sound
+  let _decoded = audiograph::decode_all(sample_paths)?;
   let nodes = sample_paths.iter().zip(track_number..)
     .map(|(path, track)| audiograph::AudioNode::new(0, path.clone(), Duration::ZERO, track))
     .collect::<Result<Vec<_>, String>>()?;

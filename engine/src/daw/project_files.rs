@@ -449,8 +449,7 @@ fn wav_seconds(path: &Path) -> Option<f64> {
 // file changes
 fn audio_seconds(path: &Path) -> Option<f64> {
   if has_extension(path, "wav") { return wav_seconds(path); }
-  let open = || fs::File::open(path).ok().and_then(|file| rodio::Decoder::new(std::io::BufReader::new(file)).ok());
-  let decoder = open()?;
+  let decoder = fs::File::open(path).ok().and_then(|file| rodio::Decoder::new(std::io::BufReader::new(file)).ok())?;
   if let Some(length) = rodio::Source::total_duration(&decoder) {
     return Some(length.as_secs_f64());
   }
@@ -463,11 +462,9 @@ fn audio_seconds(path: &Path) -> Option<f64> {
     if *had == stamp { return Some(*seconds); }
   }
 
-  // (without the lock: it takes a while)
-  let decoder = open()?;
-  let (channels, rate) = (rodio::Source::channels(&decoder) as f64, rodio::Source::sample_rate(&decoder) as f64);
-  if channels == 0. || rate == 0. { return None; }
-  let seconds = decoder.count() as f64 / channels / rate;
+  // (without the lock: it takes a while. decoded as a clip of it is, so a
+  // file just dropped on the playlist is decoded once for both)
+  let seconds = crate::daw::audiograph::sample_seconds(&path.to_string_lossy()).ok()?;
   DECODED.lock().unwrap().get_or_insert_with(Default::default).insert(path.to_path_buf(), (stamp, seconds));
   Some(seconds)
 }

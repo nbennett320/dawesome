@@ -212,3 +212,24 @@ fn test_placing_files_adds_none_if_one_cant_be_read() {
   assert!(add_clips(&state, &[], 0, Some(0.)).unwrap().is_empty());
   let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn test_a_copy_plays_the_sound_its_ghost_decoded() {
+  let dir = test_dir("ghost");
+  let state = saved_in(&dir);
+  let pad = put(MP3, &dir.join("finder").join("pad.mp3"));
+  // drawn as it was dragged in: decoded then
+  let (length, _) = crate::daw::audiograph::preview_sample(&pad).unwrap();
+
+  let imported = import(&state, &[DroppedFile { path: pad.clone(), folder: String::new() }], "").unwrap();
+  let copy = &imported.files[0].path;
+  assert!(!imported.files[0].reused);
+  let placed = add_clips(&state, &[copy.clone()], 0, Some(0.)).unwrap();
+  let graph = state.playlist.audiograph.lock().unwrap();
+  let node = graph.get_node_by_id(placed[0].id).unwrap();
+  assert_eq!(node.sample_path(), copy);
+  assert_eq!(node.duration(), length);
+  // not decoded again for the copy: the sound the preview decoded (and holds)
+  let original = crate::daw::audiograph::AudioNode::new(0, pad, std::time::Duration::ZERO, 0).unwrap();
+  assert!(node.shares_sound_with(&original));
+}

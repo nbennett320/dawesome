@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::daw;
 use crate::daw::actions::audio::{dir_to_change, Library};
-use crate::daw::bounce;
+use crate::daw::{audiograph, bounce};
 use crate::daw::project_files::{free_path, is_audio, is_inside, natural_cmp, relative, walk};
 
 // a file that can be played, from what was dropped
@@ -224,6 +224,7 @@ pub fn import(state: &daw::Session, files: &[DroppedFile], into: &str) -> Result
       }
     };
     if let Some(same) = known.find(source, len) {
+      audiograph::decoded_copied(&file.path, &same.to_string_lossy());
       imported.files.push(take(&same.clone(), true));
       continue;
     }
@@ -237,6 +238,9 @@ pub fn import(state: &daw::Session, files: &[DroppedFile], into: &str) -> Result
     });
     match made {
       Ok(target) => {
+        // (its sound, if it's been decoded already for the ghost drawn while
+        // it was dragged in, is the copy's too)
+        audiograph::decoded_copied(&file.path, &target.to_string_lossy());
         imported.files.push(take(&target, false));
         known.add(target, len);
       }

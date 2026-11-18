@@ -226,12 +226,60 @@ fn duration_and_waveform(
   Ok((duration, waveform::encode_levels(&levels)))
 }
 
+// how long a preview's sound is kept after it's drawn, for the drop that
+// usually follows it to share
+const PREVIEW_KEPT: Duration = Duration::from_secs(60);
+
 // decode a sample's length and waveform without creating a node,
-// so the frontend can draw a clip before it's dropped into the playlist
+// so the frontend can draw a clip before it's dropped into the playlist.
+// the sound is kept a while (PREVIEW_KEPT), so a clip made of it when it's
+// dropped doesn't decode it again
 pub fn preview_sample(sample_path: &str) -> Result<(Duration, String), String> {
-  let pcm = clip_reader::Pcm::load(sample_path)?;
-  duration_and_waveform(sample_path, pcm.samples(), pcm.channels(), pcm.rate())
+  let decoded = decoded(sample_path)?;
+  let answer = (decoded.duration, decoded.waveform.to_string());
+  std::thread::spawn(move || {
+    std::thread::sleep(PREVIEW_KEPT);
+    drop(decoded);
+  });
+  Ok(answer)
 }
+
+// a sample file's length, decoded as a clip of it would be (and shared with
+// one being made at the same time)
+pub fn sample_seconds(sample_path: &str) -> Result<f64, String> {
+  decoded(sample_path).map(|decoded| decoded.pcm.frames() as f64 / decoded.pcm.rate() as f64)
+}
+
+// decode files at once, a few at a time, for clips about to be made of them.
+// what's returned holds their sounds until the clips do. the first file that
+// can't be decoded (in the order given) is the error
+pub fn decode_all(sample_paths: &[String]) -> Result<DecodedFiles, String> {
+  let mut unique: Vec<&String> = Vec::new();
+  for path in sample_paths {
+    if !unique.contains(&path) { unique.push(path); }
+  }
+  // (a core left for playback)
+  let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
+  let workers = cores.saturating_sub(1).clamp(1, unique.len().max(1));
+  let next = std::sync::atomic::AtomicUsize::new(0);
+  let results: Vec<Mutex<Option<Result<Decoded, String>>>> = unique.iter().map(|_| Mutex::new(None)).collect();
+  std::thread::scope(|scope| {
+    for _ in 0..workers {
+      scope.spawn(|| loop {
+        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let Some(path) = unique.get(i) else { break };
+        *results[i].lock().unwrap() = Some(decoded(path));
+      });
+    }
+  });
+  results.into_iter()
+    .map(|result| result.into_inner().unwrap().unwrap_or_else(|| Err("not decoded".to_string())))
+    .collect::<Result<Vec<_>, String>>()
+    .map(DecodedFiles)
+}
+
+// sounds held while clips are made of them (see decode_all)
+pub struct DecodedFiles(#[allow(dead_code)] Vec<Decoded>);
 
 // a sample file, decoded: its sound, its length and its waveform
 #[derive(Clone)]
@@ -250,11 +298,57 @@ fn file_stamp(path: &str) -> Option<FileStamp> {
   Some((metadata.len(), metadata.modified().ok()))
 }
 
+// a decode under way, which others wanting the same sound wait for rather
+// than decoding it again
+#[derive(Default)]
+struct Decoding {
+  done: Mutex<Option<Result<Decoded, String>>>,
+  ready: std::sync::Condvar,
+}
+
+impl Decoding {
+  fn wait(&self) -> Result<Decoded, String> {
+    let mut done = self.done.lock().unwrap();
+    loop {
+      if let Some(result) = done.as_ref() { return result.clone(); }
+      done = self.ready.wait(done).unwrap();
+    }
+  }
+}
+
+// a file's sound as the cache knows it: decoded (while something still
+// holds it), or being decoded
+enum Known {
+  Ready(FileStamp, std::sync::Weak<clip_reader::Pcm>, Duration, std::sync::Weak<str>),
+  Underway(FileStamp, Arc<Decoding>),
+}
+
+impl Known {
+  fn stamp(&self) -> FileStamp {
+    match self {
+      Known::Ready(stamp, ..) | Known::Underway(stamp, _) => *stamp,
+    }
+  }
+
+  fn with_stamp(&self, stamp: FileStamp) -> Known {
+    match self {
+      Known::Ready(_, pcm, duration, waveform) => Known::Ready(stamp, pcm.clone(), *duration, waveform.clone()),
+      Known::Underway(_, decoding) => Known::Underway(stamp, decoding.clone()),
+    }
+  }
+
+  fn ready(stamp: FileStamp, decoded: &Decoded) -> Known {
+    Known::Ready(stamp, Arc::downgrade(&decoded.pcm), decoded.duration, Arc::downgrade(&decoded.waveform))
+  }
+}
+
 lazy_static! {
   // the samples clips are playing, by path, so every clip of a file shares
   // one decoded copy of it (a long file takes tens of megabytes). an entry
-  // lasts as long as some clip, or the undo history, still holds the sample
-  static ref DECODED: Mutex<std::collections::HashMap<String, (FileStamp, std::sync::Weak<clip_reader::Pcm>, Duration, std::sync::Weak<str>)>> =
+  // lasts as long as some clip, or the undo history, still holds the sample.
+  // a file being decoded is listed too, so it's decoded once however many
+  // ask for it meanwhile
+  static ref DECODED: Mutex<std::collections::HashMap<String, Known>> =
     Mutex::new(std::collections::HashMap::new());
 }
 
@@ -268,42 +362,94 @@ pub fn decoded_moved(to: &dyn Fn(&str) -> Option<String>) {
     .filter_map(|path| to(path).map(|new| (path.clone(), new)))
     .collect();
   for (from, new) in moved {
-    if let Some((_, pcm, duration, waveform)) = known.remove(&from) {
+    if let Some(entry) = known.remove(&from) {
       // (as the file is now: a move may have changed when it says it was changed)
       if let Some(stamp) = file_stamp(&new) {
-        known.insert(new, (stamp, pcm, duration, waveform));
+        known.insert(new, entry.with_stamp(stamp));
       }
     }
   }
 }
 
+// a file was copied (byte for byte) from `from` to `to`: the copy has the
+// sound decoded from the original, or being decoded from it, so it isn't
+// decoded again
+pub fn decoded_copied(from: &str, to: &str) {
+  let (Some(from_stamp), Some(to_stamp)) = (file_stamp(from), file_stamp(to)) else { return };
+  let mut known = DECODED.lock().unwrap();
+  let Some(entry) = known.get(from) else { return };
+  if entry.stamp() != from_stamp { return; }
+  // (the copy's own sound, if it has one already, is as good)
+  if let Some(Known::Ready(had, pcm, ..)) = known.get(to) {
+    if *had == to_stamp && pcm.strong_count() > 0 { return; }
+  }
+  let copy = entry.with_stamp(to_stamp);
+  known.insert(to.to_string(), copy);
+}
+
 // a sample file's sound, length and waveform: as already decoded for
-// another clip, if the file hasn't changed since, or decoded now
+// another clip (or being decoded for one), if the file hasn't changed since,
+// or decoded now
 fn decoded(sample_path: &str) -> Result<Decoded, String> {
-  let stamp = file_stamp(sample_path);
-  if let Some(stamp) = stamp {
-    if let Some((had, pcm, duration, waveform)) = DECODED.lock().unwrap().get(sample_path) {
-      if let (true, Some(pcm), Some(waveform)) = (*had == stamp, pcm.upgrade(), waveform.upgrade()) {
-        return Ok(Decoded { pcm, duration: *duration, waveform });
+  let Some(stamp) = file_stamp(sample_path) else { return decode(sample_path) };
+
+  let decoding = {
+    let mut known = DECODED.lock().unwrap();
+    match known.get(sample_path) {
+      Some(Known::Ready(had, pcm, duration, waveform)) if *had == stamp => {
+        if let (Some(pcm), Some(waveform)) = (pcm.upgrade(), waveform.upgrade()) {
+          return Ok(Decoded { pcm, duration: *duration, waveform });
+        }
+      }
+      Some(Known::Underway(had, decoding)) if *had == stamp => {
+        let decoding = decoding.clone();
+        drop(known);
+        return decoding.wait();
+      }
+      _ => {}
+    }
+    known.retain(|_, entry| match entry {
+      Known::Ready(_, pcm, ..) => pcm.strong_count() > 0,
+      Known::Underway(..) => true,
+    });
+    let decoding = Arc::new(Decoding::default());
+    known.insert(sample_path.to_string(), Known::Underway(stamp, decoding.clone()));
+    decoding
+  };
+
+  // (decoded without the lock: it takes a while)
+  // (a decoder that panics on a broken file mustn't leave the others waiting)
+  let result = std::panic::catch_unwind(|| decode(sample_path))
+    .unwrap_or_else(|_| Err(format!("could not decode sample '{}'", sample_path)));
+
+  // this decode is done: every path waiting on it (copies too) has the sound
+  // now, or is forgotten if it couldn't be decoded
+  {
+    let mut known = DECODED.lock().unwrap();
+    let waiting: Vec<String> = known.iter()
+      .filter(|(_, entry)| matches!(entry, Known::Underway(_, d) if Arc::ptr_eq(d, &decoding)))
+      .map(|(path, _)| path.clone())
+      .collect();
+    for path in waiting {
+      match &result {
+        Ok(decoded) => {
+          let stamp = known[&path].stamp();
+          known.insert(path, Known::ready(stamp, decoded));
+        }
+        Err(_) => { known.remove(&path); }
       }
     }
   }
+  *decoding.done.lock().unwrap() = Some(result.clone());
+  decoding.ready.notify_all();
+  result
+}
 
-  // (decoded without the lock: it takes a while)
+fn decode(sample_path: &str) -> Result<Decoded, String> {
   let pcm = clip_reader::Pcm::load(sample_path)?;
   let (duration, waveform) =
     duration_and_waveform(sample_path, pcm.samples(), pcm.channels(), pcm.rate())?;
-  let decoded = Decoded { pcm: Arc::new(pcm), duration, waveform: waveform.into() };
-
-  if let Some(stamp) = stamp {
-    let mut known = DECODED.lock().unwrap();
-    known.retain(|_, (_, pcm, _, _)| pcm.strong_count() > 0);
-    known.insert(
-      sample_path.to_string(),
-      (stamp, Arc::downgrade(&decoded.pcm), decoded.duration, Arc::downgrade(&decoded.waveform)),
-    );
-  }
-  Ok(decoded)
+  Ok(Decoded { pcm: Arc::new(pcm), duration, waveform: waveform.into() })
 }
 
 impl AudioNode {
