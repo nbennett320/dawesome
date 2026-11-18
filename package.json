@@ -37,8 +37,6 @@
     "p5": "^1.5.0",
     "react": "18.3.1",
     "react-complex-tree": "^1.1.9",
-    "react-dnd": "^16.0.1",
-    "react-dnd-html5-backend": "^16.0.1",
     "react-dom": "18.3.1",
     "react-p5-wrapper": "^3.4.0",
     "react-redux": "^9.3.1",

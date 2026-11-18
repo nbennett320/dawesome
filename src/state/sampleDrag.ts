@@ -3,7 +3,6 @@
 // onto a mixer channel, an instrument into the Pattern Sequencer, or a
 // pane's tab to another pane
 //
-// this uses plain mouse events instead of HTML drag and drop (react-dnd):
 // during an HTML drag the playlist canvas couldn't draw the clip following
 // the mouse, while mouse events keep p5's draw loop running as normal. and
 // with Tauri's file drop handler on (dragDropEnabled, for files dragged in
