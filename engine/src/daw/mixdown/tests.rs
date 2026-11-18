@@ -535,3 +535,59 @@ fn test_a_mixdown_fails_if_an_effect_cant_be_loaded_again() {
   let err = snapshot(&rig.state, 48_000).err().unwrap();
   assert!(err.starts_with("Gain couldn't be loaded for the mixdown"), "{}", err);
 }
+
+// ---- the varispeed (T28): a mixdown is at the tape's speed
+
+fn song_on(state: &daw::Session) {
+  add_clip(state, KICK.into(), 0, Some(0.)).unwrap();
+  add_clip(state, LONG.into(), 1, Some(1.37)).unwrap();
+  pattern_clip(state, 2, Duration::from_millis(1_500));
+}
+
+fn tape(state: &daw::Session, enabled: bool, pitch: f32) {
+  use crate::daw::tape_settings::TapeMachine;
+  state.tape.lock().unwrap().machine = TapeMachine { enabled, pitch, ..TapeMachine::default() };
+}
+
+#[test]
+fn test_at_the_knob_s_click_a_mixdown_is_as_it_always_was() {
+  // T14: the tape on with the knob at 0, or off with it turned, renders
+  // the same, to the bit, as no tape at all
+  let state = daw::Session::default();
+  song_on(&state);
+  let plain = mixdown(&state, 48_000);
+  tape(&state, true, 0.);
+  assert_eq!(snapshot(&state, 48_000).unwrap().speed, 1.);
+  assert_eq!(mixdown(&state, 48_000), plain);
+  tape(&state, false, 9.);
+  assert_eq!(mixdown(&state, 48_000), plain);
+}
+
+#[test]
+fn test_at_another_speed_a_mixdown_is_pitched_and_its_length_changed() {
+  for pitch in [10., -12.] {
+    let state = daw::Session::default();
+    song_on(&state);
+    let plain = mixdown(&state, 48_000);
+    tape(&state, true, pitch);
+    let speed = 1. + pitch as f64 / 100.;
+    let mut frames = 0;
+    let mut fast = Vec::new();
+    let made = render(snapshot(&state, 48_000).unwrap(), 48_000, &mut |chunk| { fast.extend_from_slice(chunk); Ok(()) },
+      &Progress::default(), &AtomicBool::new(false)).unwrap();
+    frames += fast.len() / 2;
+    assert_eq!(made as usize, frames);
+    assert_eq!(frames, ((plain.len() / 2) as f64 / speed).ceil() as usize);
+
+    // the plain mix read at the speed, as the playback's varispeed reads it
+    // (read in other chunks: the read point's rounding differs a hair)
+    let mut stretch = ::tape::Stretch::new(speed);
+    let mut expected = Vec::new();
+    stretch.push(&plain, &mut expected);
+    stretch.finish(&mut expected);
+    assert_eq!(fast.len(), expected.len());
+    let off = worst(&fast, &expected);
+    assert!(off < 1e-5, "off by {off}");
+    assert!(peak(&fast) > 0.1);
+  }
+}

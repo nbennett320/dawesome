@@ -51,6 +51,10 @@ pub const CANCELLED: &str = "Mixdown cancelled";
 
 // the song as it was when the mixdown started
 pub struct Snapshot {
+  // the speed it plays at (the tape's PITCH knob, with the tape on): the
+  // mix is at that speed, pitched and its length changed, as it's heard
+  // (T28). 1, and the render as it always was, otherwise
+  speed: f64,
   graph: audiograph::AudioGraph<'static>,
   // where the last clip ends
   end: Duration,
@@ -91,7 +95,8 @@ pub fn snapshot(state: &daw::Session, rate: u32) -> Result<Snapshot, String> {
   // copies' settings)
   state.playlist.effects.push_synth_states(true);
   let effects = state.playlist.effects.mixdown_chains(rate, &graph.synth_tracks())?;
-  Ok(Snapshot { graph, end, time_signature, effects })
+  let speed = state.tape.lock().unwrap().machine.speed();
+  Ok(Snapshot { speed, graph, end, time_signature, effects })
 }
 
 // how far a render has got, readable from another thread while it works
@@ -132,7 +137,25 @@ pub fn render(
   cancel: &AtomicBool,
 ) -> Result<u64, String> {
   // (declared first, so the plugins go after the engine that runs them)
-  let Snapshot { mut graph, end, time_signature, effects } = snapshot;
+  let Snapshot { speed, mut graph, end, time_signature, effects } = snapshot;
+
+  // at another speed the song's rendered as ever and read back at that
+  // speed on its way out (the varispeed, offline). at 1x nothing's in the
+  // way (T14)
+  let into = sink;
+  let mut stretch = (speed != 1.).then(|| ::tape::Stretch::new(speed));
+  let mut stretched = Vec::new();
+  let mut out_sink = |chunk: &[f32]| -> Result<(), String> {
+    match stretch.as_mut() {
+      None => into(chunk),
+      Some(stretch) => {
+        stretched.clear();
+        stretch.push(chunk, &mut stretched);
+        if stretched.is_empty() { Ok(()) } else { into(&stretched) }
+      }
+    }
+  };
+  let sink: &mut dyn FnMut(&[f32]) -> Result<(), String> = &mut out_sink;
   let crate::daw::effects::MixdownEffects { chains, copies, plugins: _plugins, settle } = effects;
   let beat = graph.beat_interval();
   if beat.is_zero() { return Err("the tempo is zero".into()); }
@@ -242,7 +265,18 @@ pub fn render(
     }
   }
   if !tail.is_empty() { sink(tail)?; }
-  Ok(end_frame + keep as u64)
+  let frames = end_frame + keep as u64;
+
+  // the last of it, read against silence after it
+  match stretch.as_mut() {
+    None => Ok(frames),
+    Some(stretch) => {
+      stretched.clear();
+      stretch.finish(&mut stretched);
+      if !stretched.is_empty() { into(&stretched)?; }
+      Ok((frames as f64 / speed).ceil() as u64)
+    }
+  }
 }
 
 #[cfg(test)]
