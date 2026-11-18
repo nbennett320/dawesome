@@ -1,5 +1,5 @@
 // render an SVG to a square PNG, keeping its transparency, with macOS's
-// own SVG support (build-icons.sh uses it)
+// own SVG support (scripts/build-icons.sh uses it)
 //   swiftc render-svg.swift -o render-svg
 //   ./render-svg in.svg out.png 512
 import AppKit

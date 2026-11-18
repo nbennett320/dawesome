@@ -7,7 +7,7 @@
 
   <!-- the project files Dawesome opens from Finder, and their icons
        (bundle.resources in tauri.conf.json puts the .icns files in
-       Contents/Resources; they're built by icons/documents/build-icons.sh).
+       Contents/Resources; they're built from icons/documents by scripts/build-icons.sh).
        written here, not as tauri's fileAssociations, which can't give a type
        its own icon -->
   <key>CFBundleDocumentTypes</key>

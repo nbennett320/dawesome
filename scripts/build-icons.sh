@@ -1,17 +1,20 @@
 #!/bin/sh
 # build the project files' icons (dawesome-document.icns and
-# sharedawesome-document.icns, in engine/icons) from the SVGs here. macOS
-# only: it needs swiftc, iconutil and ImageMagick (magick)
+# sharedawesome-document.icns, in engine/icons) from the SVGs in
+# engine/icons/documents:
+#   pnpm icons:build   (or ./scripts/build-icons.sh)
+# macOS only: it needs swiftc, iconutil and ImageMagick (magick)
 #
 # 16 and 32 pixels are drawn from the -small SVGs, which stay crisp that
 # small. 128 pixels and up get a soft shadow, as Finder's icons have
 set -eu
-here=$(cd "$(dirname "$0")" && pwd)
-out=$(cd "$here/.." && pwd)
+scripts=$(cd "$(dirname "$0")" && pwd)
+here=$(cd "$scripts/../engine/icons/documents" && pwd)
+out=$(cd "$scripts/../engine/icons" && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-swiftc -O "$here/render-svg.swift" -o "$work/render-svg"
+swiftc -O "$scripts/render-svg.swift" -o "$work/render-svg"
 
 # draw `svg` at `px` pixels into `png`, with a shadow when it's big enough
 draw() {

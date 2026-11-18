@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024">
 <!-- a .dawesome project's icon: a page in the app icon's key-cap style.
-     built into dawesome-document.icns by build-icons.sh -->
+     built into dawesome-document.icns by scripts/build-icons.sh -->
 <defs>
   <linearGradient id="cap" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ebe4d4"/><stop offset="1" stop-color="#d6ccb6"/></linearGradient>
   <linearGradient id="capface" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f6f3ec"/><stop offset="1" stop-color="#e6e1d6"/></linearGradient>
