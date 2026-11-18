@@ -10,7 +10,7 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use dsp::effects::{delay, eq};
+use dsp::effects::{chorus, delay, eq};
 use dsp::{Runner, Store, Transport, REGISTRY};
 
 const RATE: u32 = 48_000;
@@ -125,6 +125,19 @@ fn main() {
   let mut runner = Runner::new(store.clone(), RATE as f32);
   let cut = time(&mut runner, |n| { store.set(delay::HIGH_CUT, (n % 100) as f32 / 100.); });
   report("high cut turned all the time", cut);
+
+  // the Chorus at its busiest: four voices with every experimental part on
+  println!("\nChorus");
+  let store = Store::new(&chorus::ENTRY);
+  report("defaults (two voices), still", time(&mut Runner::new(store.clone(), RATE as f32), |_| {}));
+  store.set_plain(chorus::VOICES, 3.);
+  store.set_plain(chorus::BLOOM, 50.);
+  store.set_plain(chorus::DRIFT, 50.);
+  store.set_plain(chorus::PRISM, 50.);
+  report("four voices, Bloom, Drift and Prism on, still", time(&mut Runner::new(store.clone(), RATE as f32), |_| {}));
+  let mut runner = Runner::new(store.clone(), RATE as f32);
+  let turned = time(&mut runner, |n| { store.set(chorus::TONE, (n % 100) as f32 / 100.); });
+  report("four voices, tone turned all the time", turned);
 
   // an analyzer frame, as the app asks for one ~30 times a second
   println!("\nAnalyzer");

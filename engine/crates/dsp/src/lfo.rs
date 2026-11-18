@@ -11,6 +11,7 @@
 
 use std::f64::consts::TAU;
 
+use crate::effect::Values;
 use crate::interp::hermite;
 use crate::transport::Transport;
 
@@ -94,6 +95,11 @@ pub enum Rate {
 }
 
 impl Rate {
+  // as an effect's Sync, Note and Rate parameters (by id) set it
+  pub fn of(params: &Values, sync: usize, note: usize, hz: usize) -> Rate {
+    if params.on(sync) { Rate::Synced(params.choice(note)) } else { Rate::Free(params.get(hz) as f64) }
+  }
+
   pub fn hz(self, transport: &Transport) -> f64 {
     match self {
       Rate::Free(hz) => hz,
@@ -142,27 +148,59 @@ impl Lfo {
     Some(cycles - cycles.floor())
   }
 
-  // a stretch of `frames`: a step for each frame, `each(i, phase)` called
-  // with the phase the frame starts at
-  #[inline]
-  pub fn run(&mut self, rate: Rate, transport: &Transport, frames: usize, mut each: impl FnMut(usize, f64)) {
+  // how it moves through a block: worked out once, at the block's start
+  pub fn clock(rate: Rate, transport: &Transport) -> Clock {
     let sample_rate = transport.sample_rate.max(1) as f64;
-    let step = rate.hz(transport) / sample_rate;
-    let catch_up = 1. / (CATCH_UP * sample_rate);
-    let synced = Lfo::song_phase(rate, transport, 0).is_some();
-    for i in 0..frames {
-      each(i, self.phase);
-      let mut step = step;
-      if synced {
-        let song = Lfo::song_phase(rate, transport, i).unwrap_or(self.phase);
-        // the shorter way round
-        let mut behind = song - self.phase;
-        behind -= behind.round();
-        step += (behind * catch_up).clamp(-CATCH_UP_MOST * step, CATCH_UP_MOST * step);
-      }
-      self.phase += step;
-      self.phase -= self.phase.floor();
+    Clock {
+      step: rate.hz(transport) / sample_rate,
+      catch_up: 1. / (CATCH_UP * sample_rate),
+      song: Lfo::song_phase(rate, transport, 0),
     }
+  }
+
+  // the phase frame `i` of the block starts at, and on to the next frame.
+  // frames are taken in order, from 0
+  #[inline]
+  pub fn tick(&mut self, clock: &Clock, i: usize) -> f64 {
+    let now = self.phase;
+    let mut step = clock.step;
+    if let Some(song) = clock.song {
+      // where the song is (it moves at the LFO's own rate), the shorter
+      // way round
+      let mut behind = song + i as f64 * clock.step - now;
+      behind -= behind.round();
+      step += (behind * clock.catch_up).clamp(-CATCH_UP_MOST * step, CATCH_UP_MOST * step);
+    }
+    self.phase += step;
+    self.phase -= self.phase.floor();
+    now
+  }
+
+  // a stretch of `frames`, `each(i, phase)` called with each frame's phase
+  pub fn run(&mut self, rate: Rate, transport: &Transport, frames: usize, mut each: impl FnMut(usize, f64)) {
+    let clock = Lfo::clock(rate, transport);
+    for i in 0..frames {
+      let phase = self.tick(&clock, i);
+      each(i, phase);
+    }
+  }
+}
+
+// a block's worth of how an LFO moves (Lfo::clock)
+#[derive(Clone, Copy, Debug)]
+pub struct Clock {
+  // its phase's step a frame
+  pub step: f64,
+  catch_up: f64,
+  // synced and playing: where the song says it should be at the block's
+  // start
+  song: Option<f64>,
+}
+
+impl Clock {
+  // how fast it goes, in Hz
+  pub fn hz(&self, sample_rate: f32) -> f64 {
+    self.step * sample_rate as f64
   }
 }
 

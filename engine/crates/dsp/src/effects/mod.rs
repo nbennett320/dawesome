@@ -4,10 +4,11 @@
 
 use crate::effect::Entry;
 
+pub mod chorus;
 pub mod delay;
 pub mod eq;
 
-pub static REGISTRY: &[&Entry] = &[&eq::ENTRY, &delay::ENTRY];
+pub static REGISTRY: &[&Entry] = &[&eq::ENTRY, &delay::ENTRY, &chorus::ENTRY];
 
 // a built-in effect by its id ("eq")
 pub fn find(id: &str) -> Option<&'static Entry> {
