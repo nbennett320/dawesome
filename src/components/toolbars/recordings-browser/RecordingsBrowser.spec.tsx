@@ -11,6 +11,7 @@ import recordingReducer, { setRecording } from '../../../state/slices/recordingS
 import sequencerReducer from '../../../state/slices/sequencerSlice'
 import { Library, RecordingFile, RecordingsListing } from '../../../types/recordings'
 import RecordingsBrowser from './RecordingsBrowser'
+import { DragItem, sendSampleDrag } from '../../../state/sampleDrag'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ ask: vi.fn(), open: vi.fn(), save: vi.fn() }))
@@ -120,5 +121,166 @@ describe('the recordings pages', () => {
     fireEvent.click(screen.getByText('Move to Trash'))
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith(
       'delete_recording_folder', { folder: 'Vocals', library: 'recordings' }))
+  })
+})
+
+describe('previewing a take', () => {
+  // how long each take is, as the engine answers once it's playing
+  const lengths: Record<string, number> = {
+    '/p/recordings/Guitar.wav': 3,
+    '/p/recordings/Riff.wav': 3,
+    '/p/recordings/Bass.wav': 2,
+    '/p/recordings/Solo.wav': 5,
+  }
+  // the takes the engine lists, which a rename changes
+  let shown: RecordingsListing
+
+  const row = (name: string) => screen.getByRole('treeitem', { name: new RegExp(name) })
+  const stopButtons = () => screen.queryAllByRole('button', { name: 'Stop preview' })
+  const dots = (name: string) => row(name).querySelectorAll('[aria-label="In use"], [aria-label="Not used"]')
+
+  // press a take's row, and let the engine answer
+  const hear = async (name: string) => {
+    fireEvent.mouseDown(row(name), { button: 0 })
+    await act(async () => {})
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    shown = { takes: [take('Guitar', ''), take('Bass', ''), take('Solo', '')], folders: [] }
+    mockInvoke.mockImplementation(async (command: string, args?: { path?: string, name?: string }) => {
+      if(command === 'list_recordings') return shown
+      if(command === 'preview_sample') return lengths[args?.path ?? '']
+      if(command === 'rename_recording') {
+        const path = `/p/recordings/${args?.name}.wav`
+        shown = { ...shown, takes: shown.takes.map(t => (t.path === args?.path ? { ...t, path, name: args?.name ?? '' } : t)) }
+        return { path, movedClips: [], sequencer: null, problem: null }
+      }
+      return undefined
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('shows a stop button in place of the dot while it plays, if it’s longer than 2 seconds', async () => {
+    await setup()
+    expect(stopButtons()).toHaveLength(0)
+    expect(dots('Guitar')).toHaveLength(1)
+
+    await hear('Guitar')
+    expect(mockInvoke).toHaveBeenCalledWith('preview_sample', { path: '/p/recordings/Guitar.wav' })
+    expect(stopButtons()).toHaveLength(1)
+    expect(row('Guitar').contains(stopButtons()[0])).toBe(true)
+    expect(dots('Guitar')).toHaveLength(0)
+
+    // and hides it once the take's over, and the dot's back
+    await act(async () => { vi.advanceTimersByTime(2_999) })
+    expect(stopButtons()).toHaveLength(1)
+    await act(async () => { vi.advanceTimersByTime(1) })
+    expect(stopButtons()).toHaveLength(0)
+    expect(dots('Guitar')).toHaveLength(1)
+  })
+
+  it('shows no stop button for a take of 2 seconds or less', async () => {
+    await setup()
+    await hear('Bass')
+    expect(mockInvoke).toHaveBeenCalledWith('preview_sample', { path: '/p/recordings/Bass.wav' })
+    expect(stopButtons()).toHaveLength(0)
+  })
+
+  it('stops the preview without playing it again', async () => {
+    await setup()
+    await hear('Guitar')
+    mockInvoke.mockClear()
+
+    fireEvent.mouseDown(stopButtons()[0], { button: 0 })
+    await act(async () => {})
+    expect(mockInvoke).toHaveBeenCalledWith('stop_previews')
+    expect(mockInvoke).not.toHaveBeenCalledWith('preview_sample', expect.anything())
+    expect(stopButtons()).toHaveLength(0)
+  })
+
+  it('stops with Escape on the row', async () => {
+    await setup()
+    await hear('Guitar')
+
+    fireEvent.keyDown(row('Guitar'), { key: 'Escape' })
+    expect(mockInvoke).toHaveBeenCalledWith('stop_previews')
+    expect(stopButtons()).toHaveLength(0)
+  })
+
+  it('moves the button to the take heard next, whose length it keeps', async () => {
+    await setup()
+    await hear('Guitar')
+    await hear('Solo')
+    expect(stopButtons()).toHaveLength(1)
+    expect(row('Solo').contains(stopButtons()[0])).toBe(true)
+
+    // (Guitar's 3 seconds don't end Solo's 5)
+    await act(async () => { vi.advanceTimersByTime(3_000) })
+    expect(stopButtons()).toHaveLength(1)
+    await act(async () => { vi.advanceTimersByTime(2_000) })
+    expect(stopButtons()).toHaveLength(0)
+  })
+
+  it('keeps the button on a take renamed while it plays', async () => {
+    await setup()
+    await hear('Guitar')
+
+    fireEvent.contextMenu(row('Guitar'))
+    fireEvent.click(screen.getByText('Rename'))
+    const input = screen.getByRole('textbox', { name: 'Recording name' })
+    fireEvent.change(input, { target: { value: 'Riff' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await act(async () => {})
+
+    expect(mockInvoke).toHaveBeenCalledWith('rename_recording', expect.objectContaining({ path: '/p/recordings/Guitar.wav', name: 'Riff' }))
+    expect(stopButtons()).toHaveLength(1)
+    expect(row('Riff').contains(stopButtons()[0])).toBe(true)
+  })
+
+  it('does the same on the Clips page', async () => {
+    await setup('clips')
+    await hear('Guitar')
+    expect(stopButtons()).toHaveLength(1)
+    fireEvent.mouseDown(stopButtons()[0], { button: 0 })
+    await act(async () => {})
+    expect(mockInvoke).toHaveBeenCalledWith('stop_previews')
+    expect(stopButtons()).toHaveLength(0)
+  })
+})
+
+describe('files dragged in from outside', () => {
+  const files: DragItem = { kind: 'files', files: [{ path: '/finder/kick.wav', folder: '' }], skipped: [] }
+  // the drag bus asks what's under the mouse, which jsdom can't tell
+  const dropOn = async (el: Element) => {
+    const was = document.elementFromPoint
+    document.elementFromPoint = () => el
+    await act(async () => {
+      sendSampleDrag({ type: 'move', item: files, clientX: 1, clientY: 1 })
+      sendSampleDrag({ type: 'drop', item: files, clientX: 1, clientY: 1 })
+    })
+    document.elementFromPoint = was
+  }
+
+  it('are copied into the folder they are dropped on, on the Clips page', async () => {
+    const store = await setup('clips')
+    mockInvoke.mockImplementation(async (command: string) => {
+      if(command === 'list_recordings') return listing
+      if(command === 'import_files') return { files: [{ source: '/finder/kick.wav', path: '/p/clips/Vocals/kick.wav', reused: false }], skipped: [] }
+      return undefined
+    })
+    const revision = store.getState().recording.takesRevision
+    await dropOn(screen.getByText('Vocals'))
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('import_files', { files: (files as { files: unknown }).files, into: 'Vocals' }))
+    await waitFor(() => expect(store.getState().recording.takesRevision).toBeGreaterThan(revision))
+  })
+
+  it('are not taken by the Recordings page', async () => {
+    await setup('recordings')
+    await dropOn(screen.getByText('Vocals'))
+    expect(mockInvoke).not.toHaveBeenCalledWith('import_files', expect.anything())
   })
 })

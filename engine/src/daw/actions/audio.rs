@@ -146,29 +146,30 @@ impl Library {
 }
 
 // the library's folder, if it's there. an unsaved project that hasn't
-// recorded anything has no recordings, and has never had any clips
+// recorded anything has no recordings, and one that hasn't written a clip
+// has no clips
 pub(crate) fn existing_dir(state: &daw::Session, library: Library) -> Option<PathBuf> {
   let location = state.project.lock().unwrap();
   match library {
     Library::Recordings => location.existing_recordings_dir(),
-    Library::Clips => location.path.as_deref()
-      .map(crate::daw::project_files::clips_dir_for)
-      .filter(|dir| dir.is_dir()),
+    Library::Clips => location.existing_clips_dir().filter(|dir| dir.is_dir()),
   }
 }
 
 // the library's folder, for changing what's in it. recordings wait until
 // nothing's being recorded into the folder
-// - make: make the folder for a project that hasn't got one yet (recordings
-//   can be made for an unsaved project, clips only for a saved one)
+// - make: make the folder for a project that hasn't got one yet
 pub(crate) fn dir_to_change(state: &daw::Session, library: Library, make: bool) -> Result<PathBuf, String> {
   if library == Library::Recordings && crate::daw::recording::is_busy(state) {
     return Err("wait for the recording to finish".into());
   }
   let mut location = state.project.lock().unwrap();
   if library == Library::Clips {
-    let dir = location.path.as_deref().map(crate::daw::project_files::clips_dir_for)
-      .ok_or_else(|| "the project has no clips yet".to_string())?;
+    let dir = match location.existing_clips_dir() {
+      Some(dir) => dir,
+      None if make => location.clips_dir()?,
+      None => return Err("the project has no clips yet".into()),
+    };
     if !dir.is_dir() {
       if !make { return Err("the project has no clips yet".into()); }
       std::fs::create_dir_all(&dir).map_err(|e| format!("could not make the clips folder: {}", e))?;

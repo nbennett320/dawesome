@@ -20,6 +20,7 @@ import { DRAG_THRESHOLD_PX, wheelIntent } from '../../editing/view'
 import { useThemeChange } from '../../theme/canvas'
 import { Note, Pattern, STEPS_PER_BEAT, rowNotes } from '../../types/sequencer'
 import { View } from '../../types/ui'
+import { sinceStartMs } from '../../types/transport'
 import { isDeleteKey, isSliderTarget, isTextTarget, isTypingTarget } from '../../util/keys'
 import {
   LANDMARK_NAMES, LandmarkName, Move, landmarkNote, moveForKey, moveTarget, stepFrom, trackStepForKey,
@@ -367,7 +368,7 @@ const NoteGrid = ({ pattern, rowId, ghosts, stepsPerBar, run }: Props) => {
     if(now) {
       // (the run's start time is when its step 0 was heard, even when it
       // started part way in)
-      const at = (Date.now() - now.startTimeMs) / (now.beatIntervalMs / STEPS_PER_BEAT)
+      const at = sinceStartMs(now, Date.now()) / (now.beatIntervalMs / STEPS_PER_BEAT)
       return { step: ((at % steps) + steps) % steps, held }
     }
     return { step: from, held }

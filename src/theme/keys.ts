@@ -46,6 +46,13 @@ export interface Preferences {
   // how the tape's record side is worked out: the hand-built model, or a
   // trained network (see TapeMethod in preferences.rs)
   tapeMethod: 'modeled' | 'neural'
+  // whether the transport's Stop and Play run the tape down and up, with
+  // the tape on (see TapeInertia in preferences.rs)
+  tapeInertia: 'both' | 'stop' | 'start' | 'off'
+  // which drags are heard scrubbing: all of them, all but the playlist's
+  // playhead (the Timeline and the Transport tab), or none (no scrub proxy
+  // is made at all). see Scrubbing in preferences.rs
+  scrub: 'on' | 'transport' | 'off'
 }
 
 // coloured caps (TR-808), plain caps over a coloured strip (TR-909), or

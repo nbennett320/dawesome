@@ -219,6 +219,21 @@ impl Playback {
     self.loss_state.reset();
   }
 
+  // start again from a new place on the tape: the line cleared and
+  // `printed` (what's on the tape just ahead of it, latency() frames of it)
+  // written in without reading, so the next process() reads from there
+  // straight away, with nothing stale from before. for a run starting, a
+  // seek, or a loop going round
+  pub fn prime(&mut self, printed: &[f32]) {
+    self.ring.fill(0.0);
+    self.written = 0;
+    self.ahead = 0.0;
+    self.base = self.base_target;
+    self.loss_state.reset();
+    self.dbx.reset();
+    self.write(printed);
+  }
+
   // `printed`: what the record side put on the tape; `speed`: the
   // transport's speed for each frame; `dbx`: decode
   pub fn process(&mut self, printed: &[f32], speed: &[f32], dbx: bool, out: &mut [f32]) {
@@ -314,8 +329,8 @@ fn ease(ahead: f64, room: f64) -> (f64, bool) {
 
 // the sinc's taps for each of PHASES + 1 fractions of a sample, each row
 // followed by its difference to the next: made once, shared by every
-// channel (the first Playback::new makes it)
-fn table() -> &'static [f32] {
+// channel (the first Playback::new makes it), and by varispeed.rs
+pub(crate) fn table() -> &'static [f32] {
   static TABLE: OnceLock<Box<[f32]>> = OnceLock::new();
   TABLE.get_or_init(|| {
     let row = |u: f64| -> [f64; TAPS] {
@@ -346,7 +361,7 @@ fn table() -> &'static [f32] {
 
 // the value `u` (0 to 1) of the way from x[TAPS/2 - 1] to x[TAPS/2]
 #[inline]
-fn sinc_read(table: &[f32], x: &[f32], u: f32) -> f32 {
+pub(crate) fn sinc_read(table: &[f32], x: &[f32], u: f32) -> f32 {
   let at = u * PHASES as f32;
   let p = (at as usize).min(PHASES - 1);
   let a = at - p as f32;

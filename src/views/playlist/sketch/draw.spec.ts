@@ -1,3 +1,5 @@
+import { invoke } from '@tauri-apps/api/core'
+import type { Mock } from 'vitest'
 import { Renderer, staticDefaults, trackTop } from './index'
 import { paint } from './theme'
 import { applyTheme } from '../../../theme/apply'
@@ -26,7 +28,7 @@ const recordingP5 = (width: number, height: number) => {
     mouseY: -1,
     drawingContext: loose({
       canvas: { width, height },
-      getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }),
+      getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0, transformPoint: (point: object) => point }),
       measureText: (text: string) => ({ width: text.length * 6 }),
       createLinearGradient: () => loose({}),
     }),
@@ -211,5 +213,77 @@ describe('the time selection', () => {
   it('draws nothing without one', () => {
     const { wash, edges, mark } = draw(null)
     expect([wash, edges, mark]).toEqual([[], [], []])
+  })
+})
+
+describe('files dragged in from outside, loading', () => {
+  beforeEach(() => applyTheme(slateLightTheme))
+  afterEach(() => (invoke as Mock).mockReset())
+
+  const files = (n: number) => ({
+    kind: 'files' as const,
+    files: Array.from({ length: n }, (_, i) => ({ path: `/finder/f${i}.wav`, folder: '' })),
+    skipped: [],
+  })
+
+  // a playlist with no tracks yet (every file lands on a new one), whose
+  // ghosts' sounds are still being read unless `read` answers
+  const setup = (read: (path: string) => Promise<[string, number]> = () => new Promise(() => {})) => {
+    (invoke as Mock).mockImplementation((_: string, args?: { samplePath?: string }) => read(args?.samplePath ?? ''))
+    const renderer = new Renderer()
+    renderer.width = 960
+    renderer.height = 400
+    const recorded = recordingP5(960, 400)
+    renderer.sketch(recorded.p)
+    recorded.p.setup()
+    renderer.transport = stopped
+    const draw = () => {
+      recorded.numbers.length = 0
+      recorded.p.draw()
+      return recorded.numbers.map(n => n.text).filter(text => text.endsWith('loading…'))
+    }
+    return { renderer, draw }
+  }
+
+  it('shows a card saying so where each would land, until its sound is read', () => {
+    const { renderer, draw } = setup()
+    renderer.setSampleDrag(files(3), 100, 120, 0)
+    expect(draw()).toEqual(['f0.wav: loading…', 'f1.wav: loading…', 'f2.wav: loading…'])
+    renderer.clearSampleDrag()
+    expect(draw()).toEqual([])
+  })
+
+  it('keeps showing them where they were dropped while they’re placed', () => {
+    const { renderer, draw } = setup()
+    renderer.setSampleDrag(files(2), 100, 120, 0)
+    const hold = renderer.fileDropHolder(100, 120)
+    renderer.clearSampleDrag()
+    // (shown only once it's called: not while the drop asks first)
+    expect(draw()).toEqual([])
+    const release = hold()
+    expect(draw()).toEqual(['f0.wav: loading…', 'f1.wav: loading…'])
+    release()
+    expect(draw()).toEqual([])
+  })
+
+  it('holds nothing for a sample from the sidebar', () => {
+    const { renderer, draw } = setup()
+    renderer.setSampleDrag({ kind: 'sample', path: '/samples/kick.wav' }, 100, 120, 0)
+    expect(draw()).toEqual(['kick.wav: loading…'])
+    const release = renderer.fileDropHolder(100, 120)()
+    renderer.clearSampleDrag()
+    expect(draw()).toEqual([])
+    release()
+  })
+
+  it('shows no card for a file whose sound has been read', async () => {
+    // (jsdom has none: the clip following the mouse is drawn lifted with one)
+    vi.stubGlobal('DOMMatrix', class { translate() { return this } scale() { return this } multiply() { return this } })
+    const { renderer, draw } = setup(async path => (path.endsWith('f1.wav') ? new Promise(() => {}) : ['', 2]))
+    renderer.setSampleDrag(files(2), 100, 120, 0)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    // (the first drawn as a clip following the mouse, the second still loading)
+    expect(draw()).toEqual(['f1.wav: loading…'])
+    vi.unstubAllGlobals()
   })
 })

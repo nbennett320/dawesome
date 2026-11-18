@@ -39,10 +39,19 @@ fn edit<T>(state: &daw::Session, gesture: Option<u64>, change: impl FnOnce(&mut 
   result
 }
 
-// the switch and the machine's controls
+// the switch and the machine's controls. while recording the song's speed
+// stays as it is (as the tempo does): a take is fitted to the song at the
+// speed it was recorded at, so the knob, and the switch when the knob's off
+// its click, keep what they were
 pub fn change_tape_machine(state: &daw::Session, machine: TapeMachine, gesture: Option<u64>) -> TapeMachine {
+  let recording = daw::recording::is_recording(state);
   edit(state, gesture, |tape| {
-    tape.machine = machine.sanitized();
+    let mut machine = machine.sanitized();
+    if recording && machine.speed() != tape.machine.speed() {
+      machine.pitch = tape.machine.pitch;
+      machine.enabled = tape.machine.enabled;
+    }
+    tape.machine = machine;
     tape.machine
   })
 }
@@ -94,6 +103,27 @@ mod tests {
     history::undo(&state).unwrap();
     assert!(tape_settings(&state).is_default());
     assert!(!state.history.lock().unwrap().can_undo());
+  }
+
+  #[test]
+  fn test_the_speed_holds_while_recording() {
+    let state = Arc::new(daw::Session::default());
+    let on = TapeMachine { enabled: true, pitch: 5., ..TapeMachine::default() };
+    change_tape_machine(&state, on, None);
+    daw::recording::fake_session(&state);
+    // the knob and the switch keep the speed; the rest still change
+    let kept = change_tape_machine(&state, TapeMachine { pitch: -3., age: 20., ..on }, None);
+    assert_eq!((kept.pitch, kept.age), (5., 20.));
+    let kept = change_tape_machine(&state, TapeMachine { enabled: false, ..on }, None);
+    assert!(kept.enabled);
+    // with the knob at its click, the switch can go: the speed's 1 either way
+    let state = Arc::new(daw::Session::default());
+    let clicked = TapeMachine { pitch: 0., ..on };
+    change_tape_machine(&state, clicked, None);
+    daw::recording::fake_session(&state);
+    assert_eq!(change_tape_machine(&state, on, None).pitch, 0.);
+    let off = TapeMachine { enabled: false, ..clicked };
+    assert_eq!(change_tape_machine(&state, off, None), off);
   }
 
   #[test]

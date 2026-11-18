@@ -32,6 +32,10 @@ pub struct ProjectLocation {
   pub path: Option<PathBuf>,
   // this unsaved project's folder of takes, once something's been recorded
   pub session: Option<PathBuf>,
+  // this unsaved project's folder of clips (files dropped in, Deep copy's
+  // and Join's), once one's been written. apart from its takes, so neither
+  // library sees the other's files
+  pub clips_session: Option<PathBuf>,
   // the project as it was last started, opened or saved, to tell whether
   // it's changed since (see project::has_unsaved_changes)
   pub baseline: Option<crate::daw::project::Project>,
@@ -70,11 +74,46 @@ impl ProjectLocation {
     }
   }
 
-  // a new or opened project: takes no longer go in the old project's
-  // places. an unsaved project's folder of takes is tidied away if nothing
-  // was recorded into it
+  // where clips are written: the project's clips folder, or (for a project
+  // that's never been saved) a folder of its own in the app's data, moved
+  // into the project's when it's first saved. neither is made here
+  pub fn clips_dir(&mut self) -> Result<PathBuf, String> {
+    if let Some(path) = &self.path {
+      return Ok(clips_dir_for(path));
+    }
+    if let Some(session) = &self.clips_session {
+      return Ok(session.clone());
+    }
+
+    let root = unsaved_clips_root().ok_or("there's no app data folder to keep clips in")?;
+    let session = root.join(session_folder_name(&today(), random_hex()));
+    self.clips_session = Some(session.clone());
+    Ok(session)
+  }
+
+  // the clips folder as it is now, without giving an unsaved project one:
+  // None until an unsaved project has written a clip
+  pub fn existing_clips_dir(&self) -> Option<PathBuf> {
+    match (&self.path, &self.clips_session) {
+      (Some(path), _) => Some(clips_dir_for(path)),
+      (None, Some(session)) => Some(session.clone()),
+      (None, None) => None,
+    }
+  }
+
+  // whether an unsaved project has clips that only live in the app's data,
+  // which would be lost with it
+  pub fn has_unsaved_clips(&self) -> bool {
+    self.path.is_none() && self.clips_session.as_deref().map_or(false, |dir| {
+      fs::read_dir(dir).map(|mut entries| entries.next().is_some()).unwrap_or(false)
+    })
+  }
+
+  // a new or opened project: takes and clips no longer go in the old
+  // project's places. an unsaved project's folders are tidied away if
+  // nothing was written into them
   pub fn reset(&mut self, path: Option<PathBuf>) {
-    if let Some(session) = self.session.take() {
+    for session in [self.session.take(), self.clips_session.take()].into_iter().flatten() {
       remove_if_empty(&session);
     }
     self.path = path;
@@ -164,6 +203,12 @@ fn unsaved_root() -> Option<PathBuf> {
   dirs::data_dir().map(|dir| dir.join("dawesome").join("unsaved"))
 }
 
+// where unsaved projects' clips go, e.g.
+// ~/Library/Application Support/dawesome/unsaved-clips
+fn unsaved_clips_root() -> Option<PathBuf> {
+  dirs::data_dir().map(|dir| dir.join("dawesome").join("unsaved-clips"))
+}
+
 // a take's date, month first as in its name: 11092026
 pub fn today() -> String {
   chrono::Local::now().format("%m%d%Y").to_string()
@@ -236,7 +281,7 @@ pub fn next_take_paths(dir: &Path, project: &str, date: &str, count: usize) -> V
 
 // a free path in `dir` for a file called `file_name`, numbering it when
 // that's taken
-fn free_path(dir: &Path, file_name: &str) -> PathBuf {
+pub(crate) fn free_path(dir: &Path, file_name: &str) -> PathBuf {
   let path = dir.join(file_name);
   if !path.exists() { return path; }
 
@@ -368,7 +413,7 @@ pub fn remove_if_empty(dir: &Path) {
 #[serde(rename_all = "camelCase")]
 pub struct RecordingFile {
   pub path: String,
-  // the file name, without .wav
+  // the file name, without its extension (.wav, .mp3…)
   pub name: String,
   // the folder it's in, relative to the recordings folder ("" at the top)
   pub folder: String,
@@ -398,8 +443,42 @@ fn wav_seconds(path: &Path) -> Option<f64> {
   Some(reader.duration() as f64 / rate as f64)
 }
 
-fn is_wav(path: &Path) -> bool {
-  path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("wav"))
+// how long an audio file plays: a wav from its header, anything else as its
+// decoder says from the start of the file or, when it can't tell (an mp3
+// or an ogg), by decoding it all, once: what that found is kept until the
+// file changes
+fn audio_seconds(path: &Path) -> Option<f64> {
+  if has_extension(path, "wav") { return wav_seconds(path); }
+  let decoder = fs::File::open(path).ok().and_then(|file| rodio::Decoder::new(std::io::BufReader::new(file)).ok())?;
+  if let Some(length) = rodio::Source::total_duration(&decoder) {
+    return Some(length.as_secs_f64());
+  }
+  drop(decoder);
+
+  type Stamp = (u64, Option<std::time::SystemTime>);
+  static DECODED: std::sync::Mutex<Option<std::collections::HashMap<PathBuf, (Stamp, f64)>>> = std::sync::Mutex::new(None);
+  let stamp: Stamp = fs::metadata(path).map(|m| (m.len(), m.modified().ok())).ok()?;
+  if let Some((had, seconds)) = DECODED.lock().unwrap().as_ref().and_then(|known| known.get(path)) {
+    if *had == stamp { return Some(*seconds); }
+  }
+
+  // (without the lock: it takes a while. decoded as a clip of it is, so a
+  // file just dropped on the playlist is decoded once for both)
+  let seconds = crate::daw::audiograph::sample_seconds(&path.to_string_lossy()).ok()?;
+  DECODED.lock().unwrap().get_or_insert_with(Default::default).insert(path.to_path_buf(), (stamp, seconds));
+  Some(seconds)
+}
+
+// the kinds of audio file the engine plays, by extension
+pub const AUDIO_EXTENSIONS: [&str; 6] = ["wav", "aif", "aiff", "mp3", "flac", "ogg"];
+
+fn has_extension(path: &Path, extension: &str) -> bool {
+  path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case(extension))
+}
+
+// whether a file is named like audio the engine plays
+pub fn is_audio(path: &Path) -> bool {
+  AUDIO_EXTENSIONS.iter().any(|ext| has_extension(path, ext))
 }
 
 // folders inside folders can go this deep before the rest is left out
@@ -408,7 +487,7 @@ const MAX_DEPTH: usize = 32;
 // call `visit` with everything inside `dir`, folders before what's in them.
 // hidden files are skipped, and links aren't followed (so a link to a folder
 // above can't loop forever)
-fn walk(dir: &Path, visit: &mut dyn FnMut(&Path, bool)) {
+pub(crate) fn walk(dir: &Path, visit: &mut dyn FnMut(&Path, bool)) {
   fn go(dir: &Path, depth: usize, visit: &mut dyn FnMut(&Path, bool)) {
     if depth > MAX_DEPTH { return; }
     let entries = match fs::read_dir(dir) {
@@ -449,7 +528,7 @@ pub fn list_recordings(dir: &Path) -> RecordingsListing {
       listing.folders.push(relative(dir, path));
       return;
     }
-    if !is_wav(path) { return; }
+    if !is_audio(path) { return; }
 
     let modified_ms = fs::metadata(path).and_then(|m| m.modified()).ok()
       .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
@@ -457,7 +536,7 @@ pub fn list_recordings(dir: &Path) -> RecordingsListing {
     listing.takes.push(RecordingFile {
       name: path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
       folder: path.parent().map(|parent| relative(dir, parent)).unwrap_or_default(),
-      duration_secs: wav_seconds(path),
+      duration_secs: audio_seconds(path),
       modified_ms,
       path: path.to_string_lossy().into_owned(),
     });
@@ -472,7 +551,7 @@ pub fn list_recordings(dir: &Path) -> RecordingsListing {
 
 // compares names with the numbers in them as numbers, so take_10 comes after
 // take_9
-fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+pub(crate) fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
   fn parts(s: &str) -> Vec<(String, u64)> {
     let mut out = Vec::new();
     let mut text = String::new();
@@ -513,14 +592,16 @@ fn check_name<'a>(typed: &'a str, what: &str) -> Result<&'a str, String> {
   Ok(name)
 }
 
-// the file name a take is renamed to, from what was typed: the .wav is
-// added (or kept, if it was typed)
-pub fn take_file_name(typed: &str) -> Result<String, String> {
+// the file name a file is renamed to, from what was typed: its extension
+// (e.g. "mp3") is added, or kept if it was typed
+pub fn file_name_with(typed: &str, extension: &str) -> Result<String, String> {
   let mut name = typed.trim();
-  if name.len() >= 4 && name.is_char_boundary(name.len() - 4) && name[name.len() - 4..].eq_ignore_ascii_case(".wav") {
-    name = name[..name.len() - 4].trim_end();
+  let ending = format!(".{}", extension);
+  let cut = name.len().saturating_sub(ending.len());
+  if name.len() > ending.len() && name.is_char_boundary(cut) && name[cut..].eq_ignore_ascii_case(&ending) {
+    name = name[..cut].trim_end();
   }
-  Ok(format!("{}.wav", check_name(name, "recording")?))
+  Ok(format!("{}.{}", check_name(name, "recording")?, extension.to_lowercase()))
 }
 
 // a folder's name, from what was typed
@@ -616,7 +697,9 @@ pub fn rename_take(path: &Path, dir: &Path, typed: &str) -> Result<PathBuf, Stri
     return Err("that isn't one of the project's recordings".into());
   }
 
-  let target = path.parent().unwrap_or(dir).join(take_file_name(typed)?);
+  // it keeps the kind of file it is
+  let extension = path.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_else(|| "wav".into());
+  let target = path.parent().unwrap_or(dir).join(file_name_with(typed, &extension)?);
   rename_to(path, &target, "recording")?;
   Ok(target)
 }

@@ -1,8 +1,6 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { Provider } from 'react-redux'
-import { DndProvider } from 'react-dnd'
-import { HTML5Backend } from 'react-dnd-html5-backend'
 import { store } from './state/store'
 import App from './App'
 import './global.scss'
@@ -10,6 +8,7 @@ import './components/fourtrack/fourtrack.scss'
 import { Preferences, ResolvedTheme, setThemes, startThemeSync } from './theme'
 import { defaultPreferences, hydrateAppearance } from './state/slices/appearanceSlice'
 import { startUnsavedWatch } from './state/unsaved'
+import { stopNativeDrags } from './events/nativeDrags'
 import slateLight from '../engine/themes/test/slate-light.resolved.json'
 
 declare global {
@@ -48,13 +47,13 @@ store.dispatch(hydrateAppearance({
 startThemeSync(store)
 // keeps the title's * (unsaved changes) up to date
 startUnsavedWatch(store)
+// selected text, images and links aren't dragged by the browser
+stopNativeDrags()
 
 root.render(
   <React.StrictMode>
     <Provider store={store}>
-      <DndProvider backend={HTML5Backend}>
-        <App />
-      </DndProvider>
+      <App />
     </Provider>
   </React.StrictMode>,
 )

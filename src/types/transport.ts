@@ -15,6 +15,9 @@ export interface PlaylistTransport {
   startTimeMs: number | null
   // where on the timeline the current run started
   startOffsetMs: number
+  // how fast the song plays (the tape's PITCH knob, with the tape on): the
+  // playhead moves this many ms a ms after startTimeMs. 1 when left out
+  speed?: number
   // where the playhead was when this was fetched
   positionMs: number
   // where the last play started, in beats (null before anything's played).
@@ -45,6 +48,12 @@ export interface PlaylistTransport {
   // the engine counts its steps afresh from the one it's on then
   patternLength: number
 }
+
+// how much of the song has played since a run's start time, at `nowMs`
+// (ms since the unix epoch): at another speed (the varispeed) the song
+// runs faster or slower than the clock
+export const sinceStartMs = (t: { startTimeMs: number, speed?: number }, nowMs: number) =>
+  (nowMs - t.startTimeMs) * (t.speed ?? 1)
 
 // a part of the playlist drawn in the ruler, that playback loops while
 // looping is on, in beats (start before end). mirrors LoopRegion in

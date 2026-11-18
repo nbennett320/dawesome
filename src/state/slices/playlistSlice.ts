@@ -23,9 +23,10 @@ import {
 } from '../../types/project'
 import { currentGesture } from '../gesture'
 import { DEFAULT_PLAYLIST_BEATS, LoopRegion, LoopSettings, Wind } from '../../types/transport'
-import { SequencerState, SynthInstrument } from '../../types/sequencer'
+import { isSynthRow, SequencerState, SynthInstrument } from '../../types/sequencer'
 import { MixerSettings } from '../../types/mixer'
-import { openTab } from './windowSlice'
+import { newPaneId, openTab, restoreLayout } from './windowSlice'
+import { fromSaved, toSaved } from '../savedLayout'
 
 // mirrors daw::timing::Note in the engine
 export type { SnapNote }
@@ -484,8 +485,10 @@ const transportError = (what: string) => (e: unknown) =>
 export const playPlaylist = () => (dispatch: Dispatch) =>
   invoke<void>('play_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('play'))
 
-export const pausePlaylist = () => (dispatch: Dispatch) =>
-  invoke<void>('pause_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('pause'))
+// (atOnce: not as a tape coasts down, whatever Settings → Controls → Tape
+// says: for winding)
+export const pausePlaylist = (atOnce = false) => (dispatch: Dispatch) =>
+  invoke<void>('pause_playlist', atOnce ? { atOnce } : {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('pause'))
 
 export const stopPlaylist = () => (dispatch: Dispatch) =>
   invoke<void>('stop_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('stop'))
@@ -1156,10 +1159,6 @@ const tookNewFiles = async (dispatch: Dispatch) => {
   dispatch(takesChanged())
 }
 
-// mirrors NEEDS_SAVING in engine/src/daw/bounce.rs: what the engine says when a
-// file has to be written and the project has never been saved
-export const NEEDS_SAVING = 'The project has to be saved first, so its clips have somewhere to go.'
-
 // show a wait cursor only if the work is slow, so a quick one shows nothing
 export const withWaitCursor = async <T,>(
   work: Promise<T>,
@@ -1178,41 +1177,17 @@ export const withWaitCursor = async <T,>(
   }
 }
 
-// save the project (the Save dialog opens if it never was), and say whether
-// it has a file now: the user may have cancelled
-const saveFirst = async (
-  dispatch: Dispatch,
-  getState: () => RootState,
-): Promise<boolean> => {
-  const { runProjectCommand } = await import('./projectSlice')
-  await runProjectCommand('save')(dispatch, getState)
-  return !!getState().project.path
-}
-
-// run a command that writes files, saving the project first if the engine
-// says it must. null if it failed or the save was cancelled. `report` says
-// what to do with a failure's sentence
+// run a command that writes files (into the project's clips folder, or an
+// unsaved project's own). null if it failed. `report` says what to do with
+// a failure's sentence
 const writingClips = async <T,>(
-  dispatch: Dispatch,
-  getState: () => RootState,
   setBusy: (busy: boolean) => void,
   command: string,
   ids: number[],
   report: (message: string) => Promise<void>,
 ): Promise<T | null> => {
-  const attempt = () => withWaitCursor(invoke<T>(command, { ids }), setBusy)
   try {
-    return await attempt()
-  } catch(e) {
-    if(String(e) !== NEEDS_SAVING) {
-      await report(String(e))
-      return null
-    }
-  }
-
-  if(!await saveFirst(dispatch, getState)) return null
-  try {
-    return await attempt()
+    return await withWaitCursor(invoke<T>(command, { ids }), setBusy)
   } catch(e) {
     await report(String(e))
     return null
@@ -1223,11 +1198,10 @@ const writingClips = async <T,>(
 // keep their ids and places. all or nothing; the engine says why if it can't
 export const deepCopyClips = (ids: number[], setBusy: (busy: boolean) => void = () => {}) => async (
   dispatch: Dispatch,
-  getState: () => RootState,
 ): Promise<ChangedClips | null> => {
   if(!ids.length) return null
   const changed = await writingClips<ChangedClips>(
-    dispatch, getState, setBusy, 'deep_copy_clips', ids, message => notifyError(dispatch, message),
+    setBusy, 'deep_copy_clips', ids, message => notifyError(dispatch, message),
   )
   if(!changed) return null
 
@@ -1241,11 +1215,10 @@ export const deepCopyClips = (ids: number[], setBusy: (busy: boolean) => void = 
 // 'Join needs', a join that doesn't apply: that's information, not a failure
 export const joinClips = (ids: number[], setBusy: (busy: boolean) => void = () => {}) => async (
   dispatch: Dispatch,
-  getState: () => RootState,
 ): Promise<Joined | null> => {
   if(ids.length < 2) return null
   const joined = await writingClips<Joined>(
-    dispatch, getState, setBusy, 'join_clips', ids,
+    setBusy, 'join_clips', ids,
     message => message.startsWith('Join needs') ? notify(dispatch, message) : notifyError(dispatch, message),
   )
   if(!joined) return null
@@ -1408,6 +1381,11 @@ const showLoadedProject = async (
   queuedSettings.clear()
   settingsGesture.clear()
   dispatch(reduceLoadedProject(project))
+  // its tabs, as it was saved with them. without a layout, the window keeps
+  // the one it has (its old plugin tabs close as their slots go)
+  const synthRows = (project.sequencer?.rows ?? []).filter(isSynthRow).map(row => row.instrument)
+  const layout = fromSaved(project.layout, project.effects ?? [], synthRows, newPaneId)
+  if(layout) dispatch(restoreLayout(layout))
   // the playlist's length depends on its clips
   await initPlaylist()(dispatch)
 
@@ -1426,7 +1404,14 @@ export const saveProject = (path: string, somewhereNew: boolean) => async (
   // latest settings, so the file has them
   await flushClipSettings(getState)
 
-  const saved = await invoke<SavedProject>('save_project', { path, somewhereNew })
+  const state = getState()
+  const layout = toSaved(
+    state.window.windowPane.root,
+    state.window.focusedPaneId,
+    state.effects.racks,
+    state.sequencer.rows.filter(isSynthRow).map(row => row.instrument))
+
+  const saved = await invoke<SavedProject>('save_project', { path, somewhereNew, layout })
   dispatch(playlistSlice.actions.reduceMovedClips(saved.movedClips))
   return saved
 }

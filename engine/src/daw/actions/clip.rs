@@ -210,6 +210,41 @@ pub(crate) fn add_clip(
   Ok(PlacedNode { id, start_beat })
 }
 
+// add a clip of each sample, one per track from `track_number` down, all
+// starting where they were dropped (snapped by the snap setting). one step
+// to undo. every sample is read first: if one can't be, none are added
+pub(crate) fn add_clips(
+  state: &daw::Session,
+  sample_paths: &[String],
+  track_number: u32,
+  drop_beat: Option<f32>,
+) -> Result<Vec<PlacedNode>, String> {
+  if sample_paths.is_empty() { return Ok(Vec::new()); }
+  // decoded before taking the graph's lock, which playback needs: several
+  // at once, then each clip shares its file's sound
+  let _decoded = audiograph::decode_all(sample_paths)?;
+  let nodes = sample_paths.iter().zip(track_number..)
+    .map(|(path, track)| audiograph::AudioNode::new(0, path.clone(), Duration::ZERO, track))
+    .collect::<Result<Vec<_>, String>>()?;
+
+  let (snap_enabled, subdivision) = {
+    let ui = state.playlist.ui.lock().unwrap();
+    (ui.snap_enabled, ui.snap_subdivision)
+  };
+  let ids = history::clip_edit(state, &[], None, || {
+    // (asked now: the tempo may have changed while they were decoded)
+    let start = beat_to_offset(state, drop_beat);
+    let mut audiograph = state.playlist.audiograph.lock().unwrap();
+    let start = if snap_enabled { audiograph.find_nearest_offset_subdivision(start, subdivision) } else { start };
+    Ok(nodes.into_iter().map(|mut node| {
+      node.start_offset = start;
+      audiograph.insert_node(node)
+    }).collect::<Vec<u64>>())
+  }, |ids| ids.clone())?;
+
+  ids.into_iter().map(|id| Ok(PlacedNode { id, start_beat: node_beat(state, id)? })).collect()
+}
+
 // move a clip to where it was dropped, snapped by the snap setting. returns
 // where it is now, in beats. one step to undo
 pub(crate) fn move_clip(

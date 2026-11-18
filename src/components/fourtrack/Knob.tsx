@@ -11,6 +11,10 @@ export interface KnobProps {
   step?: number
   // what double-clicking or the "0" key goes back to. the midpoint by default
   center?: number
+  // a click at the center: dragged within this much of it, it sits there
+  // (as a Portastudio's PITCH knob clicks into place at 0). keys step
+  // through it
+  detent?: number
   // the whole sweep in degrees
   sweep?: number
   // pixels of vertical drag from min to max
@@ -36,6 +40,7 @@ export const Knob = ({
   max = 1,
   step = 0.01,
   center = (min + max) / 2,
+  detent = 0,
   sweep = 270,
   dragRange = 180,
   size = 64,
@@ -84,7 +89,7 @@ export const Knob = ({
         if(!drag.current) return
         const scale = e.shiftKey ? 0.25 : 1
         const next = drag.current.v + ((drag.current.y - e.clientY) / dragRange) * (max - min) * scale
-        commit(next)
+        commit(Math.abs(next - center) < detent ? center : next)
         // fine moves are relative to here, so switching shift doesn't jump
         if(e.shiftKey) drag.current = { y: e.clientY, v: next }
       }}

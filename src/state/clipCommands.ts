@@ -57,8 +57,8 @@ export const clipCommand = (
         return edit
       }
       return selected.length ? repeatClips(selected)(dispatch) : undefined
-    case 'join': return selected.length >= 2 ? joinClips(selected, setBusy)(dispatch, getState) : undefined
-    case 'deep-copy': return selected.length ? deepCopyClips(selected, setBusy)(dispatch, getState) : undefined
+    case 'join': return selected.length >= 2 ? joinClips(selected, setBusy)(dispatch) : undefined
+    case 'deep-copy': return selected.length ? deepCopyClips(selected, setBusy)(dispatch) : undefined
     case 'blade': return target.blade ? splitClipsAt(target.blade.ids, target.blade.beats)(dispatch) : undefined
     case 'select-all':
       select(all)

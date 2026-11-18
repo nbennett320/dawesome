@@ -41,6 +41,16 @@
 // the callback never takes a lock, touches the disk, or allocates or frees
 // memory: voices, buses and chains arrive through a lock-free queue, and what
 // it's done with is sent back to be freed by whoever sends the next command
+//
+// with the tape on, the whole of it can play at another speed (the PITCH
+// knob, tape stop and start: part E in context/tape-project/02-plan.md):
+// it's rendered in song time a little ahead, and read back faster or
+// slower (crates/tape's varispeed.rs). frames, runs and notes all count
+// song frames, so what's scheduled lands where it should in the song; only
+// when it's heard moves. at 1x, settled, the varispeed steps out of the
+// way and what's rendered is what's heard, as before (T14). the song's
+// clock (when a song frame is heard, as if the song had always played at
+// 1x) is published with each buffer, for the playhead (song_instant)
 pub(crate) mod audio_settings;
 pub(crate) mod clip;
 pub(crate) mod clip_reader;
@@ -49,6 +59,7 @@ pub(crate) mod input;
 pub(crate) mod mixer;
 pub(crate) mod processor;
 pub(crate) mod sample_voice;
+pub(crate) mod scrub;
 pub(crate) mod sound_buffer;
 pub(crate) mod tape;
 pub(crate) mod util;
@@ -525,7 +536,7 @@ impl Bus {
   // the pair the result ended up in
   // - tape: the tape, and this bus's place on it, if it's on tape: the
   //   track goes through it before its first effect, or after its chain
-  fn run(&mut self, frames: usize, transport: &Transport, mut tape: Option<(&mut tape::LiveTape, [usize; 2])>) -> usize {
+  fn run(&mut self, frames: usize, transport: &Transport, mut tape: Option<(&mut tape::EngineTape, tape::Use)>) -> usize {
     let mut at = 0;
     for slot in self.chain.iter() {
       if slot.bypassed() { continue; }
@@ -533,9 +544,9 @@ impl Bus {
       // the first effect (not an instrument): the tape goes before it
       // (safe: this is the callback of the engine whose chain holds the slot)
       if tape.as_ref().is_some_and(|(t, _)| t.before_effects) && unsafe { slot.playing() }.is_none() {
-        let (t, sides) = tape.take().unwrap();
+        let (t, what) = tape.take().unwrap();
         let [l, r] = &mut self.buffers[at];
-        t.run(sides, &mut l[..frames], &mut r[..frames]);
+        t.run(what, transport.position, transport.playing, &mut l[..frames], &mut r[..frames]);
       }
 
       let (first, second) = self.buffers.split_at_mut(1);
@@ -574,9 +585,9 @@ impl Bus {
     }
 
     // after its chain (or, before its effects, when it has none)
-    if let Some((t, sides)) = tape {
+    if let Some((t, what)) = tape {
       let [l, r] = &mut self.buffers[at];
-      t.run(sides, &mut l[..frames], &mut r[..frames]);
+      t.run(what, transport.position, transport.playing, &mut l[..frames], &mut r[..frames]);
     }
 
     // (before the strip: a muted track's reverb is still sounding)
@@ -595,7 +606,8 @@ impl Bus {
 enum Command {
   // start a run, stopping any other, with the master strip's controls,
   // where it is in the song, and its first voices
-  Start { run: u64, master: Arc<mixer::ChannelControls>, start: RunStart, voices: Vec<Box<Voice>> },
+  // (spin_up: from a standstill, as a tape's motor spins it up)
+  Start { run: u64, master: Arc<mixer::ChannelControls>, start: RunStart, voices: Vec<Box<Voice>>, spin_up: bool },
   // stop a run (if it's the one playing), fading out what's sounding
   Stop { run: u64 },
   // fade out every preview that's sounding
@@ -617,10 +629,22 @@ enum Command {
   Chain { channel: Channel, slots: Vec<Arc<Slot>> },
   // the tape (always-live mode), replacing the one there is; None: no tape,
   // and every track plays exactly as it did before there was one
-  Tape(Option<Box<tape::LiveTape>>),
+  Tape(Option<Box<tape::EngineTape>>),
   // the tape's knobs, and a track's drive (neither allocates)
   TapeSettings(Box<::tape::MachineSettings>),
   TapeDrive { track_number: u32, drive_db: f32 },
+  // a printed track's print (None: it's out of date, back to direct)
+  TapePrint { track_number: u32, print: Option<Arc<tape::Print>> },
+  // the speed the song plays at (the varispeed: 1 + the PITCH knob)
+  Speed(f64),
+  // stop a run (if it's the one playing) as a tape stops with its motor
+  // cut: the speed coasts down to a standstill, then it stops
+  Coast { run: u64 },
+  // a scrub starts (part S), taking over from any that's going, or the one
+  // going is let go of (it fades out). where it's dragged or how fast it's
+  // wound is in Shared
+  ScrubStart(Box<scrub::ScrubSource>),
+  ScrubEnd,
 }
 
 // what the callback is done with, sent back to be freed off the audio thread
@@ -635,8 +659,10 @@ enum Garbage {
   Route(mixer::TrackRoute),
   Controls(Arc<mixer::ChannelControls>, Option<Arc<AtomicUsize>>),
   Chain(Vec<Arc<Slot>>),
-  Tape(Box<tape::LiveTape>),
+  Tape(Box<tape::EngineTape>),
   TapeSettings(Box<::tape::MachineSettings>),
+  Print(Arc<tape::Print>),
+  Scrub(Box<scrub::ScrubSource>),
 }
 
 // how many voices can sound at once. more are dropped (and counted)
@@ -684,6 +710,21 @@ struct Shared {
   chains_applied: AtomicU64,
   // how many chains were left out of the last block, resting
   resting: AtomicU64,
+  // the song's clock, at the first frame of the last buffer: when it's
+  // heard (ns since `epoch`), how far the song has run ahead of the clock
+  // there (ns, negative behind), the speed it's playing at then, the speed
+  // it's going to, and how far behind that it'll fall getting there (ns of
+  // song). all as f64 bits but the first
+  clock_heard_ns: AtomicU64,
+  clock_drift_ns: AtomicU64,
+  clock_speed: AtomicU64,
+  clock_target: AtomicU64,
+  clock_lag_ns: AtomicU64,
+  // a scrub's drag (where it's pulled to, in seconds of the song) or wind
+  // (its speed), as f64 bits, read each buffer; and where the tape is, NaN
+  // with no scrub going
+  scrub_drive: AtomicU64,
+  scrub_at: AtomicU64,
 }
 
 // where a run started, in the engine's frames and in time
@@ -734,6 +775,13 @@ impl Engine {
       chains_sent: AtomicU64::new(0),
       chains_applied: AtomicU64::new(0),
       resting: AtomicU64::new(0),
+      clock_heard_ns: AtomicU64::new(0),
+      clock_drift_ns: AtomicU64::new(0f64.to_bits()),
+      clock_speed: AtomicU64::new(1f64.to_bits()),
+      clock_target: AtomicU64::new(1f64.to_bits()),
+      clock_lag_ns: AtomicU64::new(0f64.to_bits()),
+      scrub_drive: AtomicU64::new(0f64.to_bits()),
+      scrub_at: AtomicU64::new(f64::NAN.to_bits()),
     });
 
     let engine = Engine {
@@ -851,12 +899,129 @@ impl Engine {
     start: RunStart,
     voices: Vec<Box<Voice>>,
   ) -> Result<(), String> {
-    self.send(Command::Start { run, master, start, voices })
+    self.start_run_with(run, master, start, voices, false)
+  }
+
+  // the same, the song spinning up from a standstill if `spin_up` (tape
+  // stop and start, T30)
+  pub fn start_run_with(
+    &self,
+    run: u64,
+    master: Arc<mixer::ChannelControls>,
+    start: RunStart,
+    voices: Vec<Box<Voice>>,
+    spin_up: bool,
+  ) -> Result<(), String> {
+    if spin_up { VARISPEED_USED.store(true, Ordering::Relaxed); }
+    self.send(Command::Start { run, master, start, voices, spin_up })
   }
 
   // stop a run, if it's the one playing
   pub fn stop_run(&self, run: u64) -> Result<(), String> {
     self.send(Command::Stop { run })
+  }
+
+  // stop a run as a tape stops: it coasts down to a standstill (T30), then
+  // stops. what's scheduled should reach `coast_seconds` of song further
+  pub fn coast_run(&self, run: u64) -> Result<(), String> {
+    VARISPEED_USED.store(true, Ordering::Relaxed);
+    self.send(Command::Coast { run })
+  }
+
+  // scrub the song from `at` (seconds), reading `proxy`: following a drag
+  // (`wind` None) or wound at a speed (multiples of play speed, negative
+  // back). it plays over whatever else is: stop the run first
+  // - warble: with the tape on, its transport settings and Wow & Flutter
+  pub fn scrub_start(
+    &self,
+    proxy: Arc<scrub::Proxy>,
+    at: f64,
+    wind: Option<f64>,
+    warble: Option<(::tape::TransportSettings, f32)>,
+  ) -> Result<(), String> {
+    let drive = match wind {
+      Some(speed) => ::tape::Drive::Wind(speed),
+      None => ::tape::Drive::Follow(at),
+    };
+    self.shared.scrub_drive.store(wind.unwrap_or(at).to_bits(), Ordering::Relaxed);
+    let source = scrub::ScrubSource::new(proxy, self.sample_rate(), at, drive, warble);
+    self.send(Command::ScrubStart(Box::new(source)))
+  }
+
+  // where the scrub's dragged to (seconds), or how fast it's wound
+  pub fn scrub_drive(&self, value: f64) {
+    if value.is_finite() {
+      self.shared.scrub_drive.store(value.to_bits(), Ordering::Relaxed);
+    }
+  }
+
+  pub fn scrub_end(&self) -> Result<(), String> {
+    self.send(Command::ScrubEnd)
+  }
+
+  // where the scrubbed tape is, in seconds of the song (None with no scrub)
+  pub fn scrub_at(&self) -> Option<f64> {
+    Some(Engine::clock_f64(&self.shared.scrub_at)).filter(|at| !at.is_nan())
+  }
+
+  // the speed the song plays at (1 + the PITCH knob, with the tape on):
+  // glided to, as a motor's servo would
+  pub fn set_speed(&self, speed: f64) -> Result<(), String> {
+    if speed != 1. { VARISPEED_USED.store(true, Ordering::Relaxed); }
+    self.send(Command::Speed(speed))
+  }
+
+  fn clock_f64(at: &AtomicU64) -> f64 {
+    f64::from_bits(at.load(Ordering::Relaxed))
+  }
+
+  // the speed the song's playing at now, and the one it's going to
+  pub fn speed(&self) -> f64 {
+    Engine::clock_f64(&self.shared.clock_speed)
+  }
+
+  pub fn target_speed(&self) -> f64 {
+    Engine::clock_f64(&self.shared.clock_target)
+  }
+
+  // how much song a coast from now covers: a flywheel slowing at a steady
+  // rate covers half what it would at its speed (at the speed it's going
+  // to, if that's faster)
+  pub fn coast_reach(&self) -> Duration {
+    let v = self.speed().max(self.target_speed());
+    Duration::from_secs_f64(v * v * COAST_SECONDS / 2.)
+  }
+
+  // how much song (in seconds) the speed will lag behind its target while
+  // getting there (a spin up, a knob turned)
+  pub fn lag_seconds(&self) -> f64 {
+    Engine::clock_f64(&self.shared.clock_lag_ns) / 1e9
+  }
+
+  // the song's clock at `real`: when what's heard then would have been
+  // heard had the song always played at 1x. everything timed from a run's
+  // anchor (anchor.heard + an offset in the song) is on this clock. at 1x
+  // all along, it's `real`
+  pub fn song_instant(&self, real: Instant) -> Instant {
+    let drift = Engine::clock_f64(&self.shared.clock_drift_ns);
+    let speed = self.speed();
+    if drift == 0. && speed == 1. { return real; }
+    let heard = self.shared.epoch + Duration::from_nanos(self.shared.clock_heard_ns.load(Ordering::Relaxed));
+    let since = signed_secs(real, heard);
+    shift(real, drift / 1e9 + since * (speed - 1.))
+  }
+
+  // the other way: when the song's clock reads `song`, at the speed it's
+  // going to from now on (a moment in the past at the speed then)
+  pub fn real_instant(&self, song: Instant) -> Instant {
+    let drift = Engine::clock_f64(&self.shared.clock_drift_ns);
+    let speed = self.speed();
+    if drift == 0. && speed == 1. { return song; }
+    let heard = self.shared.epoch + Duration::from_nanos(self.shared.clock_heard_ns.load(Ordering::Relaxed));
+    let speed = if speed > 0.01 { speed } else { self.target_speed() };
+    // the song's clock at `heard`, then on at the speed
+    let at_heard = shift(heard, drift / 1e9);
+    shift(heard, signed_secs(song, at_heard) / speed)
   }
 
   pub fn play(&self, voices: Vec<Box<Voice>>) -> Result<(), String> {
@@ -914,13 +1079,18 @@ impl Engine {
   // the tape for always-live mode, replacing the one there is (None: no
   // tape: every track plays as it did before). build it off the audio
   // thread: see tape.rs
-  pub fn set_tape(&self, tape: Option<Box<tape::LiveTape>>) -> Result<(), String> {
+  pub fn set_tape(&self, tape: Option<Box<tape::EngineTape>>) -> Result<(), String> {
     self.send(Command::Tape(tape))
   }
 
   // the tape's knobs, without rebuilding it (its wobble carries on)
   pub fn set_tape_settings(&self, settings: ::tape::MachineSettings) -> Result<(), String> {
     self.send(Command::TapeSettings(Box::new(settings)))
+  }
+
+  // a printed track's print, or None when it's out of date
+  pub fn set_tape_print(&self, track_number: u32, print: Option<Arc<tape::Print>>) -> Result<(), String> {
+    self.send(Command::TapePrint { track_number, print })
   }
 
   // a taped track's drive
@@ -1034,6 +1204,28 @@ impl Engine {
   }
 }
 
+// how long a coast from 1x takes (crates/tape's transport: the deck's
+// flywheel), and a spin up from a standstill. a coast covers half its time
+// in song (0.1 s), and while Stop coasts, playback schedules that much
+// further ahead, so edits made while playing reach the engine that much
+// later (D100): 0.2 s is a short, subtle dive (0.6 s felt long: T38)
+const COAST_SECONDS: f64 = 0.2;
+const SPIN_UP_SECONDS: f64 = 0.5;
+
+// `a` less `b`, in seconds, either way round
+pub(crate) fn signed_secs(a: Instant, b: Instant) -> f64 {
+  if a >= b { (a - b).as_secs_f64() } else { -(b - a).as_secs_f64() }
+}
+
+// `at`, moved by `secs` either way
+pub(crate) fn shift(at: Instant, secs: f64) -> Instant {
+  if secs >= 0. {
+    at + Duration::from_secs_f64(secs)
+  } else {
+    at.checked_sub(Duration::from_secs_f64(-secs)).unwrap_or(at)
+  }
+}
+
 // the run playing
 struct Run {
   id: u64,
@@ -1063,11 +1255,28 @@ pub struct Renderer {
   fade_frames: u32,
   // how long a chain is silent for before it rests (see Bus::rests)
   rest_frames: u64,
-  // the tape, in always-live mode while it's on (see tape.rs)
-  tape: Option<Box<tape::LiveTape>>,
+  // the tape, while it's on (see tape.rs)
+  tape: Option<Box<tape::EngineTape>>,
+  // whether the mix goes through the soft limiter at the end (a print's
+  // render leaves it out: it wants the track as it is)
+  limit: bool,
+  // the speed the song's read at (taken out while it reads, so the
+  // renderer can render for it: always there otherwise)
+  varispeed: Option<Box<::tape::Varispeed>>,
+  // a run coasting to a stop
+  coasting: Option<u64>,
+  // a scrub going (part S)
+  scrub: Option<Box<scrub::ScrubSource>>,
+  rate: f64,
 }
 
 impl Renderer {
+  // leave the soft limiter off the end (a print's render: see
+  // daw/tape/print.rs)
+  pub fn without_limiter(&mut self) {
+    self.limit = false;
+  }
+
   fn new(
     sample_rate: u32,
     commands: Consumer<Command>,
@@ -1090,7 +1299,19 @@ impl Renderer {
       fade_frames: ((STOP_FADE.as_secs_f64() * sample_rate as f64) as u32).max(1),
       rest_frames: (REST_AFTER.as_secs_f64() * sample_rate as f64) as u64,
       tape: None,
+      limit: true,
+      varispeed: Some(Box::new(::tape::Varispeed::new(sample_rate as f64, MAX_CHUNK, SPIN_UP_SECONDS, COAST_SECONDS))),
+      coasting: None,
+      scrub: None,
+      rate: sample_rate as f64,
     }
+  }
+
+  // whether the varispeed is out of the way (at 1x, settled): what's
+  // rendered is what's heard
+  #[cfg(test)]
+  pub fn straight(&self) -> bool {
+    self.varispeed.as_ref().is_none_or(|v| v.straight())
   }
 
   // the device asked for a buffer this many frames long
@@ -1109,8 +1330,50 @@ impl Renderer {
       self.apply(command, now, latency);
     }
 
-    for block in out.chunks_mut(MAX_CHUNK * 2) {
-      self.render_block(block);
+    // the song's clock, as this buffer starts
+    let mut varispeed = self.varispeed.take().expect("the varispeed");
+    let heard_ns = (now + latency).saturating_duration_since(self.shared.epoch).as_nanos() as u64;
+    self.shared.clock_heard_ns.store(heard_ns, Ordering::Relaxed);
+    self.shared.clock_drift_ns.store((varispeed.drift() * 1e9).to_bits(), Ordering::Relaxed);
+    self.shared.clock_speed.store(varispeed.flywheel.speed().to_bits(), Ordering::Relaxed);
+    self.shared.clock_target.store(varispeed.flywheel.target().to_bits(), Ordering::Relaxed);
+    self.shared.clock_lag_ns.store((varispeed.flywheel.lag_seconds() * 1e9).to_bits(), Ordering::Relaxed);
+
+    if varispeed.straight() {
+      for block in out.chunks_mut(MAX_CHUNK * 2) {
+        self.render_block(block);
+      }
+      varispeed.remember(out);
+    } else {
+      varispeed.render(out, &mut |song: &mut [f32]| {
+        for block in song.chunks_mut(MAX_CHUNK * 2) {
+          self.render_block(block);
+        }
+      });
+    }
+
+    // a coast that's come to a standstill: the run stops, and the motor's
+    // back on for whatever else plays (faded in from the standstill)
+    if let Some(run) = self.coasting {
+      if varispeed.flywheel.speed() == 0. {
+        self.coasting = None;
+        self.stop(run);
+        varispeed.flywheel.run(false);
+      }
+    }
+    self.varispeed = Some(varispeed);
+
+    // a scrub plays over whatever else is (normal playback's paused for it),
+    // after the varispeed, so the PITCH knob doesn't pitch it again
+    if let Some(scrub) = self.scrub.as_mut() {
+      scrub.drive(f64::from_bits(self.shared.scrub_drive.load(Ordering::Relaxed)));
+      scrub.add_to(out);
+      let at = if scrub.done() { f64::NAN } else { scrub.at() };
+      self.shared.scrub_at.store(at.to_bits(), Ordering::Relaxed);
+      if scrub.done() {
+        let done = self.scrub.take().expect("the scrub");
+        self.throw_away(Garbage::Scrub(done));
+      }
     }
 
     // take out finished voices, and those that have faded out
@@ -1202,7 +1465,9 @@ impl Renderer {
       }
     }
 
-    // the tape moves on once a block, the same for every track on it
+    // the tape moves on once a block, the same for every track on it (and
+    // what it let go of last block goes to be freed)
+    self.free_prints();
     if let Some(tape) = self.tape.as_mut() {
       tape.machine.advance(frames);
     }
@@ -1217,7 +1482,7 @@ impl Renderer {
       // reads what's on the tape a few ms back, and hisses, whether or not
       // anything new is going on
       let taped = match (self.tape.as_ref(), bus.channel) {
-        (Some(tape), Channel::Track(number)) => tape.sides(number),
+        (Some(tape), Channel::Track(number)) => tape.uses(number, transport.playing),
         _ => None,
       };
       if !bus.sounding && bus.chain.is_empty() && taped.is_none() {
@@ -1274,9 +1539,10 @@ impl Renderer {
 
     let at = self.master.run(frames, &transport, None);
     let [l, r] = &self.master.buffers[at];
+    let limit = |s: f32| if self.limit { mixer::soft_limit(s) } else { s };
     for (i, frame) in out.chunks_exact_mut(2).enumerate() {
-      frame[0] = mixer::soft_limit(l[i]) + direct_l[i];
-      frame[1] = mixer::soft_limit(r[i]) + direct_r[i];
+      frame[0] = limit(l[i]) + direct_l[i];
+      frame[1] = limit(r[i]) + direct_r[i];
     }
 
     self.frame = end;
@@ -1284,8 +1550,22 @@ impl Renderer {
 
   fn apply(&mut self, command: Command, now: Instant, latency: Duration) {
     match command {
-      Command::Start { run, master, start, voices } => {
+      Command::Start { run, master, start, voices, spin_up } => {
         if let Some(playing) = self.run.as_ref().map(|run| run.id) { self.stop(playing); }
+        // the motor's on: from a standstill, or at its speed at once (a
+        // coast cut short by a new run ends there)
+        // (out of the path, the song's clock is the clock again from this
+        // run on: pitch 0 after a turn of the knob is today's timing, T14)
+        let varispeed = self.varispeed.as_mut().expect("the varispeed");
+        varispeed.reset_drift();
+        match (spin_up, self.coasting.is_some()) {
+          // from the speed it's coasted down to
+          (true, true) => varispeed.flywheel.power(),
+          (true, false) => varispeed.flywheel.run(true),
+          (false, true) => varispeed.flywheel.run(false),
+          (false, false) => {}
+        }
+        self.coasting = None;
         self.run = Some(Run { id: run, frame: self.frame, start });
         self.transport.tempo = start.tempo;
         self.transport.beats_per_bar = start.beats_per_bar;
@@ -1298,12 +1578,39 @@ impl Renderer {
 
         let since_epoch = |t: Instant| t.duration_since(self.shared.epoch).as_nanos() as u64;
         self.shared.anchor_frame.store(self.frame, Ordering::Relaxed);
-        self.shared.anchor_heard_ns.store(since_epoch(now + latency), Ordering::Relaxed);
+        // on the song's clock: the varispeed has read some way behind
+        // what's rendered, and the song may have run ahead of the clock
+        let varispeed = self.varispeed.as_ref().expect("the varispeed");
+        let heard = since_epoch(now + latency);
+        let song = varispeed.drift() + varispeed.ahead() / self.rate;
+        let heard = if song == 0. { heard } else { (heard as f64 + song * 1e9).max(0.) as u64 };
+        self.shared.anchor_heard_ns.store(heard, Ordering::Relaxed);
         self.shared.anchor_run.store(run + 1, Ordering::Release);
 
         self.add(voices);
       }
-      Command::Stop { run } => self.stop(run),
+      // (a run coasting to a stop stops when it gets there: its thread
+      // stopping it as it finishes doesn't cut the coast short)
+      Command::Stop { run } => {
+        if self.coasting != Some(run) { self.stop(run) }
+      }
+      Command::Coast { run } => {
+        if self.run.as_ref().is_some_and(|playing| playing.id == run) {
+          self.varispeed.as_mut().expect("the varispeed").flywheel.cut();
+          self.coasting = Some(run);
+        }
+      }
+      Command::ScrubStart(source) => {
+        if let Some(was) = self.scrub.replace(source) {
+          self.throw_away(Garbage::Scrub(was));
+        }
+      }
+      Command::ScrubEnd => {
+        if let Some(scrub) = self.scrub.as_mut() { scrub.end(); }
+      }
+      Command::Speed(speed) => {
+        self.varispeed.as_mut().expect("the varispeed").flywheel.set_target(speed);
+      }
       Command::StopPreviews => self.stop_previews(),
       Command::Play(voices) => self.add(voices),
       Command::Notes { channel, instrument, run, notes } => self.add_notes(channel, instrument, run, notes),
@@ -1362,6 +1669,26 @@ impl Renderer {
         if let Some(tape) = self.tape.as_mut() {
           tape.set_drive(track_number, drive_db);
         }
+      }
+      Command::TapePrint { track_number, print } => {
+        match self.tape.as_mut() {
+          Some(tape) => tape.set_print(track_number, print),
+          None => if let Some(print) = print { self.throw_away(Garbage::Print(print)) },
+        }
+        self.free_prints();
+      }
+    }
+  }
+
+  // prints the tape let go of, sent off to be freed (never here)
+  fn free_prints(&mut self) {
+    let Some(tape) = self.tape.as_mut() else { return };
+    while let Some(print) = tape.dropped.pop() {
+      // (garbage's queue is the way out; if it's full the print waits for
+      // the next block, rather than being freed here)
+      if let Err(rtrb::PushError::Full(Garbage::Print(print))) = self.garbage.push(Garbage::Print(print)) {
+        tape.dropped.push(print);
+        break;
       }
     }
   }
@@ -1580,6 +1907,9 @@ lazy_static! {
     settings: AudioSettings::load_default(),
     notice: None,
   });
+  // the open output's engine again, for the song's clock (song_clock):
+  // never held while an output opens, as OUTPUTS is
+  static ref CLOCK: Mutex<Option<Arc<Engine>>> = Mutex::new(None);
   // told each time engine() opens an output (see on_output_opened)
   static ref ON_OPENED: Mutex<Option<Arc<dyn Fn() + Send + Sync>>> = Mutex::new(None);
 }
@@ -1621,10 +1951,24 @@ pub fn engine() -> Result<Arc<Engine>, String> {
   let engine = output.engine.clone();
   outputs.open = Some(output);
   drop(outputs);
+  *CLOCK.lock().unwrap() = Some(engine.clone());
 
   let opened = ON_OPENED.lock().unwrap().clone();
   if let Some(opened) = opened { opened(); }
   Ok(engine)
+}
+
+// whether the song has ever been told to play at a speed other than 1x
+// (the varispeed). until it has, its clock is the clock, and nothing looks
+// for the engine to read it (T14)
+static VARISPEED_USED: AtomicBool = AtomicBool::new(false);
+
+// the engine whose song clock the playhead follows (see song_instant), or
+// None while the song has only ever played at 1x, when the song's clock is
+// the clock
+pub fn song_clock() -> Option<Arc<Engine>> {
+  if !VARISPEED_USED.load(Ordering::Relaxed) { return None; }
+  CLOCK.lock().unwrap().clone()
 }
 
 // the engine, if it's been opened (so stopping doesn't open it)
@@ -1653,7 +1997,9 @@ pub fn apply_audio_settings(settings: AudioSettings) -> Result<(), String> {
 
   if !same_output {
     // the old output closes as it's replaced
-    outputs.open = Some(open_output(&settings)?);
+    let output = open_output(&settings)?;
+    *CLOCK.lock().unwrap() = Some(output.engine.clone());
+    outputs.open = Some(output);
   }
   outputs.settings = settings;
   outputs.notice = outputs.settings.save_default()

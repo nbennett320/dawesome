@@ -23,7 +23,7 @@ fn saved_project(name: &str) -> (daw::Session, PathBuf, PathBuf, String) {
   state.playlist.audiograph.lock().unwrap()
     .construct_and_add_node(take.clone(), std::time::Duration::ZERO, 0).unwrap();
   state.playlist.sequencer.lock().unwrap().add_row(&take).unwrap();
-  crate::daw::project::save_project_to(&state, &file, false).unwrap();
+  crate::daw::project::save_project_to(&state, &file, false, None).unwrap();
   (state, dir, file, take)
 }
 
@@ -196,8 +196,19 @@ fn test_clips_of_a_project_that_was_never_saved() {
   assert_eq!(existing_dir(&state, Library::Clips), None);
   let error = rename_recording_in(&state, "/nowhere/a.wav", "b", Library::Clips).unwrap_err();
   assert_eq!(error, "the project has no clips yet");
-  assert_eq!(dir_to_change(&state, Library::Clips, true).unwrap_err(), "the project has no clips yet");
   assert_eq!(delete_recording_in(&state, "/nowhere/a.wav", Library::Clips).unwrap_err(), "the project has no clips yet");
+
+  // made when something's to go in it, in a folder of its own (here a
+  // temporary one rather than the app's data)
+  let dir = std::env::temp_dir().join(format!("dawesome-unsaved-clips-{}", std::process::id()));
+  let _ = std::fs::remove_dir_all(&dir);
+  state.project.lock().unwrap().clips_session = Some(dir.clone());
+  assert_eq!(existing_dir(&state, Library::Clips), None);
+  assert_eq!(dir_to_change(&state, Library::Clips, true).unwrap(), dir);
+  assert_eq!(existing_dir(&state, Library::Clips), Some(dir.clone()));
+  // and tidied away with the project when nothing was put in it
+  state.project.lock().unwrap().reset(None);
+  assert!(!dir.exists());
 }
 
 #[test]

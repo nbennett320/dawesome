@@ -65,7 +65,22 @@ def main():
   spans = report["held_out_spans"]
   passes = [load_pass(f, test, test_map) for f in folders]
   training = [p for p in passes if report["passes"][p.name]["training"]]
-  linear = Linear(training, rate, spans)
+  # the linear baseline: one linear model per trained drive (one model
+  # across all drives is dominated by the loud, squashed passes and gets
+  # every quiet one wrong: it can't bend its gain with the drive). a drive
+  # between two trained ones blends their impulse responses
+  linears = sorted(((p.drive_db, Linear([p], rate, spans)) for p in training), key=lambda dl: dl[0])
+
+  def linear(x, drive):
+    drives = [d for d, _ in linears]
+    if drive <= drives[0]:
+      return linears[0][1](x, drive)
+    if drive >= drives[-1]:
+      return linears[-1][1](x, drive)
+    i = int(np.searchsorted(drives, drive))
+    (d0, l0), (d1, l1) = linears[i - 1], linears[i]
+    t = (drive - d0) / (d1 - d0)
+    return (1 - t) * l0(x, drive) + t * l1(x, drive)
   a, b = spans[0]
   warm = 2.0
   lo, hi = int((a - warm) * rate), int(b * rate)

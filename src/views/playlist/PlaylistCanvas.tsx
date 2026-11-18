@@ -44,6 +44,7 @@ import type { RootState } from '../../state/store'
 import { PlaylistWindow, PlaylistItem } from '../../types/playlist'
 import { Renderer, StretchEdit, WindowEdit } from './sketch'
 import { isPlaceable, onSampleDrag } from '../../state/sampleDrag'
+import { dropFilesOnPlaylist } from '../../state/fileDrop'
 import { OWN_DRAG_PREVIEW } from '../../components/DragGhost'
 import { selectFocusedView } from '../../state/slices/windowSlice'
 import { selectAppearance } from '../../state/slices/appearanceSlice'
@@ -69,6 +70,7 @@ import {
 } from '../../state/clipCommands'
 import { explodePatternClips, selectLastSelectedPattern, showPattern } from '../../state/slices/sequencerSlice'
 import ClipMenu, { ClipMenuItem } from './ClipMenu'
+import { scrubBegin, scrubEnd, scrubTo } from '../../state/scrub'
 
 const playlistRenderer = new Renderer()
 
@@ -275,6 +277,8 @@ const PlaylistCanvas = () => {
   const transportRevision = useAppSelector(selectTransportRevision)
   const loopEnabled = useAppSelector(selectLoopEnabled)
   const handleSeek = React.useCallback((beat: number) => dispatch(seekPlaylist(beat)), [dispatch])
+  const handleScrubBegin = React.useCallback((atMs: number) => scrubBegin(atMs, 'playlist'), [])
+  const handleScrubEnd = React.useCallback((beat: number) => dispatch(scrubEnd(beat)), [dispatch])
   const handleCurrentTrack = React.useCallback((track: number) => { dispatch(setCurrentTrack(track)) }, [dispatch])
   // the loop's region and end flag, dragged in the ruler
   const handleLoopRegion = React.useCallback((start: number, end: number) => {
@@ -335,6 +339,8 @@ const PlaylistCanvas = () => {
       return
     }
 
+    // files from outside stay drawn where they land while they're placed
+    const hold = type === 'drop' && over && item.kind === 'files' ? playlistRenderer.fileDropHolder(x, y) : undefined
     playlistRenderer.clearSampleDrag()
 
     if(type === 'drop' && over) {
@@ -346,6 +352,16 @@ const PlaylistCanvas = () => {
         dispatch(addPatternToPlaylist(item.patternId, trackNumber, beat))
           // eslint-disable-next-line no-console
           .catch(e => console.error('could not place the pattern:', e))
+        return
+      }
+
+      // from outside the app: copied into the clips, one per track
+      if(item.kind === 'files') {
+        dispatch(dropFilesOnPlaylist(item.files, item.skipped, trackNumber, beat, {
+          x: clientX, y: clientY, left, top, right, bottom,
+        }, setBusy, hold))
+          // eslint-disable-next-line no-console
+          .catch(e => console.error('could not place the files:', e))
         return
       }
 
@@ -787,6 +803,9 @@ const PlaylistCanvas = () => {
           transportRevision={transportRevision}
           loopEnabled={loopEnabled}
           onSeek={handleSeek}
+          onScrubBegin={handleScrubBegin}
+          onScrubTo={scrubTo}
+          onScrubEnd={handleScrubEnd}
           onCurrentTrack={handleCurrentTrack}
           onLoopRegion={handleLoopRegion}
           onClearLoopRegion={handleClearLoopRegion}

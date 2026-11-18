@@ -87,29 +87,39 @@ fn test_the_halves_of_a_cut_are_put_back_together_and_nothing_is_written() {
 #[test]
 fn test_halves_that_no_longer_line_up_are_not_healed() {
   let state = Arc::new(daw::Session::default());
+  let dir = std::env::temp_dir().join(format!("dawesome-join-unsaved-{}", std::process::id()));
+  let _ = std::fs::remove_dir_all(&dir);
+  state.project.lock().unwrap().clips_session = Some(dir.clone());
   let cut = |beat: f32| {
     let id = add_clip(&state, KICK.to_string(), 0, Some(beat)).unwrap().id;
     let right = crate::daw::actions::clip::split(&state, &[id], beat as f64 + 0.1).unwrap().clips[1].id;
     (id, right)
   };
-  let refused = |ids: &[u64]| join(&state, ids, Some(44_100)).unwrap_err();
+  // written out (into the unsaved project's clips folder), not healed
+  let written_out = |ids: &[u64]| {
+    let joined = join(&state, ids, Some(44_100)).unwrap();
+    let path = PathBuf::from(&joined.clips.clips[0].path);
+    assert_eq!(path.parent().unwrap(), dir);
+    path.is_file()
+  };
 
   // one moved, one with another pitch, one with a fade where they meet,
-  // and the same two halves in the other order in time: each would have
-  // to be written out, and the project isn't saved
+  // and the same two halves in the other order in time: each has to be
+  // written out
   let (a, b) = cut(2.);
   state.playlist.audiograph.lock().unwrap().move_node(b, Duration::from_millis(1_100), 0).unwrap();
-  assert_eq!(refused(&[a, b]), bounce::NEEDS_SAVING);
+  assert!(written_out(&[a, b]));
   let (a, b) = cut(8.);
   change_clip_settings(&state, b, clip::ClipSettings { pitch: 1., ..Default::default() }, None).unwrap();
-  assert_eq!(refused(&[a, b]), bounce::NEEDS_SAVING);
+  assert!(written_out(&[a, b]));
   let (a, b) = cut(16.);
   change_clip_settings(&state, a, clip::ClipSettings { decay_ms: 5., ..Default::default() }, None).unwrap();
-  assert_eq!(refused(&[a, b]), bounce::NEEDS_SAVING);
+  assert!(written_out(&[a, b]));
   // two whole clips of the same file end to end aren't parts of one clip
   let a = add_clip(&state, KICK.to_string(), 0, Some(24.)).unwrap().id;
   let b = add_clip(&state, KICK.to_string(), 0, Some(25.)).unwrap().id;
-  assert_eq!(refused(&[a, b]), bounce::NEEDS_SAVING);
+  assert!(written_out(&[a, b]));
+  let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

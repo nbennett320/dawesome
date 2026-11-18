@@ -1,6 +1,5 @@
 import React from 'react'
 import { Tab, Tabs, TabList, TabPanel } from 'react-tabs'
-import { useDrag, useDrop } from 'react-dnd'
 import {
   closeTab,
   focusPane,
@@ -17,7 +16,8 @@ import { matchViewComponent } from '../../views/matchViewComponent'
 import { keyOf, PaneTab, TabKey, viewHints, WindowNode } from '../../types/ui'
 import { cssVar } from '../../theme/apply'
 import { AnalogButton, Led } from '../fourtrack'
-import { DraggedTab, PANE_TAB, useDraggingTab } from './dragTab'
+import { TabDragItem, useDraggingTab, useTabDrop } from './dragTab'
+import { beginSampleDrag } from '../../state/sampleDrag'
 import { CloseIcon, SplitIcon } from '../icons'
 
 // where a tab dropped on a pane's body goes: an edge splits the pane there,
@@ -67,22 +67,21 @@ const TabItem = ({ pane, tab, index, selected, lit }: TabItemProps) => {
   // worked out each time: a plugin's tab is named after the others like it
   const label = useAppSelector(selectTabLabel(tab))
 
-  const [, dragRef] = useDrag(() => ({
-    type: PANE_TAB,
-    item: { key } as DraggedTab,
-  }), [key])
-
-  const [{ isOver }, dropRef] = useDrop(() => ({
-    accept: PANE_TAB,
-    drop: (item: DraggedTab) => {
-      dispatch(moveTab({ key: item.key, paneId: pane.id, index }))
-    },
-    collect: monitor => ({ isOver: monitor.isOver() }),
-  }), [pane.id, index])
+  const ref = React.useRef<HTMLDivElement>(null)
+  const isOver = useTabDrop(ref, {
+    drop: item => { dispatch(moveTab({ key: item.tabKey, paneId: pane.id, index })) },
+  })
 
   return (
+    // (inside the Tab, which is the tab to assistive tech)
     <div
-      ref={node => { dragRef(dropRef(node)) }}
+      ref={ref}
+      role='presentation'
+      onMouseDown={ev => {
+        // (not from its close button)
+        if((ev.target as Element).closest('button')) return
+        beginSampleDrag({ kind: 'tab', tabKey: key, label }, ev)
+      }}
       className='group flex flex-row items-center gap-2 h-8 pl-3 pr-1.5'
       data-hint={`${label}: ${viewHints[tab.component]}. Drag the tab to move it, or onto a pane to split it`}
       style={{ boxShadow: isOver ? `inset 2px 0 0 ${cssVar('accent')}` : undefined }}
@@ -112,14 +111,12 @@ const TabItem = ({ pane, tab, index, selected, lit }: TabItemProps) => {
 const TabListEnd = ({ pane }: { pane: WindowNode }) => {
   const dispatch = useAppDispatch()
 
-  const [, dropRef] = useDrop(() => ({
-    accept: PANE_TAB,
-    drop: (item: DraggedTab) => {
-      dispatch(moveTab({ key: item.key, paneId: pane.id }))
-    },
-  }), [pane.id])
+  const ref = React.useRef<HTMLDivElement>(null)
+  useTabDrop(ref, {
+    drop: item => { dispatch(moveTab({ key: item.tabKey, paneId: pane.id })) },
+  })
 
-  return <div ref={dropRef} className='flex-1 self-stretch' />
+  return <div ref={ref} className='flex-1 self-stretch' />
 }
 
 // shown over a pane's body while a tab is dragged, to split the pane or
@@ -137,37 +134,30 @@ const DropOverlay = ({ pane }: { pane: WindowNode }) => {
     return !own || pane.tabs.length > 1
   }
 
-  const zoneFor = (item: DraggedTab, offset: { x: number, y: number } | null) => {
-    if(!ref.current || !offset) return null
-    const z = dropZoneAt(ref.current.getBoundingClientRect(), offset.x, offset.y)
-    return canDropIn(z, item.key) ? z : null
+  const zoneFor = (item: TabDragItem, x: number, y: number) => {
+    if(!ref.current) return null
+    const z = dropZoneAt(ref.current.getBoundingClientRect(), x, y)
+    return canDropIn(z, item.tabKey) ? z : null
   }
 
-  const [{ isOver }, dropRef] = useDrop(() => ({
-    accept: PANE_TAB,
-    hover: (item: DraggedTab, monitor) => {
-      setZone(zoneFor(item, monitor.getClientOffset()))
-    },
-    drop: (item: DraggedTab, monitor) => {
-      const z = zoneFor(item, monitor.getClientOffset())
+  const isOver = useTabDrop(ref, {
+    hover: (item, x, y) => { setZone(zoneFor(item, x, y)) },
+    drop: (item, x, y) => {
+      const z = zoneFor(item, x, y)
 
       if(z === 'center') {
-        dispatch(moveTab({ key: item.key, paneId: pane.id }))
+        dispatch(moveTab({ key: item.tabKey, paneId: pane.id }))
       } else if(z) {
         const direction = z === 'left' || z === 'right' ? 'vertical' : 'horizontal'
         const before = z === 'left' || z === 'top'
-        dispatch(splitPane(pane.id, item.key, direction, before))
+        dispatch(splitPane(pane.id, item.tabKey, direction, before))
       }
     },
-    collect: monitor => ({ isOver: monitor.isOver() }),
-  }), [pane])
+  })
 
   return (
     <div
-      ref={node => {
-        ref.current = node
-        dropRef(node)
-      }}
+      ref={ref}
       className='absolute inset-0'
       style={{ zIndex: 50 }}
     >

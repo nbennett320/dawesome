@@ -153,6 +153,9 @@ export interface LoadedProject extends ProjectSettings {
   // the tape's switch, machine and tracks (left out by older engines: tape
   // off, no track on it)
   tape?: TapeSettings
+  // the window's panes and tabs, as saved (see state/savedLayout.ts). none
+  // for a new project, or one saved before layouts were
+  layout?: unknown
 }
 
 // the engine lists missing synths with the missing effects. the synth rows

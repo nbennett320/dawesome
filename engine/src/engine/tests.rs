@@ -1115,7 +1115,7 @@ mod tape_tests {
     MachineSettings { transport: TransportSettings::still(), playback, wow_flutter: 0.0, hiss: 0.0, dbx: false, output_db: 0.0 }
   }
 
-  fn live_tape(settings: MachineSettings, before_effects: bool, tracks: &[u32]) -> Box<tape::LiveTape> {
+  fn live_tape(settings: MachineSettings, before_effects: bool, tracks: &[u32]) -> Box<tape::EngineTape> {
     let rate = TAPE_RATE as f32;
     let mut machine = TapeMachine::new(settings, rate, 1, processor::MAX_BLOCK);
     let mut sides = Vec::new();
@@ -1124,9 +1124,36 @@ mod tape_tests {
         let core = Box::new(SimpleCore::new(SimpleCoreSettings::default(), rate, processor::MAX_BLOCK));
         machine.add_track(Some(RecordSide::new(core, rate, processor::MAX_BLOCK)), 0.0)
       };
-      sides.push((number, [side(), side()]));
+      sides.push((number, [side(), side()], true));
     }
-    tape::LiveTape::new(machine, before_effects, sides)
+    tape::EngineTape::new(machine, before_effects, TAPE_RATE, sides)
+  }
+
+  // a tape whose tracks wait for prints
+  fn printed_tape(tracks: &[u32]) -> Box<tape::EngineTape> {
+    let mut machine = TapeMachine::new(still(), TAPE_RATE as f32, 1, processor::MAX_BLOCK);
+    let sides = tracks.iter().map(|&n| (n, [machine.add_track(None, 0.0), machine.add_track(None, 0.0)], false)).collect();
+    tape::EngineTape::new(machine, true, TAPE_RATE, sides)
+  }
+
+  // a print: a slow sine, in two stretches with silence between
+  fn print(frames: usize) -> Arc<tape::Print> {
+    let wave = |from: usize, n: usize| -> Vec<f32> { (from..from + n).map(|i| (i as f32 * 0.003).sin() * 0.1).collect() };
+    let half = frames / 2;
+    Arc::new(tape::Print {
+      rate: TAPE_RATE,
+      regions: vec![
+        tape::Region { start: 0, sides: [wave(0, half - 1000), wave(0, half - 1000)] },
+        tape::Region { start: half as i64, sides: [wave(half, half), wave(half, half)] },
+      ],
+    })
+  }
+
+  // what a print should sound like on a still, quiet tape: itself, on time
+  fn printed_at(p: &tape::Print, from: i64, frames: usize) -> Vec<f32> {
+    let mut out = vec![0.0; frames];
+    p.read(0, from, &mut out);
+    out
   }
 
   // a sine on a track, at 48 khz, `level` of full scale
@@ -1138,7 +1165,7 @@ mod tape_tests {
     SamplesBuffer::new(2, TAPE_RATE, samples)
   }
 
-  fn play(tape: Option<Box<tape::LiveTape>>, chain: Vec<Arc<Slot>>, level: f32) -> Vec<f32> {
+  fn play(tape: Option<Box<tape::EngineTape>>, chain: Vec<Arc<Slot>>, level: f32) -> Vec<f32> {
     let mixer = mixer::Mixer::default();
     let (engine, mut renderer) = Engine::new(TAPE_RATE);
     engine.set_tape(tape).unwrap();
@@ -1199,5 +1226,398 @@ mod tape_tests {
     let after = play(Some(live_tape(still(), false, &[0])), half(), 0.8);
     let differ = before.iter().zip(&after).filter(|(a, b)| (*a - *b).abs() > 1e-3).count();
     assert!(differ > 1000, "{differ} frames differ");
+  }
+
+  // ---- printed tracks
+
+  // a run from song frame `origin`. track 0 gets a silent clip: a track's
+  // bus is made when it has something to play (a printed track always has
+  // its clips), and the clip is what's direct, crossed out for the print
+  fn run_from(engine: &Engine, mixer: &mixer::Mixer, run: u64, origin: i64, _voices: Vec<Box<Voice>>) {
+    let start = RunStart { origin, ..RunStart::default() };
+    let silent = engine.voice(tone(96_000, 0.0), Some(run), 0, Route::Track(mixer.track_route(0)));
+    engine.start_run_at(run, mixer.master(), start, vec![silent]).unwrap();
+  }
+
+  #[test]
+  fn test_a_print_reads_as_silence_between_its_stretches() {
+    let p = print(20_000);
+    let mut out = vec![1.0; 3000];
+    p.read(0, 8_000, &mut out);
+    // 8000..9000 is sound, 9000..10000 the gap, 10000.. sound again
+    assert!(out[..900].iter().any(|&s| s != 0.0));
+    assert!(out[1000..2000].iter().all(|&s| s == 0.0));
+    assert!(out[2100..].iter().any(|&s| s != 0.0));
+    // past the end, and before the start
+    let mut out = vec![1.0; 100];
+    p.read(1, 30_000, &mut out);
+    assert!(out.iter().all(|&s| s == 0.0));
+    p.read(1, -50, &mut out);
+    assert!(out[..50].iter().all(|&s| s == 0.0) && out[51..].iter().any(|&s| s != 0.0));
+  }
+
+  #[test]
+  fn test_a_printed_track_plays_its_print_on_time() {
+    let mixer = mixer::Mixer::default();
+    let (engine, mut renderer) = Engine::new(TAPE_RATE);
+    engine.set_tape(Some(printed_tape(&[0]))).unwrap();
+    let p = print(40_000);
+    engine.set_tape_print(0, Some(p.clone())).unwrap();
+    run_from(&engine, &mixer, 1, 0, vec![]);
+    let out = render(&mut renderer, 12_000);
+    // after the 50 ms crossfade from direct (silence here), the print
+    let want = printed_at(&p, 0, 12_000);
+    let worst = out[3000..].iter().zip(&want[3000..]).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+    assert!(worst < 2e-3, "off by {worst}");
+  }
+
+  #[test]
+  fn test_a_seek_starts_the_print_from_there_with_nothing_stale() {
+    let mixer = mixer::Mixer::default();
+    let (engine, mut renderer) = Engine::new(TAPE_RATE);
+    engine.set_tape(Some(printed_tape(&[0]))).unwrap();
+    let p = print(40_000);
+    engine.set_tape_print(0, Some(p.clone())).unwrap();
+    run_from(&engine, &mixer, 1, 0, vec![]);
+    render(&mut renderer, 9_600);
+    // a jump to frame 25000: what comes out is the print from there at once
+    run_from(&engine, &mixer, 2, 25_000, vec![]);
+    let out = render(&mut renderer, 4_800);
+    let want = printed_at(&p, 25_000, 4_800);
+    let worst = out.iter().zip(&want).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+    assert!(worst < 2e-3, "off by {worst}");
+  }
+
+  #[test]
+  fn test_without_a_print_or_stopped_a_track_is_direct() {
+    // no print yet: exactly as with no tape (D64)
+    let with_tape = {
+      let mixer = mixer::Mixer::default();
+      let (engine, mut renderer) = Engine::new(TAPE_RATE);
+      engine.set_tape(Some(printed_tape(&[0]))).unwrap();
+      engine.start_run(1, mixer.master(), vec![engine.voice(tone(9600, 0.1), Some(1), 0, Route::Track(mixer.track_route(0)))]).unwrap();
+      render(&mut renderer, 9600)
+    };
+    assert_eq!(with_tape, play(None, vec![], 0.1));
+    // stopped: the tape has nothing to do with a printed track
+    let t = printed_tape(&[0]);
+    assert_eq!(t.uses(0, false), None);
+    assert_eq!(t.uses(0, true), None);
+  }
+
+  #[test]
+  fn test_an_out_of_date_print_crosses_back_to_direct() {
+    let mixer = mixer::Mixer::default();
+    let (engine, mut renderer) = Engine::new(TAPE_RATE);
+    engine.set_tape(Some(printed_tape(&[0]))).unwrap();
+    engine.set_tape_print(0, Some(print(96_000))).unwrap();
+    run_from(&engine, &mixer, 1, 0, vec![]);
+    render(&mut renderer, 9_600);
+    engine.set_tape_print(0, None).unwrap();
+    let out = render(&mut renderer, 9_600);
+    // still sounding as it crosses (50 ms), then silent: direct (nothing)
+    assert!(out[..1000].iter().any(|&s| s != 0.0));
+    assert!(out[3000..].iter().all(|&s| s == 0.0));
+  }
+}
+
+// ---- varispeed (part E): the whole song at another speed
+
+mod varispeed_tests {
+  use super::*;
+
+  const SONG_RATE: u32 = 48_000;
+
+  // a built-in effect (crates/dsp), at its defaults
+  fn native(id: &str) -> Box<dyn processor::Processor> {
+    crate::daw::native::load(id, SONG_RATE).unwrap().take_processor().unwrap()
+  }
+
+  // a song: a tone on track 0 through a gain and the built-in EQ, a delay
+  // and the built-in Delay on track 1's chain, and an instrument playing
+  // notes on track 2, all through the master and its limiter
+  fn song(engine: &Engine, mixer: &mixer::Mixer) {
+    let tone = |frames: usize, hz: f32, level: f32| -> SamplesBuffer<f32> {
+      let samples: Vec<f32> = (0..frames).flat_map(|i| {
+        let s = level * (i as f32 * 2.0 * std::f32::consts::PI * hz / SONG_RATE as f32).sin();
+        [s, s * 0.5]
+      }).collect();
+      SamplesBuffer::new(2, SONG_RATE, samples)
+    };
+    engine.set_track_chain(&mixer.track_route(0), vec![Slot::new(1, Box::new(Gain(0.7))), Slot::new(4, native("dawesome:eq"))]).unwrap();
+    engine.set_track_chain(&mixer.track_route(1), vec![Slot::new(2, Box::new(Delay::new(1_234))), Slot::new(5, native("dawesome:delay"))]).unwrap();
+    engine.set_track_chain(&mixer.track_route(2), vec![Tone::slot(3)]).unwrap();
+    let voices = vec![
+      engine.voice(tone(96_000, 440.0, 0.4), Some(1), 100, Route::Track(mixer.track_route(0))),
+      engine.voice(tone(30_000, 1_250.0, 0.6), Some(1), 7_000, Route::Track(mixer.track_route(1))),
+    ];
+    engine.start_run(1, mixer.master(), voices).unwrap();
+    let notes = (0..20).flat_map(|n| [TimedNote::on(n * 9_000 + 50, 60, 1.0), TimedNote::off(n * 9_000 + 4_000, 60)]).collect();
+    engine.play_notes(&mixer.track_route(2), 3, Some(1), notes).unwrap();
+  }
+
+  // the song rendered in device buffers of `frames`, `buffers` of them;
+  // `before` runs on the engine before the song starts
+  fn render_song(before: impl Fn(&Engine), buffers: usize, frames: usize) -> (Vec<f32>, Engine, Renderer) {
+    let mixer = mixer::Mixer::default();
+    let (engine, mut renderer) = Engine::new(SONG_RATE);
+    before(&engine);
+    song(&engine, &mixer);
+    let mut out = Vec::new();
+    let mut buffer = vec![0.; frames * 2];
+    for _ in 0..buffers {
+      renderer.render(&mut buffer, Instant::now(), Duration::ZERO);
+      out.extend_from_slice(&buffer);
+    }
+    (out, engine, renderer)
+  }
+
+  #[test]
+  fn test_at_1x_the_varispeed_is_out_of_the_path() {
+    // T14: an engine told to play at 1x (tape off, or the PITCH knob at 0)
+    // is the same, to the last bit, as one never told anything
+    let (never, _, renderer) = render_song(|_| {}, 40, 512);
+    assert!(renderer.straight());
+    let (told, _, renderer) = render_song(|engine| engine.set_speed(1.0).unwrap(), 40, 512);
+    assert!(renderer.straight());
+    assert_eq!(never, told);
+    assert!(never.iter().filter(|&&s| s != 0.).count() > 10_000);
+  }
+
+  #[test]
+  fn test_moved_off_1x_and_back_it_leaves_the_path_and_plays_the_song_as_it_is() {
+    let (reference, _, _) = render_song(|_| {}, 200, 512);
+    let mixer = mixer::Mixer::default();
+    let (engine, mut renderer) = Engine::new(SONG_RATE);
+    song(&engine, &mixer);
+    let mut buffer = vec![0.; 512 * 2];
+    let mut render = |renderer: &mut Renderer| renderer.render(&mut buffer, Instant::now(), Duration::ZERO);
+    for _ in 0..4 { render(&mut renderer); }
+    engine.set_speed(1.06).unwrap();
+    for _ in 0..20 { render(&mut renderer); }
+    assert!(!renderer.straight());
+    engine.set_speed(1.0).unwrap();
+    // the glide back and the ease onto a whole frame: out of the path
+    // within 2 s
+    let mut buffers = 0;
+    while !renderer.straight() {
+      render(&mut renderer);
+      buffers += 1;
+      assert!(buffers < 2 * SONG_RATE as usize / 512, "still resampling");
+    }
+    // from here on, the song as it is: what's heard is what's rendered,
+    // song frame for song frame
+    let at = engine.frames() as usize;
+    let mut out = vec![0.; 512 * 2];
+    for _ in 0..10 {
+      renderer.render(&mut out, Instant::now(), Duration::ZERO);
+    }
+    let rendered = engine.frames() as usize;
+    assert_eq!(&out[..], &reference[(rendered - 512) * 2..rendered * 2]);
+    assert!(rendered > at);
+  }
+
+  #[test]
+  fn test_at_another_speed_the_song_is_read_that_much_faster_and_the_clock_follows() {
+    let mixer = mixer::Mixer::default();
+    let (engine, mut renderer) = Engine::new(SONG_RATE);
+    engine.set_speed(1.1).unwrap();
+    song(&engine, &mixer);
+    let mut buffer = vec![0.; 512 * 2];
+    // past the glide
+    for _ in 0..100 { renderer.render(&mut buffer, Instant::now(), Duration::ZERO); }
+    let from = engine.frames();
+    for _ in 0..100 { renderer.render(&mut buffer, Instant::now(), Duration::ZERO); }
+    let read = (engine.frames() - from) as f64 / (100. * 512.);
+    assert!((read - 1.1).abs() < 1e-3, "read {read}");
+    assert_eq!(engine.speed(), 1.1);
+    // the song's clock runs 10 % fast: a second from the last buffer's
+    // heard time is 1.1 s of song
+    let heard = engine.shared.epoch + Duration::from_nanos(engine.shared.clock_heard_ns.load(Ordering::Relaxed));
+    let a = engine.song_instant(heard);
+    let b = engine.song_instant(heard + Duration::from_secs(1));
+    assert!(((b - a).as_secs_f64() - 1.1).abs() < 1e-9);
+    // and back
+    let real = engine.real_instant(b);
+    assert!(signed_secs(real, heard + Duration::from_secs(1)).abs() < 1e-6);
+  }
+
+  #[test]
+  fn test_at_1x_the_clock_is_the_clock() {
+    let (_, engine, _) = render_song(|_| {}, 10, 512);
+    let now = Instant::now();
+    assert_eq!(engine.song_instant(now), now);
+    assert_eq!(engine.real_instant(now), now);
+  }
+
+  #[test]
+  fn test_a_coast_runs_the_song_down_to_a_standstill_then_stops_the_run() {
+    let mixer = mixer::Mixer::default();
+    let (engine, mut renderer) = Engine::new(SONG_RATE);
+    song(&engine, &mixer);
+    let mut buffer = vec![0.; 512 * 2];
+    for _ in 0..10 { renderer.render(&mut buffer, Instant::now(), Duration::ZERO); }
+    let from = engine.frames();
+    let covers = engine.coast_reach().as_secs_f64();
+    assert!((covers - COAST_SECONDS / 2.).abs() < 1e-9);
+    engine.coast_run(1).unwrap();
+    let mut buffers = 0;
+    while renderer.run.is_some() {
+      renderer.render(&mut buffer, Instant::now(), Duration::ZERO);
+      buffers += 1;
+      assert!(buffers < 100, "never stopped");
+    }
+    // the coast's time, covering half that of song
+    let took = buffers as f64 * 512. / SONG_RATE as f64;
+    assert!((took - COAST_SECONDS).abs() < 0.02, "{took}");
+    let song = (engine.frames() - from) as f64 / SONG_RATE as f64;
+    assert!((song - covers).abs() < 0.01, "{song}");
+    // the motor's back on for whatever plays next, faded in
+    renderer.render(&mut buffer, Instant::now(), Duration::ZERO);
+    assert_eq!(engine.speed(), 1.);
+  }
+
+  #[test]
+  fn test_a_spun_up_run_starts_from_a_standstill() {
+    let mixer = mixer::Mixer::default();
+    let (engine, mut renderer) = Engine::new(SONG_RATE);
+    engine.start_run_with(1, mixer.master(), RunStart::default(), vec![], true).unwrap();
+    let mut buffer = vec![0.; 480 * 2];
+    renderer.render(&mut buffer, Instant::now(), Duration::ZERO);
+    renderer.render(&mut buffer, Instant::now(), Duration::ZERO);
+    // 10 ms in: barely moving, and the lag it'll have built up is said
+    assert!(engine.speed() < 0.05, "{}", engine.speed());
+    assert!((engine.lag_seconds() - 0.25).abs() < 0.03, "{}", engine.lag_seconds());
+  }
+
+  #[test]
+  fn test_back_at_1x_a_new_run_is_anchored_on_the_clock_itself() {
+    // after the knob has been turned and come back, the song's clock has
+    // drifted from the clock: a new run starts it afresh, so pitch 0 is
+    // today's timing again (T14)
+    let mixer = mixer::Mixer::default();
+    let (engine, mut renderer) = Engine::new(SONG_RATE);
+    song(&engine, &mixer);
+    let mut buffer = vec![0.; 512 * 2];
+    engine.set_speed(1.08).unwrap();
+    for _ in 0..40 { renderer.render(&mut buffer, Instant::now(), Duration::ZERO); }
+    engine.set_speed(1.0).unwrap();
+    while !renderer.straight() { renderer.render(&mut buffer, Instant::now(), Duration::ZERO); }
+    renderer.render(&mut buffer, Instant::now(), Duration::ZERO);
+    assert!(signed_secs(engine.song_instant(Instant::now()), Instant::now()).abs() > 1e-3, "it drifted");
+
+    engine.start_run(2, mixer.master(), vec![]).unwrap();
+    let now = Instant::now();
+    let latency = Duration::from_millis(7);
+    renderer.render(&mut buffer, now, latency);
+    assert_eq!(engine.anchor(2).unwrap().heard, now + latency);
+    assert_eq!(engine.song_instant(now), now);
+    assert_eq!(engine.real_instant(now), now);
+  }
+
+  #[test]
+  fn test_a_coasting_run_isn_t_cut_short_by_its_stop_and_play_picks_it_up_from_where_it_s_got_to() {
+    let mixer = mixer::Mixer::default();
+    let (engine, mut renderer) = Engine::new(SONG_RATE);
+    song(&engine, &mixer);
+    let mut buffer = vec![0.; 512 * 2];
+    for _ in 0..10 { renderer.render(&mut buffer, Instant::now(), Duration::ZERO); }
+    engine.coast_run(1).unwrap();
+    // the run's thread stops it as it finishes: it coasts on
+    engine.stop_run(1).unwrap();
+    // a little over half the coast
+    let buffers = (COAST_SECONDS * 0.53 * SONG_RATE as f64 / 512.).round() as usize;
+    for _ in 0..buffers { renderer.render(&mut buffer, Instant::now(), Duration::ZERO); }
+    assert!(renderer.run.is_some());
+    let slowed = engine.speed();
+    assert!(slowed > 0.4 && slowed < 0.55, "{slowed}");
+
+    // Play again, spinning up: from the speed it's coasted down to
+    engine.start_run_with(2, mixer.master(), RunStart::default(), vec![], true).unwrap();
+    // (the speed's said as each buffer starts)
+    renderer.render(&mut buffer, Instant::now(), Duration::ZERO);
+    let from = engine.speed();
+    // (within a buffer's worth of coasting)
+    let per_buffer = 512. / SONG_RATE as f64 / COAST_SECONDS;
+    assert!((from - slowed).abs() <= per_buffer + 1e-6, "{from} {slowed}");
+    renderer.render(&mut buffer, Instant::now(), Duration::ZERO);
+    assert!(engine.speed() > from, "{} {}", engine.speed(), from);
+    assert_eq!(renderer.run.as_ref().map(|run| run.id), Some(2));
+    while !renderer.straight() { renderer.render(&mut buffer, Instant::now(), Duration::ZERO); }
+    assert_eq!(engine.speed(), 1.);
+  }
+}
+
+// ---- scrubbing (part S): a scrub plays over the engine, from the proxy
+
+mod scrub_tests {
+  use super::*;
+  use super::scrub::Proxy;
+
+  const OUT: u32 = 48_000;
+
+  // a proxy that's silent but for a burst of tone from 1 s to 1.2 s
+  fn proxy() -> Arc<Proxy> {
+    let samples: Vec<i16> = (0..48_000).map(|i| {
+      if (24_000..28_800).contains(&i) { ((i as f32 * 0.3).sin() * 20_000.) as i16 } else { 0 }
+    }).collect();
+    Arc::new(Proxy { rate: 24_000, samples: samples.into_boxed_slice() })
+  }
+
+  fn song(engine: &Engine, mixer: &mixer::Mixer) {
+    let samples: Vec<f32> = (0..96_000).flat_map(|i| { let s = (i as f32 * 0.01).sin() * 0.3; [s, s] }).collect();
+    engine.start_run(1, mixer.master(), vec![
+      engine.voice(SamplesBuffer::new(2, OUT, samples), Some(1), 0, Route::Track(mixer.track_route(0))),
+    ]).unwrap();
+  }
+
+  fn buffers(renderer: &mut Renderer, n: usize) -> Vec<f32> {
+    let mut all = Vec::new();
+    let mut out = vec![0.; 480 * 2];
+    for _ in 0..n {
+      renderer.render(&mut out, Instant::now(), Duration::ZERO);
+      all.extend_from_slice(&out);
+    }
+    all
+  }
+
+  #[test]
+  fn test_a_scrub_is_heard_where_it_s_dragged_and_let_go_leaves_the_engine_as_it_was() {
+    let mixer = mixer::Mixer::default();
+    let (plain, mut plain_renderer) = Engine::new(OUT);
+    song(&plain, &mixer);
+    let unscrubbed = buffers(&mut plain_renderer, 60);
+
+    let (engine, mut renderer) = Engine::new(OUT);
+    song(&engine, &mixer);
+    let mut out = buffers(&mut renderer, 10);
+    assert_eq!(engine.scrub_at(), None);
+    // dragged from 0.9 s across the burst to 1.3 s
+    engine.scrub_start(proxy(), 0.9, None, None).unwrap();
+    engine.scrub_drive(1.3);
+    out.extend(buffers(&mut renderer, 20));
+    assert!((engine.scrub_at().unwrap() - 1.3).abs() < 0.05, "{:?}", engine.scrub_at());
+    engine.scrub_end().unwrap();
+    out.extend(buffers(&mut renderer, 30));
+    assert_eq!(engine.scrub_at(), None);
+    assert!(renderer.scrub.is_none(), "let go of");
+
+    // heard over the song while it was held, and nothing of it after
+    let held = &out[10 * 960..30 * 960];
+    let worst = held.iter().zip(&unscrubbed[10 * 960..30 * 960]).map(|(a, b)| (a - b).abs()).fold(0., f32::max);
+    assert!(worst > 0.1, "the burst was heard: {worst}");
+    assert_eq!(&out[32 * 960..], &unscrubbed[32 * 960..]);
+  }
+
+  #[test]
+  fn test_a_scrub_begun_over_another_takes_over() {
+    let (engine, mut renderer) = Engine::new(OUT);
+    engine.scrub_start(proxy(), 0.5, None, None).unwrap();
+    buffers(&mut renderer, 2);
+    engine.scrub_start(proxy(), 1.0, Some(-2.0), Some((::tape::TransportSettings::default(), 1.0))).unwrap();
+    buffers(&mut renderer, 2);
+    // the second, winding back from 1 s
+    assert!(engine.scrub_at().unwrap() < 1.0);
+    engine.collect_garbage();
   }
 }

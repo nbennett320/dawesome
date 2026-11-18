@@ -234,15 +234,44 @@ fn test_names_with_any_letters_are_numbered() {
 }
 
 #[test]
-fn test_an_unsaved_project_is_refused() {
+fn test_an_unsaved_project_keeps_its_clips_until_its_first_save() {
+  let dir = std::env::temp_dir().join(format!("dawesome-bounce-unsaved-{}", std::process::id()));
+  let _ = std::fs::remove_dir_all(&dir);
+  std::fs::create_dir_all(&dir).unwrap();
+  let dir = std::fs::canonicalize(dir).unwrap();
   let state = daw::Session::default();
+  // (rather than the app's data folder)
+  let session = dir.join("unsaved-clips");
+  state.project.lock().unwrap().clips_session = Some(session.clone());
+
   let id = add_clip(&state, KICK.to_string(), 0, Some(0.)).unwrap().id;
-  let before = project::capture(&state, None);
-  let steps = state.history.lock().unwrap().len();
-  let refused = deep_copy(&state, &[id], Some(44_100)).unwrap_err();
-  assert!(refused.contains("saved first"), "{}", refused);
-  assert_eq!(project::capture(&state, None), before);
-  assert_eq!(state.history.lock().unwrap().len(), steps);
+  let copied = deep_copy(&state, &[id], Some(44_100)).unwrap();
+  let written = PathBuf::from(&copied.clips[0].path);
+  assert_eq!(written.parent().unwrap(), session);
+  assert!(written.is_file());
+  assert!(state.project.lock().unwrap().has_unsaved_clips());
+  assert!(project::has_unsaved_changes(&state));
+
+  // the first save moves them into the project's clips folder, and the
+  // clip follows
+  let saved = project::save_project_to(&state, &dir.join("song"), true, None).unwrap();
+  let clips = dir.join("song").join("clips");
+  let moved = clips.join(written.file_name().unwrap());
+  assert!(moved.is_file());
+  assert!(!written.exists());
+  assert_eq!(saved.moved_clips, vec![project::MovedClip { id, path: moved.to_string_lossy().into_owned() }]);
+  assert_eq!(state.playlist.audiograph.lock().unwrap().get_node_by_id(id).unwrap().sample_path(), moved.to_string_lossy());
+  assert!(!state.project.lock().unwrap().has_unsaved_clips());
+  assert!(!project::has_unsaved_changes(&state));
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_an_unsaved_project_with_no_clips_written_has_no_folder() {
+  let state = daw::Session::default();
+  let location = state.project.lock().unwrap();
+  assert_eq!(location.existing_clips_dir(), None);
+  assert!(!location.has_unsaved_clips());
 }
 
 #[test]
@@ -492,7 +521,7 @@ fn test_saving_somewhere_new_takes_the_clips_folder_along() {
 
   // saved as another project, in a folder of its own
   let elsewhere = dir.join("elsewhere");
-  let saved = project::save_project_to(&state, &elsewhere.join("second"), true).unwrap();
+  let saved = project::save_project_to(&state, &elsewhere.join("second"), true, None).unwrap();
   let new_dir = Path::new(&saved.path).parent().unwrap().to_path_buf();
   let copied = new_dir.join("clips").join("kick_copy_1.wav");
   // the clip plays the copy in the new project's folder, and the project

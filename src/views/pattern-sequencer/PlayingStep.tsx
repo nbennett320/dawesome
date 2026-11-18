@@ -1,6 +1,7 @@
 import React from 'react'
 import { PatternRun } from '../../state/slices/sequencerSlice'
 import { stepAt } from '../../types/sequencer'
+import { sinceStartMs } from '../../types/transport'
 import { GRID_LEFT, stepX } from './stepGrid'
 
 interface Props {
@@ -24,7 +25,7 @@ const PlayingStep = ({ run, patternId, length, beatsPerBar }: Props) => {
     let frame = 0
     let shown: number | null = null
     const follow = () => {
-      const step = stepAt(Date.now() - run.startTimeMs, { length }, run.beatIntervalMs)
+      const step = stepAt(sinceStartMs(run, Date.now()), { length }, run.beatIntervalMs)
       if(step !== null && step !== shown) {
         shown = step
         el.style.transform = `translateX(${stepX(step, beatsPerBar)}px)`

@@ -33,6 +33,8 @@ export interface PatternRun {
   // when step 0 of its time round was heard: ms since the unix epoch, like
   // Date.now()
   startTimeMs: number
+  // how fast the song plays (the varispeed): 1 when left out
+  speed?: number
   beatIntervalMs: number
   // its length, in steps, as the engine counts it from startTimeMs. when the
   // engine has another length for it, the run is read again (see followRun)
@@ -221,7 +223,7 @@ const sequencerError = (what: string) => (e: unknown) =>
 const readRun = async (dispatch: Dispatch) => {
   const t = await invoke<PlaylistTransport>('get_playlist_transport', {})
   dispatch(setRun(t.playing && t.patternId !== null && t.startTimeMs !== null
-    ? { patternId: t.patternId, startTimeMs: t.startTimeMs, beatIntervalMs: t.beatIntervalMs, length: t.patternLength }
+    ? { patternId: t.patternId, startTimeMs: t.startTimeMs, speed: t.speed, beatIntervalMs: t.beatIntervalMs, length: t.patternLength }
     : null))
 }
 
@@ -285,6 +287,16 @@ const addPatternIfNone = async (dispatch: Dispatch, getState: () => RootState) =
 }
 
 // rows: a sample or a synth each. every row command goes by the row's id
+
+// files dragged in from outside: a sample row each, at the bottom in order,
+// as one step to undo. a failure (a file that can't be read, so none are
+// added) is thrown, for the caller to show
+export const addSampleRows = (paths: string[]) => async (dispatch: Dispatch, getState: () => RootState) => {
+  if(!paths.length) return
+  const { sequencer } = await invoke<{ rowIds: number[], sequencer: SequencerState }>('add_sample_rows', { paths })
+  dispatch(setSequencer(sequencer))
+  await addPatternIfNone(dispatch, getState)
+}
 
 // a sample dropped on the sequencer becomes a row at the bottom
 export const addSampleRow = (path: string) => async (dispatch: Dispatch, getState: () => RootState) => {
@@ -657,7 +669,7 @@ export const playPattern = (patternId: number) => async (dispatch: Dispatch) => 
 // the Piano Roll). the playlist's playhead stays where it was
 export const stopPattern = () => async (dispatch: Dispatch) => {
   try {
-    await invoke('pause_playlist', {})
+    await invoke('pause_playlist', { atOnce: true })
   } catch(e) {
     sequencerError('stop the pattern')(e)
   }

@@ -88,16 +88,63 @@ pitch (see [Playlist](./playlist.md#_6-4-trimming-and-stretching)).
 
 ## 11-3 Clips browser
 
-The **Clips** page of the sidebar lists files Dawesome has written for the
-project: the results of **Deep copy** and of a **Join** that writes a file
-(see [Playlist](./playlist.md#_6-5-editing-commands)). They are kept in the
+The **Clips** page of the sidebar lists the project's own audio files:
+files you drag in from your computer (see
+[11-4](#_11-4-dragging-in-files-from-your-computer)), and the results of
+**Deep copy** and of a **Join** that writes a file (see
+[Playlist](./playlist.md#_6-5-editing-commands)). They are kept in the
 `clips` folder next to the project file.
 
 Click the **Clips** key on the sidebar rail to show it. With no clips yet,
-it reads **No clips yet. Deep copy or join clips to make some.**
+it reads **No clips yet. Drag audio files in from Finder, or deep copy or
+join clips.**
 
 It works like the Recordings browser (see
 [Basic recording](./recording.md#_5-7-recordings-browser)): click a clip to
 hear it, drag it into the playlist or the Pattern Sequencer, search, make
 folders, drag to move, and right-click to **Rename** or **Move to Trash**. A dot
 marks the clips the project uses; a clip in use can't be deleted.
+
+## 11-4 Dragging in files from your computer
+
+Drag audio files (or folders of them) from Finder onto the window to use
+them in the project. Dawesome copies each file into the project's `clips`
+folder, so the project keeps working if the original is moved or deleted.
+The copy is the file as it was: an MP3 stays an MP3.
+
+Where you let go decides what happens:
+
+- **The playlist:** the files are placed one per track, all starting where
+  you let go (snapped to the grid when snap is on), from the track under
+  the mouse down. Tracks are added below the last one as needed. While you
+  drag, the clips follow the mouse, showing where they'll land. The new
+  clips are selected, and one **Undo** takes them all away.
+- **The Clips page:** the files are only copied, into the folder you let go
+  on (or the top of the list).
+- **The Pattern Sequencer:** each file becomes a sample row at the bottom.
+  A single file let go on a sample row replaces that row's sample instead.
+
+More than 16 files at once on the playlist asks first: **Place all** puts
+them on tracks, **Only copy to Clips** copies them without placing them,
+and **Cancel** does nothing.
+
+A dropped folder keeps its shape: its audio files, and those of the
+folders inside it, are copied into a folder of the same name in `clips`.
+If `clips` already has a folder of that name, the files go into it.
+
+- **The same file twice:** if `clips` already has a file with exactly the
+  same contents, under any name, it's used rather than copied again.
+- **A different file with the same name:** the copy is numbered, for
+  example `kick 1.wav`. Nothing is ever written over.
+- **The project's own files:** a file that's already in the project's
+  `clips` or `recordings` folder is used where it is.
+- **Files that can't be played:** files that aren't audio, or audio that
+  can't be read, are left out, and a notice names them. Other files inside
+  a dropped folder (a PDF, a readme) are left out without a notice.
+
+**Undo** takes away the clips or rows a drop added, but the copies stay on
+the **Clips** page.
+
+In a project that has never been saved, the copies are kept in Dawesome's
+application data folder until you save (see
+[Projects](./projects.md#_4-5-1-before-you-save)).

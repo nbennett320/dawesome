@@ -217,6 +217,9 @@ will land.
 - **Patterns:** from the **Patterns** page, or from the Pattern Sequencer
   (see [7-7](./patterns.md#_7-7-placing-patterns-in-the-playlist)). The
   **Draw** tool paints them too ([6-2-3](#_6-2-3-draw-tool)).
+- **Files from your computer:** drag audio files or folders from Finder.
+  They're copied into the project's `clips` folder and placed one per
+  track (see [11-4](./samples.md#_11-4-dragging-in-files-from-your-computer)).
 
 Drop on a track, or in the new track area to add a track. With snap on,
 the clip's start lands on the grid.
@@ -346,8 +349,9 @@ The files go in the project's `clips` folder and appear on the **Clips**
 page of the sidebar.
 
 ::: tip NOTE
-**Deep copy** and a **Join** that writes a file need a saved project. If
-the project has never been saved, the Save dialog opens first.
+In a project that has never been saved, the files are kept in Dawesome's
+application data folder until you first save (see
+[Projects](./projects.md#_4-5-1-before-you-save)).
 :::
 
 ### 6-5-6 Blade

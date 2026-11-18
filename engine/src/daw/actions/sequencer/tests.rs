@@ -84,6 +84,23 @@ fn test_adding_a_sample_row_returns_it_and_the_sequencer() {
 }
 
 #[test]
+fn test_adding_sample_rows_is_one_step_and_all_or_nothing() {
+  let state = Arc::new(daw::Session::default());
+  let added = add_samples(&state, &[KICK.to_string(), SNARE.to_string()]).unwrap();
+  assert_eq!(added.row_ids.len(), 2);
+  let paths: Vec<_> = added.sequencer.rows.iter().map(|row| row.sample_path()).collect();
+  assert_eq!(paths, vec![Some(KICK), Some(SNARE)]);
+  assert_eq!(state.history.lock().unwrap().len(), 1);
+  history::undo(&state).unwrap();
+  assert!(sequencer_state(&state).rows.is_empty());
+
+  // one that can't be read: none are added
+  assert!(add_samples(&state, &[KICK.to_string(), "assets/nope.wav".to_string()]).is_err());
+  assert!(sequencer_state(&state).rows.is_empty());
+  assert!(add_samples(&state, &[]).unwrap().row_ids.is_empty());
+}
+
+#[test]
 fn test_a_pattern_needs_steps_to_play() {
   let state = Arc::new(daw::Session::default());
   assert!(playback::start_pattern(&state, 7, 0.).is_err());

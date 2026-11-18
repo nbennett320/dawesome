@@ -15,6 +15,7 @@ pub(crate) mod actions;
 pub(crate) mod bounce;
 pub(crate) mod clipboard;
 pub(crate) mod effects;
+pub(crate) mod file_drop;
 pub(crate) mod history;
 pub(crate) mod join;
 pub(crate) mod main_thread;
@@ -25,6 +26,7 @@ pub(crate) mod plugin_catalog;
 pub(crate) mod project;
 pub(crate) mod project_files;
 pub(crate) mod recording;
+pub(crate) mod scrub;
 pub(crate) mod tape;
 pub(crate) mod tape_settings;
 #[cfg(test)]

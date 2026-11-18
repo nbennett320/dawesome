@@ -3,6 +3,7 @@ import type { AppDispatch, RootState } from '../state/store'
 import { selectEffectiveThemeId, setSystemDark } from '../state/slices/appearanceSlice'
 import { applyTheme } from './apply'
 import { allThemes, getTheme } from './registry'
+import { fade } from './fade'
 
 const QUERY = '(prefers-color-scheme: dark)'
 
@@ -17,8 +18,10 @@ export const startThemeSync = (store: { dispatch: AppDispatch, getState: () => R
     // with only the bundled fallback there may be nothing of the right appearance
     const theme = getTheme(id) ?? allThemes()[0]
     if(!theme) return
+    // (the first theme is just there; later ones fade in over the last)
+    if(appliedId === null) applyTheme(theme)
+    else fade(() => applyTheme(theme))
     appliedId = id
-    applyTheme(theme)
     // the native window shows through while resizing and overscrolling, so it
     // matches the page's backdrop (global.scss; BACKDROP in engine/src/app/window.rs)
     invoke('set_window_background', { color: theme.colors.panel })

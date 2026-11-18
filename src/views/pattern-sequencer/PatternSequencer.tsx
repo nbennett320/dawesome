@@ -73,7 +73,7 @@ const useShownRows = (pattern: Pattern | null, paint: React.RefObject<Paint | nu
 const hintFor = (drop: RowDrop | null, rows: Row[]): string => {
   if(drop) {
     const replaced = rows.find(row => row.id === drop.rowId)
-    const what = drop.item.kind === 'sample' ? 'sample' : 'instrument'
+    const what = drop.item.kind === 'instrument' ? 'instrument' : 'sample'
     return replaced
       ? `Let go to replace ${rowName(replaced)}’s ${what} with ${itemName(drop.item)}`
       : `Let go to add ${itemName(drop.item)}`

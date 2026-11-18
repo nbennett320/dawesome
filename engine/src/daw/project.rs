@@ -149,6 +149,12 @@ pub struct Project {
   // tape off and no track on it (T14). older apps ignore it
   #[serde(skip_serializing_if = "crate::daw::tape_settings::TapeSettings::is_default")]
   pub tape: crate::daw::tape_settings::TapeSettings,
+  // the window's panes and tabs, as the frontend saves them (see
+  // src/state/savedLayout.ts). kept as it comes: the engine never reads it.
+  // not part of the project's changes (see save_to_with). older apps
+  // ignore it
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub layout: Option<serde_json::Value>,
   // what was left out of the file as it was read, a sentence for each kind
   // of thing (never saved)
   #[serde(skip)]
@@ -176,6 +182,7 @@ impl Default for Project {
       armed: Vec::new(),
       effects: Vec::new(),
       tape: Default::default(),
+      layout: None,
       dropped: Vec::new(),
     }
   }
@@ -347,6 +354,9 @@ pub struct LoadedProject {
   pub dropped: Vec<String>,
   // the tape's switch, machine and tracks, as kept
   pub tape: crate::daw::tape_settings::TapeSettings,
+  // the window's panes and tabs, as the file had them (none for a new
+  // project, and ones saved before layouts were)
+  pub layout: Option<serde_json::Value>,
 }
 
 // the folder a project file is in, which its relative sample paths start from
@@ -494,6 +504,8 @@ pub fn capture(state: &daw::Session, project_dir: Option<&Path>) -> Project {
     armed: state.recorder.lock().unwrap().armed(),
     effects,
     tape: state.tape.lock().unwrap().clone(),
+    // the frontend's to give (see save_to_with)
+    layout: None,
     dropped: Vec::new(),
   }
 }
@@ -686,6 +698,7 @@ pub fn apply(
     missing_effects,
     dropped: project.dropped.clone(),
     tape,
+    layout: project.layout.clone(),
   }
 }
 
@@ -693,9 +706,20 @@ pub fn apply(
 // it first and then moved into place, so a failed save never leaves a
 // half-written project. returns what was written
 pub fn save_to(state: &daw::Session, project_path: &Path) -> Result<Project, String> {
+  save_to_with(state, project_path, None)
+}
+
+// save_to, with the window's layout written too. what's returned (the
+// project's new baseline) leaves the layout out, as `capture` does, so
+// moving tabs around is never an unsaved change
+pub fn save_to_with(
+  state: &daw::Session,
+  project_path: &Path,
+  layout: Option<serde_json::Value>,
+) -> Result<Project, String> {
   let dir = project_dir(project_path)?;
   let project = capture(state, Some(&dir));
-  write_project(&project, project_path)?;
+  write_project(&Project { layout, ..project.clone() }, project_path)?;
   Ok(project)
 }
 
@@ -718,6 +742,8 @@ pub fn mark_unchanged(state: &daw::Session) {
 // saved: anything a save would write differently. undoing back to how it
 // was is no change
 pub fn has_unsaved_changes(state: &daw::Session) -> bool {
+  // clips kept for an unsaved project would go with it, used or not
+  if state.project.lock().unwrap().has_unsaved_clips() { return true; }
   let now = capture(state, current_dir(state).as_deref());
   // (no baseline only before the app has started: say changed, to be safe)
   state.project.lock().unwrap().baseline.as_ref().map_or(true, |was| *was != now)
@@ -895,6 +921,7 @@ pub fn save_project_to(
   state: &daw::Session,
   path: &Path,
   somewhere_new: bool,
+  layout: Option<serde_json::Value>,
 ) -> Result<SavedProject, String> {
   let target = if somewhere_new { project_files::project_file_for(path) } else { path.to_path_buf() };
   if let Some(dir) = target.parent().filter(|dir| !dir.as_os_str().is_empty()) {
@@ -903,9 +930,9 @@ pub fn save_project_to(
   }
   let name = project_files::project_name(&target).unwrap_or_else(|| project_files::UNTITLED.into());
 
-  // where the project's takes are now, and whether they stay there too.
-  // and its written-out clips (Deep copy, Join), which only a saved project
-  // has, and which the project it's saved from always keeps
+  // where the project's takes and clips (dropped in, Deep copy's, Join's)
+  // are now, and whether they stay there too: a saved project keeps its
+  // own, an unsaved one's move in from the app's data
   let (takes, clips) = {
     let location = state.project.lock().unwrap();
     let takes = match (&location.path, &location.session) {
@@ -913,7 +940,12 @@ pub fn save_project_to(
       (None, Some(session)) => Some((session.clone(), false)),
       (None, None) => None,
     };
-    (takes, location.path.as_deref().map(|path| (project_files::clips_dir_for(path), true)))
+    let clips = match (&location.path, &location.clips_session) {
+      (Some(path), _) => Some((project_files::clips_dir_for(path), true)),
+      (None, Some(session)) => Some((session.clone(), false)),
+      (None, None) => None,
+    };
+    (takes, clips)
   };
   let folders = [
     (takes, recordings_dir_for(&target)),
@@ -955,7 +987,7 @@ pub fn save_project_to(
     state.history.lock().unwrap().move_paths(&moved);
   }
 
-  let saved = save_to(state, &target)?;
+  let saved = save_to_with(state, &target, layout)?;
   {
     let mut location = state.project.lock().unwrap();
     location.reset(Some(target.clone()));

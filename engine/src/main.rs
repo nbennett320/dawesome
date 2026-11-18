@@ -28,6 +28,7 @@ fn init_tauri() {
   use commands::audio::*;
   use commands::sequencer::*;
   use commands::clip::*;
+  use commands::file_drop::*;
   use commands::clipboard::*;
   use commands::mixdown::*;
   use commands::appearance::{themes, preferences, set_preferences, set_window_background};
@@ -72,8 +73,14 @@ fn init_tauri() {
       // the tape follows the preferences it's set by (Settings → Controls)
       let prefs = app.state::<preferences::AppPreferences>().current();
       daw::tape::set_preferences(prefs.tape_mode, prefs.tape_tap, prefs.tape_method);
+      daw::tape::set_inertia(prefs.tape_inertia);
+      daw::scrub::set_preference(prefs.scrub);
       effect_windows::init(&racks);
       daw::actions::synth::keep_following(following.clone());
+      // print mode's job: re-prints taped tracks when they change
+      daw::tape::keep_printing(following.clone());
+      // and the scrub proxy's: the song made again for scrubbing when it changes
+      daw::scrub::keep_making(following.clone());
       // the empty project the app starts with is unchanged (see
       // project::has_unsaved_changes)
       daw::project::mark_unchanged(&following);
@@ -81,15 +88,24 @@ fn init_tauri() {
     })
     // closing the main window quits, so it asks about unsaved changes first
     .on_window_event(|window, event| {
-      if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-        if window.label() == "main" && !app::window::may_quit(window.app_handle()) {
-          api.prevent_close();
+      if window.label() != "main" { return; }
+      match event {
+        tauri::WindowEvent::CloseRequested { api, .. } => {
+          if !app::window::may_quit(window.app_handle()) {
+            api.prevent_close();
+          }
         }
+        // kept to reopen at (see window_size.rs)
+        tauri::WindowEvent::Resized(size) => {
+          window.state::<app::window_size::KeptWindowSize>().follow(window, *size);
+        }
+        _ => {}
       }
     })
     .manage(state)
     .manage(recent_projects)
     .manage(preferences::AppPreferences::load())
+    .manage(app::window_size::KeptWindowSize::load())
     .manage(Arc::new(daw::actions::mixdown::Mixdowns::default()))
     .manage(std::sync::Mutex::new(app::workspaces::WorkspaceViewport::new()))
     .invoke_handler(tauri::generate_handler![
@@ -99,6 +115,11 @@ fn init_tauri() {
       pause_playlist,
       stop_playlist,
       seek_playlist,
+      scrub_begin,
+      scrub_to,
+      scrub_end,
+      wind_begin,
+      wind_end,
       get_playlist_transport,
       set_playlist_tempo,
       toggle_metronome_enabled,
@@ -113,6 +134,9 @@ fn init_tauri() {
       get_audio_settings,
       set_audio_settings,
       add_audiograph_node,
+      scan_dropped_files,
+      import_files,
+      place_files,
       move_audiograph_node,
       move_audiograph_nodes,
       remove_audiograph_nodes,
@@ -177,6 +201,7 @@ fn init_tauri() {
       get_input_levels,
       get_sequencer,
       add_sample_row,
+      add_sample_rows,
       add_synth_row,
       remove_row,
       move_row,
@@ -257,10 +282,16 @@ fn init_tauri() {
     // the system quitting the app (the Dock's Quit, logging out) asks about
     // unsaved changes too
     .run(|app, event| {
-      if let tauri::RunEvent::ExitRequested { api, .. } = event {
-        if !app::window::may_quit(app) {
-          api.prevent_exit();
+      match event {
+        tauri::RunEvent::ExitRequested { api, .. } => {
+          if !app::window::may_quit(app) {
+            api.prevent_exit();
+          }
         }
+        // however the app quits (Quit, the close button, the unsaved
+        // changes dialog's, the Dock's), the window's size is kept
+        tauri::RunEvent::Exit => app.state::<app::window_size::KeptWindowSize>().save(),
+        _ => {}
       }
     });
 }

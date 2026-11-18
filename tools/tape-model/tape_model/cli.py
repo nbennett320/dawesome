@@ -178,7 +178,7 @@ def make_train(args):
     cov = coverage(p, test_map.rate)
     report["passes"][p.name] = {"drive_db": p.drive_db, "training": p in training, "usable_seconds": cov}
     print(f"  {p.name}: drive {p.drive_db:+.2f} dB, usable {sum(cov.values()):.0f} s (music {cov.get('music', 0):.0f} s){'' if p in training else ', held out'}")
-  net, log = train.train(training, test_map.rate, spans, args.minutes, args.hidden, args.seed)
+  net, log = train.train(training, test_map.rate, spans, args.minutes, args.hidden, args.seed, stft_weight=args.stft_weight)
   report.update(log)
   drives = [p.drive_db for p in training]
   spec = tape_model.export(net, test_map.rate, (min(drives), max(drives)), [p.name for p in training], args.machine)
@@ -244,6 +244,7 @@ def main(argv=None):
   p.add_argument("--minutes", type=float, default=30.0)
   p.add_argument("--hidden", type=int, default=32)
   p.add_argument("--seed", type=int, default=1)
+  p.add_argument("--stft-weight", type=float, default=0.0, help="add a multi-resolution spectral loss this strong (for harmonics)")
   p.add_argument("--hold-out-drive", type=float, action="append", help="leave a pass at this drive out of training")
   p.add_argument("--hold-out", action="append", help="SECTION:START-END seconds into it, kept from training (default: the music's last 20 s)")
   p.set_defaults(run=make_train)

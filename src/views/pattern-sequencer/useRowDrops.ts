@@ -5,20 +5,28 @@ import type { RootState } from '../../state/store'
 import {
   addSampleRow, addSynthRow, replaceRowSample, replaceRowSynth,
 } from '../../state/slices/sequencerSlice'
-import { DragItem, dragItemKey, onSampleDrag } from '../../state/sampleDrag'
+import { DragItem, dragItemKey, dragItemLabel, onSampleDrag } from '../../state/sampleDrag'
+import { dropFilesOnSequencer } from '../../state/fileDrop'
 import { Row } from '../../types/sequencer'
 import { fileName } from '../../util/helpers'
 
-// what becomes a row when it's dropped on the Pattern Sequencer
-export type RowItem = Extract<DragItem, { kind: 'sample' | 'instrument' }>
+// what becomes a row when it's dropped on the Pattern Sequencer: files from
+// outside the app are copied into the clips first, and make sample rows
+export type RowItem = Extract<DragItem, { kind: 'sample' | 'instrument' | 'files' }>
 
-const isRowItem = (item: DragItem): item is RowItem => item.kind === 'sample' || item.kind === 'instrument'
+const isRowItem = (item: DragItem): item is RowItem =>
+  item.kind === 'sample' || item.kind === 'instrument' || item.kind === 'files'
 
 // the kind of row a dragged thing makes
-const kindOf = (item: RowItem): Row['instrument']['kind'] => (item.kind === 'sample' ? 'sample' : 'synth')
+const kindOf = (item: RowItem): Row['instrument']['kind'] => (item.kind === 'instrument' ? 'synth' : 'sample')
 
-// what a dragged thing is called: a sample's file, an instrument's name
-export const itemName = (item: RowItem): string => (item.kind === 'sample' ? fileName(item.path) : item.label)
+// whether a dragged thing can take a row's place: several files from
+// outside always add rows
+const replaces = (item: RowItem): boolean => item.kind !== 'files' || item.files.length === 1
+
+// what a dragged thing is called: a sample's file, an instrument's name,
+// a file from outside or how many
+export const itemName = (item: RowItem): string => (item.kind === 'sample' ? fileName(item.path) : dragItemLabel(item))
 
 // a sample or an instrument dragged over the tab: what it is, and the row it
 // would replace (one of its kind under the mouse), if any
@@ -49,7 +57,7 @@ export const useRowDrops = (tab: React.RefObject<HTMLElement>): RowDrop | null =
       return
     }
     const under = store.getState().sequencer.rows.find(row => row.id === rowAt(tab.current, clientX, clientY))
-    const rowId = under?.instrument.kind === kindOf(item) ? under.id : null
+    const rowId = under?.instrument.kind === kindOf(item) && replaces(item) ? under.id : null
 
     if(type === 'move') {
       const same = (now: RowDrop | null) => now && dragItemKey(now.item) === dragItemKey(item) && now.rowId === rowId
@@ -57,7 +65,9 @@ export const useRowDrops = (tab: React.RefObject<HTMLElement>): RowDrop | null =
       return
     }
     setDrop(null)
-    if(item.kind === 'instrument') {
+    if(item.kind === 'files') {
+      dispatch(dropFilesOnSequencer(item.files, item.skipped, rowId))
+    } else if(item.kind === 'instrument') {
       if(rowId === null) dispatch(addSynthRow(item.pluginId))
       else dispatch(replaceRowSynth(rowId, item.pluginId))
     } else if(rowId === null) {

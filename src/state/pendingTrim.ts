@@ -11,6 +11,7 @@
 import type { RootState } from './store'
 import type { PatternRun } from './slices/sequencerSlice'
 import { Pattern, stepAt, trimmedLength } from '../types/sequencer'
+import { sinceStartMs } from '../types/transport'
 import { currentGesture, newGesture } from './gesture'
 
 // the state a held trim follows
@@ -42,7 +43,7 @@ let frame = 0
 // in the bars a trim to `to` would take away
 const cursorPast = (pattern: Pattern, to: number, run: PatternRun | null): boolean => {
   if(run?.patternId !== pattern.id) return false
-  const step = stepAt(Date.now() - run.startTimeMs, pattern, run.beatIntervalMs)
+  const step = stepAt(sinceStartMs(run, Date.now()), pattern, run.beatIntervalMs)
   return step !== null && step >= to
 }
 

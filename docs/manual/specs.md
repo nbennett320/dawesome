@@ -12,6 +12,7 @@ Version 0.1.0.
 | Format | Extensions |
 | --- | --- |
 | WAV (PCM integer and float) | `.wav` |
+| AIFF | `.aif`, `.aiff` |
 | FLAC | `.flac` |
 | Ogg Vorbis | `.ogg` |
 | MP3 | `.mp3` |
@@ -22,9 +23,10 @@ Files of any sample rate play at the output's rate; Dawesome converts them as
 they play.
 
 ::: tip NOTE
-Files are added from the sidebar's **Samples** browser by dragging.
-Dropping files from your computer's file manager onto the window isn't
-supported.
+Files are added by dragging from the sidebar's **Samples** browser, or from
+Finder onto the window (see
+[11-4](./samples.md#_11-4-dragging-in-files-from-your-computer)). The
+**Recordings** and **Clips** browsers list files with these extensions.
 :::
 
 <!-- VERIFY: the Samples browser lists the folder ./assets/ relative to the app's working directory, and lists every file in it whatever its type. How users get their own samples in is unclear; check before documenting the samples folder. -->

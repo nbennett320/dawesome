@@ -29,6 +29,8 @@ export const defaultPreferences: Preferences = {
   tapeMode: 'print',
   tapeTap: 'before',
   tapeMethod: 'modeled',
+  tapeInertia: 'off',
+  scrub: 'transport',
 }
 
 // settings an older engine doesn't know about (it leaves them out) are

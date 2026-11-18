@@ -47,6 +47,24 @@ export const viewLabels: Record<View, string> = {
   [View.Timeline]: 'Timeline',
 }
 
+// a view's name in a project's saved layout (see state/savedLayout.ts).
+// never change one: files saved with it would lose that tab
+export const viewNames: Record<View, string> = {
+  [View.Playlist]: 'playlist',
+  [View.SamplePreview]: 'sample',
+  [View.Mixer]: 'mixer',
+  [View.Transport]: 'transport',
+  [View.PatternSequencer]: 'sequencer',
+  [View.AudioSettings]: 'audio',
+  [View.Mixdown]: 'mixdown',
+  [View.Preferences]: 'preferences',
+  [View.EffectsRack]: 'effects-rack',
+  [View.PianoRoll]: 'piano-roll',
+  [View.Plugin]: 'plugin',
+  [View.Controls]: 'controls',
+  [View.Timeline]: 'timeline',
+}
+
 export const viewHints: Record<View, string> = {
   [View.Playlist]: 'The song: clips and patterns laid out along the timeline, a lane per track',
   [View.SamplePreview]: 'Inspect a clip from the playlist and adjust how it plays',
@@ -83,7 +101,9 @@ export const keyOf = (tab: PaneTab): TabKey => tabKey(tab.component, tab.slotId)
 
 // a pane in the window layout (see state/paneTree.ts)
 // - a leaf has `tabs` and `activeTab`, the selected tab's key
-// - a split has `direction`, `left` and `right` (left is the top when stacked)
+// - a split has `direction`, `left` and `right` (left is the top when stacked),
+//   and `ratio`, the left's share in percent (left out until its divider's
+//   dragged: half)
 export type WindowNode = {
   id: string
   tabs: Array<PaneTab>
@@ -91,6 +111,7 @@ export type WindowNode = {
   direction?: SplitDirection
   left?: WindowNode
   right?: WindowNode
+  ratio?: number
 }
 
 export type WindowPane = {

@@ -7,8 +7,14 @@ use crate::daw::project_files;
 
 // (async, like load_project: off the main thread, as it can take a while)
 #[tauri::command(async)]
-pub fn save_project(state: TState<'_>, path: String, somewhere_new: bool) -> Result<SavedProject, String> {
-  save_project_to(&state, Path::new(&path), somewhere_new)
+// - layout: the window's panes and tabs, written into the file as they are
+pub fn save_project(
+  state: TState<'_>,
+  path: String,
+  somewhere_new: bool,
+  layout: Option<serde_json::Value>,
+) -> Result<SavedProject, String> {
+  save_project_to(&state, Path::new(&path), somewhere_new, layout)
 }
 
 // the file a project chosen to be saved at `path` would be saved to

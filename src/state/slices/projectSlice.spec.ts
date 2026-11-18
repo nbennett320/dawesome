@@ -5,6 +5,10 @@ import { ask, message, open, save } from '@tauri-apps/plugin-dialog'
 import { readDir } from '@tauri-apps/plugin-fs'
 import { dirname, documentDir, join } from '@tauri-apps/api/path'
 import playlistReducer, { playlistSlice } from './playlistSlice'
+import windowReducer, { closeTab, selectFocusedPaneId, selectWindowPane, splitPane } from './windowSlice'
+import { tabKey, View } from '../../types/ui'
+import effectsReducer from './effectsSlice'
+import sequencerReducer from './sequencerSlice'
 import projectReducer, {
   cleanProjectName, confirmQuit, quitIfSaved, saveAndQuit, nameProject, setUnsaved, windowTitle, openRecentProject, projectName, runProjectCommand, setProjectPath,
 } from './projectSlice'
@@ -71,7 +75,14 @@ const engine = (overrides: Record<string, unknown> = {}) => {
 }
 
 const makeStore = () => configureStore({
-  reducer: { playlist: playlistReducer, project: projectReducer },
+  reducer: {
+    playlist: playlistReducer,
+    project: projectReducer,
+    // saving sends the window's layout, with its plugin tabs' slots
+    window: windowReducer,
+    effects: effectsReducer,
+    sequencer: sequencerReducer,
+  },
 })
 
 const run = (store: ReturnType<typeof makeStore>, command: Parameters<typeof runProjectCommand>[0]) =>
@@ -135,13 +146,13 @@ describe('runProjectCommand', () => {
 
     // the first save makes the project a folder of its own
     await run(store, 'save')
-    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/song.dawesome', somewhereNew: true })
+    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/song.dawesome', somewhereNew: true, layout: expect.any(Object) })
     expect(store.getState().project.path).toBe('/songs/song/song.dawesome')
 
     mockInvoke.mockClear()
     await run(store, 'save')
     expect(mockSave).toHaveBeenCalledTimes(1)
-    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/song/song.dawesome', somewhereNew: false })
+    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/song/song.dawesome', somewhereNew: false, layout: expect.any(Object) })
   })
 
   it('has nothing unsaved after saving, opening or starting a project', async () => {
@@ -171,7 +182,7 @@ describe('runProjectCommand', () => {
     store.dispatch(setProjectPath('/songs/old.dawesome'))
 
     await run(store, 'save')
-    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/old.dawesome', somewhereNew: false })
+    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/old.dawesome', somewhereNew: false, layout: expect.any(Object) })
     expect(store.getState().project.path).toBe('/songs/old.dawesome')
   })
 
@@ -347,6 +358,49 @@ describe('runProjectCommand', () => {
     expect(mockInvoke).not.toHaveBeenCalledWith('add_recent_project', expect.anything())
     expect(store.getState().project.path).toBeNull()
   })
+
+  it('saves the tabs with the project, and opening it puts them back', async () => {
+    const store = makeStore()
+    engine()
+    mockSave.mockResolvedValue('/songs/song.dawesome')
+    store.dispatch(splitPane('root', tabKey(View.Mixer), 'vertical'))
+
+    await run(store, 'save-as')
+
+    const layout = mockInvoke.mock.calls.find(([cmd]) => cmd === 'save_project')?.[1].layout
+    expect(layout).toEqual({
+      root: {
+        split: 'vertical',
+        left: { tabs: [{ view: 'playlist' }, { view: 'sequencer' }], active: 0 },
+        right: { tabs: [{ view: 'mixer' }], active: 0 },
+      },
+      focused: [1],
+    })
+
+    // closed, then opened again
+    store.dispatch(closeTab(tabKey(View.Mixer)))
+    engine({ load_project: { ...emptyProject, layout } })
+    mockOpen.mockResolvedValue('/songs/song/song.dawesome')
+    await run(store, 'open')
+
+    const root = selectWindowPane(store.getState() as never)
+    expect(root.direction).toBe('vertical')
+    expect(root.left?.tabs).toEqual([{ component: View.Playlist }, { component: View.PatternSequencer }])
+    expect(root.right?.tabs).toEqual([{ component: View.Mixer }])
+    expect(selectFocusedPaneId(store.getState() as never)).toBe(root.right?.id)
+  })
+
+  it('keeps the tabs it has when the project has no layout', async () => {
+    const store = makeStore()
+    engine()
+    store.dispatch(closeTab(tabKey(View.Mixer)))
+    const before = selectWindowPane(store.getState() as never)
+    mockOpen.mockResolvedValue('/songs/old.dawesome')
+
+    await run(store, 'open')
+
+    expect(selectWindowPane(store.getState() as never)).toBe(before)
+  })
 })
 
 describe('openRecentProject', () => {
@@ -409,7 +463,7 @@ describe('nameProject', () => {
     expect(mockSave).toHaveBeenCalledWith(expect.objectContaining({
       defaultPath: '/Users/me/Documents/demo.dawesome',
     }))
-    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/demo.dawesome', somewhereNew: true })
+    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/demo.dawesome', somewhereNew: true, layout: expect.any(Object) })
     expect(store.getState().project.path).toBe('/songs/demo/demo.dawesome')
   })
 
@@ -421,7 +475,7 @@ describe('nameProject', () => {
     await name(store, 'new')
     expect(mockAsk).toHaveBeenCalledWith(expect.stringContaining('"old", which stays'), 'Save as "new"?')
     expect(mockSave).not.toHaveBeenCalled()
-    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/new.dawesome', somewhereNew: true })
+    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/new.dawesome', somewhereNew: true, layout: expect.any(Object) })
     expect(store.getState().project.path).toBe('/songs/new/new.dawesome')
   })
 
@@ -431,7 +485,7 @@ describe('nameProject', () => {
     mockAsk.mockResolvedValue(true)
 
     await name(store, 'new')
-    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/new.dawesome', somewhereNew: true })
+    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/new.dawesome', somewhereNew: true, layout: expect.any(Object) })
     expect(store.getState().project.path).toBe('/songs/new/new.dawesome')
   })
 
@@ -492,7 +546,7 @@ describe('confirmQuit', () => {
     mockMessage.mockResolvedValue('Save')
 
     await quit(store)
-    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/song/song.dawesome', somewhereNew: false })
+    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/song/song.dawesome', somewhereNew: false, layout: expect.any(Object) })
     expect(mockInvoke).toHaveBeenLastCalledWith('quit')
   })
 
@@ -563,7 +617,7 @@ describe('saveAndQuit', () => {
     store.dispatch(setProjectPath('/songs/song/song.dawesome'))
 
     await wq(store)
-    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/song/song.dawesome', somewhereNew: false })
+    expect(mockInvoke).toHaveBeenCalledWith('save_project', { path: '/songs/song/song.dawesome', somewhereNew: false, layout: expect.any(Object) })
     expect(mockInvoke).toHaveBeenLastCalledWith('quit')
   })
 

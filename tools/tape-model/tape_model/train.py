@@ -18,18 +18,41 @@ from .dataset import Windows
 PRE_EMPHASIS = 0.85
 
 
-def _loss(torch, out, target):
+# the spectral loss's sizes: a multi-resolution stft (short for timing,
+# long for the harmonics' fine lines)
+STFT_SIZES = (256, 1024, 4096)
+
+
+def _stft_loss(torch, out, target):
+  # spectral convergence plus log magnitude, at several sizes. on a log
+  # scale a harmonic 45 db down counts as much as the fundamental's shape;
+  # error-to-signal all but ignores it (G5's T6)
+  total = 0.0
+  for size in STFT_SIZES:
+    window = torch.hann_window(size)
+    spec = lambda x: torch.stft(x, size, size // 4, window=window, return_complex=True).abs()
+    a, b = spec(out), spec(target)
+    convergence = torch.linalg.norm(a - b) / (torch.linalg.norm(b) + 1e-10)
+    log = torch.mean(torch.abs(torch.log(a + 1e-5) - torch.log(b + 1e-5)))
+    total = total + convergence + log
+  return total / len(STFT_SIZES)
+
+
+def _loss(torch, out, target, stft_weight=0.0):
   def esr(a, b):
     return torch.sum((a - b) ** 2) / (torch.sum(b ** 2) + 1e-10)
 
   def pre(v):
     return v[:, 1:] - PRE_EMPHASIS * v[:, :-1]
 
-  return esr(pre(out), pre(target)) + esr(out, target)
+  loss = esr(pre(out), pre(target)) + esr(out, target)
+  if stft_weight > 0:
+    loss = loss + stft_weight * _stft_loss(torch, out, target)
+  return loss
 
 
 def train(passes, rate, held_out_spans, minutes=30.0, hidden=32, seed=1,
-          length=4096, warm=4096, batch=32, log=print):
+          length=4096, warm=4096, batch=32, log=print, stft_weight=0.0):
   torch = tape_model._torch()
   torch.set_num_threads(max(1, torch.get_num_threads()))
   net = tape_model.build(hidden, seed)
@@ -50,7 +73,7 @@ def train(passes, rate, held_out_spans, minutes=30.0, hidden=32, seed=1,
       g["lr"] = 1e-4 + (5e-3 - 1e-4) * 0.5 * (1 + np.cos(np.pi * frac))
     x, d, y = (torch.from_numpy(a) for a in train_windows.batch(batch))
     out, _ = net(x, d)
-    loss = _loss(torch, out[:, warm:], y[:, warm:])
+    loss = _loss(torch, out[:, warm:], y[:, warm:], stft_weight)
     opt.zero_grad()
     loss.backward()
     torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
@@ -68,7 +91,8 @@ def train(passes, rate, held_out_spans, minutes=30.0, hidden=32, seed=1,
   if best[1] is not None:
     net.load_state_dict(best[1])
   return net, {"steps": step, "minutes": (time.time() - start) / 60.0, "history": history[::10],
-               "windows": len(train_windows), "hidden": hidden, "length": length, "warm": warm, "batch": batch}
+               "windows": len(train_windows), "hidden": hidden, "length": length, "warm": warm, "batch": batch,
+               "stft_weight": stft_weight}
 
 
 # --- the linear baseline --------------------------------------------------

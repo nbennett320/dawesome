@@ -42,6 +42,10 @@ const QUIET: f32 = 3.162_278e-5; // -90 dBFS
 const QUIET_FOR: Duration = Duration::from_secs(4);
 const TAIL_MAX: Duration = Duration::from_secs(10);
 const TAIL_FADE: Duration = Duration::from_millis(10);
+// with the tape on, how long its hiss takes to fade out after the song's
+// last clip ends, and how slowly a steady offset's followed (see the tail)
+const HISS_FADE: Duration = Duration::from_millis(500);
+const OFFSET_SETTLE: Duration = Duration::from_millis(50);
 // the plugins' copies are played silence a step at a time, about as fast as
 // they're heard, while they set themselves up (see SETTLE in effects.rs)
 const SETTLE_STEP: Duration = Duration::from_millis(10);
@@ -51,6 +55,10 @@ pub const CANCELLED: &str = "Mixdown cancelled";
 
 // the song as it was when the mixdown started
 pub struct Snapshot {
+  // the speed it plays at (the tape's PITCH knob, with the tape on): the
+  // mix is at that speed, pitched and its length changed, as it's heard
+  // (T28). 1, and the render as it always was, otherwise
+  speed: f64,
   graph: audiograph::AudioGraph<'static>,
   // where the last clip ends
   end: Duration,
@@ -58,6 +66,8 @@ pub struct Snapshot {
   time_signature: timing::TimeSignature,
   // second instances of the effects, for the render's own engine
   effects: crate::daw::effects::MixdownEffects,
+  // the tape, with it on: the mix is taped as it's heard (T37)
+  tape: Option<crate::daw::tape::export::Preferences>,
 }
 
 impl Snapshot {
@@ -91,7 +101,11 @@ pub fn snapshot(state: &daw::Session, rate: u32) -> Result<Snapshot, String> {
   // copies' settings)
   state.playlist.effects.push_synth_states(true);
   let effects = state.playlist.effects.mixdown_chains(rate, &graph.synth_tracks())?;
-  Ok(Snapshot { graph, end, time_signature, effects })
+  let (speed, tape) = {
+    let tape = state.tape.lock().unwrap();
+    (tape.machine.speed(), crate::daw::tape::for_export(&tape))
+  };
+  Ok(Snapshot { speed, graph, end, time_signature, effects, tape })
 }
 
 // how far a render has got, readable from another thread while it works
@@ -132,7 +146,25 @@ pub fn render(
   cancel: &AtomicBool,
 ) -> Result<u64, String> {
   // (declared first, so the plugins go after the engine that runs them)
-  let Snapshot { mut graph, end, time_signature, effects } = snapshot;
+  let Snapshot { speed, mut graph, end, time_signature, effects, tape } = snapshot;
+
+  // at another speed the song's rendered as ever and read back at that
+  // speed on its way out (the varispeed, offline). at 1x nothing's in the
+  // way (T14)
+  let into = sink;
+  let mut stretch = (speed != 1.).then(|| ::tape::Stretch::new(speed));
+  let mut stretched = Vec::new();
+  let mut out_sink = |chunk: &[f32]| -> Result<(), String> {
+    match stretch.as_mut() {
+      None => into(chunk),
+      Some(stretch) => {
+        stretched.clear();
+        stretch.push(chunk, &mut stretched);
+        if stretched.is_empty() { Ok(()) } else { into(&stretched) }
+      }
+    }
+  };
+  let sink: &mut dyn FnMut(&[f32]) -> Result<(), String> = &mut out_sink;
   let crate::daw::effects::MixdownEffects { chains, copies, plugins: _plugins, settle } = effects;
   let beat = graph.beat_interval();
   if beat.is_zero() { return Err("the tempo is zero".into()); }
@@ -145,8 +177,32 @@ pub fn render(
     }
   }
   let end_frame = engine.frames_in(end);
-  progress.total.store(end_frame, Ordering::Relaxed);
-  progress.done.store(0, Ordering::Relaxed);
+
+  // the tape (T37): any prints the export needs made first, each counted
+  // as the song's length again in the progress
+  let tape_settings = match &tape {
+    None => None,
+    Some(tape) => {
+      let to_make = crate::daw::tape::export::prints_to_make(tape, &graph, &time_signature, rate).len() as u64;
+      progress.total.store(end_frame * (1 + to_make), Ordering::Relaxed);
+      progress.done.store(0, Ordering::Relaxed);
+      let mut made = 0u64;
+      let built = crate::daw::tape::export::build(tape, &graph, &time_signature, rate, cancel, &mut || {
+        made += 1;
+        progress.done.store(made * end_frame, Ordering::Relaxed);
+      })?;
+      built.map(|built| {
+        let settings = built.settings.clone();
+        engine.set_tape(Some(built.tape)).map(|()| settings)
+      }).transpose()?
+    }
+  };
+  if tape.is_none() {
+    progress.total.store(end_frame, Ordering::Relaxed);
+    progress.done.store(0, Ordering::Relaxed);
+  }
+  // (what's rendered of the song counts from here)
+  let progress_from = progress.done.load(Ordering::Relaxed);
 
   // the copies have only just been loaded, and some can't play yet: they
   // finish setting up on the main run loop, some only once they've been
@@ -173,7 +229,7 @@ pub fn render(
       renderer.render(chunk, std::time::Instant::now(), Duration::ZERO);
       sink(chunk)?;
       *frame += frames as u64;
-      progress.done.store(*frame, Ordering::Relaxed);
+      progress.done.store(progress_from + *frame, Ordering::Relaxed);
     }
     Ok(())
   };
@@ -217,11 +273,31 @@ pub fn render(
   let mut tail: Vec<f32> = Vec::new();
   let mut loud_to = 0; // frames of the tail up to its last loud one
   let mut tail_frames = 0usize;
+  // with the tape, its hiss is faded out over the tail's first moments, as
+  // the song's done (it never falls quiet, so the tail would run to
+  // TAIL_MAX), and what's quiet is judged without any steady offset (a
+  // network can leave a tiny one, about -80 dbfs, on silence)
+  let hiss_fade = engine.frames_in(HISS_FADE) as f32;
+  let mut offset = [0f32; 2];
+  let settle = 1. / engine.frames_in(OFFSET_SETTLE).max(1) as f32;
   while tail_frames < tail_max && tail_frames - loud_to < quiet_for {
     let step = (CHUNK.min(tail_max - tail_frames)) as u64;
+    if let Some(settings) = &tape_settings {
+      let left = (1. - tail_frames as f32 / hiss_fade).max(0.);
+      engine.set_tape_settings(::tape::MachineSettings { hiss: settings.hiss * left, ..settings.clone() })?;
+    }
+    let taped = tape_settings.is_some();
     render_to(frame + step, &mut frame, &mut |chunk: &[f32]| {
       for (i, pair) in chunk.chunks_exact(2).enumerate() {
-        if pair[0].abs() > QUIET || pair[1].abs() > QUIET { loud_to = tail.len() / 2 + i + 1; }
+        let (l, r) = if taped {
+          // (the offset, followed slowly, taken off)
+          offset[0] += (pair[0] - offset[0]) * settle;
+          offset[1] += (pair[1] - offset[1]) * settle;
+          (pair[0] - offset[0], pair[1] - offset[1])
+        } else {
+          (pair[0], pair[1])
+        };
+        if l.abs() > QUIET || r.abs() > QUIET { loud_to = tail.len() / 2 + i + 1; }
       }
       tail.extend_from_slice(chunk);
       Ok(())
@@ -242,7 +318,18 @@ pub fn render(
     }
   }
   if !tail.is_empty() { sink(tail)?; }
-  Ok(end_frame + keep as u64)
+  let frames = end_frame + keep as u64;
+
+  // the last of it, read against silence after it
+  match stretch.as_mut() {
+    None => Ok(frames),
+    Some(stretch) => {
+      stretched.clear();
+      stretch.finish(&mut stretched);
+      if !stretched.is_empty() { into(&stretched)?; }
+      Ok((frames as f64 / speed).ceil() as u64)
+    }
+  }
 }
 
 #[cfg(test)]

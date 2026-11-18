@@ -1117,6 +1117,64 @@ fn test_clips_of_one_file_share_its_sound() {
 }
 
 #[test]
+fn test_a_file_asked_for_at_once_is_decoded_once() {
+  let path = noise_wav("at-once", 44_100, 2, 88_200);
+  let sounds: Vec<Decoded> = std::thread::scope(|scope| {
+    let asks: Vec<_> = (0..6).map(|_| scope.spawn(|| decoded(&path).unwrap())).collect();
+    asks.into_iter().map(|ask| ask.join().unwrap()).collect()
+  });
+  assert!(sounds.iter().all(|sound| Arc::ptr_eq(&sound.pcm, &sounds[0].pcm)));
+}
+
+#[test]
+fn test_a_copy_shares_the_sound_of_its_original() {
+  let original = noise_wav("original", 44_100, 1, 4_410);
+  let copy = std::env::temp_dir().join(format!("dawesome-copy-{}.wav", std::process::id()));
+  let copy = copy.to_string_lossy().into_owned();
+  std::fs::copy(&original, &copy).unwrap();
+
+  let sound = decoded(&original).unwrap();
+  decoded_copied(&original, &copy);
+  assert!(Arc::ptr_eq(&decoded(&copy).unwrap().pcm, &sound.pcm));
+
+  // the copy written over afterwards is read afresh
+  let other = noise_wav("other", 44_100, 1, 8_820);
+  std::fs::copy(&other, &copy).unwrap();
+  let read = decoded(&copy).unwrap();
+  assert!(!Arc::ptr_eq(&read.pcm, &sound.pcm));
+  assert_eq!(read.pcm.frames(), 8_820);
+}
+
+#[test]
+fn test_a_preview_keeps_its_sound_for_the_drop() {
+  let path = noise_wav("previewed", 44_100, 1, 4_410);
+  let (length, _) = preview_sample(&path).unwrap();
+  assert_eq!(length.as_millis(), 100);
+  // held by the preview as well as here: a clip made now shares it
+  let sound = decoded(&path).unwrap();
+  assert!(Arc::strong_count(&sound.pcm) >= 2);
+  let node = AudioNode::new(0, path.clone(), Duration::ZERO, 0).unwrap();
+  assert!(Arc::ptr_eq(&node.pcm, &sound.pcm));
+  assert!((sample_seconds(&path).unwrap() - 0.1).abs() < 1e-9);
+}
+
+#[test]
+fn test_decoding_files_together() {
+  let a = noise_wav("together-a", 44_100, 1, 4_410);
+  let b = noise_wav("together-b", 48_000, 2, 9_600);
+  let held = decode_all(&[a.clone(), b.clone(), a.clone()]).unwrap();
+  assert_eq!(held.0.len(), 2);
+  assert_eq!(held.0[1].pcm.rate(), 48_000);
+  // the clips made next share what was decoded
+  assert!(Arc::ptr_eq(&AudioNode::new(0, b.clone(), Duration::ZERO, 0).unwrap().pcm, &held.0[1].pcm));
+
+  // one that can't be read: the error, and none are kept
+  let missing = std::env::temp_dir().join("dawesome-not-there.wav").to_string_lossy().into_owned();
+  let error = decode_all(&[a, missing, b]).err().unwrap();
+  assert!(error.contains("dawesome-not-there"), "{}", error);
+}
+
+#[test]
 fn test_the_halves_of_a_cut() {
   let path = noise_wav("halves", 44_100, 2, 66_150);
   let (mut graph, id) = graph_with_clip(&path, 0.);

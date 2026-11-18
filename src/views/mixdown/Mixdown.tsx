@@ -7,8 +7,9 @@ import {
   Bits, BITS_LABELS, chosenPlace, FileType, formatOf, Kbps, KBPS,
   selectMixdown, setBits, setFileType, setKbps, setMixdownPlace, setWatching,
 } from '../../state/slices/mixdownSlice'
-import { AnalogButton } from '../../components/fourtrack'
-import { Bar, Choice, Field, Notice } from '../../components/common'
+import { AnalogButton, Cassette, Led } from '../../components/fourtrack'
+import { Choice, Field, Notice } from '../../components/common'
+import { WIND_SPEED } from '../transport/tape'
 import { fileName } from '../../util/helpers'
 
 // how a mixdown is going (see Status in engine/src/daw/actions/mixdown.rs)
@@ -21,6 +22,10 @@ type Status =
 
 // how often the engine is asked, while a mixdown is going
 const POLL_MS = 100
+
+// the cassette winds at fast-forward speed while the mix is dubbed onto it
+// (it renders faster than it plays)
+const DUB_SPEED = WIND_SPEED
 
 
 const Button = ({ children, ...props }: React.ComponentProps<typeof AnalogButton>) => (
@@ -80,49 +85,58 @@ const Mixdown = () => {
       .catch(e => setError(String(e)))
   }
 
-  if(rendering) {
-    const percent = Math.round(status.progress * 100)
+  // the mix is dubbed onto a cassette: it winds while rendering, and the
+  // same one stays (its reels coasting to a stop) once it's done
+  const done = mixdown.watching && status.state === 'done'
+  if(rendering || done) {
+    const progress = rendering ? status.progress : 1
+    const percent = Math.round(progress * 100)
     return (
       <div className='ft-panel h-full w-full overflow-y-auto p-4 text-sm select-none'>
         <div className='flex flex-col gap-3 max-w-xl'>
-          <span className='ft-label'>Mixing down…</span>
-          <Bar
-            value={percent / 100}
-            className='w-72 max-w-full'
-            role='progressbar'
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={percent}
-          />
-          <span className='ft-readout text-sm w-fit'>{percent}%</span>
-          <div>
-            <Button title='Stop, and keep nothing of it' onPress={() => { invoke('cancel_mixdown').catch(() => {}) }}>
-              Cancel
-            </Button>
+          <div className='flex flex-row items-center gap-2'>
+            <Led color={done ? 'lime' : 'red'} state={done ? 'on' : 'blink'} />
+            <span className='ft-label'>{done ? 'Done' : 'Mixing down…'}</span>
           </div>
-        </div>
-      </div>
-    )
-  }
-
-  if(mixdown.watching && status.state === 'done') {
-    return (
-      <div className='ft-panel h-full w-full overflow-y-auto p-4 text-sm select-none'>
-        <div className='flex flex-col gap-3 max-w-xl'>
-          <span className='ft-label'>Done</span>
-          <span className='ft-lcd text-xs w-fit'>{fileName(status.path)}</span>
-          <span className='text-xs text-ink-soft break-all select-text'>{status.path}</span>
-          {error && (
-            <Notice tone='led'>{error}</Notice>
+          <div className='w-72 max-w-full'>
+            <Cassette progress={progress} speed={rendering ? DUB_SPEED : 0} label={name} />
+          </div>
+          {rendering && (
+            <>
+              <span
+                className='ft-readout text-sm w-fit'
+                role='progressbar'
+                aria-label='Mixdown'
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={percent}
+              >
+                {percent}%
+              </span>
+              <div>
+                <Button title='Stop, and keep nothing of it' onPress={() => { invoke('cancel_mixdown').catch(() => {}) }}>
+                  Cancel
+                </Button>
+              </div>
+            </>
           )}
-          <div className='flex flex-row gap-2'>
-            <Button onPress={() => { invoke('reveal_file', { path: status.path }).catch(e => setError(String(e))) }}>
-              Show in Finder
-            </Button>
-            <Button onPress={() => { setError(null); dispatch(setWatching(false)) }}>
-              New mixdown
-            </Button>
-          </div>
+          {status.state === 'done' && (
+            <>
+              <span className='ft-lcd text-xs w-fit'>{fileName(status.path)}</span>
+              <span className='text-xs text-ink-soft break-all select-text'>{status.path}</span>
+              {error && (
+                <Notice tone='led'>{error}</Notice>
+              )}
+              <div className='flex flex-row gap-2'>
+                <Button onPress={() => { invoke('reveal_file', { path: status.path }).catch(e => setError(String(e))) }}>
+                  Show in Finder
+                </Button>
+                <Button onPress={() => { setError(null); dispatch(setWatching(false)) }}>
+                  New mixdown
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     )

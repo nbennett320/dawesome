@@ -20,6 +20,9 @@ pub const OUTPUT_DB_MIN: f32 = -24.;
 pub const OUTPUT_DB_MAX: f32 = 12.;
 pub const DRIVE_DB_MIN: f32 = -12.;
 pub const DRIVE_DB_MAX: f32 = 18.;
+// the PITCH knob's reach either side of its centre click, in %, as a
+// Portastudio's (T27)
+pub const PITCH_MAX: f32 = 12.;
 
 // the machine's controls, as on the Transport tab
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
@@ -38,6 +41,10 @@ pub struct TapeMachine {
   // the deck's noise reduction
   pub dbx: bool,
   pub output_db: f32,
+  // the PITCH knob: how much faster (or slower, below 0) the whole song
+  // plays, in %, pitch and tempo together (the varispeed, part E). only
+  // with the tape on
+  pub pitch: f32,
 }
 
 impl Default for TapeMachine {
@@ -50,6 +57,7 @@ impl Default for TapeMachine {
       hiss: 100.,
       dbx: true,
       output_db: 0.,
+      pitch: 0.,
     }
   }
 }
@@ -72,7 +80,14 @@ impl TapeMachine {
       hiss: kept(self.hiss, 0., HISS_MAX, default.hiss),
       dbx: self.dbx,
       output_db: kept(self.output_db, OUTPUT_DB_MIN, OUTPUT_DB_MAX, default.output_db),
+      pitch: kept(self.pitch, -PITCH_MAX, PITCH_MAX, default.pitch),
     }
+  }
+
+  // the speed the song plays at: 1 + the PITCH knob with the tape on, and
+  // exactly 1 with it off or the knob at its click (T14)
+  pub fn speed(&self) -> f64 {
+    if self.enabled && self.pitch != 0. { 1. + self.pitch as f64 / 100. } else { 1. }
   }
 }
 
@@ -159,6 +174,7 @@ mod tests {
     assert_eq!((tape.machine.age, tape.machine.wobble, tape.machine.hiss), (0., 100., 100.));
     assert!(tape.machine.dbx);
     assert_eq!(tape.machine.output_db, 0.);
+    assert_eq!(tape.machine.pitch, 0.);
     assert!(tape.is_default());
     // and missing fields are their defaults
     assert_eq!(serde_json::from_str::<TapeSettings>("{}").unwrap(), tape);
@@ -168,7 +184,7 @@ mod tests {
   fn test_values_are_kept_in_range() {
     let wild = TapeSettings {
       machine: TapeMachine {
-        enabled: true, machine: 9, age: 400., wobble: -3., hiss: f32::NAN, dbx: false, output_db: 99.,
+        enabled: true, machine: 9, age: 400., wobble: -3., hiss: f32::NAN, dbx: false, output_db: 99., pitch: -30.,
       },
       tracks: vec![
         TrackTape { track_number: 3, on_tape: true, drive_db: 40. },
@@ -179,12 +195,26 @@ mod tests {
     };
     let tape = wild.sanitized();
     assert_eq!(tape.machine, TapeMachine {
-      enabled: true, machine: 0, age: 100., wobble: 0., hiss: 100., dbx: false, output_db: 12.,
+      enabled: true, machine: 0, age: 100., wobble: 0., hiss: 100., dbx: false, output_db: 12., pitch: -12.,
     });
+    let nan = TapeMachine { pitch: f32::NAN, ..TapeMachine::default() };
+    assert_eq!(nan.sanitized().pitch, 0.);
     assert_eq!(tape.tracks, vec![
       TrackTape { track_number: 1, on_tape: false, drive_db: -12. },
       TrackTape { track_number: 3, on_tape: true, drive_db: 18. },
     ]);
+  }
+
+  #[test]
+  fn test_the_speed_is_1_unless_the_tape_is_on_and_the_knob_turned() {
+    let on = TapeMachine { enabled: true, ..TapeMachine::default() };
+    assert_eq!(on.speed(), 1.);
+    assert_eq!(TapeMachine { pitch: 7., ..TapeMachine::default() }.speed(), 1.);
+    assert!((TapeMachine { pitch: 7., ..on }.speed() - 1.07).abs() < 1e-12);
+    assert!((TapeMachine { pitch: -12., ..on }.speed() - 0.88).abs() < 1e-12);
+    // a project from before the knob: at its click
+    let old: TapeSettings = serde_json::from_str(r#"{"enabled":true,"age":40}"#).unwrap();
+    assert_eq!(old.machine.pitch, 0.);
   }
 
   #[test]

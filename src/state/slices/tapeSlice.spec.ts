@@ -67,6 +67,7 @@ const used: TapeSettings = {
   hiss: 0,
   dbx: false,
   outputDb: -6,
+  pitch: 2,
   tracks: [{ trackNumber: 2, onTape: true, driveDb: 4.5 }],
 }
 
@@ -86,7 +87,7 @@ describe('tapeSlice', () => {
   it('starts with the tape off and no track on it', () => {
     const store = makeStore()
     expect(selectTapeMachine(state(store))).toEqual({
-      enabled: false, machine: 0, age: 0, wobble: 100, hiss: 100, dbx: true, outputDb: 0,
+      enabled: false, machine: 0, age: 0, wobble: 100, hiss: 100, dbx: true, outputDb: 0, pitch: 0,
     })
     expect(selectTapeEnabled(state(store))).toBe(false)
     expect(selectTrackTape(3)(state(store))).toEqual({ onTape: false, driveDb: 0 })
@@ -99,7 +100,7 @@ describe('tapeSlice', () => {
 
     expect(mockInvoke).toHaveBeenCalledWith('get_tape', {})
     expect(selectTapeMachine(state(store))).toEqual({
-      enabled: true, machine: 1, age: 35, wobble: 150, hiss: 0, dbx: false, outputDb: -6,
+      enabled: true, machine: 1, age: 35, wobble: 150, hiss: 0, dbx: false, outputDb: -6, pitch: 2,
     })
     expect(selectTrackTape(2)(state(store))).toEqual({ onTape: true, driveDb: 4.5 })
     expect(selectTrackTape(1)(state(store))).toEqual({ onTape: false, driveDb: 0 })
@@ -194,7 +195,7 @@ describe('tapeSlice', () => {
 
   it('round-trips: what’s sent, loaded back, is what was set', () => {
     const store = makeStore()
-    run(store, changeTapeMachine({ enabled: true, machine: 1, age: 35, wobble: 150, hiss: 0, dbx: false, outputDb: -6 }))
+    run(store, changeTapeMachine({ enabled: true, machine: 1, age: 35, wobble: 150, hiss: 0, dbx: false, outputDb: -6, pitch: 2 }))
     run(store, changeTrackTape(2, { onTape: true, driveDb: 4.5 }))
     const machine = mockInvoke.mock.calls.filter(([command]) => command === 'set_tape_machine').at(-1)?.[1].machine
     const track = mockInvoke.mock.calls.filter(([command]) => command === 'set_track_tape').at(-1)?.[1].track
