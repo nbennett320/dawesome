@@ -16,7 +16,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use dsp::effects::{chorus, flanger, phaser};
+use dsp::effects::{chorus, filter, flanger, phaser};
 use dsp::{Entry, Runner, Store, Transport};
 
 struct Recipe {
@@ -75,6 +75,32 @@ const RECIPES: &[Recipe] = &[
   ] },
   Recipe { name: "phaser-barberpole-falling", entry: &phaser::ENTRY, set: &[
     ("stages", 2.), ("feedback", 60.), ("barberpole", -100.), ("rate", 0.15), ("mix", 50.),
+  ] },
+  // the Filter's modes (mode: 1 LFO, 2 Envelope, 3 Dynamic; shape 4
+  // Square, 5 S&H; note 4 is 1/8, 7 is 1/4)
+  Recipe { name: "filter-auto-wah", entry: &filter::ENTRY, set: &[
+    ("type", 2.), ("slope", 0.), ("mode", 3.), ("floor", 300.), ("cutoff", 2500.), ("resonance", 55.), ("attack", 8.), ("decay", 180.), ("sensitivity", 60.),
+  ] },
+  Recipe { name: "filter-envelope-pluck", entry: &filter::ENTRY, set: &[
+    ("mode", 2.), ("floor", 150.), ("cutoff", 5000.), ("resonance", 40.), ("attack", 3.), ("decay", 400.), ("sensitivity", 60.),
+  ] },
+  Recipe { name: "filter-synced-wobble", entry: &filter::ENTRY, set: &[
+    ("mode", 1.), ("sync", 1.), ("note", 4.), ("floor", 150.), ("cutoff", 3000.), ("resonance", 45.), ("drive", 9.),
+  ] },
+  Recipe { name: "filter-sample-and-hold", entry: &filter::ENTRY, set: &[
+    ("mode", 1.), ("sync", 1.), ("note", 4.), ("shape", 5.), ("floor", 300.), ("cutoff", 4000.), ("resonance", 60.),
+  ] },
+  Recipe { name: "filter-high-pass-sweep", entry: &filter::ENTRY, set: &[
+    ("type", 1.), ("mode", 1.), ("sync", 0.), ("rate", 0.15), ("floor", 60.), ("cutoff", 2000.), ("resonance", 35.),
+  ] },
+  Recipe { name: "filter-talking-vowel", entry: &filter::ENTRY, set: &[
+    ("mode", 1.), ("sync", 0.), ("rate", 0.5), ("floor", 200.), ("cutoff", 4000.), ("resonance", 30.), ("vowel", 100.),
+  ] },
+  Recipe { name: "filter-spin", entry: &filter::ENTRY, set: &[
+    ("mode", 1.), ("sync", 0.), ("rate", 0.3), ("floor", 300.), ("cutoff", 5000.), ("resonance", 40.), ("spin", 100.),
+  ] },
+  Recipe { name: "filter-tuned-c-major", entry: &filter::ENTRY, set: &[
+    ("mode", 1.), ("sync", 0.), ("rate", 0.25), ("shape", 1.), ("floor", 200.), ("cutoff", 3000.), ("resonance", 75.), ("tune", 2.),
   ] },
 ];
 

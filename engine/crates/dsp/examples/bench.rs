@@ -10,7 +10,7 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use dsp::effects::{chorus, delay, eq, flanger, phaser};
+use dsp::effects::{chorus, delay, eq, filter, flanger, phaser};
 use dsp::{Runner, Store, Transport, REGISTRY};
 
 const RATE: u32 = 48_000;
@@ -159,6 +159,18 @@ fn main() {
   store.set_plain(phaser::BARBERPOLE, 60.);
   store.set_plain(phaser::ENVELOPE, 60.);
   report("twelve stages, Melt, Barberpole and Envelope on", time(&mut Runner::new(store.clone(), RATE as f32), |_| {}));
+
+  // the Filter: still (its coefficients kept), then swept every sample
+  println!("\nFilter");
+  let store = Store::new(&filter::ENTRY);
+  report("defaults (24 dB low pass, still)", time(&mut Runner::new(store.clone(), RATE as f32), |_| {}));
+  store.set_plain(filter::MODE, filter::LFO as f32);
+  store.set_plain(filter::DRIVE, 12.);
+  report("LFO sweeping, drive on", time(&mut Runner::new(store.clone(), RATE as f32), |_| {}));
+  store.set_plain(filter::VOWEL, 60.);
+  store.set_plain(filter::SPIN, 60.);
+  store.set_plain(filter::TUNE, 1.);
+  report("LFO sweeping, Vowel, Spin and Tune on", time(&mut Runner::new(store.clone(), RATE as f32), |_| {}));
 
   // an analyzer frame, as the app asks for one ~30 times a second
   println!("\nAnalyzer");

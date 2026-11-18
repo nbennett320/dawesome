@@ -22,6 +22,11 @@ pub enum Shape {
   // a lamp lighting a photocell, as a Uni-Vibe's does: quick to brighten,
   // slow to fade
   Lamp,
+  // the Filter's: a ramp up (or down) each cycle, and a square (low the
+  // first half, high the second)
+  SawUp,
+  SawDown,
+  Square,
 }
 
 // the shapes the effects offer, as a choice's labels (Lamp is the
@@ -34,8 +39,8 @@ impl Shape {
   }
 
   // its value at `phase` (any number: only the part after the point
-  // counts), from -1 to 1. every shape is -1 at phase 0 and 1 halfway,
-  // so a sweep starts at its bottom
+  // counts), from -1 to 1. every shape starts at its bottom (-1 at phase
+  // 0, the saw down at its top); the sine and triangle peak halfway
   pub fn at(self, phase: f64) -> f32 {
     let p = phase - phase.floor();
     match self {
@@ -52,6 +57,9 @@ impl Shape {
         };
         x as f32
       }
+      Shape::SawUp => (2. * p - 1.) as f32,
+      Shape::SawDown => (1. - 2. * p) as f32,
+      Shape::Square => if p < 0.5 { -1. } else { 1. },
     }
   }
 }
@@ -307,6 +315,15 @@ mod tests {
     assert!((Shape::Sine.at(0.5) - 1.).abs() < 1e-6);
     assert!((Shape::Triangle.at(0.5) - 1.).abs() < 1e-6);
     assert!((Shape::Lamp.at(LAMP_RISE) - 1.).abs() < 1e-6);
+  }
+
+  #[test]
+  fn test_the_saws_ramp_and_the_square_switches_halfway() {
+    assert_eq!(Shape::SawUp.at(0.), -1.);
+    assert!((Shape::SawUp.at(0.75) - 0.5).abs() < 1e-6);
+    assert_eq!(Shape::SawDown.at(0.), 1.);
+    assert!((Shape::SawDown.at(0.75) + 0.5).abs() < 1e-6);
+    assert_eq!((Shape::Square.at(0.49), Shape::Square.at(0.5)), (-1., 1.));
   }
 
   #[test]
