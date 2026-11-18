@@ -83,7 +83,9 @@ export const keyOf = (tab: PaneTab): TabKey => tabKey(tab.component, tab.slotId)
 
 // a pane in the window layout (see state/paneTree.ts)
 // - a leaf has `tabs` and `activeTab`, the selected tab's key
-// - a split has `direction`, `left` and `right` (left is the top when stacked)
+// - a split has `direction`, `left` and `right` (left is the top when stacked),
+//   and `ratio`, the left's share in percent (left out until its divider's
+//   dragged: half)
 export type WindowNode = {
   id: string
   tabs: Array<PaneTab>
@@ -91,6 +93,7 @@ export type WindowNode = {
   direction?: SplitDirection
   left?: WindowNode
   right?: WindowNode
+  ratio?: number
 }
 
 export type WindowPane = {

@@ -14,6 +14,7 @@ use tauri::{
   WebviewWindow,
   WebviewWindowBuilder,
 };
+use crate::app::window_size::{KeptWindowSize, WindowSize};
 use crate::daw::{self, project};
 use crate::preferences::{AppearanceSetting, AppPreferences, Preferences};
 use crate::recent::{self, RecentProjects};
@@ -135,7 +136,11 @@ fn create_main_window(app: &AppHandle) -> Result<(), Box<dyn Error>> {
   let prefs = state.current();
   let script = init_script(&prefs, &state.themes);
 
-  let window = WebviewWindowBuilder::from_config(app, &config)?
+  let mut builder = WebviewWindowBuilder::from_config(app, &config)?;
+  if let Some(size) = saved_size(app) {
+    builder = builder.inner_size(size.width, size.height);
+  }
+  let window = builder
     .visible(false)
     .theme(pinned_theme(prefs.appearance))
     .initialization_script(script)
@@ -147,6 +152,17 @@ fn create_main_window(app: &AppHandle) -> Result<(), Box<dyn Error>> {
   }
   window.show()?;
   Ok(())
+}
+
+// the size the window was last closed at, no bigger than the screen it
+// opens on (it may have been saved on a larger one)
+fn saved_size(app: &AppHandle) -> Option<WindowSize> {
+  let size = app.state::<KeptWindowSize>().current()?;
+  let screen = app.primary_monitor().ok().flatten().map(|monitor| {
+    let room = monitor.size().to_logical::<f64>(monitor.scale_factor());
+    WindowSize { width: room.width, height: room.height }
+  });
+  Some(screen.map_or(size, |screen| size.within(screen)))
 }
 
 fn paint(window: &WebviewWindow, prefs: &Preferences, themes: &[ResolvedTheme]) -> tauri::Result<()> {

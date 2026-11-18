@@ -124,6 +124,17 @@ export const moveTab = (
   return addTab(closeTab(root, key), toPaneId, tab, insertAt)
 }
 
+// where a split's divider is: the left (or top) child's share, in percent.
+// leaves, and splits that aren't there, are left alone
+export const setRatio = (root: WindowNode, splitId: string, ratio: number): WindowNode => {
+  if(!Number.isFinite(ratio)) return root
+  const clamped = Math.min(Math.max(ratio, 0), 100)
+
+  return orEmptyRoot(root, update(root, splitId, node => (
+    isLeaf(node) || node.ratio === clamped ? node : { ...node, ratio: clamped }
+  )))
+}
+
 // move a tab into a new pane beside `paneId`
 // - direction: 'vertical' puts the panes side by side, 'horizontal' stacks them
 // - newPaneId, splitId: ids for the new pane and the split holding both

@@ -87,15 +87,24 @@ fn init_tauri() {
     })
     // closing the main window quits, so it asks about unsaved changes first
     .on_window_event(|window, event| {
-      if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-        if window.label() == "main" && !app::window::may_quit(window.app_handle()) {
-          api.prevent_close();
+      if window.label() != "main" { return; }
+      match event {
+        tauri::WindowEvent::CloseRequested { api, .. } => {
+          if !app::window::may_quit(window.app_handle()) {
+            api.prevent_close();
+          }
         }
+        // kept to reopen at (see window_size.rs)
+        tauri::WindowEvent::Resized(size) => {
+          window.state::<app::window_size::KeptWindowSize>().follow(window, *size);
+        }
+        _ => {}
       }
     })
     .manage(state)
     .manage(recent_projects)
     .manage(preferences::AppPreferences::load())
+    .manage(app::window_size::KeptWindowSize::load())
     .manage(Arc::new(daw::actions::mixdown::Mixdowns::default()))
     .manage(std::sync::Mutex::new(app::workspaces::WorkspaceViewport::new()))
     .invoke_handler(tauri::generate_handler![
@@ -268,10 +277,16 @@ fn init_tauri() {
     // the system quitting the app (the Dock's Quit, logging out) asks about
     // unsaved changes too
     .run(|app, event| {
-      if let tauri::RunEvent::ExitRequested { api, .. } = event {
-        if !app::window::may_quit(app) {
-          api.prevent_exit();
+      match event {
+        tauri::RunEvent::ExitRequested { api, .. } => {
+          if !app::window::may_quit(app) {
+            api.prevent_exit();
+          }
         }
+        // however the app quits (Quit, the close button, the unsaved
+        // changes dialog's, the Dock's), the window's size is kept
+        tauri::RunEvent::Exit => app.state::<app::window_size::KeptWindowSize>().save(),
+        _ => {}
       }
     });
 }

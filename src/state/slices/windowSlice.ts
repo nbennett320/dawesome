@@ -140,6 +140,11 @@ export const windowSlice = createSlice({
       state.focusedPaneId = paneId
       fixFocus(state)
     },
+    // a split's divider was dragged (see paneTree.setRatio)
+    setSplitRatio: (state, action: PayloadAction<{ splitId: string, ratio: number }>) => {
+      const { splitId, ratio } = action.payload
+      state.windowPane.root = paneTree.setRatio(state.windowPane.root, splitId, ratio)
+    },
     splitPane: {
       reducer: (
         state,
@@ -205,6 +210,7 @@ export const {
   closeFocusedTab,
   moveTab,
   splitPane,
+  setSplitRatio,
   openTab,
   openPluginTab,
   keepPluginTabs,
