@@ -7,7 +7,7 @@ import { Live, shapeAt, valueOf } from '../modulation/motion'
 
 // the readout's slots (chorus.rs OUT_*)
 export const SLOT = {
-  PHASE: 0, HZ: 1, OPEN: 2, LEVEL: 3, DELAYS_L: 4, DELAYS_R: 8, GAINS: 12, DRIFT_PHASE: 16, DRIFT_MS: 20, STEREO: 24,
+  PHASE: 0, HZ: 1, OPEN: 2, LEVEL: 3, DELAYS_L: 4, DELAYS_R: 8, GAINS: 12, DRIFT_PHASE: 16, DRIFT_MS: 20, STEREO: 24, SWING: 25,
 } as const
 
 export const MOST_VOICES = 4
@@ -89,8 +89,8 @@ export const voicesAt = (s: Settings, live: Live | null): Voice[] => {
   const layouts = layoutsOf(s.voices, s.spread, s.prism)
   const slot = (i: number, otherwise: number) => (live ? live.slots[i] ?? otherwise : otherwise)
   const stereo = slot(SLOT.STEREO, stereoOf(s.voices, s.spread))
-  const open = s.bloom > 0 ? slot(SLOT.OPEN, 1) : 1
-  const swing = SWING * s.depth * open
+  // (Bloom has the swing ducked out after a pick, then swelled past Depth)
+  const swing = SWING * s.depth * (s.bloom > 0 ? slot(SLOT.SWING, 1) : 1)
   const phase = live?.phase ?? 0
   return layouts.map((layout, v) => {
     const driftPhase = s.drift > 0 ? slot(SLOT.DRIFT_PHASE + v, 0) : 0

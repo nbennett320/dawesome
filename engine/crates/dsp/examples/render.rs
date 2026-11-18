@@ -41,10 +41,10 @@ const RECIPES: &[Recipe] = &[
     ("voices", 1.), ("rate", 0.25), ("depth", 15.), ("delay", 30.), ("spread", 80.), ("drift", 50.), ("mix", 40.),
   ] },
   Recipe { name: "chorus-bloom", entry: &chorus::ENTRY, set: &[
-    ("voices", 0.), ("shape", 1.), ("rate", 0.8), ("depth", 50.), ("delay", 7.), ("spread", 100.), ("tone", 5000.), ("mix", 50.), ("bloom", 70.),
+    ("voices", 0.), ("shape", 1.), ("rate", 0.8), ("depth", 50.), ("delay", 7.), ("spread", 100.), ("tone", 5000.), ("mix", 50.), ("bloom", 55.),
   ] },
   Recipe { name: "chorus-prism", entry: &chorus::ENTRY, set: &[
-    ("voices", 3.), ("rate", 0.3), ("depth", 60.), ("delay", 15.), ("mix", 50.), ("prism", 80.),
+    ("voices", 3.), ("rate", 0.3), ("depth", 60.), ("delay", 8.), ("spread", 100.), ("mix", 50.), ("prism", 100.),
   ] },
   Recipe { name: "flanger-metallic", entry: &flanger::ENTRY, set: &[
     ("rate", 0.15), ("depth", 70.), ("manual", 1.), ("feedback", 80.), ("mix", 50.),
@@ -56,7 +56,7 @@ const RECIPES: &[Recipe] = &[
     ("rate", 0.1), ("depth", 100.), ("manual", 1.5), ("feedback", -40.), ("zero", 1.), ("mix", 50.),
   ] },
   Recipe { name: "flanger-barberpole-rising", entry: &flanger::ENTRY, set: &[
-    ("rate", 0.15), ("depth", 60.), ("feedback", 70.), ("barberpole", 100.), ("mix", 50.),
+    ("rate", 0.4), ("manual", 3.), ("feedback", 80.), ("barberpole", 100.), ("mix", 50.),
   ] },
   Recipe { name: "flanger-envelope", entry: &flanger::ENTRY, set: &[
     ("depth", 0.), ("manual", 3.), ("feedback", 60.), ("envelope", 80.), ("mix", 50.),
@@ -68,18 +68,18 @@ const RECIPES: &[Recipe] = &[
     ("mode", 1.), ("rate", 4.), ("depth", 70.), ("feedback", 0.), ("mix", 50.),
   ] },
   Recipe { name: "phaser-funky-envelope", entry: &phaser::ENTRY, set: &[
-    ("rate", 0.1), ("depth", 20.), ("stages", 1.), ("feedback", 40.), ("envelope", 70.), ("mix", 50.),
+    ("depth", 0.), ("stages", 1.), ("center", 250.), ("feedback", 65.), ("envelope", 100.), ("mix", 50.),
   ] },
   Recipe { name: "phaser-melt", entry: &phaser::ENTRY, set: &[
     ("stages", 5.), ("feedback", 50.), ("melt", 80.), ("mix", 50.),
   ] },
   Recipe { name: "phaser-barberpole-falling", entry: &phaser::ENTRY, set: &[
-    ("stages", 2.), ("feedback", 60.), ("barberpole", -100.), ("rate", 0.15), ("mix", 50.),
+    ("stages", 3.), ("feedback", 70.), ("barberpole", -100.), ("rate", 0.3), ("mix", 50.),
   ] },
   // the Filter's modes (mode: 1 LFO, 2 Envelope, 3 Dynamic; shape 4
   // Square, 5 S&H; note 4 is 1/8, 7 is 1/4)
   Recipe { name: "filter-auto-wah", entry: &filter::ENTRY, set: &[
-    ("type", 2.), ("slope", 0.), ("mode", 3.), ("floor", 300.), ("cutoff", 2500.), ("resonance", 55.), ("attack", 8.), ("decay", 180.), ("sensitivity", 60.),
+    ("type", 2.), ("slope", 0.), ("mode", 3.), ("floor", 300.), ("cutoff", 2500.), ("resonance", 55.), ("attack", 8.), ("decay", 80.), ("sensitivity", 45.),
   ] },
   Recipe { name: "filter-envelope-pluck", entry: &filter::ENTRY, set: &[
     ("mode", 2.), ("floor", 150.), ("cutoff", 5000.), ("resonance", 40.), ("attack", 3.), ("decay", 400.), ("sensitivity", 60.),

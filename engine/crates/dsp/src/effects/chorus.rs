@@ -17,17 +17,21 @@
 // - no feedback: that's the Flanger
 //
 // the experimental three, each nothing at all at 0:
-// - Bloom: on each attack the copies duck out and the swing eases off,
-//   then they open back up as the note rings (0.2 to 2.5 s)
+// - Bloom: each attack ducks the copies right out and stills their swing,
+//   then as the note rings they swell back in (0.3 to 3 s), past where
+//   the knobs have them: louder and deeper. a dry pick, then a chorus
+//   blooming out of the tail
 // - Drift: each voice's place in the LFO, and its delay, wander at random
 //   (seeded: it's the same every time it's played)
-// - Prism: each voice band-passed to its own slice of the spectrum, the
-//   slices fanned from low on the left to high on the right
+// - Prism: each voice band-passed to its own narrow slice of the
+//   spectrum, the slices fanned from low on the left to high on the right,
+//   and each slice swaying up and down with its voice's LFO, so the
+//   colours shimmer across the field
 
 use crate::delay_line::{DelayLine, MIN_DELAY};
 use crate::effect::{Effect, EffectInfo, Entry, Io, Values};
 use crate::effects::delay::levels;
-use crate::envelope::Envelope;
+use crate::envelope::Transient;
 use crate::lfo::{Lfo, Rate, Wander, NOTES, SHAPES};
 use crate::param::{ParamDesc, Taper, Unit};
 use crate::readout::READOUT;
@@ -86,7 +90,8 @@ fn make(rate: f32) -> Box<dyn Effect> {
 // the LFO's phase (0 to 1) and rate (Hz)
 pub const OUT_PHASE: usize = 0;
 pub const OUT_HZ: usize = 1;
-// how open Bloom has the copies (1 = fully; 1 always with Bloom at 0)
+// how loud Bloom has the copies (1 is as the knobs have them, 0 ducked
+// out, over 1 swelled past; 1 always with Bloom at 0)
 pub const OUT_OPEN: usize = 2;
 // how loud the input is (0 to 1, a peak follower)
 pub const OUT_LEVEL: usize = 3;
@@ -101,12 +106,14 @@ pub const OUT_DRIFT_PHASE: usize = 16;
 pub const OUT_DRIFT_MS: usize = 20;
 // how far round the LFO the right side reads, past the left (cycles)
 pub const OUT_STEREO: usize = 24;
+// how deep Bloom has the swing, as OUT_OPEN has the level
+pub const OUT_SWING: usize = 25;
 
 // ---- the numbers
 
-// the line: the longest delay (40 ms, its spacing, swing and drift) and
-// some to spare
-const LINE: f32 = 0.08;
+// the line: the longest delay (40 ms, its spacing, swing (Bloom's too)
+// and drift) and some to spare
+const LINE: f32 = 0.1;
 // Depth at 100% swings the delay this share of itself either way
 const SWING: f32 = 0.45;
 // the voices' delays are spaced this share of it apart, first to last
@@ -120,18 +127,29 @@ const DRIFT_PHASE: f32 = 0.15;
 const DRIFT_DELAY: f32 = 0.25;
 const DRIFT_PHASE_HZ: f64 = 0.7;
 const DRIFT_DELAY_HZ: f64 = 0.35;
-// Prism's slices: centres spread evenly by octave from LOWEST to HIGHEST
+// Prism's slices: centres spread evenly by octave from LOWEST to HIGHEST,
+// this narrow (Q), made up by GAIN (a narrow slice of a full sound is a
+// quiet one), and swaying SWAY octaves either way with the LFO at full
+// Depth. their filters are worked out again every CONTROL frames (counted
+// from the start, so it's the same however the sound's cut into blocks)
 const PRISM_LOWEST: f32 = 200.;
 const PRISM_HIGHEST: f32 = 6000.;
-// Bloom: what's an attack (the quick follower this far over the slow
-// one, and over the floor), how fast the copies duck, and how long they
-// take to open again at Bloom's least and most
-const BLOOM_OVER: f32 = 1.5;
+const PRISM_Q: f32 = 2.5;
+const PRISM_GAIN: f32 = 2.5;
+const PRISM_SWAY: f32 = 1.;
+const CONTROL: u64 = 8;
+// Bloom: what's an attack (envelope::Transient: the quick follower this
+// far over the slow one, and over the floor), how fast the copies duck,
+// how fast the swing follows them (slower: a delay that jumps bends the
+// pitch), how long they take to swell back at Bloom's least and most, and
+// how far past the knobs they swell at its most (+6 dB, twice as deep)
+const BLOOM_OVER: f32 = 2.;
 const BLOOM_FLOOR: f32 = 0.003;
 const BLOOM_DUCK: f32 = 0.01;
 const BLOOM_EASE: f32 = 0.1;
-const BLOOM_FASTEST: f32 = 0.2;
-const BLOOM_SLOWEST: f32 = 2.5;
+const BLOOM_FASTEST: f32 = 0.3;
+const BLOOM_SLOWEST: f32 = 3.;
+const BLOOM_SWELL: f32 = 1.;
 
 // the share of the gap left after a sample, to cover ~63% of it in
 // `seconds`
@@ -253,16 +271,20 @@ pub struct Chorus {
   // Prism's filters, for each voice and side, and the voice count they're
   // for
   bands: [[Coefs; 2]; MOST_VOICES],
-  bands_for: Option<usize>,
-  // Bloom: a quick and a slow follower, how open the copies are (and a
-  // slower copy of it for the swing), and how fast they move
-  fast: Envelope,
-  slow: Envelope,
+  bands_ready: bool,
+  // frames run since it was made or reset (for CONTROL)
+  frames: u64,
+  // Bloom: the attack detector, how far through its swell it is (0 to 1),
+  // how open the copies are (and a slower copy of it for the swing), how
+  // fast they move, and what it came to last (level, swing) for the panel
+  transient: Transient,
+  bloom_at: f32,
   open: f32,
   open_swing: f32,
   duck: f32,
   ease: f32,
   last_open: f32,
+  last_swing: f32,
   // it's run since it was made or reset: until then its glides start
   // where they're going
   started: bool,
@@ -296,14 +318,16 @@ impl Chorus {
       cuts: (flat, flat),
       cuts_for: None,
       bands: [[flat; 2]; MOST_VOICES],
-      bands_for: None,
-      fast: Envelope::new(0.0005, 0.02, rate),
-      slow: Envelope::new(0.03, 0.3, rate),
+      bands_ready: false,
+      frames: 0,
+      transient: Transient::new(rate),
+      bloom_at: 1.,
       open: 1.,
       open_swing: 1.,
       duck: 0.,
       ease: 0.,
       last_open: 1.,
+      last_swing: 1.,
       started: false,
     };
     chorus.set_sample_rate(rate);
@@ -317,10 +341,9 @@ impl Effect for Chorus {
     self.settle = keep(SETTLE, rate);
     self.duck = keep(BLOOM_DUCK, rate);
     self.ease = keep(BLOOM_EASE, rate);
-    self.fast.set_times(0.0005, 0.02, rate);
-    self.slow.set_times(0.03, 0.3, rate);
+    self.transient.set_rate(rate);
     self.cuts_for = None;
-    self.bands_for = None;
+    self.bands_ready = false;
     for side in &mut self.sides { side.line.set_rate(rate); }
   }
 
@@ -336,10 +359,11 @@ impl Effect for Chorus {
       for band in &mut voice.bands { band.reset(); }
     }
     self.lfo.reset();
-    self.fast.reset();
-    self.slow.reset();
+    self.transient.reset();
+    self.bloom_at = 1.;
     self.open = 1.;
     self.open_swing = 1.;
+    self.frames = 0;
     self.started = false;
   }
 
@@ -376,23 +400,14 @@ impl Effect for Chorus {
       );
       self.cuts_for = Some(cuts);
     }
-    if self.bands_for != Some(n) {
-      let q = 0.5 + 0.15 * n.max(2) as f32;
-      for v in 0..MOST_VOICES {
-        for side in 0..2 {
-          self.bands[v][side] = Coefs::new(Filter::BandPass, slice(v, n, side), 0., q, rate);
-        }
-      }
-      self.bands_for = Some(n);
-    }
     let (low_cut, tone) = self.cuts;
-    let bands = self.bands;
+    let sway = PRISM_SWAY * params.get(DEPTH) / 100.;
+    if prism == 0. { self.bands_ready = false; }
 
     let clock = Lfo::clock(Rate::of(params, SYNC, NOTE, RATE), transport);
     self.hz = clock.hz(rate);
     let settle = self.settle;
-    // (most of the way open, 90%, in that time)
-    let ease = keep((BLOOM_FASTEST + bloom * (BLOOM_SLOWEST - BLOOM_FASTEST)) / 2.3, rate);
+    let bloom_step = 1. / ((BLOOM_FASTEST + bloom * (BLOOM_SLOWEST - BLOOM_FASTEST)) * rate);
     let (duck, ease_swing) = (self.duck, self.ease);
     let phase_step = DRIFT_PHASE_HZ / rate as f64;
     let delay_step = DRIFT_DELAY_HZ / rate as f64;
@@ -400,16 +415,21 @@ impl Effect for Chorus {
     for i in 0..input[0].len() {
       let (in_l, in_r) = (input[0][i], input[1][i]);
       let phase = self.lfo.tick(&clock, i) as f32;
+      let update = prism > 0. && (self.frames % CONTROL == 0 || !self.bands_ready);
+      self.bands_ready |= update;
+      self.frames += 1;
 
-      // Bloom: how open the copies are, ducking at an attack
-      let fast = self.fast.run(0.5 * (in_l + in_r));
-      let slow = self.slow.run(0.5 * (in_l + in_r));
-      let hit = if fast > BLOOM_FLOOR { ((fast / (slow + 1e-9) - BLOOM_OVER) / BLOOM_OVER).clamp(0., 1.) } else { 0. };
-      let to = 1. - hit;
-      self.open = if to < self.open { to + duck * (self.open - to) } else { 1. + ease * (self.open - 1.) };
+      // Bloom: an attack starts the swell again from nothing. the copies
+      // duck to it quickly, and follow it up as it swells (an S: slow to
+      // start, so the pick's heard dry)
+      if self.transient.run(0.5 * (in_l + in_r), BLOOM_OVER, BLOOM_FLOOR) { self.bloom_at = 0.; }
+      self.bloom_at = (self.bloom_at + bloom_step).min(1.);
+      let to = self.bloom_at * self.bloom_at * (3. - 2. * self.bloom_at);
+      self.open = if to < self.open { to + duck * (self.open - to) } else { to };
       self.open_swing = self.open + ease_swing * (self.open_swing - self.open);
-      let wet_open = 1. - bloom * (1. - self.open);
-      let swing = swing * (1. - bloom * (1. - self.open_swing));
+      let wet_open = 1. - bloom + bloom * self.open * (1. + BLOOM_SWELL);
+      let swing_open = 1. - bloom + bloom * self.open_swing * (1. + BLOOM_SWELL);
+      let swing = swing * swing_open;
 
       glide(&mut self.stereo, stereo_to, settle);
       glide(&mut self.triangle, triangle_to, settle);
@@ -438,7 +458,14 @@ impl Effect for Chorus {
           voice.delays[side] = delay;
           let tap = self.sides[side].line.read(delay as f64);
           // (Prism's filters rest while it's at 0, and start from quiet)
-          let tap = if prism == 0. { tap } else { tap + prism * (voice.bands[side].run(&bands[v][side], tap) - tap) };
+          let tap = if prism == 0. {
+            tap
+          } else {
+            if update {
+              self.bands[v][side] = Coefs::new(Filter::BandPass, slice(v, n, side) * (sway * lfo).exp2(), 0., PRISM_Q, rate);
+            }
+            tap + prism * (PRISM_GAIN * voice.bands[side].run(&self.bands[v][side], tap) - tap)
+          };
           sum[side] += tap * gain * pans[side];
         }
       }
@@ -456,6 +483,7 @@ impl Effect for Chorus {
       out_l[i] = dry * in_l + wet * clean(wet_l);
       out_r[i] = dry * in_r + wet * clean(wet_r);
       self.last_open = wet_open;
+      self.last_swing = swing_open;
     }
 
     for side in &mut self.sides {
@@ -467,8 +495,7 @@ impl Effect for Chorus {
         if prism == 0. { band.reset() } else { band.flush() }
       }
     }
-    self.fast.flush();
-    self.slow.flush();
+    self.transient.flush();
   }
 
   fn tail_frames(&self, params: &Values, rate: f32) -> Option<u64> {
@@ -483,7 +510,8 @@ impl Effect for Chorus {
     out[OUT_PHASE] = self.lfo.phase() as f32;
     out[OUT_HZ] = self.hz as f32;
     out[OUT_OPEN] = self.last_open;
-    out[OUT_LEVEL] = self.fast.level();
+    out[OUT_SWING] = self.last_swing;
+    out[OUT_LEVEL] = self.transient.level();
     for (v, voice) in self.voices.iter().enumerate() {
       out[OUT_DELAYS_L + v] = voice.delays[0] * ms;
       out[OUT_DELAYS_R + v] = voice.delays[1] * ms;
@@ -665,7 +693,7 @@ mod tests {
   fn test_at_0_the_experimental_three_change_nothing_at_all() {
     let four = |s: &Store| { s.set_plain(VOICES, 3.); };
     // Bloom: however open it thinks the copies are
-    assert!(same_after(four, |c| { c.open = 0.1; c.open_swing = 0.3; }));
+    assert!(same_after(four, |c| { c.open = 0.1; c.open_swing = 0.3; c.bloom_at = 0.2; }));
     // Drift: wherever its random lines go
     assert!(same_after(four, |c| for (v, voice) in c.voices.iter_mut().enumerate() {
       voice.phase_wander = Wander::new(900 + v as u64);
@@ -674,15 +702,15 @@ mod tests {
     // Prism: whatever its slices are
     assert!(same_after(four, |c| {
       c.bands = [[Coefs::new(Filter::BandPass, 3000., 0., 4., RATE); 2]; MOST_VOICES];
-      c.bands_for = Some(4);
+      c.bands_ready = true;
     }));
     // (and each, turned up, does change it: the checks can fail)
-    assert!(!same_after(|s| { four(s); s.set_plain(BLOOM, 50.); }, |c| { c.open = 0.1; c.open_swing = 0.3; }));
+    assert!(!same_after(|s| { four(s); s.set_plain(BLOOM, 50.); }, |c| { c.open = 0.1; c.open_swing = 0.3; c.bloom_at = 0.2; }));
     assert!(!same_after(|s| { four(s); s.set_plain(DRIFT, 50.); }, |c| c.voices[0].phase_wander = Wander::new(900)));
   }
 
   #[test]
-  fn test_bloom_ducks_the_copies_at_an_attack_and_opens_them_as_it_rings() {
+  fn test_bloom_ducks_the_copies_at_an_attack_and_swells_them_as_it_rings() {
     let store = plain_store();
     store.set_plain(BLOOM, 100.);
     store.set_plain(MIX, 50.);
@@ -691,9 +719,12 @@ mod tests {
     input.extend(sine(4 * 48_000, 220.));
     let (_, readouts) = run(&store, &input, 480);
     let open_at = |seconds: f32| readouts[((0.5 + seconds) * 100.) as usize][OUT_OPEN];
-    assert!(open_at(0.05) < 0.2, "{}", open_at(0.05));
+    // ducked right out at the pick, swelling as it rings, and past where
+    // the knobs have it once it's bloomed (twice as loud, twice as deep)
+    assert!(open_at(0.05) < 0.05, "{}", open_at(0.05));
     assert!(open_at(1.) > open_at(0.3));
-    assert!(open_at(3.5) > 0.9, "{}", open_at(3.5));
+    assert!(open_at(3.5) > 1.9, "{}", open_at(3.5));
+    assert!(readouts[400][OUT_SWING] > 1.9, "{}", readouts[400][OUT_SWING]);
   }
 
   #[test]

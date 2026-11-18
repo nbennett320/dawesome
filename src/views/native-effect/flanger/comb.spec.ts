@@ -1,4 +1,4 @@
-import { barberCopy, BARBER_COPIES, crossingOf, gainAt, noteHz, Settings, SLOT, SWEEP, tapsAt, tuned } from './comb'
+import { crossingOf, gainAt, noteHz, Settings, SLOT, SWEEP, tapsAt, tuned } from './comb'
 
 const settings = (change: Partial<Settings> = {}): Settings => ({
   sync: false, rateHz: 1, depth: 0, shape: 0, manualMs: 1, feedback: 0, toneHz: 20000, zero: false, spread: 0, mix: 0.5,
@@ -53,14 +53,18 @@ describe('the Flanger’s comb', () => {
     expect(crossingOf(2, 1)).toBeLessThan(0.01)
   })
 
-  it('has Barberpole’s copies adding up the same wherever they are', () => {
-    for(let i = 0; i < 100; i += 1) {
-      const u = i / 100
-      const total = Array.from({ length: BARBER_COPIES }, (_, k) => barberCopy((u + k / 3) % 1, 1, true)[1]).reduce((a, b) => a + b)
-      expect(total).toBeCloseTo(1.5, 6)
-    }
-    const { sides } = tapsAt(settings({ barber: 0.5, depth: 0.5 }), live(0.2))
-    expect(sides[0].taps.length).toBe(1 + BARBER_COPIES)
-    expect(sides[0].taps.reduce((sum, t) => sum + t.level, 0)).toBeCloseTo(1, 6)
+  it('turns the comb with Barberpole, a tooth a turn, and stills the sweep', () => {
+    const s = settings({ barber: 1, depth: 1 })
+    // a quarter of a turn on from a readout at 0, as the LFO's moved on
+    const { center, sides } = tapsAt(s, live(0.25))
+    expect(sides[0].turn).toBeCloseTo(0.25, 9)
+    // all Barberpole: no sweep left
+    expect(sides[0].delayMs).toBeCloseTo(center, 9)
+    // half a turn puts a notch where a tooth was (1 ms: 1 kHz)
+    const half = { delayMs: 1, turn: 0.5 }
+    expect(gainAt(1000, half, settings(), 1)).toBeLessThan(1e-6)
+    expect(gainAt(500, half, settings(), 1)).toBeCloseTo(1, 6)
+    // the other way round, turned back
+    expect(tapsAt(settings({ barber: -1 }), live(0.25)).sides[0].turn).toBeCloseTo(0.75, 9)
   })
 })

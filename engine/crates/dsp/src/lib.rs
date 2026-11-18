@@ -22,6 +22,7 @@ pub mod effect;
 pub mod effects;
 pub mod envelope;
 pub mod fft;
+pub mod hilbert;
 pub mod interp;
 pub mod lfo;
 pub mod param;

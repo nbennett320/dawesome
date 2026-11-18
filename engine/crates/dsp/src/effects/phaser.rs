@@ -21,15 +21,18 @@
 // the experimental three, each nothing at all at 0:
 // - Melt: each stage drifts off on its own (a random line each, up to an
 //   octave), so the notches stop moving in step and smear
-// - Barberpole: two more chains, their frequencies sliding one way and
-//   wrapping round, faded in and out a half apart: the notches rise (or
-//   fall) for ever
+// - Barberpole: the wet's phase turned round and round inside the loop
+//   (hilbert.rs), a whole turn per cycle of the LFO at full, so the notches
+//   and the peaks between them slide up (or down) for ever, new ones coming
+//   in at the bottom (or top). it takes over from the sweep as it's turned
+//   up
 // - Envelope: playing harder pushes the notches up (or down), up to three
 //   octaves: the funky side
 
 use crate::allpass::{Allpass, Coef};
 use crate::effect::{Effect, EffectInfo, Entry, Io, Values};
 use crate::envelope::Envelope;
+use crate::hilbert::Rotator;
 use crate::lfo::{Lfo, Rate, Shape, Wander, NOTES, SHAPES};
 use crate::param::{ParamDesc, Taper, Unit};
 use crate::readout::READOUT;
@@ -63,15 +66,19 @@ pub static PARAMS: [ParamDesc; 14] = [
   ParamDesc::continuous("rate", "Rate", "Sweep", Unit::Hz, (0.01, 10.), 0.5, Taper::Log),
   ParamDesc::continuous("depth", "Depth", "Sweep", Unit::Percent, (0., 100.), 80., Taper::Linear),
   ParamDesc::choice("shape", "Shape", "Sweep", SHAPES, 0),
-  ParamDesc::continuous("center", "Center", "Notches", Unit::Hz, (100., 4000.), 700., Taper::Log),
+  // (swept fast with feedback up, what rings between the notches chirps
+  // after it, which the click test can't tell from a click: as the
+  // Filter's Cutoff and the Flanger's Manual. see ParamDesc::bends_pitch)
+  ParamDesc::continuous("center", "Center", "Notches", Unit::Hz, (100., 4000.), 700., Taper::Log).bending_pitch(),
   ParamDesc::choice("stages", "Stages", "Notches", STAGE_COUNTS, 2),
   ParamDesc::continuous("feedback", "Feedback", "Notches", Unit::Percent, (-MOST_FEEDBACK, MOST_FEEDBACK), 50., Taper::Linear),
   ParamDesc::choice("mode", "Mode", "Notches", MODES, 0),
   ParamDesc::continuous("spread", "Spread", "Stereo", Unit::Percent, (0., 100.), 50., Taper::Linear),
   ParamDesc::continuous("mix", "Mix", "Mix", Unit::Percent, (0., 100.), 50., Taper::Linear),
   ParamDesc::continuous("melt", "Melt", "Experimental", Unit::Percent, (0., 100.), 0., Taper::Linear),
-  ParamDesc::continuous("barberpole", "Barberpole", "Experimental", Unit::Percent, (-100., 100.), 0., Taper::Linear),
-  ParamDesc::continuous("envelope", "Envelope", "Experimental", Unit::Percent, (-100., 100.), 0., Taper::Linear),
+  ParamDesc::continuous("barberpole", "Barberpole", "Experimental", Unit::Percent, (-100., 100.), 0., Taper::Linear).bending_pitch(),
+  // (it sweeps the notches as Center does: bends_pitch, as the Flanger's)
+  ParamDesc::continuous("envelope", "Envelope", "Experimental", Unit::Percent, (-100., 100.), 0., Taper::Linear).bending_pitch(),
 ];
 
 pub static ENTRY: Entry = Entry {
@@ -91,7 +98,7 @@ pub const OUT_HZ: usize = 1;
 // the sweep's frequency now (Center, swept and pushed), left and right
 pub const OUT_FREQ_L: usize = 2;
 pub const OUT_FREQ_R: usize = 3;
-// Barberpole's slide (0 to 1: the two chains are half apart)
+// how far round Barberpole's turned the wet (0 to 1, a whole turn)
 pub const OUT_BARBER: usize = 4;
 // how far Envelope has pushed the notches (octaves, up is more)
 pub const OUT_PUSH: usize = 5;
@@ -111,9 +118,8 @@ const PUSH: f32 = 3.;
 // Melt's most drift (octaves), and how fast its lines move
 const MELT_MOST: f32 = 1.;
 const MELT_HZ: f64 = 0.5;
-// Barberpole's least range (octaves either way), so it moves at no Depth
-const BARBER_LEAST: f32 = 1.5;
-pub const BARBER_CHAINS: usize = 2;
+// how long Barberpole's all-passes take to ring 90 dB down, at most
+const TURN_RING: f32 = 0.2;
 // Vibe's four stages, as shares of the sweep's frequency (in octaves): a
 // Uni-Vibe's capacitors spread them over six octaves or so
 pub const VIBE_SPREAD: [f32; 4] = [-3.8, -1.7, 0.5, 2.7];
@@ -121,12 +127,26 @@ pub const VIBE_STAGES: usize = 4;
 // the lowest a stage goes
 const LOWEST: f32 = 10.;
 const SETTLE: f32 = 0.04;
+const FEEDBACK_GLIDE: f32 = 0.005;
 const ENV_ATTACK: f32 = 0.005;
 const ENV_RELEASE: f32 = 0.15;
 const ENV_SMOOTH: f32 = 0.015;
+// how loud is all the way (-12 dBFS), and how many dB under it Envelope's
+// push dies away over. by dB, not straight from the level: a picked note
+// pushes it all the way, then lets it fall back evenly as it fades, the
+// quack
+const ENV_FULL: f32 = 0.25;
+const ENV_RANGE: f32 = 24.;
 
 fn keep(seconds: f32, rate: f32) -> f32 {
   (-1. / (seconds * rate.max(1.))).exp()
+}
+
+// Envelope's push for a level, 0 to 1
+#[inline]
+fn push_of(level: f32) -> f32 {
+  if level <= 0. { return 0.; }
+  (1. + 20. * (level / ENV_FULL).log10() / ENV_RANGE).clamp(0., 1.)
 }
 
 #[inline]
@@ -164,16 +184,6 @@ fn shape_at(phase: f32, triangle: f32, lamp: f32) -> f32 {
   };
   if lamp != 0. { x += lamp * (Shape::Lamp.at(p as f64) - x); }
   x
-}
-
-// Barberpole's chain at `u` (0 to 1 through its slide): its offset from
-// Center (octaves), and its level (a Hann window: the two, half apart,
-// always add to 1)
-#[inline]
-pub fn barber_chain(u: f32, range: f32, up: bool) -> (f32, f32) {
-  let along = if up { 2. * u - 1. } else { 1. - 2. * u };
-  let s = (std::f32::consts::PI * u).sin();
-  (range * along, s * s)
 }
 
 // how many stages, and their offsets, the knobs say
@@ -239,8 +249,11 @@ impl Chain {
 }
 
 struct Side {
-  // the chain the LFO sweeps, then Barberpole's two
-  chains: [Chain; 1 + BARBER_CHAINS],
+  chain: Chain,
+  // Barberpole: turns the wet, and puts the dry through the same
+  // all-passes so the two still line up
+  turner: Rotator,
+  aligner: Rotator,
   // what came out last, for feedback
   back: f32,
   // the sweep's frequency last (Hz), for the panel
@@ -252,14 +265,19 @@ pub struct Phaser {
   lfo: Lfo,
   hz: f64,
   sides: [Side; 2],
+  // how far round Barberpole's turned (0 to 1), and how far it's on (it
+  // fades in and out from nothing)
   barber: f64,
+  turning: f32,
   // gliding: each stage's offset and presence, the triangle's and the
   // lamp's shares of the shape
   offsets: [f32; MOST_STAGES],
   present: [f32; MOST_STAGES],
   triangle: f32,
   lamp: f32,
+  feedback: f32,
   settle: f32,
+  feedback_keep: f32,
   // Melt's lines, a stage each, and what they come to now (octaves)
   melts: [Wander; MOST_STAGES],
   melted: [f32; MOST_STAGES],
@@ -277,13 +295,16 @@ impl Phaser {
       rate,
       lfo: Lfo::new(),
       hz: 0.,
-      sides: std::array::from_fn(|_| Side { chains: [Chain::default(); 1 + BARBER_CHAINS], back: 0., freq: 0. }),
+      sides: std::array::from_fn(|_| Side { chain: Chain::default(), turner: Rotator::new(rate), aligner: Rotator::new(rate), back: 0., freq: 0. }),
       barber: 0.,
+      turning: 0.,
       offsets: [0.; MOST_STAGES],
       present: [0.; MOST_STAGES],
       triangle: 0.,
       lamp: 0.,
+      feedback: 0.,
       settle: 0.,
+      feedback_keep: 0.,
       melts: std::array::from_fn(|k| Wander::new(301 + k as u64)),
       melted: [0.; MOST_STAGES],
       env: Envelope::new(ENV_ATTACK, ENV_RELEASE, rate),
@@ -301,18 +322,26 @@ impl Effect for Phaser {
   fn set_sample_rate(&mut self, rate: f32) {
     self.rate = rate;
     self.settle = keep(SETTLE, rate);
+    self.feedback_keep = keep(FEEDBACK_GLIDE, rate);
     self.push_keep = keep(ENV_SMOOTH, rate);
     self.env.set_times(ENV_ATTACK, ENV_RELEASE, rate);
+    for side in &mut self.sides {
+      side.turner.set_rate(rate);
+      side.aligner.set_rate(rate);
+    }
   }
 
   fn reset(&mut self) {
     for side in &mut self.sides {
-      for chain in &mut side.chains { chain.reset(); }
+      side.chain.reset();
+      side.turner.reset();
+      side.aligner.reset();
       side.back = 0.;
     }
     for melt in &mut self.melts { melt.reset(); }
     self.lfo.reset();
     self.barber = 0.;
+    self.turning = 0.;
     self.env.reset();
     self.push = 0.;
     self.frames = 0;
@@ -325,17 +354,15 @@ impl Effect for Phaser {
     let rate = self.rate;
 
     let center = params.get(CENTER).log2();
-    let depth = params.get(DEPTH) / 100.;
-    let feedback = params.get(FEEDBACK) / 100.;
+    let barber = params.get(BARBERPOLE) / 100.;
+    // (Barberpole takes over from the sweep as it's turned up)
+    let depth = params.get(DEPTH) / 100. * (1. - barber.abs());
+    let feedback_to = params.get(FEEDBACK) / 100.;
     // (what goes into the loop is trimmed as feedback rises, so its peaks
     // don't run far over the dry)
-    let trim = 1. - 0.5 * feedback.abs();
     let spread = 0.5 * params.get(SPREAD) / 100.;
     let mix = (params.get(MIX) / 100.).clamp(0., 1.);
     let melt = MELT_MOST * params.get(MELT) / 100.;
-    let barber = params.get(BARBERPOLE) / 100.;
-    let (barber_amount, up) = (barber.abs(), barber > 0.);
-    let barber_range = (SWEEP * depth).max(BARBER_LEAST);
     let envelope = params.get(ENVELOPE) / 100.;
 
     let (present_to, offsets_to) = stage_targets(params);
@@ -346,11 +373,15 @@ impl Effect for Phaser {
       self.offsets = offsets_to;
       self.triangle = triangle_to;
       self.lamp = lamp_to;
+      self.feedback = feedback_to;
     }
 
     let clock = Lfo::clock(Rate::of(params, SYNC, NOTE, RATE), transport);
     self.hz = clock.hz(rate);
-    let (settle, push_keep) = (self.settle, self.push_keep);
+    let (settle, push_keep, feedback_keep) = (self.settle, self.push_keep, self.feedback_keep);
+    // Barberpole turns once a cycle of the LFO at full, either way
+    let barber_step = barber as f64 * clock.step;
+    let turning_to = if barber != 0. { 1. } else { 0. };
     // (the stages' layout only counts when their frequencies are worked
     // out, so it moves on then, CONTROL frames at a time)
     let melt_step = MELT_HZ * CONTROL as f64 / rate as f64;
@@ -363,11 +394,18 @@ impl Effect for Phaser {
       let update = self.frames % CONTROL == 0;
       self.frames += 1;
       let barber_at = self.barber as f32;
-      self.barber += clock.step;
+      self.barber += barber_step;
       self.barber -= self.barber.floor();
+      glide(&mut self.turning, turning_to, settle);
+      let turning = self.turning;
 
       glide(&mut self.triangle, triangle_to, settle);
       glide(&mut self.lamp, lamp_to, settle);
+      // (feedback glides a sample at a time, not in the runner's steps:
+      // stepped, a loop that's ringing hard zips)
+      glide(&mut self.feedback, feedback_to, feedback_keep);
+      let feedback = self.feedback;
+      let trim = 1. - 0.5 * feedback.abs();
       if update {
         for k in 0..MOST_STAGES {
           glide(&mut self.present[k], present_to[k], stage_settle);
@@ -379,7 +417,7 @@ impl Effect for Phaser {
       }
       let present = self.present;
       let level = self.env.run(0.5 * (ins[0] + ins[1]));
-      let push = PUSH * envelope * (2. * level).min(1.);
+      let push = PUSH * envelope * push_of(level);
       self.push = push + push_keep * (self.push - push);
 
       let outs: [f32; 2] = std::array::from_fn(|s| {
@@ -388,30 +426,37 @@ impl Effect for Phaser {
         let octaves = center + SWEEP * depth * lfo + self.push;
         side.freq = octaves.exp2();
         let x = trim * ins[s] + feedback * side.back;
-        let mut wet = side.chains[0].run(x, update, octaves, &offsets, &present, rate);
-        if barber_amount > 0. {
-          let mut sum = 0.;
-          for c in 0..BARBER_CHAINS {
-            let u = barber_at + s as f32 * spread + c as f32 / BARBER_CHAINS as f32;
-            let (oct, level) = barber_chain(u - u.floor(), barber_range, up);
-            sum += level * side.chains[1 + c].run(x, update, center + oct + self.push, &offsets, &present, rate);
-          }
-          wet += barber_amount * (sum - wet);
+        let mut wet = side.chain.run(x, update, octaves, &offsets, &present, rate);
+        // Barberpole: the wet turned (and the dry lined up with it), faded
+        // in from where it was
+        let mut dry = ins[s];
+        if turning > 0. {
+          // (the right side a little further round, as Spread has the sweep)
+          let (sin, cos) = (std::f32::consts::TAU * (barber_at + s as f32 * spread)).sin_cos();
+          let turned = clean(side.turner.turn(wet, cos, sin));
+          let aligned = clean(side.aligner.align(dry));
+          wet += turning * (turned - wet);
+          dry += turning * (aligned - dry);
         }
         // (kept clean a sample at a time: the stages' memory decays into
         // denormals mid-block otherwise)
         let wet = clean(wet);
         side.back = wet;
-        ins[s] + mix * (wet - ins[s])
+        dry + mix * (wet - dry)
       });
       out_l[i] = outs[0];
       out_r[i] = outs[1];
     }
 
     for side in &mut self.sides {
-      for (c, chain) in side.chains.iter_mut().enumerate() {
-        // (Barberpole's rest while it's off, and start from quiet)
-        if c > 0 && barber_amount == 0. { chain.reset() } else { chain.flush() }
+      side.chain.flush();
+      // (Barberpole's rest while it's off, and start from quiet)
+      if self.turning == 0. {
+        side.turner.reset();
+        side.aligner.reset();
+      } else {
+        side.turner.flush();
+        side.aligner.flush();
       }
     }
     self.env.flush();
@@ -429,9 +474,11 @@ impl Effect for Phaser {
     };
     let vibe = if params.choice(MODE) == VIBE { -VIBE_SPREAD[0] } else { 0. };
     let melt = MELT_MOST * 1.25 * params.get(MELT) / 100.;
-    let reach = SWEEP.max(BARBER_LEAST) + PUSH * (params.get(ENVELOPE) / 100.).abs() + melt + vibe;
+    let reach = SWEEP + PUSH * (params.get(ENVELOPE) / 100.).abs() + melt + vibe;
     let lowest = (params.get(CENTER).log2() - reach).exp2().max(LOWEST);
-    let pass = MOST_STAGES as f32 / (std::f32::consts::PI * lowest);
+    // (Barberpole's all-passes ring on a little at the bottom of the band)
+    let turning = if params.get(BARBERPOLE) != 0. { TURN_RING } else { 0. };
+    let pass = MOST_STAGES as f32 / (std::f32::consts::PI * lowest) + turning;
     Some(((passes * pass + 0.05) * rate).ceil() as u64)
   }
 
@@ -571,17 +618,28 @@ mod tests {
   }
 
   #[test]
-  fn test_barberpole_chains_always_add_up_the_same() {
-    for i in 0..200 {
-      let u = i as f32 / 200.;
-      let total: f32 = (0..BARBER_CHAINS).map(|c| {
-        let v = u + c as f32 / BARBER_CHAINS as f32;
-        barber_chain(v - v.floor(), 1., true).1
-      }).sum();
-      assert!((total - 1.).abs() < 1e-4);
+  fn test_barberpole_slides_the_notches_for_ever_one_way() {
+    // a tone through it, wet only, with no feedback: turned steadily, its
+    // frequency moves by a turn a cycle (10 Hz here), up or down
+    let amount = |x: &[f32], hz: f32| {
+      let (mut c, mut s) = (0f32, 0f32);
+      for (n, v) in x.iter().enumerate() {
+        let w = std::f32::consts::TAU * hz * n as f32 / SR;
+        c += v * w.cos();
+        s += v * w.sin();
+      }
+      2. * (c * c + s * s).sqrt() / x.len() as f32
+    };
+    for (barber, to, away) in [(100., 1010., 990.), (-100., 990., 1010.)] {
+      let store = plain_store();
+      store.set_plain(FEEDBACK, 0.);
+      store.set_plain(MIX, 100.);
+      store.set_plain(RATE, 10.);
+      store.set_plain(BARBERPOLE, barber);
+      let ([l, _], _) = run(&store, &sine(96_000, 1000.), 512);
+      let (to, away) = (amount(&l[48_000..], to), amount(&l[48_000..], away));
+      assert!(to > 0.4 && away < 0.03, "{}: {} vs {}", barber, to, away);
     }
-    // up, the notches rise
-    assert!(barber_chain(0.9, 2., true).0 > barber_chain(0.1, 2., true).0);
   }
 
   #[test]

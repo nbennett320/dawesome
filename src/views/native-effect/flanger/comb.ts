@@ -1,6 +1,6 @@
 // the Flanger's comb as its settings and readout make it: where its copy
-// (or Barberpole's copies) read from now, and what that does to each
-// frequency. the same rules as the engine's
+// reads from now (and how far round Barberpole's turned it), and what that
+// does to each frequency. the same rules as the engine's
 // (engine/crates/dsp/src/effects/flanger.rs), worked out here so the view
 // moves every frame between readouts
 import { ParamWire } from '../../../types/nativeEffect'
@@ -9,11 +9,8 @@ import { Live, shapeAt, valueOf } from '../modulation/motion'
 // the readout's slots (flanger.rs OUT_*)
 export const SLOT = { PHASE: 0, HZ: 1, DELAY_L: 2, DELAY_R: 3, CENTER: 4, BARBER: 5, PUSH: 6, ZERO: 7 } as const
 
-// octaves either way of the centre at full Depth; Barberpole's copies and
-// its least range
+// octaves either way of the centre at full Depth
 export const SWEEP = 2
-export const BARBER_COPIES = 3
-export const BARBER_LEAST = 1
 
 export interface Settings {
   sync: boolean
@@ -69,25 +66,12 @@ export const tuned = (tune: number, manualMs: number): number => {
   return 1000 / (note * 2 ** octaves) / manualMs
 }
 
-// a Barberpole copy at `u` through its slide: octaves from the centre, and
-// its level (the three always add to 1.5)
-export const barberCopy = (u: number, range: number, up: boolean): [number, number] => {
-  const along = up ? 1 - 2 * u : 2 * u - 1
-  const s = Math.sin(Math.PI * u)
-  return [range * along, s * s]
-}
-
-export interface Tap {
-  delayMs: number
-  level: number
-}
-
-// one side's copies now: the swept one, and Barberpole's (their levels
-// adding to 1)
+// one side's copy now
 export interface SideTaps {
-  taps: Tap[]
-  // the swept copy's delay, ms
+  // how late it reads, ms
   delayMs: number
+  // how far round Barberpole's turned its phase (turns, 0 to 1)
+  turn: number
 }
 
 const frac = (x: number) => x - Math.floor(x)
@@ -97,21 +81,14 @@ export const tapsAt = (s: Settings, live: Live | null): { center: number, sides:
   const center = slot(SLOT.CENTER, 0) > 0 ? slot(SLOT.CENTER, 0) : s.manualMs * tuned(s.tune, s.manualMs)
   const push = s.envelope !== 0 ? slot(SLOT.PUSH, 0) : 0
   const phase = live?.phase ?? 0
-  // Barberpole slides once a cycle of the LFO: it's run on as the LFO is
-  const barber = live ? frac(slot(SLOT.BARBER, 0) + (live.phase - frac(live.slots[SLOT.PHASE] ?? 0))) : 0
-  const amount = Math.abs(s.barber)
-  const range = Math.max(SWEEP * s.depth, BARBER_LEAST)
+  // Barberpole turns once a cycle of the LFO at full (either way): it's
+  // run on as the LFO is. it takes over from the sweep as it's turned up
+  const barber = live ? frac(slot(SLOT.BARBER, 0) + s.barber * (live.phase - frac(live.slots[SLOT.PHASE] ?? 0))) : 0
+  const depth = s.depth * (1 - Math.abs(s.barber))
   const side = (n: number): SideTaps => {
     const offset = (n * s.spread) / 2
-    const delayMs = center * 2 ** (SWEEP * s.depth * shapeAt(s.shape, phase + offset) - push)
-    const taps: Tap[] = [{ delayMs, level: 1 - amount }]
-    if(amount > 0) {
-      for(let k = 0; k < BARBER_COPIES; k += 1) {
-        const [oct, level] = barberCopy(frac(barber + offset + k / BARBER_COPIES), range, s.barber > 0)
-        taps.push({ delayMs: center * 2 ** (oct - push), level: (amount * level) / 1.5 })
-      }
-    }
-    return { taps, delayMs }
+    const delayMs = center * 2 ** (SWEEP * depth * shapeAt(s.shape, phase + offset) - push)
+    return { delayMs, turn: s.barber !== 0 ? frac(barber + offset) : 0 }
   }
   return { center, sides: [side(0), side(1)] }
 }
@@ -136,14 +113,12 @@ const toneAt = (hz: number, cut: number): Complex => {
 }
 
 // the level at `hz` (as a gain, 1 is unchanged) of one side's sound
-// through the comb: copies fed back through the tone, mixed with the dry
-// (late by the centre, the copy turned over, for Through-zero)
+// through the comb: the copy (turned by Barberpole) fed back through the
+// tone, mixed with the dry (late by the centre, the copy turned over, for
+// Through-zero)
 export const gainAt = (hz: number, side: SideTaps, s: Settings, center: number): number => {
-  let copy: Complex = [0, 0]
-  side.taps.forEach(t => {
-    const [re, im] = late(t.delayMs, hz)
-    copy = [copy[0] + t.level * re, copy[1] + t.level * im]
-  })
+  const turn = 2 * Math.PI * side.turn
+  const copy = mul(late(side.delayMs, hz), [Math.cos(turn), Math.sin(turn)])
   const loop = mul(toneAt(hz, s.toneHz), copy)
   const wet = div(copy, [1 - s.feedback * loop[0], -s.feedback * loop[1]])
   const turned: Complex = s.zero ? [-wet[0], -wet[1]] : wet

@@ -15,8 +15,9 @@
 //   Cutoff alone. Floor over Cutoff sweeps down instead
 // - LFO: m = (lfo + 1) / 2. Envelope: each attack (envelope::Transient)
 //   lifts m to 1 over Attack, and it falls back over Decay, the same each
-//   time. Dynamic: m follows the playing's level (Attack and Decay its
-//   follower's times), scaled by Sensitivity
+//   time. Dynamic: m follows the playing's level in dB (Attack and Decay
+//   its follower's times), Sensitivity lifting it, so a note closes it
+//   as it fades
 // - m is smoothed over a few ms, so S&H, Square, a saw's reset or an attack
 //   doesn't click
 // - the SVF gives every pass at once from the same memory (svf::State::
@@ -144,8 +145,13 @@ const TUNE_GLIDE: f32 = 0.008;
 // the quick follower must jump over the slow, and the floor it must clear
 const OVER: (f32, f32) = (4., 1.3);
 const FLOOR_DB: (f32, f32) = (-24., -60.);
-// Dynamic: Sensitivity from none to most is this much gain into it
+// Dynamic: Sensitivity from none to most is this much gain into it, and
+// the sweep spans this many dB of level under full (0 dBFS after the gain
+// is Cutoff, RANGE under is Floor). by dB, not straight from the level: a
+// note fading away closes it evenly in pitch, from the moment it peaks,
+// rather than holding it open until the level's fallen under the top
 const DYNAMIC_DB: (f32, f32) = (0., 36.);
+const DYNAMIC_RANGE: f32 = 18.;
 // Vowel's voice, from low to high: u, o, a, e, i. three formants each (Hz),
 // at these levels and Qs
 pub const VOWELS: [[f32; 3]; 5] = [
@@ -167,6 +173,13 @@ const MAJOR: [i32; 7] = [0, 2, 4, 5, 7, 9, 11];
 
 fn keep(seconds: f32, rate: f32) -> f32 {
   (-1. / (seconds * rate.max(1.))).exp()
+}
+
+// Dynamic's m for a level (after Sensitivity's gain)
+#[inline]
+fn dynamic_m(level: f32) -> f32 {
+  if level <= 0. { return 0.; }
+  (1. + 20. * level.log10() / DYNAMIC_RANGE).clamp(0., 1.)
 }
 
 #[inline]
@@ -401,7 +414,7 @@ impl Effect for FilterFx {
       let m_to = match mode {
         LFO => 0.5 * (lfo + 1.),
         ENVELOPE => self.envelope,
-        DYNAMIC => (level * dynamic_gain).min(1.),
+        DYNAMIC => dynamic_m(level * dynamic_gain),
         _ => 1.,
       };
       if self.switching {

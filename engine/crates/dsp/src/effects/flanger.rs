@@ -18,8 +18,10 @@
 //   tape flanger's thump. it delays the channel by the centre while on
 //
 // the experimental three, each nothing at all at 0 (or Off):
-// - Barberpole: three copies, each sliding one way through the sweep's
-//   range and fading in and out, so the jet rises (or falls) for ever
+// - Barberpole: the copy's phase turned round and round inside the loop
+//   (hilbert.rs), a whole turn per cycle of the LFO at full, so the comb's
+//   teeth and what rings between them slide up (or down) for ever, a
+//   tooth a turn. it takes over from the sweep as it's turned up
 // - Tune: the centre pinned to the nearest period of a note (Manual picks
 //   the octave): the comb rings in key
 // - Envelope: playing harder pushes the comb up (or down), up to two
@@ -28,6 +30,7 @@
 use crate::delay_line::{DelayLine, MIN_DELAY};
 use crate::effect::{Effect, EffectInfo, Entry, Io, Values};
 use crate::envelope::Envelope;
+use crate::hilbert::Rotator;
 use crate::lfo::{Lfo, Rate, NOTES, SHAPES};
 use crate::param::{ParamDesc, Taper, Unit};
 use crate::readout::READOUT;
@@ -90,7 +93,7 @@ pub const OUT_DELAY_L: usize = 2;
 pub const OUT_DELAY_R: usize = 3;
 // the sweep's centre (Manual, or Tune's period), ms
 pub const OUT_CENTER: usize = 4;
-// Barberpole's phase (0 to 1: each copy is a third apart)
+// how far round Barberpole's turned the copy (0 to 1, a whole turn)
 pub const OUT_BARBER: usize = 5;
 // how far Envelope has pushed the comb, octaves (up is more)
 pub const OUT_PUSH: usize = 6;
@@ -107,12 +110,11 @@ const DRY_LINE: f32 = 0.016;
 // octaves either way of the centre at full Depth, and Envelope's most
 const SWEEP: f32 = 2.;
 const PUSH: f32 = 2.;
-// Barberpole's copies, and its least range (octaves either way), so
-// it still moves at no Depth
-pub const BARBER_COPIES: usize = 3;
-const BARBER_LEAST: f32 = 1.;
-// Through-zero switching, and Tune changing note, glide over this long
+// Through-zero switching, Tune changing note, and Barberpole starting or
+// stopping, glide over this long
 const SETTLE: f32 = 0.03;
+// how long Barberpole's all-passes take to ring 90 dB down, at most
+const TURN_RING: f32 = 0.2;
 // Envelope's follower, and how it's smoothed on its way to the delay
 const ENV_ATTACK: f32 = 0.01;
 const ENV_RELEASE: f32 = 0.2;
@@ -155,21 +157,14 @@ pub fn tuned(tune: usize, manual_ms: f32) -> f32 {
   period_ms / manual_ms
 }
 
-// a Barberpole copy at `u` (0 to 1, how far through its slide): its delay
-// in octaves from the centre (the sign is the way it slides: up, the
-// notches rise, so the delay shortens), and its level (a Hann window: the
-// three, a third apart, always add to 1.5)
-#[inline]
-pub fn barber_copy(u: f32, range: f32, up: bool) -> (f32, f32) {
-  let along = if up { 1. - 2. * u } else { 2. * u - 1. };
-  let s = (std::f32::consts::PI * u).sin();
-  (range * along, s * s)
-}
-
 struct Side {
   line: DelayLine,
   dry: DelayLine,
   tone: State,
+  // Barberpole: turns the copy, and puts the dry through the same
+  // all-passes so the two still line up
+  turner: Rotator,
+  aligner: Rotator,
   // what came out of the line last, for feedback
   back: f32,
   // its copy's delay last (samples), for the panel
@@ -181,8 +176,10 @@ pub struct Flanger {
   lfo: Lfo,
   hz: f64,
   sides: [Side; 2],
-  // Barberpole's slide (0 to 1)
+  // how far round Barberpole's turned (0 to 1), and how far it's on (it
+  // fades in and out from nothing)
   barber: f64,
+  turning: f32,
   // gliding: the triangle's share of the shape, Through-zero's blend, and
   // Tune's centre as a share of Manual (in octaves)
   triangle: f32,
@@ -208,10 +205,13 @@ impl Flanger {
         line: DelayLine::new(LINE, rate),
         dry: DelayLine::new(DRY_LINE, rate),
         tone: State::default(),
+        turner: Rotator::new(rate),
+        aligner: Rotator::new(rate),
         back: 0.,
         delay: 0.,
       }),
       barber: 0.,
+      turning: 0.,
       triangle: 0.,
       zero: 0.,
       tune: 0.,
@@ -239,6 +239,8 @@ impl Effect for Flanger {
     for side in &mut self.sides {
       side.line.set_rate(rate);
       side.dry.set_rate(rate);
+      side.turner.set_rate(rate);
+      side.aligner.set_rate(rate);
     }
   }
 
@@ -247,10 +249,13 @@ impl Effect for Flanger {
       side.line.clear();
       side.dry.clear();
       side.tone.reset();
+      side.turner.reset();
+      side.aligner.reset();
       side.back = 0.;
     }
     self.lfo.reset();
     self.barber = 0.;
+    self.turning = 0.;
     self.env.reset();
     self.push = 0.;
     self.started = false;
@@ -262,13 +267,12 @@ impl Effect for Flanger {
     let rate = self.rate;
 
     let manual = params.get(MANUAL) / 1000. * rate;
-    let depth = params.get(DEPTH) / 100.;
+    let barber = params.get(BARBERPOLE) / 100.;
+    // (Barberpole takes over from the sweep as it's turned up)
+    let depth = params.get(DEPTH) / 100. * (1. - barber.abs());
     let feedback = params.get(FEEDBACK) / 100.;
     let spread = 0.5 * params.get(SPREAD) / 100.;
     let mix = (params.get(MIX) / 100.).clamp(0., 1.);
-    let barber = params.get(BARBERPOLE) / 100.;
-    let (barber_amount, up) = (barber.abs(), barber > 0.);
-    let barber_range = (SWEEP * depth).max(BARBER_LEAST);
     let envelope = params.get(ENVELOPE) / 100.;
 
     let triangle_to = if params.choice(SHAPE) == 1 { 1. } else { 0. };
@@ -288,8 +292,9 @@ impl Effect for Flanger {
 
     let clock = Lfo::clock(Rate::of(params, SYNC, NOTE, RATE), transport);
     self.hz = clock.hz(rate);
-    // Barberpole slides through its range once a cycle of the LFO
-    let barber_step = clock.step;
+    // Barberpole turns once a cycle of the LFO at full, either way
+    let barber_step = barber as f64 * clock.step;
+    let turning_to = if barber != 0. { 1. } else { 0. };
     let (settle, push_keep) = (self.settle, self.push_keep);
     let longest = self.sides[0].line.longest() as f32;
 
@@ -299,6 +304,8 @@ impl Effect for Flanger {
       let barber_at = self.barber as f32;
       self.barber += barber_step;
       self.barber -= self.barber.floor();
+      glide(&mut self.turning, turning_to, settle);
+      let turning = self.turning;
 
       glide(&mut self.triangle, triangle_to, settle);
       glide(&mut self.zero, zero_to, settle);
@@ -317,15 +324,18 @@ impl Effect for Flanger {
         let delay = (center * octaves.exp2()).clamp(MIN_DELAY as f32, longest);
         side.delay = delay;
         let mut copy = side.line.read(delay as f64);
-        if barber_amount > 0. {
-          let mut sum = 0.;
-          for k in 0..BARBER_COPIES {
-            let u = barber_at + s as f32 * spread + k as f32 / BARBER_COPIES as f32;
-            let (oct, level) = barber_copy(u - u.floor(), barber_range, up);
-            let d = (center * (oct - self.push).exp2()).clamp(MIN_DELAY as f32, longest);
-            sum += level * side.line.read(d as f64);
-          }
-          copy += barber_amount * (sum / 1.5 - copy);
+        // Barberpole: the copy turned (and the dry lined up with it), faded
+        // in from where it was
+        let mut input = ins[s];
+        if turning > 0. {
+          // (the right side a little further round, as Spread has the sweep)
+          let (sin, cos) = (std::f32::consts::TAU * (barber_at + s as f32 * spread)).sin_cos();
+          // (kept clean a sample at a time: they're after the line, so what
+          // they hold decays into denormals mid-block)
+          let turned = clean(side.turner.turn(copy, cos, sin));
+          let aligned = clean(side.aligner.align(input));
+          copy += turning * (turned - copy);
+          input += turning * (aligned - input);
         }
         // the loop: in, plus what came round, through the tone
         side.back = clean(side.tone.run(&tone, copy));
@@ -333,8 +343,8 @@ impl Effect for Flanger {
         side.line.write(ins[s] + feedback * side.back);
         // Through-zero: the dry late by the centre, the copy turned over
         let late = side.dry.read((center as f64).clamp(MIN_DELAY, side.dry.longest()));
-        side.dry.write(ins[s]);
-        let dry = if zero == 0. { ins[s] } else { ins[s] + zero * (late - ins[s]) };
+        side.dry.write(input);
+        let dry = if zero == 0. { input } else { input + zero * (late - input) };
         let copy = copy * (1. - 2. * zero);
         dry + mix * (copy - dry)
       });
@@ -343,6 +353,16 @@ impl Effect for Flanger {
     }
     self.center_ms = manual * self.tune.exp2() / rate * 1000.;
     self.env.flush();
+    for side in &mut self.sides {
+      // (they rest while Barberpole's off, and start from quiet)
+      if self.turning == 0. {
+        side.turner.reset();
+        side.aligner.reset();
+      } else {
+        side.turner.flush();
+        side.aligner.flush();
+      }
+    }
   }
 
   fn tail_frames(&self, params: &Values, rate: f32) -> Option<u64> {
@@ -355,12 +375,13 @@ impl Effect for Flanger {
       1. + ((3.2e-5 * (1. - feedback)).ln() / feedback.ln()).ceil().max(0.)
     };
     // the longest the copy can be at these settings: Manual, half an
-    // octave of Tune, the sweep (or Barberpole's), and Envelope's push
-    let reach = if params.get(BARBERPOLE) != 0. { (SWEEP * params.get(DEPTH) / 100.).max(BARBER_LEAST) } else { SWEEP * params.get(DEPTH) / 100. };
-    let octaves = 0.5 + reach + PUSH * (params.get(ENVELOPE) / 100.).abs();
+    // octave of Tune, the sweep, and Envelope's push
+    let octaves = 0.5 + SWEEP * params.get(DEPTH) / 100. + PUSH * (params.get(ENVELOPE) / 100.).abs();
     let longest = self.sides[0].line.longest() as f32 / self.rate.max(1.);
     let pass = (params.get(MANUAL) / 1000. * octaves.exp2()).min(longest);
-    Some(((passes * pass + DRY_LINE + 0.02) * rate).ceil() as u64)
+    // (Barberpole's all-passes ring on a little at the bottom of the band)
+    let turning = if params.get(BARBERPOLE) != 0. { TURN_RING } else { 0. };
+    Some(((passes * (pass + turning) + DRY_LINE + 0.02) * rate).ceil() as u64)
   }
 
   fn readout(&self, out: &mut [f32; READOUT]) {
@@ -498,18 +519,27 @@ mod tests {
   }
 
   #[test]
-  fn test_barberpole_copies_always_add_up_the_same() {
-    for i in 0..300 {
-      let u = i as f32 / 300.;
-      let total: f32 = (0..BARBER_COPIES).map(|k| {
-        let v = u + k as f32 / BARBER_COPIES as f32;
-        barber_copy(v - v.floor(), 1., true).1
-      }).sum();
-      assert!((total - 1.5).abs() < 1e-4, "{} at {}", total, u);
+  fn test_barberpole_shifts_the_copy_up_or_down_a_turn_a_cycle() {
+    // how much of `hz` is in `x`
+    let amount = |x: &[f32], hz: f32| {
+      let (mut c, mut s) = (0f32, 0f32);
+      for (n, v) in x.iter().enumerate() {
+        let w = std::f32::consts::TAU * hz * n as f32 / SR;
+        c += v * w.cos();
+        s += v * w.sin();
+      }
+      2. * (c * c + s * s).sqrt() / x.len() as f32
+    };
+    for (barber, to, away) in [(100., 1010., 990.), (-100., 990., 1010.)] {
+      let store = plain_store();
+      store.set_plain(FEEDBACK, 0.);
+      store.set_plain(MIX, 100.);
+      store.set_plain(RATE, 10.);
+      store.set_plain(BARBERPOLE, barber);
+      let ([l, _], _) = run(&store, &sine(96_000, 1000.), 512);
+      let (to, away) = (amount(&l[48_000..], to), amount(&l[48_000..], away));
+      assert!(to > 0.45 && away < 0.03, "{}: {} vs {}", barber, to, away);
     }
-    // up, each slides from long to short
-    assert!(barber_copy(0.1, 2., true).0 > barber_copy(0.9, 2., true).0);
-    assert!(barber_copy(0.1, 2., false).0 < barber_copy(0.9, 2., false).0);
   }
 
   #[test]

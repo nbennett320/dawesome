@@ -1,4 +1,4 @@
-import { barberChain, gainAt, layoutOf, Settings, sidesAt, SLOT, stageFreq, stagePhase, SWEEP, VIBE_SPREAD } from './notches'
+import { gainAt, layoutOf, Settings, sidesAt, SLOT, stageFreq, stagePhase, SWEEP, VIBE_SPREAD } from './notches'
 
 const RATE = 48000
 const settings = (change: Partial<Settings> = {}): Settings => ({
@@ -38,13 +38,15 @@ describe('the Phaser’s notches', () => {
     expect(present).toEqual([1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0])
   })
 
-  it('has Barberpole’s two chains adding up the same wherever they are', () => {
-    for(let i = 0; i < 100; i += 1) {
-      const u = i / 100
-      expect(barberChain(u, 1, true)[1] + barberChain((u + 0.5) % 1, 1, true)[1]).toBeCloseTo(1, 6)
-    }
-    const [side] = sidesAt(settings({ barber: -0.6 }), { phase: 0.1, hz: 1, running: true, slots: Array.from({ length: 32 }, () => 0) }, RATE)
-    expect(side.chains.length).toBe(3)
+  it('turns the notches with Barberpole: half a turn puts a peak where the notch was', () => {
+    const s = settings({ barber: -1, depth: 1 })
+    const live = { phase: 0.25, hz: 1, running: true, slots: Array.from({ length: 32 }, (_, i) => (i >= SLOT.PRESENT && i < SLOT.PRESENT + 2 ? 1 : 0)) }
+    const [side] = sidesAt(s, live, RATE)
+    // a quarter turn back, as the LFO's moved on a quarter; no sweep left
+    expect(side.turn).toBeCloseTo(0.75, 9)
+    expect(side.sweepHz).toBeCloseTo(700, 6)
+    const half = { ...side, turn: 0.5 }
+    expect(gainAt(700, half, s, RATE)).toBeCloseTo(1, 6)
   })
 
   it('rings between the notches with feedback, trimmed as the engine trims it', () => {

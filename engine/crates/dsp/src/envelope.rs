@@ -100,6 +100,11 @@ impl Transient {
     over_it
   }
 
+  // how loud it is now (the quick follower)
+  pub fn level(&self) -> f32 {
+    self.fast.level()
+  }
+
   pub fn reset(&mut self) {
     self.fast.reset();
     self.slow.reset();
