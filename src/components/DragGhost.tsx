@@ -1,6 +1,6 @@
 import React from 'react'
 import { cssVar } from '../theme/apply'
-import { dragItemLabel, onSampleDrag } from '../state/sampleDrag'
+import { dragItemLabel, isPlaceable, onSampleDrag } from '../state/sampleDrag'
 
 // an element marked with this draws what's dragged over it itself (the
 // playlist canvas draws the whole clip), so the label hides over it
@@ -26,7 +26,8 @@ const DragGhost = () => {
   const [ghost, setGhost] = React.useState<Ghost | null>(null)
 
   React.useEffect(() => onSampleDrag(({ type, item, clientX, clientY }) => {
-    const overPlaylist = !!document.elementFromPoint(clientX, clientY)
+    // (only for what the playlist draws: a tab dragged over it keeps its label)
+    const overPlaylist = isPlaceable(item) && !!document.elementFromPoint(clientX, clientY)
       ?.closest(`[${OWN_DRAG_PREVIEW}]`)
 
     if(type !== 'move' || overPlaylist) {

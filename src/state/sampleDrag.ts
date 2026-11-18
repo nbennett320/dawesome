@@ -1,10 +1,13 @@
 // dragging a sample from the sidebar into the playlist or the Pattern
 // Sequencer, a pattern from its pattern strip into the playlist, an effect
-// onto a mixer channel, or an instrument into the Pattern Sequencer
+// onto a mixer channel, an instrument into the Pattern Sequencer, or a
+// pane's tab to another pane
 //
 // this uses plain mouse events instead of HTML drag and drop (react-dnd):
 // during an HTML drag the playlist canvas couldn't draw the clip following
-// the mouse, while mouse events keep p5's draw loop running as normal
+// the mouse, while mouse events keep p5's draw loop running as normal. and
+// with Tauri's file drop handler on (dragDropEnabled, for files dragged in
+// from Finder), the page never hears of an HTML drag at all
 
 // the sidebar browsers that have folders
 export type FolderScope = 'recordings' | 'clips' | 'patterns'
@@ -39,6 +42,9 @@ export type DragItem =
   | { kind: 'instrument', pluginId: string, label: string }
   | { kind: 'slot', slotId: number, label: string }
   | { kind: 'files', files: DroppedFile[], skipped: SkippedFile[] }
+  // a pane's tab, to another pane's tabs or onto a pane to split it (see
+  // components/panes/dragTab.ts)
+  | { kind: 'tab', tabKey: string, label: string }
 
 // what can be dropped into the playlist (or, for samples, the Pattern
 // Sequencer)
@@ -61,6 +67,7 @@ export const dragItemKey = (item: DragItem): string => {
   if(item.kind === 'instrument') return `instrument:${item.pluginId}`
   if(item.kind === 'slot') return `slot:${item.slotId}`
   if(item.kind === 'files') return `files:${item.files.length}:${item.files[0]?.path ?? ''}`
+  if(item.kind === 'tab') return `tab:${item.tabKey}`
   return `folder:${item.scope}:${item.key}`
 }
 
