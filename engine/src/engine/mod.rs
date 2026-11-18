@@ -41,6 +41,16 @@
 // the callback never takes a lock, touches the disk, or allocates or frees
 // memory: voices, buses and chains arrive through a lock-free queue, and what
 // it's done with is sent back to be freed by whoever sends the next command
+//
+// with the tape on, the whole of it can play at another speed (the PITCH
+// knob, tape stop and start: part E in context/tape-project/02-plan.md):
+// it's rendered in song time a little ahead, and read back faster or
+// slower (crates/tape's varispeed.rs). frames, runs and notes all count
+// song frames, so what's scheduled lands where it should in the song; only
+// when it's heard moves. at 1x, settled, the varispeed steps out of the
+// way and what's rendered is what's heard, as before (T14). the song's
+// clock (when a song frame is heard, as if the song had always played at
+// 1x) is published with each buffer, for the playhead (song_instant)
 pub(crate) mod audio_settings;
 pub(crate) mod clip;
 pub(crate) mod clip_reader;
@@ -595,7 +605,8 @@ impl Bus {
 enum Command {
   // start a run, stopping any other, with the master strip's controls,
   // where it is in the song, and its first voices
-  Start { run: u64, master: Arc<mixer::ChannelControls>, start: RunStart, voices: Vec<Box<Voice>> },
+  // (spin_up: from a standstill, as a tape's motor spins it up)
+  Start { run: u64, master: Arc<mixer::ChannelControls>, start: RunStart, voices: Vec<Box<Voice>>, spin_up: bool },
   // stop a run (if it's the one playing), fading out what's sounding
   Stop { run: u64 },
   // fade out every preview that's sounding
@@ -623,6 +634,11 @@ enum Command {
   TapeDrive { track_number: u32, drive_db: f32 },
   // a printed track's print (None: it's out of date, back to direct)
   TapePrint { track_number: u32, print: Option<Arc<tape::Print>> },
+  // the speed the song plays at (the varispeed: 1 + the PITCH knob)
+  Speed(f64),
+  // stop a run (if it's the one playing) as a tape stops with its motor
+  // cut: the speed coasts down to a standstill, then it stops
+  Coast { run: u64 },
 }
 
 // what the callback is done with, sent back to be freed off the audio thread
@@ -687,6 +703,16 @@ struct Shared {
   chains_applied: AtomicU64,
   // how many chains were left out of the last block, resting
   resting: AtomicU64,
+  // the song's clock, at the first frame of the last buffer: when it's
+  // heard (ns since `epoch`), how far the song has run ahead of the clock
+  // there (ns, negative behind), the speed it's playing at then, the speed
+  // it's going to, and how far behind that it'll fall getting there (ns of
+  // song). all as f64 bits but the first
+  clock_heard_ns: AtomicU64,
+  clock_drift_ns: AtomicU64,
+  clock_speed: AtomicU64,
+  clock_target: AtomicU64,
+  clock_lag_ns: AtomicU64,
 }
 
 // where a run started, in the engine's frames and in time
@@ -737,6 +763,11 @@ impl Engine {
       chains_sent: AtomicU64::new(0),
       chains_applied: AtomicU64::new(0),
       resting: AtomicU64::new(0),
+      clock_heard_ns: AtomicU64::new(0),
+      clock_drift_ns: AtomicU64::new(0f64.to_bits()),
+      clock_speed: AtomicU64::new(1f64.to_bits()),
+      clock_target: AtomicU64::new(1f64.to_bits()),
+      clock_lag_ns: AtomicU64::new(0f64.to_bits()),
     });
 
     let engine = Engine {
@@ -854,12 +885,92 @@ impl Engine {
     start: RunStart,
     voices: Vec<Box<Voice>>,
   ) -> Result<(), String> {
-    self.send(Command::Start { run, master, start, voices })
+    self.start_run_with(run, master, start, voices, false)
+  }
+
+  // the same, the song spinning up from a standstill if `spin_up` (tape
+  // stop and start, T30)
+  pub fn start_run_with(
+    &self,
+    run: u64,
+    master: Arc<mixer::ChannelControls>,
+    start: RunStart,
+    voices: Vec<Box<Voice>>,
+    spin_up: bool,
+  ) -> Result<(), String> {
+    if spin_up { VARISPEED_USED.store(true, Ordering::Relaxed); }
+    self.send(Command::Start { run, master, start, voices, spin_up })
   }
 
   // stop a run, if it's the one playing
   pub fn stop_run(&self, run: u64) -> Result<(), String> {
     self.send(Command::Stop { run })
+  }
+
+  // stop a run as a tape stops: it coasts down to a standstill (T30), then
+  // stops. what's scheduled should reach `coast_seconds` of song further
+  pub fn coast_run(&self, run: u64) -> Result<(), String> {
+    VARISPEED_USED.store(true, Ordering::Relaxed);
+    self.send(Command::Coast { run })
+  }
+
+  // the speed the song plays at (1 + the PITCH knob, with the tape on):
+  // glided to, as a motor's servo would
+  pub fn set_speed(&self, speed: f64) -> Result<(), String> {
+    if speed != 1. { VARISPEED_USED.store(true, Ordering::Relaxed); }
+    self.send(Command::Speed(speed))
+  }
+
+  fn clock_f64(at: &AtomicU64) -> f64 {
+    f64::from_bits(at.load(Ordering::Relaxed))
+  }
+
+  // the speed the song's playing at now, and the one it's going to
+  pub fn speed(&self) -> f64 {
+    Engine::clock_f64(&self.shared.clock_speed)
+  }
+
+  pub fn target_speed(&self) -> f64 {
+    Engine::clock_f64(&self.shared.clock_target)
+  }
+
+  // how much song (in seconds) a coast from now covers: a flywheel slowing
+  // at a steady rate covers half what it would at its speed
+  pub fn coast_seconds(&self) -> f64 {
+    let v = self.speed();
+    v * v * COAST_SECONDS / 2.
+  }
+
+  // how much song (in seconds) the speed will lag behind its target while
+  // getting there (a spin up, a knob turned)
+  pub fn lag_seconds(&self) -> f64 {
+    Engine::clock_f64(&self.shared.clock_lag_ns) / 1e9
+  }
+
+  // the song's clock at `real`: when what's heard then would have been
+  // heard had the song always played at 1x. everything timed from a run's
+  // anchor (anchor.heard + an offset in the song) is on this clock. at 1x
+  // all along, it's `real`
+  pub fn song_instant(&self, real: Instant) -> Instant {
+    let drift = Engine::clock_f64(&self.shared.clock_drift_ns);
+    let speed = self.speed();
+    if drift == 0. && speed == 1. { return real; }
+    let heard = self.shared.epoch + Duration::from_nanos(self.shared.clock_heard_ns.load(Ordering::Relaxed));
+    let since = signed_secs(real, heard);
+    shift(real, drift / 1e9 + since * (speed - 1.))
+  }
+
+  // the other way: when the song's clock reads `song`, at the speed it's
+  // going to from now on (a moment in the past at the speed then)
+  pub fn real_instant(&self, song: Instant) -> Instant {
+    let drift = Engine::clock_f64(&self.shared.clock_drift_ns);
+    let speed = self.speed();
+    if drift == 0. && speed == 1. { return song; }
+    let heard = self.shared.epoch + Duration::from_nanos(self.shared.clock_heard_ns.load(Ordering::Relaxed));
+    let speed = if speed > 0.01 { speed } else { self.target_speed() };
+    // the song's clock at `heard`, then on at the speed
+    let at_heard = shift(heard, drift / 1e9);
+    shift(heard, signed_secs(song, at_heard) / speed)
   }
 
   pub fn play(&self, voices: Vec<Box<Voice>>) -> Result<(), String> {
@@ -1042,6 +1153,25 @@ impl Engine {
   }
 }
 
+// how long a coast from 1x takes (crates/tape's transport: the deck's
+// flywheel), and a spin up from a standstill
+const COAST_SECONDS: f64 = 0.6;
+const SPIN_UP_SECONDS: f64 = 0.5;
+
+// `a` less `b`, in seconds, either way round
+pub(crate) fn signed_secs(a: Instant, b: Instant) -> f64 {
+  if a >= b { (a - b).as_secs_f64() } else { -(b - a).as_secs_f64() }
+}
+
+// `at`, moved by `secs` either way
+pub(crate) fn shift(at: Instant, secs: f64) -> Instant {
+  if secs >= 0. {
+    at + Duration::from_secs_f64(secs)
+  } else {
+    at.checked_sub(Duration::from_secs_f64(-secs)).unwrap_or(at)
+  }
+}
+
 // the run playing
 struct Run {
   id: u64,
@@ -1076,6 +1206,12 @@ pub struct Renderer {
   // whether the mix goes through the soft limiter at the end (a print's
   // render leaves it out: it wants the track as it is)
   limit: bool,
+  // the speed the song's read at (taken out while it reads, so the
+  // renderer can render for it: always there otherwise)
+  varispeed: Option<Box<::tape::Varispeed>>,
+  // a run coasting to a stop
+  coasting: Option<u64>,
+  rate: f64,
 }
 
 impl Renderer {
@@ -1108,7 +1244,17 @@ impl Renderer {
       rest_frames: (REST_AFTER.as_secs_f64() * sample_rate as f64) as u64,
       tape: None,
       limit: true,
+      varispeed: Some(Box::new(::tape::Varispeed::new(sample_rate as f64, MAX_CHUNK, SPIN_UP_SECONDS, COAST_SECONDS))),
+      coasting: None,
+      rate: sample_rate as f64,
     }
+  }
+
+  // whether the varispeed is out of the way (at 1x, settled): what's
+  // rendered is what's heard
+  #[cfg(test)]
+  pub fn straight(&self) -> bool {
+    self.varispeed.as_ref().is_none_or(|v| v.straight())
   }
 
   // the device asked for a buffer this many frames long
@@ -1127,9 +1273,38 @@ impl Renderer {
       self.apply(command, now, latency);
     }
 
-    for block in out.chunks_mut(MAX_CHUNK * 2) {
-      self.render_block(block);
+    // the song's clock, as this buffer starts
+    let mut varispeed = self.varispeed.take().expect("the varispeed");
+    let heard_ns = (now + latency).saturating_duration_since(self.shared.epoch).as_nanos() as u64;
+    self.shared.clock_heard_ns.store(heard_ns, Ordering::Relaxed);
+    self.shared.clock_drift_ns.store((varispeed.drift() * 1e9).to_bits(), Ordering::Relaxed);
+    self.shared.clock_speed.store(varispeed.flywheel.speed().to_bits(), Ordering::Relaxed);
+    self.shared.clock_target.store(varispeed.flywheel.target().to_bits(), Ordering::Relaxed);
+    self.shared.clock_lag_ns.store((varispeed.flywheel.lag_seconds() * 1e9).to_bits(), Ordering::Relaxed);
+
+    if varispeed.straight() {
+      for block in out.chunks_mut(MAX_CHUNK * 2) {
+        self.render_block(block);
+      }
+      varispeed.remember(out);
+    } else {
+      varispeed.render(out, &mut |song: &mut [f32]| {
+        for block in song.chunks_mut(MAX_CHUNK * 2) {
+          self.render_block(block);
+        }
+      });
     }
+
+    // a coast that's come to a standstill: the run stops, and the motor's
+    // back on for whatever else plays (faded in from the standstill)
+    if let Some(run) = self.coasting {
+      if varispeed.flywheel.speed() == 0. {
+        self.coasting = None;
+        self.stop(run);
+        varispeed.flywheel.run(false);
+      }
+    }
+    self.varispeed = Some(varispeed);
 
     // take out finished voices, and those that have faded out
     let mut i = 0;
@@ -1305,8 +1480,16 @@ impl Renderer {
 
   fn apply(&mut self, command: Command, now: Instant, latency: Duration) {
     match command {
-      Command::Start { run, master, start, voices } => {
+      Command::Start { run, master, start, voices, spin_up } => {
         if let Some(playing) = self.run.as_ref().map(|run| run.id) { self.stop(playing); }
+        // the motor's on: from a standstill, or at its speed at once (a
+        // coast cut short by a new run ends there)
+        // (out of the path, the song's clock is the clock again from this
+        // run on: pitch 0 after a turn of the knob is today's timing, T14)
+        let varispeed = self.varispeed.as_mut().expect("the varispeed");
+        varispeed.reset_drift();
+        if spin_up || self.coasting.is_some() { varispeed.flywheel.run(spin_up); }
+        self.coasting = None;
         self.run = Some(Run { id: run, frame: self.frame, start });
         self.transport.tempo = start.tempo;
         self.transport.beats_per_bar = start.beats_per_bar;
@@ -1319,12 +1502,33 @@ impl Renderer {
 
         let since_epoch = |t: Instant| t.duration_since(self.shared.epoch).as_nanos() as u64;
         self.shared.anchor_frame.store(self.frame, Ordering::Relaxed);
-        self.shared.anchor_heard_ns.store(since_epoch(now + latency), Ordering::Relaxed);
+        // on the song's clock: the varispeed has read some way behind
+        // what's rendered, and the song may have run ahead of the clock
+        let varispeed = self.varispeed.as_ref().expect("the varispeed");
+        let heard = since_epoch(now + latency);
+        let song = varispeed.drift() + varispeed.ahead() / self.rate;
+        let heard = if song == 0. { heard } else { (heard as f64 + song * 1e9).max(0.) as u64 };
+        self.shared.anchor_heard_ns.store(heard, Ordering::Relaxed);
         self.shared.anchor_run.store(run + 1, Ordering::Release);
 
         self.add(voices);
       }
-      Command::Stop { run } => self.stop(run),
+      Command::Stop { run } => {
+        if self.coasting == Some(run) {
+          self.coasting = None;
+          self.varispeed.as_mut().expect("the varispeed").flywheel.run(false);
+        }
+        self.stop(run)
+      }
+      Command::Coast { run } => {
+        if self.run.as_ref().is_some_and(|playing| playing.id == run) {
+          self.varispeed.as_mut().expect("the varispeed").flywheel.cut();
+          self.coasting = Some(run);
+        }
+      }
+      Command::Speed(speed) => {
+        self.varispeed.as_mut().expect("the varispeed").flywheel.set_target(speed);
+      }
       Command::StopPreviews => self.stop_previews(),
       Command::Play(voices) => self.add(voices),
       Command::Notes { channel, instrument, run, notes } => self.add_notes(channel, instrument, run, notes),
@@ -1621,6 +1825,9 @@ lazy_static! {
     settings: AudioSettings::load_default(),
     notice: None,
   });
+  // the open output's engine again, for the song's clock (song_clock):
+  // never held while an output opens, as OUTPUTS is
+  static ref CLOCK: Mutex<Option<Arc<Engine>>> = Mutex::new(None);
   // told each time engine() opens an output (see on_output_opened)
   static ref ON_OPENED: Mutex<Option<Arc<dyn Fn() + Send + Sync>>> = Mutex::new(None);
 }
@@ -1662,10 +1869,24 @@ pub fn engine() -> Result<Arc<Engine>, String> {
   let engine = output.engine.clone();
   outputs.open = Some(output);
   drop(outputs);
+  *CLOCK.lock().unwrap() = Some(engine.clone());
 
   let opened = ON_OPENED.lock().unwrap().clone();
   if let Some(opened) = opened { opened(); }
   Ok(engine)
+}
+
+// whether the song has ever been told to play at a speed other than 1x
+// (the varispeed). until it has, its clock is the clock, and nothing looks
+// for the engine to read it (T14)
+static VARISPEED_USED: AtomicBool = AtomicBool::new(false);
+
+// the engine whose song clock the playhead follows (see song_instant), or
+// None while the song has only ever played at 1x, when the song's clock is
+// the clock
+pub fn song_clock() -> Option<Arc<Engine>> {
+  if !VARISPEED_USED.load(Ordering::Relaxed) { return None; }
+  CLOCK.lock().unwrap().clone()
 }
 
 // the engine, if it's been opened (so stopping doesn't open it)
@@ -1694,7 +1915,9 @@ pub fn apply_audio_settings(settings: AudioSettings) -> Result<(), String> {
 
   if !same_output {
     // the old output closes as it's replaced
-    outputs.open = Some(open_output(&settings)?);
+    let output = open_output(&settings)?;
+    *CLOCK.lock().unwrap() = Some(output.engine.clone());
+    outputs.open = Some(output);
   }
   outputs.settings = settings;
   outputs.notice = outputs.settings.save_default()

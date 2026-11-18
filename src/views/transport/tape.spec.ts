@@ -57,6 +57,12 @@ describe('positionAt', () => {
     expect(positionAt(t, 11_500)).toBe(3_500)
   })
 
+  it('runs faster or slower than the clock at another speed (the varispeed)', () => {
+    const t = transport({ playing: true, startTimeMs: 10_000, startOffsetMs: 2_000, speed: 1.1 })
+    expect(positionAt(t, 11_000)).toBeCloseTo(3_100)
+    expect(positionAt({ ...t, speed: 0.88 }, 11_000)).toBeCloseTo(2_880)
+  })
+
   it("stays still while a pattern plays on its own", () => {
     const t = transport({ playing: true, startTimeMs: 10_000, positionMs: 2_000, patternId: 0 })
     expect(positionAt(t, 11_500)).toBe(2_000)

@@ -27,6 +27,23 @@ fn wall_clock_ms(started: Instant) -> Result<f64, String> {
   })
 }
 
+// when the frontend counts a run from, on its clock, and how fast: the
+// playhead is the run's start plus (now - that) × the speed (positionAt in
+// src/views/transport/tape.ts). at 1x all along that's when the run was
+// heard, as it always was. at another speed (the varispeed, part E) it's
+// moved so the count lands where the song is now, and where it'll be once
+// the speed has got where it's going (a knob just turned, a spin up)
+fn follow(started: Instant) -> Result<(f64, f64), String> {
+  let Some(engine) = crate::engine::song_clock() else { return Ok((wall_clock_ms(started)?, 1.)) };
+  let speed = engine.target_speed();
+  let lag = engine.lag_seconds();
+  let now = Instant::now();
+  let song = engine.song_instant(now);
+  if song == now && speed == 1. && lag == 0. { return Ok((wall_clock_ms(started)?, 1.)); }
+  let elapsed = crate::engine::signed_secs(song, started) - lag;
+  Ok((wall_clock_ms(crate::engine::shift(now, -elapsed / speed))?, speed))
+}
+
 // everything the frontend needs to draw the playback cursor in sync with
 // the engine's beat loop, without polling every frame
 #[derive(serde::Serialize, Debug, PartialEq)]
@@ -43,6 +60,9 @@ pub struct PlaylistTransport {
   // the playhead is this plus the time since `start_time_ms` (wrapped at the
   // loop's end)
   start_offset_ms: f64,
+  // how fast the song plays (the varispeed, with the tape on): the
+  // playhead moves this many ms a ms after `start_time_ms`. 1 without
+  speed: f64,
   // where the playhead is now, in ms
   position_ms: f64,
   // where the last play started, in beats (None before anything's played)
@@ -96,10 +116,14 @@ pub(crate) fn playlist_transport(state: &daw::Session) -> PlaylistTransport {
     None => (started, 0.),
   };
 
+  let follow = started.and_then(|started| follow(started).ok());
+  let speed = follow.map_or(1., |(_, speed)| speed);
+
   PlaylistTransport {
     playing: state.playlist.playing(),
-    start_time_ms: started.and_then(|started| wall_clock_ms(started).ok()).map(|ms| ms - counted_from_ms),
+    start_time_ms: follow.map(|(ms, speed)| ms - counted_from_ms / speed),
     start_offset_ms: start_offset.as_secs_f64() * 1000.,
+    speed,
     position_ms: playback::playhead(state).as_secs_f64() * 1000.,
     last_play_start_beats: *state.playlist.last_play_start.lock().unwrap(),
     beat_interval_ms: beat_interval.as_secs_f64() * 1000.,

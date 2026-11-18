@@ -1,4 +1,4 @@
-import { PlaylistTransport, Wind } from '../../types/transport'
+import { PlaylistTransport, sinceStartMs, Wind } from '../../types/transport'
 import { clamp } from '../../util/helpers'
 
 export type { Wind }
@@ -40,7 +40,7 @@ export const positionAt = (t: PlaylistTransport, nowMs: number): number => {
   // a pattern playing on its own doesn't move the playlist's playhead
   if(!t.playing || t.startTimeMs === null || t.patternId !== null) return t.positionMs
 
-  const elapsed = t.startOffsetMs + Math.max(0, nowMs - t.startTimeMs)
+  const elapsed = t.startOffsetMs + Math.max(0, sinceStartMs({ startTimeMs: t.startTimeMs, speed: t.speed }, nowMs))
   const loop = loopSpanMs(t)
   // plays in up to the loop's end, then round from its start
   if(loop) return elapsed >= loop.end ? loop.start + (elapsed - loop.end) % (loop.end - loop.start) : elapsed

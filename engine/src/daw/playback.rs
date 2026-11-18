@@ -137,11 +137,21 @@ pub fn beat_interval(state: &daw::Session) -> Duration {
 // where the playhead is now: moving with the current run while playing, or
 // where the next run will start while stopped or paused
 pub fn playhead(state: &daw::Session) -> Duration {
-  playhead_at(state, Instant::now())
+  playhead_at(state, song_now())
 }
 
-// where the playhead is (or was, or will be) heard at `at`, as playhead.
-// before the run's first frame is heard (counting in), where it starts
+// the song's clock now: a run's times (its start time, when a loop came
+// round) are on it, as if the song had always played at 1x. with the
+// varispeed at another speed (part E), it runs faster or slower than the
+// clock; at 1x all along it's the clock (see Engine::song_instant)
+pub fn song_now() -> Instant {
+  let now = Instant::now();
+  engine::song_clock().map_or(now, |engine| engine.song_instant(now))
+}
+
+// where the playhead is (or was, or will be) heard at `at` on the song's
+// clock (see song_now), as playhead. before the run's first frame is heard
+// (counting in), where it starts
 pub fn playhead_at(state: &daw::Session, at: Instant) -> Duration {
   let (start, started) = run_anchor(state);
   // a pattern playing on its own leaves the playlist's playhead where it is
@@ -724,7 +734,7 @@ pub fn pattern_step(state: &daw::Session, id: u64) -> Option<f64> {
   let heard = heard?;
   if length == 0 { return None; }
   // (the anchor can be a moment ahead: it's moved as a slice is sent)
-  let now = Instant::now();
+  let now = song_now();
   let beat = beat_interval(state);
   let since = if now >= heard { time_steps(now - heard, beat) } else { -time_steps(heard - now, beat) };
   Some((from + since).rem_euclid(length as f64))

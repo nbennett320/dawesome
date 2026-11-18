@@ -33,6 +33,8 @@ export interface PatternRun {
   // when step 0 of its time round was heard: ms since the unix epoch, like
   // Date.now()
   startTimeMs: number
+  // how fast the song plays (the varispeed): 1 when left out
+  speed?: number
   beatIntervalMs: number
   // its length, in steps, as the engine counts it from startTimeMs. when the
   // engine has another length for it, the run is read again (see followRun)
@@ -221,7 +223,7 @@ const sequencerError = (what: string) => (e: unknown) =>
 const readRun = async (dispatch: Dispatch) => {
   const t = await invoke<PlaylistTransport>('get_playlist_transport', {})
   dispatch(setRun(t.playing && t.patternId !== null && t.startTimeMs !== null
-    ? { patternId: t.patternId, startTimeMs: t.startTimeMs, beatIntervalMs: t.beatIntervalMs, length: t.patternLength }
+    ? { patternId: t.patternId, startTimeMs: t.startTimeMs, speed: t.speed, beatIntervalMs: t.beatIntervalMs, length: t.patternLength }
     : null))
 }
 
