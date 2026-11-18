@@ -492,7 +492,7 @@ fn test_saving_somewhere_new_takes_the_clips_folder_along() {
 
   // saved as another project, in a folder of its own
   let elsewhere = dir.join("elsewhere");
-  let saved = project::save_project_to(&state, &elsewhere.join("second"), true).unwrap();
+  let saved = project::save_project_to(&state, &elsewhere.join("second"), true, None).unwrap();
   let new_dir = Path::new(&saved.path).parent().unwrap().to_path_buf();
   let copied = new_dir.join("clips").join("kick_copy_1.wav");
   // the clip plays the copy in the new project's folder, and the project

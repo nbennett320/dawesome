@@ -23,7 +23,7 @@ fn saved_project(name: &str) -> (daw::Session, PathBuf, PathBuf, String) {
   state.playlist.audiograph.lock().unwrap()
     .construct_and_add_node(take.clone(), std::time::Duration::ZERO, 0).unwrap();
   state.playlist.sequencer.lock().unwrap().add_row(&take).unwrap();
-  crate::daw::project::save_project_to(&state, &file, false).unwrap();
+  crate::daw::project::save_project_to(&state, &file, false, None).unwrap();
   (state, dir, file, take)
 }
 

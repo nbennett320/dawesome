@@ -1,7 +1,7 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
 import { RootState } from 'state/store'
 import {
-  keyOf, PaneTab, SidebarPage, SplitDirection, TabKey, tabKey, View, viewLabels, WindowPane,
+  keyOf, PaneTab, SidebarPage, SplitDirection, TabKey, tabKey, View, viewLabels, WindowNode, WindowPane,
 } from '../../types/ui'
 import { pluginTabLabel } from '../../types/effects'
 import { synthRowBySlot } from '../../types/sequencer'
@@ -46,9 +46,9 @@ const initialState = {
   tapePathVisible: false,
 } as WindowState
 
-// ids for panes created by splitting
+// ids for panes created by splitting, or by opening a project's layout
 let nextPaneId = 1
-const newPaneId = () => `pane-${nextPaneId++}`
+export const newPaneId = () => `pane-${nextPaneId++}`
 
 // keep focus on a pane that still exists after the layout changes
 const fixFocus = (state: WindowState) => {
@@ -140,6 +140,12 @@ export const windowSlice = createSlice({
       state.focusedPaneId = paneId
       fixFocus(state)
     },
+    // the layout a project was saved with (see state/savedLayout.ts)
+    restoreLayout: (state, action: PayloadAction<{ root: WindowNode, focusedPaneId: string }>) => {
+      state.windowPane.root = action.payload.root
+      state.focusedPaneId = action.payload.focusedPaneId
+      fixFocus(state)
+    },
     // a split's divider was dragged (see paneTree.setRatio)
     setSplitRatio: (state, action: PayloadAction<{ splitId: string, ratio: number }>) => {
       const { splitId, ratio } = action.payload
@@ -211,6 +217,7 @@ export const {
   moveTab,
   splitPane,
   setSplitRatio,
+  restoreLayout,
   openTab,
   openPluginTab,
   keepPluginTabs,

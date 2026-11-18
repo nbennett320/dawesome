@@ -47,6 +47,24 @@ export const viewLabels: Record<View, string> = {
   [View.Timeline]: 'Timeline',
 }
 
+// a view's name in a project's saved layout (see state/savedLayout.ts).
+// never change one: files saved with it would lose that tab
+export const viewNames: Record<View, string> = {
+  [View.Playlist]: 'playlist',
+  [View.SamplePreview]: 'sample',
+  [View.Mixer]: 'mixer',
+  [View.Transport]: 'transport',
+  [View.PatternSequencer]: 'sequencer',
+  [View.AudioSettings]: 'audio',
+  [View.Mixdown]: 'mixdown',
+  [View.Preferences]: 'preferences',
+  [View.EffectsRack]: 'effects-rack',
+  [View.PianoRoll]: 'piano-roll',
+  [View.Plugin]: 'plugin',
+  [View.Controls]: 'controls',
+  [View.Timeline]: 'timeline',
+}
+
 export const viewHints: Record<View, string> = {
   [View.Playlist]: 'The song: clips and patterns laid out along the timeline, a lane per track',
   [View.SamplePreview]: 'Inspect a clip from the playlist and adjust how it plays',

@@ -126,4 +126,37 @@ describe('paneTree', () => {
     // nothing to close: the same tree
     expect(paneTree.closeTabsUnless(kept, () => true)).toBe(kept)
   })
+  test("a split's divider keeps where it was dragged", () => {
+    const root = paneTree.setRatio(splitRoot(), 's', 62.5)
+
+    expect(root.ratio).toBe(62.5)
+    expect(paneTree.leaves(root).map(l => l.id)).toEqual(['root', 'b'])
+  })
+
+  test('a ratio is kept between 0 and 100, and nonsense is ignored', () => {
+    expect(paneTree.setRatio(splitRoot(), 's', 140).ratio).toBe(100)
+    expect(paneTree.setRatio(splitRoot(), 's', -3).ratio).toBe(0)
+
+    const root = splitRoot()
+    expect(paneTree.setRatio(root, 's', NaN)).toBe(root)
+  })
+
+  test('setting a ratio on a leaf, a missing split, or the same ratio changes nothing', () => {
+    const root = paneTree.setRatio(splitRoot(), 's', 30)
+
+    expect(paneTree.setRatio(root, 'b', 70)).toBe(root)
+    expect(paneTree.setRatio(root, 'nope', 70)).toBe(root)
+    expect(paneTree.setRatio(root, 's', 30)).toBe(root)
+  })
+
+  test('a nested split keeps its ratio when the layout around it changes', () => {
+    const nested = paneTree.splitPane(
+      paneTree.addTab(splitRoot(), 'b', { component: View.Mixer }),
+      'b', tabKey(View.Mixer), 'horizontal', 'c', 't')
+    const root = paneTree.setRatio(nested, 't', 25)
+    const moved = paneTree.moveTab(paneTree.addTab(root, 'root', { component: View.Timeline }), tabKey(View.Timeline), 'root', 0)
+
+    expect(moved.right?.id).toBe('t')
+    expect(moved.right?.ratio).toBe(25)
+  })
 })

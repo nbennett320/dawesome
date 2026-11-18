@@ -106,7 +106,7 @@ fn test_first_save_makes_a_folder_and_brings_in_takes() {
   let sample = add_clip(&state, playback::METRONOME_TICK_PATH, 1, 4.);
   let row = state.playlist.sequencer.lock().unwrap().add_row(&take).unwrap();
 
-  let saved = save_project_to(&state, &dir.join("song.dawesome"), true).unwrap();
+  let saved = save_project_to(&state, &dir.join("song.dawesome"), true, None).unwrap();
 
   let project_file = dir.join("song").join("song.dawesome");
   let recorded = dir.join("song").join("recordings").join("song_11092026_0.wav");
@@ -151,7 +151,7 @@ fn test_first_save_keeps_folders_and_unused_takes() {
   let unused = record_take(&session, "untitled_11092026_1.wav");
   let clip = add_clip(&state, &filed, 0, 0.);
 
-  let saved = save_project_to(&state, &dir.join("song.dawesome"), true).unwrap();
+  let saved = save_project_to(&state, &dir.join("song.dawesome"), true, None).unwrap();
 
   let recordings = dir.join("song").join("recordings");
   let moved = recordings.join("Vocals").join("song_11092026_0.wav");
@@ -174,9 +174,9 @@ fn test_save_as_copies_takes_into_the_new_project() {
   let old_file = dir.join("song").join("song.dawesome");
   let take = record_take(&dir.join("song").join("recordings"), "song_11092026_0.wav");
   add_clip(&state, &take, 0, 0.);
-  save_project_to(&state, &old_file, false).unwrap();
+  save_project_to(&state, &old_file, false, None).unwrap();
 
-  let saved = save_project_to(&state, &dir.join("remix.dawesome"), true).unwrap();
+  let saved = save_project_to(&state, &dir.join("remix.dawesome"), true, None).unwrap();
 
   let copy = dir.join("remix").join("recordings").join("remix_11092026_0.wav");
   assert_eq!(saved.path, dir.join("remix").join("remix.dawesome").to_string_lossy());
@@ -187,7 +187,7 @@ fn test_save_as_copies_takes_into_the_new_project() {
   assert_eq!(saved_json(&saved.path).clips[0].path, "recordings/remix_11092026_0.wav");
 
   // saving again leaves the takes where they are
-  let again = save_project_to(&state, Path::new(&saved.path), false).unwrap();
+  let again = save_project_to(&state, Path::new(&saved.path), false, None).unwrap();
   assert!(again.moved_clips.is_empty());
 
   let _ = fs::remove_dir_all(&dir);
@@ -200,7 +200,7 @@ fn test_a_project_saved_before_folders_stays_where_it_is() {
   add_clip(&state, playback::METRONOME_TICK_PATH, 0, 0.);
   let file = dir.join("old.dawesome");
 
-  let saved = save_project_to(&state, &file, false).unwrap();
+  let saved = save_project_to(&state, &file, false, None).unwrap();
 
   assert_eq!(saved.path, file.to_string_lossy());
   assert!(!dir.join("old").exists());
@@ -215,7 +215,7 @@ fn test_opening_and_new_projects_move_where_takes_go() {
   let dir = test_dir("open");
   let state = daw::Session::default();
   let file = dir.join("song").join("song.dawesome");
-  save_project_to(&state, &file, false).unwrap();
+  save_project_to(&state, &file, false, None).unwrap();
 
   let other = daw::Session::default();
   load_from(&other, &file).unwrap();
@@ -1174,7 +1174,7 @@ fn test_saved_and_opened_projects_have_no_unsaved_changes() {
   mark_unchanged(&state);
   tick_clip(&state, 0, 0.);
   tick_clip(&state, 1, 2.);
-  let saved = save_project_to(&state, &dir.join("song.dawesome"), true).unwrap();
+  let saved = save_project_to(&state, &dir.join("song.dawesome"), true, None).unwrap();
   assert!(!has_unsaved_changes(&state));
 
   let opened = daw::Session::default();
@@ -1335,4 +1335,56 @@ fn test_a_new_project_turns_the_tape_off() {
   state.tape.lock().unwrap().machine.enabled = true;
   apply(&state, &Project::default(), None);
   assert!(state.tape.lock().unwrap().is_default());
+}
+
+#[test]
+fn test_layout_is_saved_and_loaded() {
+  let dir = test_dir("layout");
+  let file = dir.join("song.dawesome");
+  let state = daw::Session::default();
+  let layout = serde_json::json!({ "root": { "tabs": [{ "view": "mixer" }], "active": 0 }, "focused": [] });
+
+  save_project_to(&state, &file, false, Some(layout.clone())).unwrap();
+  let json: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+  assert_eq!(json["layout"], layout);
+
+  let loaded = daw::Session::default();
+  assert_eq!(load_from(&loaded, &file).unwrap().layout, Some(layout));
+
+  let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_no_layout_is_left_out() {
+  let dir = test_dir("no-layout");
+  let file = dir.join("song.dawesome");
+  let state = daw::Session::default();
+
+  save_project_to(&state, &file, false, None).unwrap();
+  let json: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+  assert!(json.get("layout").is_none());
+  // files from before layouts were saved
+  assert_eq!(load_from(&daw::Session::default(), &file).unwrap().layout, None);
+  assert_eq!(Project::from_json("{}").unwrap().layout, None);
+
+  let _ = fs::remove_dir_all(&dir);
+}
+
+// the layout isn't one of the project's changes: saved with one, or opened
+// with one, the project has nothing unsaved
+#[test]
+fn test_layout_is_not_an_unsaved_change() {
+  let dir = test_dir("layout-unsaved");
+  let file = dir.join("song.dawesome");
+  let state = daw::Session::default();
+  let layout = serde_json::json!({ "root": { "tabs": [{ "view": "playlist" }], "active": 0 } });
+
+  save_project_to(&state, &file, false, Some(layout)).unwrap();
+  assert!(!has_unsaved_changes(&state));
+
+  let loaded = daw::Session::default();
+  load_from(&loaded, &file).unwrap();
+  assert!(!has_unsaved_changes(&loaded));
+
+  let _ = fs::remove_dir_all(&dir);
 }

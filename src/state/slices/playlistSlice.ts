@@ -23,9 +23,10 @@ import {
 } from '../../types/project'
 import { currentGesture } from '../gesture'
 import { DEFAULT_PLAYLIST_BEATS, LoopRegion, LoopSettings, Wind } from '../../types/transport'
-import { SequencerState, SynthInstrument } from '../../types/sequencer'
+import { isSynthRow, SequencerState, SynthInstrument } from '../../types/sequencer'
 import { MixerSettings } from '../../types/mixer'
-import { openTab } from './windowSlice'
+import { newPaneId, openTab, restoreLayout } from './windowSlice'
+import { fromSaved, toSaved } from '../savedLayout'
 
 // mirrors daw::timing::Note in the engine
 export type { SnapNote }
@@ -1410,6 +1411,11 @@ const showLoadedProject = async (
   queuedSettings.clear()
   settingsGesture.clear()
   dispatch(reduceLoadedProject(project))
+  // its tabs, as it was saved with them. without a layout, the window keeps
+  // the one it has (its old plugin tabs close as their slots go)
+  const synthRows = (project.sequencer?.rows ?? []).filter(isSynthRow).map(row => row.instrument)
+  const layout = fromSaved(project.layout, project.effects ?? [], synthRows, newPaneId)
+  if(layout) dispatch(restoreLayout(layout))
   // the playlist's length depends on its clips
   await initPlaylist()(dispatch)
 
@@ -1428,7 +1434,14 @@ export const saveProject = (path: string, somewhereNew: boolean) => async (
   // latest settings, so the file has them
   await flushClipSettings(getState)
 
-  const saved = await invoke<SavedProject>('save_project', { path, somewhereNew })
+  const state = getState()
+  const layout = toSaved(
+    state.window.windowPane.root,
+    state.window.focusedPaneId,
+    state.effects.racks,
+    state.sequencer.rows.filter(isSynthRow).map(row => row.instrument))
+
+  const saved = await invoke<SavedProject>('save_project', { path, somewhereNew, layout })
   dispatch(playlistSlice.actions.reduceMovedClips(saved.movedClips))
   return saved
 }
