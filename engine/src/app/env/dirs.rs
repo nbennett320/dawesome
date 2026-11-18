@@ -18,6 +18,15 @@ pub fn sample_browser_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     .map_err(|e| format!("could not find the app's resources: {}", e))
 }
 
+// where the samples Dawesome comes with are: in the app's resources, or
+// ./assets/dawesome in a debug build (see daw/library.rs)
+pub fn bundled_samples_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+  if cfg!(debug_assertions) {
+    return Ok(PathBuf::from("./assets/dawesome"));
+  }
+  sample_browser_root(app)
+}
+
 pub fn get_sample_browser_root(root: &Path) -> Result<(Vec<String>, Vec<String>, Vec<String>, Vec<String>), String> {
   let entries: Vec<DirEntry> = fs::read_dir(root)
     .map_err(|e| format!("could not list {}: {}", root.display(), e))?

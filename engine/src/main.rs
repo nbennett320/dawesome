@@ -67,6 +67,11 @@ fn init_tauri() {
     .setup(move |app| {
       // (setup runs on the main thread, which plugins are called on)
       let handle = app.handle().clone();
+      // bundled samples are saved by name, found again wherever the app is
+      match app::env::bundled_samples_dir(&handle) {
+        Ok(dir) => daw::library::set_bundled_root(&dir),
+        Err(e) => println!("{}", e),
+      }
       daw::main_thread::init(Box::new(move |job| handle.run_on_main_thread(job).map_err(|e| e.to_string())));
       daw::effects::keep_idling(racks.clone());
       daw::effects::follow_output(&racks);

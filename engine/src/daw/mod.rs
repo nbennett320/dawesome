@@ -18,6 +18,7 @@ pub(crate) mod effects;
 pub(crate) mod file_drop;
 pub(crate) mod history;
 pub(crate) mod join;
+pub(crate) mod library;
 pub(crate) mod main_thread;
 pub(crate) mod mixdown;
 pub(crate) mod mixdown_file;
