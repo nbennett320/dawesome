@@ -6,6 +6,7 @@ import {
 } from './slices/playlistSlice'
 import type { PlaylistItem, PlaylistItemPixelOffset } from '../types/playlist'
 import type { ClipInfo } from '../types/clip'
+import type { RootState } from './store'
 
 // files dragged in from outside the app (see events/fileDrop.ts): copied
 // into the project's clips (import_files), then placed in the playlist
@@ -86,6 +87,27 @@ export const importFiles = async (
     dispatch(takesChanged())
   }
   return imported.files.length ? imported : null
+}
+
+// files dropped on the Pattern Sequencer: copied into the clips, then a
+// sample row each at the bottom, or (one file on a sample row) that row's
+// sample instead
+export const dropFilesOnSequencer = (
+  files: DroppedFile[],
+  skipped: SkippedFile[],
+  replaceRowId: number | null,
+) => async (dispatch: Dispatch, getState: () => RootState): Promise<void> => {
+  const imported = await importFiles(dispatch, files, skipped)
+  if(!imported) return
+  const paths = imported.files.map(file => file.path)
+  // loaded when needed: the sequencer slice imports the playlist slice
+  const { addSampleRows, replaceRowSample } = await import('./slices/sequencerSlice')
+  try {
+    if(replaceRowId !== null && paths.length === 1) await replaceRowSample(replaceRowId, paths[0])(dispatch)
+    else await addSampleRows(paths)(dispatch, getState)
+  } catch(e) {
+    await notice(dispatch, 'error', String(e))
+  }
 }
 
 // files dropped on the playlist: copied into the clips, then a clip of each,

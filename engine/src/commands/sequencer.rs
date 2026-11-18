@@ -1,9 +1,9 @@
 // the Pattern Sequencer's commands (see daw/actions/sequencer.rs)
 use std::thread;
 use crate::daw::actions::sequencer::{
-  add_pattern_clip_to, add_pattern_folder_to, add_pattern_of, add_sample, beats_per_bar, duplicate_pattern_of, edit,
+  add_pattern_clip_to, add_pattern_folder_to, add_pattern_of, add_sample, add_samples, beats_per_bar, duplicate_pattern_of, edit,
   edit_pattern, edit_row, explode, paint, remove_pattern_folder_of, remove_pattern_of, remove_row_of, replace_sample,
-  set_pattern_notes_in, set_pattern_step_in, toggle_pattern_in, trim_pattern_in, AddedFolder, AddedPattern, AddedRow,
+  set_pattern_notes_in, set_pattern_step_in, toggle_pattern_in, trim_pattern_in, AddedFolder, AddedPattern, AddedRow, AddedRows,
   Exploded, Painted, RemovedPattern,
 };
 use crate::daw::{playback, sequencer};
@@ -22,6 +22,13 @@ pub fn get_sequencer(state: TState<'_>) -> sequencer::SequencerState {
 #[tauri::command(async)]
 pub fn add_sample_row(state: TState<'_>, path: String) -> Result<AddedRow, String> {
   add_sample(&state, &path)
+}
+
+// a sample row for each file, at the bottom in order (files dragged in from
+// outside). one step to undo
+#[tauri::command(async)]
+pub fn add_sample_rows(state: TState<'_>, paths: Vec<String>) -> Result<AddedRows, String> {
+  add_samples(&state, &paths)
 }
 
 // take a row out, with its notes in every pattern (and a synth row's

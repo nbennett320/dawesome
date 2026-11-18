@@ -11,6 +11,7 @@ import recordingReducer, { setRecording } from '../../../state/slices/recordingS
 import sequencerReducer from '../../../state/slices/sequencerSlice'
 import { Library, RecordingFile, RecordingsListing } from '../../../types/recordings'
 import RecordingsBrowser from './RecordingsBrowser'
+import { DragItem, sendSampleDrag } from '../../../state/sampleDrag'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ ask: vi.fn(), open: vi.fn(), save: vi.fn() }))
@@ -248,5 +249,38 @@ describe('previewing a take', () => {
     await act(async () => {})
     expect(mockInvoke).toHaveBeenCalledWith('stop_previews')
     expect(stopButtons()).toHaveLength(0)
+  })
+})
+
+describe('files dragged in from outside', () => {
+  const files: DragItem = { kind: 'files', files: [{ path: '/finder/kick.wav', folder: '' }], skipped: [] }
+  // the drag bus asks what's under the mouse, which jsdom can't tell
+  const dropOn = async (el: Element) => {
+    const was = document.elementFromPoint
+    document.elementFromPoint = () => el
+    await act(async () => {
+      sendSampleDrag({ type: 'move', item: files, clientX: 1, clientY: 1 })
+      sendSampleDrag({ type: 'drop', item: files, clientX: 1, clientY: 1 })
+    })
+    document.elementFromPoint = was
+  }
+
+  it('are copied into the folder they are dropped on, on the Clips page', async () => {
+    const store = await setup('clips')
+    mockInvoke.mockImplementation(async (command: string) => {
+      if(command === 'list_recordings') return listing
+      if(command === 'import_files') return { files: [{ source: '/finder/kick.wav', path: '/p/clips/Vocals/kick.wav', reused: false }], skipped: [] }
+      return undefined
+    })
+    const revision = store.getState().recording.takesRevision
+    await dropOn(screen.getByText('Vocals'))
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('import_files', { files: (files as { files: unknown }).files, into: 'Vocals' }))
+    await waitFor(() => expect(store.getState().recording.takesRevision).toBeGreaterThan(revision))
+  })
+
+  it('are not taken by the Recordings page', async () => {
+    await setup('recordings')
+    await dropOn(screen.getByText('Vocals'))
+    expect(mockInvoke).not.toHaveBeenCalledWith('import_files', expect.anything())
   })
 })

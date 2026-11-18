@@ -21,6 +21,7 @@ import BrowserRow, { RowHint } from '../browser/BrowserRow'
 import StopPreview from '../browser/StopPreview'
 import { usePreviewStop } from '../browser/usePreviewStop'
 import FolderBrowser, { ItemContext } from '../browser/FolderBrowser'
+import { importFiles } from '../../../state/fileDrop'
 import RenameField from '../browser/RenameField'
 import { useFail } from '../browser/useFail'
 
@@ -38,7 +39,7 @@ const words = {
   },
   clips: {
     noun: 'clip', nouns: 'clips', title: 'Clips', made: 'Made',
-    none: 'No clips yet. Deep copy or join clips to make some.',
+    none: 'No clips yet. Drag audio files in from Finder, or deep copy or join clips.',
   },
 }
 
@@ -279,11 +280,17 @@ const RecordingsBrowser = ({ library = 'recordings' }: BrowserProps) => {
         return used ? `The project uses ${plural(used, w.noun)} in it. Remove those first` : undefined
       }}
       canDropItem={(item, key) => {
+        // from outside the app: copied in (the Clips page only)
+        if(item.kind === 'files') return library === 'clips'
         if(item.kind !== 'sample') return false
         const take = takes.find(t => t.path === item.path)
         return !!take && take.folder !== key
       }}
       dropItem={async (item, key) => {
+        if(item.kind === 'files') {
+          await importFiles(dispatch, item.files, item.skipped, key)
+          return
+        }
         if(item.kind !== 'sample') return
         const result = await moved('move_recording', { path: item.path, toFolder: key })
         if(selected === item.path) setSelected(result.path)

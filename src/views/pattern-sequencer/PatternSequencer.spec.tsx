@@ -11,7 +11,7 @@ import windowReducer, { openTab, selectFocusedView } from '../../state/slices/wi
 import effectsReducer from '../../state/slices/effectsSlice'
 import appearanceReducer, { setPreferences } from '../../state/slices/appearanceSlice'
 import sequencerReducer, { sequencerSlice } from '../../state/slices/sequencerSlice'
-import { DragItem, beginSampleDrag, onSampleDrag } from '../../state/sampleDrag'
+import { DragItem, beginSampleDrag, onSampleDrag, sendSampleDrag } from '../../state/sampleDrag'
 import { Note, Pattern, Row, SequencerState, withStep, withTrim } from '../../types/sequencer'
 import {
   freshRev, pattern, sampleRow, sequencerOf, steps, synthRow,
@@ -478,6 +478,44 @@ describe('the Pattern Sequencer', () => {
     expect(calls('add_synth_row')).toEqual([{ pluginId: 'vst3:keys' }])
     expect(calls('replace_row_sample')).toEqual([])
     expect(await screen.findByRole('button', { name: 'Mute Keys' })).toBeTruthy()
+  })
+
+  it('copies files dragged in from outside, then adds a row each, or replaces a sample row with one', async () => {
+    await setup()
+    const copied = (paths: string[]) => paths.map(path => ({ source: path, path: path.replace('/finder', '/p/clips'), reused: false }))
+    mockInvoke.mockImplementation(async (command: string, args: Record<string, unknown>) => {
+      if(command === 'import_files') {
+        return { files: copied((args.files as { path: string }[]).map(f => f.path)), skipped: [] }
+      }
+      if(command === 'add_sample_rows') {
+        const added = (args.paths as string[]).map((path, i) => sampleRow(20 + i, { path }))
+        sequencer = { ...sequencer, rows: [...sequencer.rows, ...added] }
+        return { rowIds: added.map(r => r.id), sequencer }
+      }
+      if(command === 'get_sequencer') return sequencer
+      if(command === 'get_playlist_transport') return transport
+      return undefined
+    })
+    const files = (...paths: string[]): DragItem => ({ kind: 'files', files: paths.map(path => ({ path, folder: '' })), skipped: [] })
+    const drop = async (item: DragItem, target: Element) => {
+      document.elementFromPoint = () => target
+      await act(async () => {
+        sendSampleDrag({ type: 'move', item, clientX: 40, clientY: 40 })
+        sendSampleDrag({ type: 'drop', item, clientX: 40, clientY: 40 })
+      })
+      await act(async () => {})
+    }
+
+    // two on a sample row: both added, at the bottom
+    await drop(files('/finder/a.wav', '/finder/b.wav'), keysOf('snare')[3])
+    expect(calls('import_files')).toEqual([{ files: [{ path: '/finder/a.wav', folder: '' }, { path: '/finder/b.wav', folder: '' }], into: '' }])
+    await waitFor(() => expect(calls('add_sample_rows')).toEqual([{ paths: ['/p/clips/a.wav', '/p/clips/b.wav'] }]))
+    expect(calls('replace_row_sample')).toEqual([])
+
+    // one on a sample row: that row's sample
+    await drop(files('/finder/rim.wav'), keysOf('snare')[3])
+    await waitFor(() => expect(calls('replace_row_sample')).toEqual([{ rowId: 2, path: '/p/clips/rim.wav' }]))
+    expect(calls('add_sample_rows')).toHaveLength(1)
   })
 
   it('says what a drop would do: replace on a row of its kind, add on another', async () => {

@@ -288,6 +288,16 @@ const addPatternIfNone = async (dispatch: Dispatch, getState: () => RootState) =
 
 // rows: a sample or a synth each. every row command goes by the row's id
 
+// files dragged in from outside: a sample row each, at the bottom in order,
+// as one step to undo. a failure (a file that can't be read, so none are
+// added) is thrown, for the caller to show
+export const addSampleRows = (paths: string[]) => async (dispatch: Dispatch, getState: () => RootState) => {
+  if(!paths.length) return
+  const { sequencer } = await invoke<{ rowIds: number[], sequencer: SequencerState }>('add_sample_rows', { paths })
+  dispatch(setSequencer(sequencer))
+  await addPatternIfNone(dispatch, getState)
+}
+
 // a sample dropped on the sequencer becomes a row at the bottom
 export const addSampleRow = (path: string) => async (dispatch: Dispatch, getState: () => RootState) => {
   try {

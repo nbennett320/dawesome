@@ -201,6 +201,7 @@ fn init_tauri() {
       get_input_levels,
       get_sequencer,
       add_sample_row,
+      add_sample_rows,
       add_synth_row,
       remove_row,
       move_row,

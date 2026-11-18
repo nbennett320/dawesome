@@ -73,6 +73,28 @@ pub(crate) fn add_sample(state: &daw::Session, path: &str) -> Result<AddedRow, S
   Ok(AddedRow { row_id, sequencer: sequencer_state(state) })
 }
 
+// rows that were just added, in order, and the sequencer with them
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AddedRows {
+  pub row_ids: Vec<u64>,
+  pub sequencer: sequencer::SequencerState,
+}
+
+// a sample row for each file, at the bottom in order. one step to undo.
+// every file is read first: if one can't be, no row is added
+pub(crate) fn add_samples(state: &daw::Session, paths: &[String]) -> Result<AddedRows, String> {
+  // decoded before taking the sequencer's lock, which playback needs
+  let sounds = paths.iter().map(|path| sequencer::RowSound::load(path)).collect::<Result<Vec<_>, String>>()?;
+  let row_ids = if paths.is_empty() { Vec::new() } else {
+    history::sequencer_edit(state, &[], None, || {
+      let mut seq = state.playlist.sequencer.lock().unwrap();
+      Ok(paths.iter().zip(sounds).map(|(path, sound)| seq.add_sample_row(path, sound)).collect::<Vec<u64>>())
+    })?
+  };
+  Ok(AddedRows { row_ids, sequencer: sequencer_state(state) })
+}
+
 pub(crate) fn remove_row_of(state: &daw::Session, row_id: u64) -> Result<sequencer::SequencerState, String> {
   let beats = beats_per_bar(state);
   edit(state, None, |seq| seq.remove_row_and_trim(row_id, beats))
