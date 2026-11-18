@@ -1159,10 +1159,6 @@ const tookNewFiles = async (dispatch: Dispatch) => {
   dispatch(takesChanged())
 }
 
-// mirrors NEEDS_SAVING in engine/src/daw/bounce.rs: what the engine says when a
-// file has to be written and the project has never been saved
-export const NEEDS_SAVING = 'The project has to be saved first, so its clips have somewhere to go.'
-
 // show a wait cursor only if the work is slow, so a quick one shows nothing
 export const withWaitCursor = async <T,>(
   work: Promise<T>,
@@ -1181,41 +1177,17 @@ export const withWaitCursor = async <T,>(
   }
 }
 
-// save the project (the Save dialog opens if it never was), and say whether
-// it has a file now: the user may have cancelled
-const saveFirst = async (
-  dispatch: Dispatch,
-  getState: () => RootState,
-): Promise<boolean> => {
-  const { runProjectCommand } = await import('./projectSlice')
-  await runProjectCommand('save')(dispatch, getState)
-  return !!getState().project.path
-}
-
-// run a command that writes files, saving the project first if the engine
-// says it must. null if it failed or the save was cancelled. `report` says
-// what to do with a failure's sentence
+// run a command that writes files (into the project's clips folder, or an
+// unsaved project's own). null if it failed. `report` says what to do with
+// a failure's sentence
 const writingClips = async <T,>(
-  dispatch: Dispatch,
-  getState: () => RootState,
   setBusy: (busy: boolean) => void,
   command: string,
   ids: number[],
   report: (message: string) => Promise<void>,
 ): Promise<T | null> => {
-  const attempt = () => withWaitCursor(invoke<T>(command, { ids }), setBusy)
   try {
-    return await attempt()
-  } catch(e) {
-    if(String(e) !== NEEDS_SAVING) {
-      await report(String(e))
-      return null
-    }
-  }
-
-  if(!await saveFirst(dispatch, getState)) return null
-  try {
-    return await attempt()
+    return await withWaitCursor(invoke<T>(command, { ids }), setBusy)
   } catch(e) {
     await report(String(e))
     return null
@@ -1226,11 +1198,10 @@ const writingClips = async <T,>(
 // keep their ids and places. all or nothing; the engine says why if it can't
 export const deepCopyClips = (ids: number[], setBusy: (busy: boolean) => void = () => {}) => async (
   dispatch: Dispatch,
-  getState: () => RootState,
 ): Promise<ChangedClips | null> => {
   if(!ids.length) return null
   const changed = await writingClips<ChangedClips>(
-    dispatch, getState, setBusy, 'deep_copy_clips', ids, message => notifyError(dispatch, message),
+    setBusy, 'deep_copy_clips', ids, message => notifyError(dispatch, message),
   )
   if(!changed) return null
 
@@ -1244,11 +1215,10 @@ export const deepCopyClips = (ids: number[], setBusy: (busy: boolean) => void = 
 // 'Join needs', a join that doesn't apply: that's information, not a failure
 export const joinClips = (ids: number[], setBusy: (busy: boolean) => void = () => {}) => async (
   dispatch: Dispatch,
-  getState: () => RootState,
 ): Promise<Joined | null> => {
   if(ids.length < 2) return null
   const joined = await writingClips<Joined>(
-    dispatch, getState, setBusy, 'join_clips', ids,
+    setBusy, 'join_clips', ids,
     message => message.startsWith('Join needs') ? notify(dispatch, message) : notifyError(dispatch, message),
   )
   if(!joined) return null

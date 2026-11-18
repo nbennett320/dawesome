@@ -742,6 +742,8 @@ pub fn mark_unchanged(state: &daw::Session) {
 // saved: anything a save would write differently. undoing back to how it
 // was is no change
 pub fn has_unsaved_changes(state: &daw::Session) -> bool {
+  // clips kept for an unsaved project would go with it, used or not
+  if state.project.lock().unwrap().has_unsaved_clips() { return true; }
   let now = capture(state, current_dir(state).as_deref());
   // (no baseline only before the app has started: say changed, to be safe)
   state.project.lock().unwrap().baseline.as_ref().map_or(true, |was| *was != now)
@@ -928,9 +930,9 @@ pub fn save_project_to(
   }
   let name = project_files::project_name(&target).unwrap_or_else(|| project_files::UNTITLED.into());
 
-  // where the project's takes are now, and whether they stay there too.
-  // and its written-out clips (Deep copy, Join), which only a saved project
-  // has, and which the project it's saved from always keeps
+  // where the project's takes and clips (dropped in, Deep copy's, Join's)
+  // are now, and whether they stay there too: a saved project keeps its
+  // own, an unsaved one's move in from the app's data
   let (takes, clips) = {
     let location = state.project.lock().unwrap();
     let takes = match (&location.path, &location.session) {
@@ -938,7 +940,12 @@ pub fn save_project_to(
       (None, Some(session)) => Some((session.clone(), false)),
       (None, None) => None,
     };
-    (takes, location.path.as_deref().map(|path| (project_files::clips_dir_for(path), true)))
+    let clips = match (&location.path, &location.clips_session) {
+      (Some(path), _) => Some((project_files::clips_dir_for(path), true)),
+      (None, Some(session)) => Some((session.clone(), false)),
+      (None, None) => None,
+    };
+    (takes, clips)
   };
   let folders = [
     (takes, recordings_dir_for(&target)),

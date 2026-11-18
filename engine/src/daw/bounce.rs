@@ -148,16 +148,10 @@ pub(crate) fn source_name(audiograph: &audiograph::AudioGraph<'static>, id: u64,
   Some(project_files::file_stem_from(&name.unwrap_or_else(|| "pattern".into())))
 }
 
-// what Deep copy and Join say for a project that's never been saved: the
-// frontend looks for this, saves the project, and asks again (see
-// NEEDS_SAVING in src/state/slices/playlistSlice.ts)
-pub const NEEDS_SAVING: &str = "The project has to be saved first, so its clips have somewhere to go.";
-
-// the folder written-out clips go in, for a project that's been saved
+// the folder written-out clips go in: the project's clips folder, or an
+// unsaved project's own (see ProjectLocation::clips_dir)
 pub fn clips_dir(state: &daw::Session) -> Result<PathBuf, String> {
-  state.project.lock().unwrap().path.as_deref()
-    .map(project_files::clips_dir_for)
-    .ok_or_else(|| NEEDS_SAVING.to_string())
+  state.project.lock().unwrap().clips_dir()
 }
 
 // - rate: the engine's rate. None when no output is open: each clip is

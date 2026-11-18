@@ -32,6 +32,10 @@ pub struct ProjectLocation {
   pub path: Option<PathBuf>,
   // this unsaved project's folder of takes, once something's been recorded
   pub session: Option<PathBuf>,
+  // this unsaved project's folder of clips (files dropped in, Deep copy's
+  // and Join's), once one's been written. apart from its takes, so neither
+  // library sees the other's files
+  pub clips_session: Option<PathBuf>,
   // the project as it was last started, opened or saved, to tell whether
   // it's changed since (see project::has_unsaved_changes)
   pub baseline: Option<crate::daw::project::Project>,
@@ -70,11 +74,46 @@ impl ProjectLocation {
     }
   }
 
-  // a new or opened project: takes no longer go in the old project's
-  // places. an unsaved project's folder of takes is tidied away if nothing
-  // was recorded into it
+  // where clips are written: the project's clips folder, or (for a project
+  // that's never been saved) a folder of its own in the app's data, moved
+  // into the project's when it's first saved. neither is made here
+  pub fn clips_dir(&mut self) -> Result<PathBuf, String> {
+    if let Some(path) = &self.path {
+      return Ok(clips_dir_for(path));
+    }
+    if let Some(session) = &self.clips_session {
+      return Ok(session.clone());
+    }
+
+    let root = unsaved_clips_root().ok_or("there's no app data folder to keep clips in")?;
+    let session = root.join(session_folder_name(&today(), random_hex()));
+    self.clips_session = Some(session.clone());
+    Ok(session)
+  }
+
+  // the clips folder as it is now, without giving an unsaved project one:
+  // None until an unsaved project has written a clip
+  pub fn existing_clips_dir(&self) -> Option<PathBuf> {
+    match (&self.path, &self.clips_session) {
+      (Some(path), _) => Some(clips_dir_for(path)),
+      (None, Some(session)) => Some(session.clone()),
+      (None, None) => None,
+    }
+  }
+
+  // whether an unsaved project has clips that only live in the app's data,
+  // which would be lost with it
+  pub fn has_unsaved_clips(&self) -> bool {
+    self.path.is_none() && self.clips_session.as_deref().map_or(false, |dir| {
+      fs::read_dir(dir).map(|mut entries| entries.next().is_some()).unwrap_or(false)
+    })
+  }
+
+  // a new or opened project: takes and clips no longer go in the old
+  // project's places. an unsaved project's folders are tidied away if
+  // nothing was written into them
   pub fn reset(&mut self, path: Option<PathBuf>) {
-    if let Some(session) = self.session.take() {
+    for session in [self.session.take(), self.clips_session.take()].into_iter().flatten() {
       remove_if_empty(&session);
     }
     self.path = path;
@@ -162,6 +201,12 @@ pub fn numbered_path(dir: &Path, stem: &str, tag: &str, taken: &std::collections
 // ~/Library/Application Support/dawesome/unsaved
 fn unsaved_root() -> Option<PathBuf> {
   dirs::data_dir().map(|dir| dir.join("dawesome").join("unsaved"))
+}
+
+// where unsaved projects' clips go, e.g.
+// ~/Library/Application Support/dawesome/unsaved-clips
+fn unsaved_clips_root() -> Option<PathBuf> {
+  dirs::data_dir().map(|dir| dir.join("dawesome").join("unsaved-clips"))
 }
 
 // a take's date, month first as in its name: 11092026
