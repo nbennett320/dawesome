@@ -87,7 +87,7 @@ const TransportDeck = () => {
       // winding is silent: playback pauses, and carries on from wherever the
       // tape is left
       setWind({ direction, fromMs: latest.current.position, startedAt: performance.now() })
-      if(held.wasPlaying) dispatch(pausePlaylist())
+      if(held.wasPlaying) dispatch(pausePlaylist(true))
     }, HOLD_MS)
     hold.current = held
   }

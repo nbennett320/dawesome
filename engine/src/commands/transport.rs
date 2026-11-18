@@ -29,11 +29,13 @@ pub fn play_playlist(state: TState<'_>) {
   }
 }
 
-// stop where it is, so play carries on from there
+// stop where it is, so play carries on from there. `at_once`: not as tape
+// (winding, or a pattern let go of), whatever the preference
 #[tauri::command]
-pub fn pause_playlist(state: TState<'_>) {
+pub fn pause_playlist(state: TState<'_>, at_once: Option<bool>) {
   if state.playlist.playing() {
-    playback::pause_playlist_as(state.inner(), playback::Motion::AsTape);
+    let motion = if at_once.unwrap_or(false) { playback::Motion::AtOnce } else { playback::Motion::AsTape };
+    playback::pause_playlist_as(state.inner(), motion);
   }
 }
 

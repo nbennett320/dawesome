@@ -484,8 +484,10 @@ const transportError = (what: string) => (e: unknown) =>
 export const playPlaylist = () => (dispatch: Dispatch) =>
   invoke<void>('play_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('play'))
 
-export const pausePlaylist = () => (dispatch: Dispatch) =>
-  invoke<void>('pause_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('pause'))
+// (atOnce: not as a tape coasts down, whatever Settings → Controls → Tape
+// says: for winding)
+export const pausePlaylist = (atOnce = false) => (dispatch: Dispatch) =>
+  invoke<void>('pause_playlist', atOnce ? { atOnce } : {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('pause'))
 
 export const stopPlaylist = () => (dispatch: Dispatch) =>
   invoke<void>('stop_playlist', {}).then(() => syncPlayingFrom(dispatch)).catch(transportError('stop'))

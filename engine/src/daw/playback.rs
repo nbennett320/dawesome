@@ -664,8 +664,11 @@ pub fn pause_playlist_as(state: &daw::Session, motion: Motion) {
 
   // read before stopping, while the run's start time still applies
   let position = playhead(state);
+  let looping = active_loop(state);
   let coasted = end_run_as(state, motion);
-  set_playhead(state, playlist::snap_to_beat(position + coasted, beat_interval(state)));
+  // (a coast past the loop's end went round, as the song did)
+  let landed = if coasted.is_zero() { position } else { playlist::timeline_position(position, coasted, looping) };
+  set_playhead(state, playlist::snap_to_beat(landed, beat_interval(state)));
 }
 
 // stop playing and wind back to the start

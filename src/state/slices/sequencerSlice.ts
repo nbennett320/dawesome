@@ -659,7 +659,7 @@ export const playPattern = (patternId: number) => async (dispatch: Dispatch) => 
 // the Piano Roll). the playlist's playhead stays where it was
 export const stopPattern = () => async (dispatch: Dispatch) => {
   try {
-    await invoke('pause_playlist', {})
+    await invoke('pause_playlist', { atOnce: true })
   } catch(e) {
     sequencerError('stop the pattern')(e)
   }
