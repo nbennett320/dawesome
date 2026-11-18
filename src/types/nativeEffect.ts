@@ -96,3 +96,13 @@ export interface EffectSpectrum {
   // by octave
   levels: number[]
 }
+
+// what a built-in effect is doing now (get_effect_readout): an LFO's
+// phase, where a delay reads from. what each slot holds is the effect's
+// own (its panel's maths file says)
+export interface EffectReadout {
+  // frames it's run so far: not going up means it isn't being run
+  written: number
+  rate: number
+  slots: number[]
+}

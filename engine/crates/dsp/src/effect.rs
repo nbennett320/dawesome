@@ -8,6 +8,7 @@
 // from the values it's given, each call
 
 use crate::param::ParamDesc;
+use crate::readout::READOUT;
 use crate::transport::Transport;
 
 // the effect's sound: runs on the audio thread, so it mustn't lock,
@@ -27,6 +28,11 @@ pub trait Effect: Send {
   // `params` says: none if it never stops. the engine doesn't rest a chain
   // until it's been silent this long
   fn tail_frames(&self, params: &Values, rate: f32) -> Option<u64>;
+
+  // what it's doing now, for its panel (readout.rs): called after each
+  // block, `out` all 0s. each effect says what its slots hold. most have
+  // nothing to say
+  fn readout(&self, _out: &mut [f32; READOUT]) {}
 }
 
 // a stretch of sound in and out, stereo

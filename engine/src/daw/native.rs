@@ -223,6 +223,15 @@ impl Hosted for Native {
   }
 }
 
+impl Native {
+  // what it's doing now, for its panel (dsp::readout): each effect says
+  // what its slots hold
+  pub fn readout(&self) -> EffectReadout {
+    let (slots, written, rate) = self.store.readout().read();
+    EffectReadout { written, rate, slots: slots.to_vec() }
+  }
+}
+
 // ---- the audio-thread half
 
 struct NativeProcessor(Runner);
@@ -284,6 +293,17 @@ pub struct EffectSpectrum {
   // dB (a full-scale sine is 0, silence -120), SPECTRUM_BINS of them, from
   // 20 Hz to 20 kHz evenly by octave
   pub levels: Vec<f32>,
+}
+
+// what a built-in effect is doing now (get_effect_readout)
+#[derive(Serialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectReadout {
+  // frames it's run so far: when it stops going up, it isn't being run
+  pub written: u64,
+  pub rate: u32,
+  // dsp::READOUT numbers: what each means is the effect's own
+  pub slots: Vec<f32>,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -396,6 +416,20 @@ mod tests {
     let freq = 20. * 1000f32.powf(at as f32 / (SPECTRUM_BINS - 1) as f32);
     assert!((freq / 1000.).log2().abs() < 0.1, "the peak's at {} Hz", freq);
     assert!(peak > -1.5, "{}", peak);
+  }
+
+  #[test]
+  fn test_its_readout_counts_what_its_processor_runs() {
+    let mut a = eq();
+    let mut processor = a.take_processor().unwrap();
+    let before = a.native().unwrap().readout();
+    assert_eq!((before.written, before.rate, before.slots.len()), (0, 0, dsp::READOUT));
+    let transport = Transport { sample_rate: 48_000, ..Transport::default() };
+    let block = [0.25f32; 300];
+    let (mut l, mut r) = ([0f32; 300], [0f32; 300]);
+    processor.process([&block, &block], [&mut l, &mut r], &[], &transport);
+    let after = a.native().unwrap().readout();
+    assert_eq!((after.written, after.rate), (300, 48_000));
   }
 
   #[test]

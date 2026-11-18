@@ -420,6 +420,18 @@ fn test_what_it_puts_out_is_tapped_for_the_app() {
 }
 
 #[test]
+fn test_its_readout_counts_the_frames_it_runs() {
+  for entry in effects() {
+    let store = Store::new(entry);
+    let mut runner = Runner::new(store.clone(), RATE as f32);
+    run(&mut runner, &noise(5000, 3), 512, RATE);
+    let (slots, written, rate) = store.readout().read();
+    assert_eq!((written, rate), (5000, RATE), "{}", entry.info.name);
+    assert!(slots.iter().all(|x| x.is_finite()), "{}", entry.info.name);
+  }
+}
+
+#[test]
 fn test_values_set_together_come_back_as_they_were() {
   for entry in effects() {
     for plains in settings(entry) {
