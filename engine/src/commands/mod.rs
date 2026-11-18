@@ -13,6 +13,7 @@ pub(crate) mod audio;
 pub(crate) mod clip;
 pub(crate) mod clipboard;
 pub(crate) mod effect;
+pub(crate) mod file_drop;
 pub(crate) mod history;
 pub(crate) mod mixdown;
 pub(crate) mod mixer;

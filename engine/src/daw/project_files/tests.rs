@@ -422,17 +422,17 @@ fn test_existing_recordings_dir_does_not_make_a_session() {
 
 
 #[test]
-fn test_take_file_name() {
-  assert_eq!(take_file_name("  vocal idea "), Ok("vocal idea.wav".to_string()));
-  assert_eq!(take_file_name("riff.WAV"), Ok("riff.wav".to_string()));
-  assert_eq!(take_file_name("v1.2"), Ok("v1.2.wav".to_string()));
-  assert!(take_file_name("   ").is_err());
-  assert!(take_file_name(".wav").is_err());
-  assert!(take_file_name(".hidden").is_err());
-  assert!(take_file_name("../escape").is_err());
-  assert!(take_file_name("a/b").is_err());
-  assert!(take_file_name("a\\b").is_err());
-  assert!(take_file_name(&"x".repeat(121)).is_err());
+fn test_file_name_with_wav() {
+  assert_eq!(file_name_with("  vocal idea ", "wav"), Ok("vocal idea.wav".to_string()));
+  assert_eq!(file_name_with("riff.WAV", "wav"), Ok("riff.wav".to_string()));
+  assert_eq!(file_name_with("v1.2", "wav"), Ok("v1.2.wav".to_string()));
+  assert!(file_name_with("   ", "wav").is_err());
+  assert!(file_name_with(".wav", "wav").is_err());
+  assert!(file_name_with(".hidden", "wav").is_err());
+  assert!(file_name_with("../escape", "wav").is_err());
+  assert!(file_name_with("a/b", "wav").is_err());
+  assert!(file_name_with("a\\b", "wav").is_err());
+  assert!(file_name_with(&"x".repeat(121), "wav").is_err());
 }
 
 #[test]

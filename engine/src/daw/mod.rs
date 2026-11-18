@@ -15,6 +15,7 @@ pub(crate) mod actions;
 pub(crate) mod bounce;
 pub(crate) mod clipboard;
 pub(crate) mod effects;
+pub(crate) mod file_drop;
 pub(crate) mod history;
 pub(crate) mod join;
 pub(crate) mod main_thread;

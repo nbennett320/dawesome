@@ -281,7 +281,7 @@ pub fn next_take_paths(dir: &Path, project: &str, date: &str, count: usize) -> V
 
 // a free path in `dir` for a file called `file_name`, numbering it when
 // that's taken
-fn free_path(dir: &Path, file_name: &str) -> PathBuf {
+pub(crate) fn free_path(dir: &Path, file_name: &str) -> PathBuf {
   let path = dir.join(file_name);
   if !path.exists() { return path; }
 
@@ -490,7 +490,7 @@ const MAX_DEPTH: usize = 32;
 // call `visit` with everything inside `dir`, folders before what's in them.
 // hidden files are skipped, and links aren't followed (so a link to a folder
 // above can't loop forever)
-fn walk(dir: &Path, visit: &mut dyn FnMut(&Path, bool)) {
+pub(crate) fn walk(dir: &Path, visit: &mut dyn FnMut(&Path, bool)) {
   fn go(dir: &Path, depth: usize, visit: &mut dyn FnMut(&Path, bool)) {
     if depth > MAX_DEPTH { return; }
     let entries = match fs::read_dir(dir) {
@@ -554,7 +554,7 @@ pub fn list_recordings(dir: &Path) -> RecordingsListing {
 
 // compares names with the numbers in them as numbers, so take_10 comes after
 // take_9
-fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+pub(crate) fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
   fn parts(s: &str) -> Vec<(String, u64)> {
     let mut out = Vec::new();
     let mut text = String::new();
@@ -593,12 +593,6 @@ fn check_name<'a>(typed: &'a str, what: &str) -> Result<&'a str, String> {
     return Err("that name is too long".into());
   }
   Ok(name)
-}
-
-// the file name a take is renamed to, from what was typed: the .wav is
-// added (or kept, if it was typed)
-pub fn take_file_name(typed: &str) -> Result<String, String> {
-  file_name_with(typed, "wav")
 }
 
 // the file name a file is renamed to, from what was typed: its extension

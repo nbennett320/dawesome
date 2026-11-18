@@ -28,6 +28,7 @@ fn init_tauri() {
   use commands::audio::*;
   use commands::sequencer::*;
   use commands::clip::*;
+  use commands::file_drop::*;
   use commands::clipboard::*;
   use commands::mixdown::*;
   use commands::appearance::{themes, preferences, set_preferences, set_window_background};
@@ -133,6 +134,9 @@ fn init_tauri() {
       get_audio_settings,
       set_audio_settings,
       add_audiograph_node,
+      scan_dropped_files,
+      import_files,
+      place_files,
       move_audiograph_node,
       move_audiograph_nodes,
       remove_audiograph_nodes,
