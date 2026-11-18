@@ -59,6 +59,7 @@ pub(crate) mod input;
 pub(crate) mod mixer;
 pub(crate) mod processor;
 pub(crate) mod sample_voice;
+pub(crate) mod scrub;
 pub(crate) mod sound_buffer;
 pub(crate) mod tape;
 pub(crate) mod util;

@@ -77,6 +77,8 @@ fn init_tauri() {
       daw::actions::synth::keep_following(following.clone());
       // print mode's job: re-prints taped tracks when they change
       daw::tape::keep_printing(following.clone());
+      // and the scrub proxy's: the song made again for scrubbing when it changes
+      daw::scrub::keep_making(following.clone());
       // the empty project the app starts with is unchanged (see
       // project::has_unsaved_changes)
       daw::project::mark_unchanged(&following);
