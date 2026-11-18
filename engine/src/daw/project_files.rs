@@ -413,7 +413,7 @@ pub fn remove_if_empty(dir: &Path) {
 #[serde(rename_all = "camelCase")]
 pub struct RecordingFile {
   pub path: String,
-  // the file name, without .wav
+  // the file name, without its extension (.wav, .mp3…)
   pub name: String,
   // the folder it's in, relative to the recordings folder ("" at the top)
   pub folder: String,
@@ -443,8 +443,45 @@ fn wav_seconds(path: &Path) -> Option<f64> {
   Some(reader.duration() as f64 / rate as f64)
 }
 
-fn is_wav(path: &Path) -> bool {
-  path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("wav"))
+// how long an audio file plays: a wav from its header, anything else as its
+// decoder says from the start of the file or, when it can't tell (an mp3
+// or an ogg), by decoding it all, once: what that found is kept until the
+// file changes
+fn audio_seconds(path: &Path) -> Option<f64> {
+  if has_extension(path, "wav") { return wav_seconds(path); }
+  let open = || fs::File::open(path).ok().and_then(|file| rodio::Decoder::new(std::io::BufReader::new(file)).ok());
+  let decoder = open()?;
+  if let Some(length) = rodio::Source::total_duration(&decoder) {
+    return Some(length.as_secs_f64());
+  }
+  drop(decoder);
+
+  type Stamp = (u64, Option<std::time::SystemTime>);
+  static DECODED: std::sync::Mutex<Option<std::collections::HashMap<PathBuf, (Stamp, f64)>>> = std::sync::Mutex::new(None);
+  let stamp: Stamp = fs::metadata(path).map(|m| (m.len(), m.modified().ok())).ok()?;
+  if let Some((had, seconds)) = DECODED.lock().unwrap().as_ref().and_then(|known| known.get(path)) {
+    if *had == stamp { return Some(*seconds); }
+  }
+
+  // (without the lock: it takes a while)
+  let decoder = open()?;
+  let (channels, rate) = (rodio::Source::channels(&decoder) as f64, rodio::Source::sample_rate(&decoder) as f64);
+  if channels == 0. || rate == 0. { return None; }
+  let seconds = decoder.count() as f64 / channels / rate;
+  DECODED.lock().unwrap().get_or_insert_with(Default::default).insert(path.to_path_buf(), (stamp, seconds));
+  Some(seconds)
+}
+
+// the kinds of audio file the engine plays, by extension
+pub const AUDIO_EXTENSIONS: [&str; 6] = ["wav", "aif", "aiff", "mp3", "flac", "ogg"];
+
+fn has_extension(path: &Path, extension: &str) -> bool {
+  path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case(extension))
+}
+
+// whether a file is named like audio the engine plays
+pub fn is_audio(path: &Path) -> bool {
+  AUDIO_EXTENSIONS.iter().any(|ext| has_extension(path, ext))
 }
 
 // folders inside folders can go this deep before the rest is left out
@@ -494,7 +531,7 @@ pub fn list_recordings(dir: &Path) -> RecordingsListing {
       listing.folders.push(relative(dir, path));
       return;
     }
-    if !is_wav(path) { return; }
+    if !is_audio(path) { return; }
 
     let modified_ms = fs::metadata(path).and_then(|m| m.modified()).ok()
       .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
@@ -502,7 +539,7 @@ pub fn list_recordings(dir: &Path) -> RecordingsListing {
     listing.takes.push(RecordingFile {
       name: path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
       folder: path.parent().map(|parent| relative(dir, parent)).unwrap_or_default(),
-      duration_secs: wav_seconds(path),
+      duration_secs: audio_seconds(path),
       modified_ms,
       path: path.to_string_lossy().into_owned(),
     });
@@ -561,11 +598,19 @@ fn check_name<'a>(typed: &'a str, what: &str) -> Result<&'a str, String> {
 // the file name a take is renamed to, from what was typed: the .wav is
 // added (or kept, if it was typed)
 pub fn take_file_name(typed: &str) -> Result<String, String> {
+  file_name_with(typed, "wav")
+}
+
+// the file name a file is renamed to, from what was typed: its extension
+// (e.g. "mp3") is added, or kept if it was typed
+pub fn file_name_with(typed: &str, extension: &str) -> Result<String, String> {
   let mut name = typed.trim();
-  if name.len() >= 4 && name.is_char_boundary(name.len() - 4) && name[name.len() - 4..].eq_ignore_ascii_case(".wav") {
-    name = name[..name.len() - 4].trim_end();
+  let ending = format!(".{}", extension);
+  let cut = name.len().saturating_sub(ending.len());
+  if name.len() > ending.len() && name.is_char_boundary(cut) && name[cut..].eq_ignore_ascii_case(&ending) {
+    name = name[..cut].trim_end();
   }
-  Ok(format!("{}.wav", check_name(name, "recording")?))
+  Ok(format!("{}.{}", check_name(name, "recording")?, extension.to_lowercase()))
 }
 
 // a folder's name, from what was typed
@@ -661,7 +706,9 @@ pub fn rename_take(path: &Path, dir: &Path, typed: &str) -> Result<PathBuf, Stri
     return Err("that isn't one of the project's recordings".into());
   }
 
-  let target = path.parent().unwrap_or(dir).join(take_file_name(typed)?);
+  // it keeps the kind of file it is
+  let extension = path.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_else(|| "wav".into());
+  let target = path.parent().unwrap_or(dir).join(file_name_with(typed, &extension)?);
   rename_to(path, &target, "recording")?;
   Ok(target)
 }

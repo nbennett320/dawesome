@@ -234,6 +234,68 @@ fn test_list_recordings() {
 }
 
 #[test]
+fn test_list_recordings_has_every_kind_of_audio() {
+  let dir = test_dir("list-kinds");
+  let clips = dir.join("clips");
+  write_wav(&clips.join("one.wav"), 48_000, 24_000);
+  fs::create_dir_all(&clips).unwrap();
+  fs::copy("assets/Db_maj7_short.mp3", clips.join("chord.mp3")).unwrap();
+  fs::copy("tests/fixtures/aiff/kick.aif", clips.join("Kick.AIF")).unwrap();
+  touch(&clips.join("readme.pdf"));
+  touch(&clips.join("song.asd"));
+
+  let listing = list_recordings(&clips);
+  let mut names: Vec<&str> = listing.takes.iter().map(|t| t.name.as_str()).collect();
+  names.sort();
+  assert_eq!(names, vec!["Kick", "chord", "one"]);
+  let take = |name: &str| listing.takes.iter().find(|t| t.name == name).unwrap();
+  // lengths without decoding the whole file, where the header tells
+  let kick = take("Kick").duration_secs.unwrap();
+  assert!(kick > 0. && kick < 5., "{}", kick);
+  assert_eq!(take("one").duration_secs, Some(0.5));
+  // an mp3's header doesn't say: it's decoded once, then remembered
+  let chord = take("chord").duration_secs.unwrap();
+  assert!((chord - 0.496).abs() < 0.01, "{}", chord);
+  let again = list_recordings(&clips);
+  assert_eq!(again.takes.iter().find(|t| t.name == "chord").unwrap().duration_secs, Some(chord));
+  let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_renaming_keeps_the_kind_of_file() {
+  let dir = test_dir("rename-kinds");
+  let clips = dir.join("clips");
+  let chord = PathBuf::from(touch(&clips.join("chord.mp3")));
+  let loud = PathBuf::from(touch(&clips.join("LOUD.FLAC")));
+
+  assert_eq!(rename_take(&chord, &clips, "pad").unwrap(), clips.join("pad.mp3"));
+  assert_eq!(rename_take(&clips.join("pad.mp3"), &clips, "pad two.mp3").unwrap(), clips.join("pad two.mp3"));
+  // a .wav typed for an mp3 is part of its name
+  assert_eq!(rename_take(&clips.join("pad two.mp3"), &clips, "x.wav").unwrap(), clips.join("x.wav.mp3"));
+  assert_eq!(rename_take(&loud, &clips, "quiet").unwrap(), clips.join("quiet.flac"));
+  let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_file_name_with() {
+  assert_eq!(file_name_with("pad", "mp3"), Ok("pad.mp3".to_string()));
+  assert_eq!(file_name_with("pad.MP3", "mp3"), Ok("pad.mp3".to_string()));
+  assert_eq!(file_name_with("pad", "AIFF"), Ok("pad.aiff".to_string()));
+  assert!(file_name_with(".mp3", "mp3").is_err());
+  assert!(file_name_with("  ", "flac").is_err());
+}
+
+#[test]
+fn test_is_audio() {
+  for name in ["a.wav", "a.WAV", "a.aif", "a.aiff", "a.mp3", "a.flac", "a.Ogg"] {
+    assert!(is_audio(Path::new(name)), "{}", name);
+  }
+  for name in ["a.txt", "a.asd", "a", "wav", "a.wav.zip"] {
+    assert!(!is_audio(Path::new(name)), "{}", name);
+  }
+}
+
+#[test]
 fn test_take_numbers_count_every_folder() {
   let dir = test_dir("numbers");
   let recordings = dir.join("recordings");

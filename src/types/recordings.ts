@@ -6,7 +6,7 @@ import { FolderInfo, ROOT } from './folderTree'
 
 export interface RecordingFile {
   path: string
-  // the file name, without .wav
+  // the file name, without its extension (.wav, .mp3…)
   name: string
   // the folder it's in, relative to the recordings folder ('' at the top,
   // / between folders)
