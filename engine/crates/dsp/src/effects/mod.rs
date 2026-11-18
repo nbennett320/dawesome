@@ -7,8 +7,9 @@ use crate::effect::Entry;
 pub mod chorus;
 pub mod delay;
 pub mod eq;
+pub mod flanger;
 
-pub static REGISTRY: &[&Entry] = &[&eq::ENTRY, &delay::ENTRY, &chorus::ENTRY];
+pub static REGISTRY: &[&Entry] = &[&eq::ENTRY, &delay::ENTRY, &chorus::ENTRY, &flanger::ENTRY];
 
 // a built-in effect by its id ("eq")
 pub fn find(id: &str) -> Option<&'static Entry> {
