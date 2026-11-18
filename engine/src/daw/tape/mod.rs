@@ -27,6 +27,7 @@ use crate::daw::tape_settings::TapeSettings;
 use crate::engine::{self, tape::Print};
 use crate::preferences::{TapeInertia, TapeMethod, TapeMode, TapeTap};
 
+pub mod export;
 pub mod live;
 pub mod print;
 
@@ -107,6 +108,21 @@ pub fn inertia() -> TapeInertia {
 
 fn with_tape(inertia: TapeInertia, settings: Option<&TapeSettings>) -> TapeInertia {
   if settings.is_some_and(|s| s.machine.enabled) { inertia } else { TapeInertia::Off }
+}
+
+// what an export needs of the tape: the project's tape (`settings`), the
+// preferences, and the prints made so far, by track (with what they were
+// made from). None: the tape is off
+pub fn for_export(settings: &TapeSettings) -> Option<export::Preferences> {
+  if !settings.machine.enabled {
+    return None;
+  }
+  let settings = settings.clone();
+  let state = STATE.lock().unwrap();
+  let prints = state.prints.iter()
+    .filter_map(|(&track, p)| p.print.clone().map(|print| (track, (p.content, p.recipe.clone(), print))))
+    .collect();
+  Some(export::Preferences { settings, mode: state.mode, tap: state.tap, method: state.method, prints })
 }
 
 // a new output opened (the audio device changed): it has no tape yet

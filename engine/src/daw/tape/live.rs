@@ -132,20 +132,27 @@ pub fn core(neural: bool, rate: f32) -> Box<dyn TapeCore> {
 }
 
 pub fn build(shape: &Shape, settings: &TapeSettings) -> Box<EngineTape> {
+  build_with(shape, settings, &|_| shape.live)
+}
+
+// the same, each track recorded live or not as `live` says (an export runs
+// live the tracks that can't be printed yet: export.rs)
+pub fn build_with(shape: &Shape, settings: &TapeSettings, live: &dyn Fn(u32) -> bool) -> Box<EngineTape> {
   let rate = shape.rate as f32;
   let mut machine = TapeMachine::new(machine_settings(settings), rate, SEED, MAX_BLOCK);
   let mut sides = Vec::with_capacity(shape.tracks.len());
   for &number in &shape.tracks {
     // live: the record side runs here; printed: it ran ahead (print.rs)
+    let live = live(number);
     let mut side = || {
-      let record = shape.live.then(|| RecordSide::new(core(shape.neural, rate), rate, MAX_BLOCK));
+      let record = live.then(|| RecordSide::new(core(shape.neural, rate), rate, MAX_BLOCK));
       machine.add_track(record, 0.0)
     };
     let pair = [side(), side()];
     let drive = settings.track(number).drive_db;
     machine.set_drive(pair[0], drive);
     machine.set_drive(pair[1], drive);
-    sides.push((number, pair, shape.live));
+    sides.push((number, pair, live));
   }
   EngineTape::new(machine, shape.before_effects, shape.rate, sides)
 }

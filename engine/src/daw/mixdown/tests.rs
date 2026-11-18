@@ -591,3 +591,97 @@ fn test_at_another_speed_a_mixdown_is_pitched_and_its_length_changed() {
     assert!(peak(&fast) > 0.1);
   }
 }
+
+// ---- the tape in a mixdown (T37)
+
+use crate::daw::tape::{export, print};
+use crate::daw::tape_settings::{TapeMachine, TrackTape};
+use crate::preferences::{TapeMethod, TapeMode, TapeTap};
+
+// track 0 on tape, driven hard so the tape's plain to hear, `hiss` %, no
+// wobble (so prints and dry line up to compare)
+fn taped(state: &daw::Session, hiss: f32) {
+  let mut tape = state.tape.lock().unwrap();
+  tape.machine = TapeMachine { enabled: true, wobble: 0., hiss, ..TapeMachine::default() };
+  tape.set_track(TrackTape { track_number: 0, on_tape: true, drive_db: 18. });
+}
+
+// the snapshot, with the tape's preferences set here (not the app's)
+fn snapshot_in(state: &daw::Session, mode: TapeMode, prints: BTreeMapOfPrints) -> Snapshot {
+  snapshot_with(state, mode, TapeMethod::Modeled, prints)
+}
+
+fn snapshot_with(state: &daw::Session, mode: TapeMode, method: TapeMethod, prints: BTreeMapOfPrints) -> Snapshot {
+  let mut snap = snapshot(state, 48_000).unwrap();
+  let settings = state.tape.lock().unwrap().clone();
+  snap.tape = Some(export::Preferences { settings, mode, tap: TapeTap::BeforeEffects, method, prints });
+  snap
+}
+
+type BTreeMapOfPrints = std::collections::BTreeMap<u32, (u64, print::Recipe, Arc<crate::engine::tape::Print>)>;
+
+fn render_all(snap: Snapshot, progress: &Progress) -> Vec<f32> {
+  let mut samples = Vec::new();
+  render(snap, 48_000, &mut |chunk| { samples.extend_from_slice(chunk); Ok(()) }, progress, &AtomicBool::new(false)).unwrap();
+  samples
+}
+
+#[test]
+fn test_a_taped_track_is_mixed_down_through_the_tape_from_its_first_sound() {
+  for mode in [TapeMode::Print, TapeMode::Live] {
+    let state = daw::Session::default();
+    add_clip(&state, KICK.into(), 0, Some(0.)).unwrap();
+    let dry = mixdown(&state, 48_000);
+    taped(&state, 0.);
+    let wet = render_all(snapshot_in(&state, mode, Default::default()), &Progress::default());
+    // the tape's in it (18 db of drive squashes the kick)
+    let off = worst(&wet, &dry);
+    assert!(off > 0.05, "{mode:?}: off by {off}");
+    if mode == TapeMode::Print {
+      // from the first sound, not crossed in from direct over 50 ms: the
+      // first 10 ms already differ as much as anywhere
+      let first = worst(&wet[..960], &dry[..960]);
+      assert!(first > off * 0.5, "{first} of {off}");
+    }
+  }
+}
+
+#[test]
+fn test_a_print_that_s_in_is_used_and_sounds_as_one_made_for_the_export() {
+  let state = daw::Session::default();
+  add_clip(&state, KICK.into(), 0, Some(0.)).unwrap();
+  add_clip(&state, LONG.into(), 0, Some(1.)).unwrap();
+  taped(&state, 100.);
+  let fresh = render_all(snapshot_in(&state, TapeMode::Print, Default::default()), &Progress::default());
+
+  // the print, made as the print job makes it
+  let snap = snapshot(&state, 48_000).unwrap();
+  let recipe = print::Recipe { rate: 48_000, drive_db: 18., dbx: true, neural: false };
+  let mix = print::render_pre_tape_of(&snap.graph, 0, 48_000, &AtomicBool::new(false)).unwrap();
+  let made = Arc::new(print::make_print(&mix, &recipe, &AtomicBool::new(false)).unwrap());
+  let content = print::content_of(&snap.graph, &snap.time_signature, 0);
+  let prints: BTreeMapOfPrints = [(0, (content, recipe, made))].into_iter().collect();
+
+  let snap = snapshot_in(&state, TapeMode::Print, prints);
+  let tape = snap.tape.as_ref().unwrap();
+  assert!(export::prints_to_make(tape, &snap.graph, &snap.time_signature, 48_000).is_empty());
+  let progress = Progress::default();
+  let reused = render_all(snap, &progress);
+  assert_eq!(reused, fresh);
+  assert_eq!(progress.fraction(), 1.);
+}
+
+#[test]
+fn test_with_the_tape_on_a_mixdown_still_ends_soon_after_its_last_sound() {
+  // the hiss never falls quiet: it's faded out after the last clip, so the
+  // mix doesn't run on to TAIL_MAX. (nor does a network's tiny offset on
+  // silence, recording live)
+  for (mode, method) in [(TapeMode::Print, TapeMethod::Modeled), (TapeMode::Live, TapeMethod::Modeled), (TapeMode::Live, TapeMethod::Neural)] {
+    let state = daw::Session::default();
+    add_clip(&state, KICK.into(), 0, Some(0.)).unwrap();
+    let dry = mixdown(&state, 48_000).len() / 2;
+    taped(&state, 200.);
+    let wet = render_all(snapshot_with(&state, mode, method, Default::default()), &Progress::default()).len() / 2;
+    assert!(wet < dry + 48_000, "{mode:?} {method:?}: {wet} frames against {dry}");
+  }
+}

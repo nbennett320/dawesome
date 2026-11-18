@@ -175,6 +175,14 @@ impl EngineTape {
     }
   }
 
+  // printed tracks with their prints in are heard from them at once, not
+  // crossed in from direct (an export, which starts with them all in)
+  pub fn begin_on_prints(&mut self) {
+    for t in self.tracks.iter_mut().filter(|t| t.print.is_some() && !t.letting_go) {
+      t.mix = 1.0;
+    }
+  }
+
   // a print is let go of: kept to be freed off the audio thread (the
   // renderer empties `dropped` every block, so there's always room)
   fn drop_print(&mut self, print: Arc<Print>) {

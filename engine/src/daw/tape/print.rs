@@ -48,17 +48,27 @@ pub const NEEDS_PLUGINS: &str = "a track playing an instrument can't be printed 
 // song's start, at `rate`. Err(NEEDS_PLUGINS) for a track that plays an
 // instrument
 pub fn render_pre_tape(state: &daw::Session, track: u32, rate: u32, cancel: &AtomicBool) -> Result<Vec<f32>, String> {
-  // the track alone: its clips and patterns, the sequencer as it is, and a
-  // mixer of its own at unity (the strip comes after the tape)
-  let mut graph = {
-    let live = state.playlist.audiograph.lock().unwrap();
-    let mut graph = audiograph::AudioGraph::new(live.sample_rate(), live.tempo());
-    graph.nodes = live.nodes.iter().filter(|n| n.track_number == track).cloned().collect();
-    graph.pattern_nodes = live.pattern_nodes.iter().filter(|n| n.track_number == track).cloned().collect();
-    graph.sequencer = Arc::new(Mutex::new(live.sequencer.lock().unwrap().clone()));
-    graph.mixer = Arc::new(mixer::Mixer::default());
-    graph
-  };
+  let graph = track_alone(&state.playlist.audiograph.lock().unwrap(), track);
+  render_track(graph, track, rate, cancel)
+}
+
+// the same, from a copy of the song (a mixdown's, taken when it started)
+pub fn render_pre_tape_of(song: &audiograph::AudioGraph<'static>, track: u32, rate: u32, cancel: &AtomicBool) -> Result<Vec<f32>, String> {
+  render_track(track_alone(song, track), track, rate, cancel)
+}
+
+// the track alone: its clips and patterns, the sequencer as it is, and a
+// mixer of its own at unity (the strip comes after the tape)
+fn track_alone(song: &audiograph::AudioGraph<'static>, track: u32) -> audiograph::AudioGraph<'static> {
+  let mut graph = audiograph::AudioGraph::new(song.sample_rate(), song.tempo());
+  graph.nodes = song.nodes.iter().filter(|n| n.track_number == track).cloned().collect();
+  graph.pattern_nodes = song.pattern_nodes.iter().filter(|n| n.track_number == track).cloned().collect();
+  graph.sequencer = Arc::new(Mutex::new(song.sequencer.lock().unwrap().clone()));
+  graph.mixer = Arc::new(mixer::Mixer::default());
+  graph
+}
+
+fn render_track(mut graph: audiograph::AudioGraph<'static>, track: u32, rate: u32, cancel: &AtomicBool) -> Result<Vec<f32>, String> {
   if graph.synth_tracks().iter().any(|&(_, t)| t == track) {
     return Err(NEEDS_PLUGINS.into());
   }
@@ -151,12 +161,16 @@ pub struct Recipe {
 // patterns (and the sequencer, if it has any), and the tempo and time
 // signature they're played at. when this changes, its print is out of date
 pub fn content(state: &daw::Session, track: u32) -> u64 {
+  let signature = *state.playlist.time_signature.lock().unwrap();
+  // (the graph's lock, then the sequencer's: always in that order)
+  content_of(&state.playlist.audiograph.lock().unwrap(), &signature, track)
+}
+
+// the same, of a copy of the song
+pub fn content_of(graph: &audiograph::AudioGraph<'static>, signature: &dyn std::fmt::Debug, track: u32) -> u64 {
   use std::hash::{Hash, Hasher};
   let mut hasher = std::collections::hash_map::DefaultHasher::new();
-  let signature = *state.playlist.time_signature.lock().unwrap();
   format!("{:?}", signature).hash(&mut hasher);
-  // (the graph's lock, then the sequencer's: always in that order)
-  let graph = state.playlist.audiograph.lock().unwrap();
   graph.tempo().to_bits().hash(&mut hasher);
   for node in graph.nodes.iter().filter(|n| n.track_number == track) {
     node.fingerprint(&mut hasher);
