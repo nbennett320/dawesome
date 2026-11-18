@@ -6,6 +6,7 @@ import { EffectParamsApi, useEffectParams } from './useEffectParams'
 import ChorusPanel from './chorus/ChorusPanel'
 import DelayPanel from './delay/DelayPanel'
 import EqPanel from './eq/EqPanel'
+import FilterPanel from './filter/FilterPanel'
 import FlangerPanel from './flanger/FlangerPanel'
 import PhaserPanel from './phaser/PhaserPanel'
 
@@ -19,6 +20,7 @@ const PANELS: Record<string, CustomPanel> = {
   chorus: ChorusPanel,
   delay: DelayPanel,
   eq: EqPanel,
+  filter: FilterPanel,
   flanger: FlangerPanel,
   phaser: PhaserPanel,
 }

@@ -6,12 +6,15 @@ import { choiceNormalized, ParamWire } from '../../../types/nativeEffect'
 import ParamControl from '../ParamControl'
 import type { EffectParamsApi } from '../useEffectParams'
 
-export const Control = ({ param, api }: { param: ParamWire | undefined, api: EffectParamsApi }) => {
+// (`name` shows it under another name: the Filter's Decay is Release in
+// Dynamic mode)
+export const Control = ({ param, api, name }: { param: ParamWire | undefined, api: EffectParamsApi, name?: string }) => {
   if(!param) return null
+  const shown = name ? { ...param, name } : param
   return (
     <ParamControl
-      param={param}
-      label={param.name === param.group ? param.name : `${param.group} ${param.name}`}
+      param={shown}
+      label={shown.name === shown.group ? shown.name : `${shown.group} ${shown.name}`}
       set={api.set}
       setText={api.setText}
     />
