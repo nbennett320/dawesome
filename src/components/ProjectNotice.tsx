@@ -39,7 +39,7 @@ const ShareNotice = () => {
     <div role='status' className={shape}>
       <div className='flex-1 min-w-0'>
         <p>
-          Saved <span className='font-medium'>{fileName(path)}</span>, with every sample the project uses. Send it to anyone with Dawesome.
+          Saved <span className='font-medium'>{fileName(path)}</span>
           {' '}
           <button type='button' className='underline' onClick={reveal}>Show in Finder</button>
         </p>
