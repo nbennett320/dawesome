@@ -3,8 +3,12 @@ import { clamp } from '../../util/helpers'
 
 export type { Wind }
 
-// how much faster than play speed the tape winds
+// how much faster than play speed the tape winds, heard as it winds (T31)
 export const WIND_SPEED = 10
+// how fast it gets up to that speed, in multiples of play speed a second, as
+// the engine's scrub does (WIND_ACCEL in engine/crates/tape/src/scrub.rs):
+// 10x in a third of a second
+export const WIND_ACCEL = 30
 
 // with no clips, the tape is this many bars long, so the reels still move
 export const EMPTY_TAPE_BARS = 4
@@ -86,9 +90,21 @@ export const tapTarget = (positionMs: number, direction: 1 | -1, t: PlaylistTran
 }
 
 
+// how far a wind has gone `ms` after it started, in ms of the song: getting
+// up to speed at WIND_ACCEL, then at WIND_SPEED
+export const windMovedMs = (ms: number): number => {
+  const t = Math.max(0, ms) / 1000
+  const ramp = WIND_SPEED / WIND_ACCEL
+  const seconds = t <= ramp ? WIND_ACCEL * t * t / 2 : WIND_SPEED * t - WIND_SPEED * WIND_SPEED / (2 * WIND_ACCEL)
+  return seconds * 1000
+}
+
+// how fast a wind's going `ms` after it started, in multiples of play speed
+export const windSpeedAt = (ms: number): number => Math.min(WIND_SPEED, WIND_ACCEL * Math.max(0, ms) / 1000)
+
 // where a wind has got to at `now` (performance.now()), kept on the tape
 export const windPosition = (wind: Wind, now: number, t: PlaylistTransport): number => {
-  const moved = wind.direction * WIND_SPEED * Math.max(0, now - wind.startedAt)
+  const moved = wind.direction * windMovedMs(now - wind.startedAt)
   const end = Math.max(tapeLengthMs(t), wind.fromMs)
   return clamp(wind.fromMs + moved, 0, end)
 }

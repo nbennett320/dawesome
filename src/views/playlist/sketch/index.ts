@@ -109,6 +109,13 @@ export interface CanvasProps extends SketchProps {
   // move the playhead to a beat (clicking or dragging in the ruler, or the
   // arrow keys). a promise, if any, settles once the engine has moved it
   onSeek: (beat: number) => unknown
+  // dragging in the ruler scrubs the song (part S in context/tape-project):
+  // it begins and follows the mouse (unsnapped, in ms on the timeline), and
+  // is let go at a beat (snapped), which the playhead moves to instead of
+  // onSeek. a promise, if any, settles once the engine has moved it
+  onScrubBegin?: (atMs: number) => unknown
+  onScrubTo?: (atMs: number) => unknown
+  onScrubEnd?: (beat: number) => unknown
   // the loop's region was drawn (or an edge dragged) between two beats, in
   // either order (the same beat for none), or cleared with a double-click
   onLoopRegion: (start: number, end: number) => void
@@ -430,6 +437,11 @@ export class Renderer extends RendererBase {
   // arrived, a transport fetched in between is behind the playhead shown
   #keySeeks = 0
   onSeek!: (beat: number) => unknown
+  onScrubBegin?: (atMs: number) => unknown
+  onScrubTo?: (atMs: number) => unknown
+  onScrubEnd?: (beat: number) => unknown
+  // where a ruler drag last scrubbed to, in beats (unsnapped)
+  #scrubbedTo: number | null = null
   // a loop edge (or the end flag) being dragged in the ruler, or a region
   // being drawn, or one just let go (shown until the engine confirms it)
   #loopDrag: LoopDrag | null = null
@@ -667,6 +679,19 @@ export class Renderer extends RendererBase {
   #startSeek = (screenX: number) => {
     this.seekDragging = true
     this.seekBeat = this.rulerBeat(screenX)
+    const beat = this.screenXToBeat(screenX)
+    this.#scrubbedTo = beat
+    if(this.transport) this.onScrubBegin?.(beat * this.transport.beatIntervalMs)
+  }
+
+  // the ruler's being dragged to `screenX`: the playhead's shown there
+  // (snapped), and the song scrubbed there (as it is)
+  #dragSeek = (screenX: number) => {
+    this.seekBeat = this.rulerBeat(screenX)
+    const beat = this.screenXToBeat(screenX)
+    if(beat === this.#scrubbedTo || !this.transport) return
+    this.#scrubbedTo = beat
+    this.onScrubTo?.(beat * this.transport.beatIntervalMs)
   }
 
   // tell the engine where the ruler was released. the playhead stays there
@@ -674,8 +699,9 @@ export class Renderer extends RendererBase {
   #endSeek = () => {
     if(!this.seekDragging || this.seekBeat === null) return
     this.seekDragging = false
+    this.#scrubbedTo = null
 
-    this.onSeek?.(this.seekBeat)
+    ;(this.onScrubEnd ?? this.onSeek)?.(this.seekBeat)
     this.#holdSeekBeat()
   }
 
@@ -2740,6 +2766,9 @@ export class Renderer extends RendererBase {
       this.onNodesMove = props.onNodesMove
       this.onNodeDoubleClick = props.onNodeDoubleClick
       this.onSeek = props.onSeek
+      this.onScrubBegin = props.onScrubBegin
+      this.onScrubTo = props.onScrubTo
+      this.onScrubEnd = props.onScrubEnd
       this.onCurrentTrack = props.onCurrentTrack
       this.onLoopRegion = props.onLoopRegion
       this.onClearLoopRegion = props.onClearLoopRegion
@@ -3010,7 +3039,7 @@ export class Renderer extends RendererBase {
       p.pop()
 
       // follow a ruler drag, even outside the canvas
-      if(this.seekDragging) this.seekBeat = this.rulerBeat(p.mouseX)
+      if(this.seekDragging) this.#dragSeek(p.mouseX)
       if(this.#loopDragging && this.#loopDrag) this.#loopDrag = moveLoopDrag(this.#loopDrag, this.rulerBeat(p.mouseX))
       cursor.render()
 

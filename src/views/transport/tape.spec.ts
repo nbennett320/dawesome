@@ -10,7 +10,10 @@ import {
   tapeLengthMs,
   tapTarget,
   windDone,
+  windMovedMs,
   windPosition,
+  windSpeedAt,
+  WIND_ACCEL,
   WIND_SPEED,
 } from './tape'
 
@@ -153,11 +156,18 @@ describe('tapTarget', () => {
 describe('windPosition', () => {
   const t = transport({ loopEnabled: false, songEndMs: 9_000 })
 
-  it('winds faster than playing', () => {
-    expect(windPosition({ direction: 1, fromMs: 1_000, startedAt: 0 }, 100, t))
-      .toBe(1_000 + WIND_SPEED * 100)
-    expect(windPosition({ direction: -1, fromMs: 3_000, startedAt: 0 }, 100, t))
-      .toBe(3_000 - WIND_SPEED * 100)
+  it('winds faster than playing, getting up to speed as the engine does', () => {
+    // the engine's constants (engine/crates/tape/src/scrub.rs)
+    expect(WIND_SPEED).toBe(10)
+    expect(WIND_ACCEL).toBe(30)
+    // 0.1 s in: 3x, 0.15 s of song gone by
+    expect(windSpeedAt(100)).toBeCloseTo(3)
+    expect(windMovedMs(100)).toBeCloseTo(150)
+    // a second in: a third of a second getting there (1/6 s of song), then 10x
+    expect(windSpeedAt(1_000)).toBe(WIND_SPEED)
+    expect(windMovedMs(1_000)).toBeCloseTo(10_000 / 6 + 20_000 / 3)
+    expect(windPosition({ direction: 1, fromMs: 1_000, startedAt: 0 }, 100, t)).toBeCloseTo(1_150)
+    expect(windPosition({ direction: -1, fromMs: 3_000, startedAt: 0 }, 100, t)).toBeCloseTo(2_850)
   })
 
   it('stops at the loop end while looping', () => {

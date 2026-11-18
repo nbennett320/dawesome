@@ -52,7 +52,9 @@ class FixedResizeObserver {
   unobserve() {}
 }
 
-const seeks = () => mockInvoke.mock.calls.filter(([name]) => name === 'seek_playlist')
+const calls = (command: string) => mockInvoke.mock.calls.filter(([name]) => name === command)
+// where the playhead's let go (a scrub's end moves it)
+const seeks = () => calls('scrub_end')
 
 const strip = () => screen.getByTestId('timeline-strip')
 
@@ -66,7 +68,7 @@ beforeEach(() => {
   mockInvoke.mockReset()
   mockInvoke.mockImplementation((name: string, args?: { beat?: number }) => {
     if(name === 'get_playlist_transport') return Promise.resolve(transport)
-    if(name === 'seek_playlist') return Promise.resolve(args?.beat)
+    if(name === 'scrub_end') return Promise.resolve(args?.beat)
     if(name === 'get_playlist_playing') return Promise.resolve(false)
     return Promise.resolve(null)
   })
@@ -90,19 +92,23 @@ describe('Timeline', () => {
     expect(screen.getByText('0:16.0')).toBeTruthy()
   })
 
-  it('follows a drag on screen, and tells the engine once, when it\'s let go', async () => {
+  it('follows a drag on screen, scrubbing the song along with it, and moves the playhead once, when it\'s let go', async () => {
     await renderTimeline()
 
     fireEvent.pointerDown(strip(), at(42))
+    // 42px is 1.68s: the scrub begins there
+    expect(calls('scrub_begin')).toEqual([['scrub_begin', { atMs: 1_680 }]])
     fireEvent.pointerMove(strip(), at(103))
     fireEvent.pointerMove(strip(), at(204))
-    // 204px is 8.16s: shown where the mouse is, unsnapped
+    // 204px is 8.16s: shown where the mouse is, unsnapped, and scrubbed to
     expect(screen.getByText('0:08.1 · bar 5.1')).toBeTruthy()
+    await waitFor(() => expect(calls('scrub_to').at(-1)).toEqual(['scrub_to', { atMs: 8_160 }]))
     expect(seeks()).toHaveLength(0)
+    expect(calls('seek_playlist')).toHaveLength(0)
 
     fireEvent.pointerUp(strip(), at(204))
     // snapped to the nearest quarter note: beat 16.32 lands on 16
-    await waitFor(() => expect(seeks()).toEqual([['seek_playlist', { beat: 16 }]]))
+    await waitFor(() => expect(seeks()).toEqual([['scrub_end', { beat: 16 }]]))
   })
 
   it('snaps to the playlist\'s snap setting', async () => {
@@ -112,15 +118,15 @@ describe('Timeline', () => {
     fireEvent.pointerDown(strip(), at(130))
     fireEvent.pointerUp(strip(), at(130))
     // 10.4 beats in: the nearest whole note is beat 12
-    await waitFor(() => expect(seeks()).toEqual([['seek_playlist', { beat: 12 }]]))
+    await waitFor(() => expect(seeks()).toEqual([['scrub_end', { beat: 12 }]]))
   })
 
-  it('goes nowhere when the drag is taken away', async () => {
+  it('goes nowhere when the drag is taken away: back where it was', async () => {
     await renderTimeline()
 
     fireEvent.pointerDown(strip(), at(100))
     fireEvent.pointerCancel(strip(), at(100))
     fireEvent.pointerUp(strip(), at(100))
-    expect(seeks()).toHaveLength(0)
+    await waitFor(() => expect(seeks()).toEqual([['scrub_end', { beat: 0 }]]))
   })
 })

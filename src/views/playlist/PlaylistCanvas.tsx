@@ -69,6 +69,7 @@ import {
 } from '../../state/clipCommands'
 import { explodePatternClips, selectLastSelectedPattern, showPattern } from '../../state/slices/sequencerSlice'
 import ClipMenu, { ClipMenuItem } from './ClipMenu'
+import { scrubBegin, scrubEnd, scrubTo } from '../../state/scrub'
 
 const playlistRenderer = new Renderer()
 
@@ -275,6 +276,7 @@ const PlaylistCanvas = () => {
   const transportRevision = useAppSelector(selectTransportRevision)
   const loopEnabled = useAppSelector(selectLoopEnabled)
   const handleSeek = React.useCallback((beat: number) => dispatch(seekPlaylist(beat)), [dispatch])
+  const handleScrubEnd = React.useCallback((beat: number) => dispatch(scrubEnd(beat)), [dispatch])
   const handleCurrentTrack = React.useCallback((track: number) => { dispatch(setCurrentTrack(track)) }, [dispatch])
   // the loop's region and end flag, dragged in the ruler
   const handleLoopRegion = React.useCallback((start: number, end: number) => {
@@ -787,6 +789,9 @@ const PlaylistCanvas = () => {
           transportRevision={transportRevision}
           loopEnabled={loopEnabled}
           onSeek={handleSeek}
+          onScrubBegin={scrubBegin}
+          onScrubTo={scrubTo}
+          onScrubEnd={handleScrubEnd}
           onCurrentTrack={handleCurrentTrack}
           onLoopRegion={handleLoopRegion}
           onClearLoopRegion={handleClearLoopRegion}

@@ -7,6 +7,7 @@ import {
   setWind as setWindAction,
   stopPlaylist,
 } from '../../state/slices/playlistSlice'
+import { scrubBegin, scrubEnd, scrubTo, windBegin, windEnd } from '../../state/scrub'
 import {
   selectCassetteVisible,
   selectTapePathVisible,
@@ -23,6 +24,7 @@ import {
   Wind,
   windDone,
   windPosition,
+  windSpeedAt,
   WIND_SPEED,
 } from './tape'
 import { usePlayhead } from './usePlayhead'
@@ -33,6 +35,14 @@ import { FastForwardIcon, HeadIcon, PauseIcon, PlayIcon, RecordIcon, RewindIcon,
 
 // holding a wind key this long winds the tape; a shorter press moves a bar
 const HOLD_MS = 250
+
+// dragging the cassette sideways rocks the tape by hand: this much of the
+// song a pixel, and a few pixels before it counts as a drag (so a click on
+// the label is still a click)
+const REEL_MS_PER_PX = 10
+const REEL_DRAG_PX = 3
+// the reels stop rocking this long after the drag stops moving
+const REEL_STILL_MS = 80
 
 // the deck's padding, and the gap between the cassette and the keys (p-4,
 // gap-5)
@@ -64,7 +74,6 @@ const TransportDeck = () => {
   const [armed, setArmed] = React.useState(false)
 
   const tape = transport ? tapeLengthMs(transport) : 1
-  const progress = Math.min(1, position / tape)
 
   // read from timers and key events, which outlive the render they're from
   const latest = React.useRef({ position, wind, playing })
@@ -84,10 +93,12 @@ const TransportDeck = () => {
     const held = { direction, wasPlaying: latest.current.playing, timer: null as ReturnType<typeof setTimeout> | null }
     held.timer = setTimeout(() => {
       held.timer = null
-      // winding is silent: playback pauses, and carries on from wherever the
-      // tape is left
-      setWind({ direction, fromMs: latest.current.position, startedAt: performance.now() })
-      if(held.wasPlaying) dispatch(pausePlaylist(true))
+      // winding is heard (cue and review, T31): playback pauses, the song
+      // plays as the tape winds past the heads, and playing carries on
+      // from wherever the tape is left
+      const fromMs = latest.current.position
+      setWind({ direction, fromMs, startedAt: performance.now() })
+      dispatch(windBegin(fromMs, direction * WIND_SPEED))
     }, HOLD_MS)
     hold.current = held
   }
@@ -97,27 +108,81 @@ const TransportDeck = () => {
     if(!held || !transport) return
     hold.current = null
 
-    const tapped = held.timer !== null
-    let target: number
     if(held.timer !== null) {
       clearTimeout(held.timer)
-      target = tapTarget(latest.current.position, held.direction, transport)
-    } else {
-      const current = latest.current.wind
-      target = current ? windPosition(current, performance.now(), transport) : latest.current.position
-      setWind(null)
+      const target = tapTarget(latest.current.position, held.direction, transport)
+      if(!latest.current.playing) assume(target)
+      // a tap while playing carries on playing from the new bar by itself
+      dispatch(seekPlaylist(target / transport.beatIntervalMs)).then(refresh)
+      return
     }
 
-    if(!latest.current.playing) assume(target)
-    // a tap while playing carries on playing from the new bar by itself
-    dispatch(seekPlaylist(target / transport.beatIntervalMs))
-      .then(() => (!tapped && held.wasPlaying ? dispatch(playPlaylist()) : undefined))
+    // let go of a wind: the tape's left where the engine wound it to (about
+    // where it's shown), and playing carries on from there if it was
+    const current = latest.current.wind
+    const shown = current ? windPosition(current, performance.now(), transport) : latest.current.position
+    setWind(null)
+    assume(shown)
+    Promise.resolve(dispatch(windEnd(shown)))
+      .then(ms => { if(!held.wasPlaying) assume(ms) })
       .then(refresh)
+  }
+
+  // the cassette dragged sideways: the tape rocked by hand, heard as it's
+  // scrubbed (playback pauses, and carries on from where it's let go)
+  const reel = React.useRef<{ x: number, fromMs: number, atMs: number, began: boolean, at: number } | null>(null)
+  const [rocking, setRocking] = React.useState<{ atMs: number, speed: number } | null>(null)
+  const still = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const reelProps = {
+    onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => {
+      if(e.button !== 0 || !transport || hold.current || latest.current.wind) return
+      reel.current = { x: e.clientX, fromMs: latest.current.position, atMs: latest.current.position, began: false, at: performance.now() }
+    },
+    onPointerMove: (e: React.PointerEvent<HTMLDivElement>) => {
+      const drag = reel.current
+      if(!drag || !transport) return
+      const dx = e.clientX - drag.x
+      if(!drag.began) {
+        if(Math.abs(dx) < REEL_DRAG_PX) return
+        drag.began = true
+        e.currentTarget.setPointerCapture(e.pointerId)
+        scrubBegin(drag.fromMs)
+      }
+      const atMs = Math.min(Math.max(0, drag.fromMs + dx * REEL_MS_PER_PX), Math.max(tapeLengthMs(transport), drag.fromMs))
+      const now = performance.now()
+      const speed = now > drag.at ? (atMs - drag.atMs) / (now - drag.at) : 0
+      drag.atMs = atMs
+      drag.at = now
+      scrubTo(atMs)
+      setRocking({ atMs, speed })
+      if(still.current) clearTimeout(still.current)
+      still.current = setTimeout(() => setRocking(r => r && { ...r, speed: 0 }), REEL_STILL_MS)
+    },
+    onPointerUp: () => {
+      const drag = reel.current
+      reel.current = null
+      if(!drag?.began || !transport) return
+      if(still.current) clearTimeout(still.current)
+      setRocking(null)
+      assume(drag.atMs)
+      Promise.resolve(dispatch(scrubEnd(drag.atMs / transport.beatIntervalMs)))
+        .then(refresh)
+    },
+  }
+  const reelCancel = () => {
+    const drag = reel.current
+    reel.current = null
+    if(!drag?.began || !transport) return
+    setRocking(null)
+    // taken away: back where it was
+    Promise.resolve(dispatch(scrubEnd(drag.fromMs / transport.beatIntervalMs))).then(refresh)
   }
 
   // in case the component goes while a key's held
   React.useEffect(() => () => {
     if(hold.current?.timer) clearTimeout(hold.current.timer)
+    if(still.current) clearTimeout(still.current)
   }, [])
 
   const windKeyProps = (direction: 1 | -1) => ({
@@ -143,10 +208,14 @@ const TransportDeck = () => {
 
   const paused = !playing && !wind && position > 0
 
-  // the reels: still at the end of the tape they're winding to
+  // the reels: rocked by hand, or winding (still at the end of the tape
+  // they're winding to), or playing
+  const progress = Math.min(1, (rocking?.atMs ?? position) / tape)
   let speed = 0
-  if(wind && transport) {
-    speed = windDone(wind, position, transport) ? 0 : wind.direction * WIND_SPEED
+  if(rocking) {
+    speed = rocking.speed
+  } else if(wind && transport) {
+    speed = windDone(wind, position, transport) ? 0 : wind.direction * windSpeedAt(performance.now() - wind.startedAt)
   } else if(playing && progress < 1) {
     // (at the varispeed's speed, with the tape on)
     speed = transport?.speed ?? 1
@@ -177,7 +246,13 @@ const TransportDeck = () => {
       <div className='min-h-full flex flex-col items-center justify-center gap-5 p-4'>
         {/* hidden until measured, so it doesn't start at the wrong size */}
         {cassetteVisible && (
-          <div className='shrink-0 max-w-full' style={{ width: cassetteWidth, visibility: cassetteWidth ? undefined : 'hidden' }}>
+          <div
+            className='shrink-0 max-w-full touch-none cursor-ew-resize'
+            style={{ width: cassetteWidth, visibility: cassetteWidth ? undefined : 'hidden' }}
+            data-hint='Drag the cassette sideways to rock the tape over the heads: the song is heard scrubbing'
+            {...reelProps}
+            onPointerCancel={reelCancel}
+          >
             <Cassette
               progress={progress}
               speed={speed}
