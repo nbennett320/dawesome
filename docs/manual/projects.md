@@ -128,13 +128,14 @@ my_song/
 - `recordings/` — Takes you record. Each is named after the project, the
   date it was recorded (month, day, year) and its number that day. You can
   file takes into folders of your own from the **Recordings** browser.
-- `clips/` — Audio files Dawesome writes itself, with **Deep copy** and
-  **Join**. The folder is made the first time you use one of them.
+- `clips/` — The project's own audio files: files you drag in from your
+  computer, and files Dawesome writes with **Deep copy** and **Join**. The
+  folder is made the first time one goes in.
 
 These folders appear in the sidebar's **Recordings** and **Clips** browsers
 (see [3-4](./parts.md#_3-4-sidebar)).
 
-### 4-5-1 Recording before you save
+### 4-5-1 Before you save
 
 You can record into a project that has never been saved. Its takes are kept
 in a folder in Dawesome's application data folder (on macOS,
@@ -142,15 +143,19 @@ in a folder in Dawesome's application data folder (on macOS,
 project, they are moved into its `recordings/` folder and renamed after the
 project.
 
+Clips work the same way: files you drag in, and the results of **Deep
+copy** and **Join**, are kept in
+`~/Library/Application Support/dawesome/unsaved-clips/` until you first
+save, then moved into the project's `clips/` folder. A project that has
+clips there counts as having unsaved changes, so starting a new project or
+quitting asks first.
+
 ::: tip NOTE
 If you start a new project or open another one without saving, takes
 recorded into the unsaved project stay in a dated folder inside
-`dawesome/unsaved/`. No browser shows them; find them there in your file
-manager.
+`dawesome/unsaved/`, and its clips in one inside `dawesome/unsaved-clips/`.
+No browser shows them; find them there in your file manager.
 :::
-
-**Deep copy** and **Join** need a saved project, so their files have
-somewhere to go. Save the project first.
 
 ### 4-5-2 Samples and moving a project
 

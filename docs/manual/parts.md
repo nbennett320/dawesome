@@ -149,9 +149,10 @@ to clear it.
    *Right-click* for **Rename**, **Move to Trash** and **New folder**. A dot
    marks takes the project uses; takes it doesn't use are dimmed. A take in
    use can't be moved to the Trash.
-4. **Clips** — Files Dawesome wrote itself, with **Deep copy** and **Join**,
-   in the project's `clips` folder. It works like **Recordings**. See
-   [Playlist](./playlist.md).
+4. **Clips** — The project's own audio files, in its `clips` folder: files
+   you dragged in from your computer, and files Dawesome wrote with **Deep
+   copy** and **Join**. It works like **Recordings**; you can also drag files
+   from Finder onto it. See [11-3](./samples.md#_11-3-clips-browser).
 <!-- PROVISIONAL -->
 5. **Effects** — The effect plugins found on your computer, in folders by
    category. *Drag* an effect onto a mixer channel or into the **Effects
